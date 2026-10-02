@@ -1,6 +1,7 @@
 name: Windows alpha
 on:
   push:
+    branches: ['**'] # Branch builds cover release commits; tags do not duplicate them.
   pull_request:
   workflow_dispatch:
 permissions:
@@ -10,10 +11,41 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - name: Test dependency download recovery
+        shell: pwsh
+        timeout-minutes: 3
+        run: node --test tests/bootstrap-download-tests.mjs
+      - name: Restore pinned dependency downloads
+        id: native-downloads
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: 1
+        with:
+          # No extracted directories, partial transfers or prefix-key fallback.
+          path: |
+            third_party/downloads/*.tar.bz2
+            third_party/downloads/*.zip
+            third_party/downloads/*.hpp
+          key: native-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dependencies.lock.json') }}
       - name: Fetch pinned native dependencies
         shell: pwsh
+        timeout-minutes: 20
         run: ./scripts/bootstrap.ps1
+      - name: Save verified dependency downloads
+        if: steps.native-downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
+        timeout-minutes: 3
+        continue-on-error: true
+        with:
+          # Bootstrap verifies the pinned hashes even when downloads are cached.
+          path: |
+            third_party/downloads/*.tar.bz2
+            third_party/downloads/*.zip
+            third_party/downloads/*.hpp
+          key: native-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dependencies.lock.json') }}
       - name: Use bundled Node runtime
         shell: pwsh
         run: |

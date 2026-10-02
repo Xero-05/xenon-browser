@@ -36,6 +36,7 @@ Choose checks that exercise the changed behavior:
 | Change | Useful checks |
 | --- | --- |
 | Documentation only | Check links, examples and implementation claims; `git diff --check`. A browser rebuild is unnecessary. |
+| Dependency downloads or CI caching | `node --test tests/bootstrap-download-tests.mjs`, script syntax checks and the relevant hosted workflow. Do not rerun browser acceptance suites for a downloader-only change. |
 | Adapter schemas, transport or notifications | `npm.cmd run typecheck`; `npm.cmd test` includes real modern/legacy SDK clients and credential-script tests. |
 | Broker, vault or file policy | `./scripts/build.ps1 -CoreOnly -Test`; use CTest's `-R` filter for focused reruns after a targeted fix. |
 | Login capture or human autofill | Relevant native tests plus `node --test tests/login-capture-tests.mjs` or `node --test tests/human-autofill-tests.mjs`; run the matching synthetic live suite when integration changed. |
