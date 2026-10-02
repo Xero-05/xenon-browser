@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { resolve } from 'node:path';
 import test from 'node:test';
@@ -24,6 +24,7 @@ $taskClock = [Diagnostics.Stopwatch]::StartNew()
 try {
   . $HelperPath
   $taskConfig = Get-Content -LiteralPath $FixtureConfig -Raw | ConvertFrom-Json
+  $taskCurlMatches = @(Get-Command curl.exe -CommandType Application -ErrorAction Stop)
   $taskArguments = @{
     Url = [string]$taskConfig.url
     Name = [string]$taskConfig.name
@@ -39,7 +40,7 @@ try {
   $taskClock.Restart()
   $taskValues = @(Get-XenonDependency @taskArguments)
   $taskClock.Stop()
-  $taskResult = @{ ok=$true; paths=@($taskValues); elapsedMs=$taskClock.ElapsedMilliseconds }
+  $taskResult = @{ ok=$true; paths=@($taskValues); elapsedMs=$taskClock.ElapsedMilliseconds; curlApplicationCount=$taskCurlMatches.Count }
   [Console]::Out.WriteLine('XENON_DOWNLOAD_TEST_RESULT:' + ($taskResult | ConvertTo-Json -Compress -Depth 4))
   exit 0
 } catch {
@@ -93,7 +94,7 @@ async function fixture(t, respond) {
     await Promise.all([...children].map(stop));
     await closeServer();
   });
-  async function download(overrides = {}) {
+  async function download(overrides = {}, environment = {}) {
     const config = {
       url, name: 'artifact.bin', expectedHash, downloadDirectory: downloads,
       connectTimeoutSeconds: 1, stallTimeoutSeconds: 1, attemptTimeoutSeconds: 3,
@@ -101,10 +102,17 @@ async function fixture(t, respond) {
     };
     const configPath = resolve(directory, `${randomUUID()}.json`);
     await writeFile(configPath, JSON.stringify(config), 'utf8');
+    const childEnvironment = { ...process.env };
+    // Windows environment names are case-insensitive. Avoid leaving both Path
+    // and PATH, which Node may resolve in a different order than the override.
+    for (const [name, value] of Object.entries(environment)) {
+      for (const existing of Object.keys(childEnvironment)) if (existing.toLowerCase() === name.toLowerCase()) delete childEnvironment[existing];
+      childEnvironment[name] = value;
+    }
     const result = await new Promise((resolve, reject) => {
       const child = spawn(process.env.XENON_TEST_POWERSHELL || 'pwsh.exe', [
         '-NoProfile', '-NonInteractive', '-File', wrapperPath, '-HelperPath', helper, '-FixtureConfig', configPath,
-      ], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      ], { cwd: root, env: childEnvironment, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
       children.add(child);
       let stdout = '', stderr = '', timedOut = false;
       child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
@@ -124,7 +132,7 @@ async function fixture(t, respond) {
     assert.equal(result.code, result.ok ? 0 : 10, 'Failure must come from the helper, not a crashed test wrapper.');
     return result;
   }
-  return { download, downloads, url, target: resolve(downloads, 'artifact.bin'), closeServer, get requests() { return requests; } };
+  return { download, directory, downloads, url, target: resolve(downloads, 'artifact.bin'), closeServer, get requests() { return requests; } };
 }
 
 function servePayload(_req, res) { res.writeHead(200, { 'Content-Length': payload.length }); res.end(payload); }
@@ -156,6 +164,23 @@ test('corrupt cached bytes are discarded and replaced with a validated download'
   assert.equal(f.requests, 1);
 });
 
+test('selects one executable when multiple curl.exe commands are present on PATH', options, async t => {
+  const f = await fixture(t, servePayload);
+  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
+  assert(systemRoot, 'The Windows fixture requires the system directory.');
+  const system32 = resolve(systemRoot, 'System32');
+  const duplicate = resolve(f.directory, 'second-curl');
+  await mkdir(duplicate);
+  await copyFile(resolve(system32, 'curl.exe'), resolve(duplicate, 'curl.exe'));
+  const inheritedPath = Object.entries(process.env).find(([name]) => name.toLowerCase() === 'path')?.[1] ?? '';
+  // Both entries are real executables. System32 is first so normal curl DLL
+  // resolution remains intact; the test does not replace curl with a mock.
+  const result = await f.download({}, { PATH: [system32, inheritedPath, duplicate].join(';') });
+  await assertSuccess(f, result);
+  assert(result.curlApplicationCount >= 2, 'The helper must have seen at least two actual curl application matches.');
+  assert.equal(f.requests, 1);
+});
+
 test('partial bytes stay unpublished until the complete digest has been verified', options, async t => {
   let release;
   const f = await fixture(t, (_req, res) => {
@@ -163,11 +188,11 @@ test('partial bytes stay unpublished until the complete digest has been verified
     res.write(payload.subarray(0, 64));
     release = () => res.end(payload.subarray(64));
   });
-  const pending = f.download({ attemptTimeoutSeconds: 5, stallTimeoutSeconds: 3, maxAttempts: 1 });
+  const pending = f.download({ attemptTimeoutSeconds: 8, stallTimeoutSeconds: 5, maxAttempts: 1 });
   // Retain the promise immediately so an unexpected early failure is handled.
   pending.catch(() => {});
   try {
-    await until(async () => release && (await readdir(f.downloads)).some(name => name.includes('.part')));
+    await until(async () => release && (await readdir(f.downloads)).some(name => name.includes('.part')), 5000);
     const names = await readdir(f.downloads);
     assert.equal(names.includes('artifact.bin'), false, 'Unverified partial data must never occupy the cache filename.');
     assert.equal(names.filter(name => name.includes('.part')).length, 1);

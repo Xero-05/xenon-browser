@@ -33,7 +33,10 @@ if (-not $SkipCef) {
   $archive = Get-Dependency ('https://cef-builds.spotifycdn.com/' + $taskLock.cef.archive) $taskLock.cef.archive $taskLock.cef.sha256
   if (Test-Path -LiteralPath (Join-Path $cefRoot 'include/cef_version.h')) {
     $cefHeader = Get-Content -LiteralPath (Join-Path $cefRoot 'include/cef_version.h') -Raw
-    if ($cefHeader -notmatch ('#define CEF_VERSION "' + [Regex]::Escape($taskLock.cef.version) + '"')) { throw 'Existing CEF directory does not match dependencies.lock.json. Move it aside before bootstrapping the updated version.' }
+    # A recognizable different installation still needs an explicit move aside.
+    # A truncated header without a completed extraction marker is repairable.
+    $taskExistingCefVersion = [Regex]::Match($cefHeader, '#define CEF_VERSION "([^"]+)"')
+    if ($taskExistingCefVersion.Success -and $taskExistingCefVersion.Groups[1].Value -ne $taskLock.cef.version) { throw 'Existing CEF directory does not match dependencies.lock.json. Move it aside before bootstrapping the updated version.' }
   }
   Invoke-VerifiedExtraction 'CEF' $taskLock.cef.sha256 (Join-Path $cefRoot '.xenon-extracted-sha256') @(
     (Join-Path $cefRoot 'include/cef_version.h'), (Join-Path $cefRoot 'Release/libcef.dll'),

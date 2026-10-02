@@ -42,7 +42,7 @@ function Get-XenonDependency {
     Write-Warning "Discarding corrupt cache entry: $Name"
     Remove-Item -LiteralPath $taskTarget
   }
-  $taskCurl = (Get-Command curl.exe -CommandType Application -ErrorAction Stop).Source
+  $taskCurl = (Get-Command curl.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
   $taskPart = Join-Path $taskDirectory ($Name + '.' + [Guid]::NewGuid().ToString('N') + '.part')
   $taskProtocol = if ($taskTestHttp) { '=http,https' } else { '=https' }
   $taskTotal = [Diagnostics.Stopwatch]::StartNew()
