@@ -1,0 +1,33 @@
+{
+  "version": "0.1.0-alpha.10",
+  "capturedUtc": "2026-10-02T21:45:39.7017718Z",
+  "release": "https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.10",
+  "sourceCommit": "af3f8c083e92e89bb8fa73ce876489a5e21a6fed",
+  "windowsCi": {
+    "conclusion": "success",
+    "url": "https://github.com/Xero-05/xenon-browser/actions/runs/37067817551"
+  },
+  "nativePublicDownload": {
+    "installerLaunched": false,
+    "passed": true,
+    "productionProfileUsed": false,
+    "simulatedCurrentVersion": "0.1.0-alpha.9",
+    "selectedVersion": "0.1.0-alpha.10",
+    "installerBytes": 202924385,
+    "scope": "Production native GitHub discovery and HTTPS download with size and SHA-256 verification into a disposable test staging folder; staging cleanup completed"
+  },
+  "assets": [
+    {
+      "bytes": 233484515,
+      "githubUploadedDigestMatched": true,
+      "sha256": "16cf4ecd02ed404fbddba8b514f8d62489a02796cfa041880839bfa6a3a9b1f2",
+      "name": "Xenon-0.1.0-alpha.10-windows-x64-unsigned.zip"
+    },
+    {
+      "bytes": 202924385,
+      "githubUploadedDigestMatched": true,
+      "sha256": "8d96f612b3ebbd1bc3dcc552d4b09e8f4afcc108949e1ca10955daa94671c26c",
+      "name": "Xenon-0.1.0-alpha.10-windows-x64-setup-unsigned.exe"
+    }
+  ]
+}

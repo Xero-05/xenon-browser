@@ -41,12 +41,14 @@ Closing Controls hides it; it does not exit the browser. Use the browser menu's 
 
 ## 3. Pair your MCP host
 
-Keep Xenon open. In PowerShell, change to the installation folder containing `Xenon.exe`, then run:
+Keep Xenon open. For the installed version, run these commands in PowerShell:
 
 ```powershell
 Set-Location "$env:LOCALAPPDATA\Programs\Xenon Browser"
 .\runtime\node.exe .\adapter\dist\src\cli.js pair --name "My agent host" --output "$env:LOCALAPPDATA\Xenon-agent.json"
 ```
+
+For a portable ZIP, replace the `Set-Location` path with the extracted folder containing `Xenon.exe`, then run the same pairing command. Use that portable folder's `runtime` and `adapter` paths in your host configuration below.
 
 In Controls, select **My agent host** under **Pending pairing requests**, then click **Approve**. The terminal waits up to five minutes for this approval. When pairing succeeds, it saves a private configuration at the output path.
 

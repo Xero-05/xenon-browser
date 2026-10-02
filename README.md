@@ -24,12 +24,14 @@ The browser uses CEF's sandboxed Chrome runtime, a native C++ broker and an exte
 
 ## Start here
 
-1. Download the release ZIP and its SHA-256 file, verify the checksum, and extract the **whole archive**.
-2. Run `Xenon.exe` from the extracted folder. A fresh launch opens a blank tab.
+1. Download the **unsigned Windows installer** and its SHA-256 file from the release, verify the checksum, and run setup. See [Get started](docs/GETTING_STARTED.md) for the exact steps.
+2. Open **Xenon Browser** from the Start menu. A fresh launch opens a blank tab.
 3. Open **Xenon Controls** with **Ctrl+Shift+X**, or choose **Xenon Controls and Accounts** from a webpage's context menu.
 4. Follow [Get started](docs/GETTING_STARTED.md) to pair an MCP client using the included Node runtime.
 
-Keep the executable, DLLs, resources, locales and adapter together. Closing Xenon does not sign you out of websites: persistent workspaces retain cookies, including session cookies. **Restore last session** is an explicit action and reloads eligible saved URLs under human ownership.
+The portable ZIP remains available: verify its checksum, extract the **whole archive**, and run `Xenon.exe` from that folder. Keep the executable, DLLs, resources, locales and adapter together.
+
+Closing Xenon does not sign you out of websites: persistent workspaces retain cookies, including session cookies. **Restore last session** is an explicit action and reloads eligible saved URLs under human ownership.
 
 ## Know the alpha's boundaries
 
