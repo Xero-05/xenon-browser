@@ -5,6 +5,7 @@ $taskLock = Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.jso
 $taskDownloads = Join-Path $taskRoot 'third_party/downloads'
 New-Item -ItemType Directory -Force -Path $taskDownloads | Out-Null
 . (Join-Path $PSScriptRoot 'dependency-download.ps1')
+. (Join-Path $PSScriptRoot 'dependency-extract.ps1')
 function Get-Dependency([string]$Url, [string]$Name, [string]$ExpectedHash) {
   Get-XenonDependency -Url $Url -Name $Name -ExpectedHash $ExpectedHash -DownloadDirectory $taskDownloads
 }
@@ -41,9 +42,7 @@ if (-not $SkipCef) {
   Invoke-VerifiedExtraction 'CEF' $taskLock.cef.sha256 (Join-Path $cefRoot '.xenon-extracted-sha256') @(
     (Join-Path $cefRoot 'include/cef_version.h'), (Join-Path $cefRoot 'Release/libcef.dll'),
     (Join-Path $cefRoot 'Release/bootstrap.exe'), (Join-Path $cefRoot 'LICENSE.txt'), (Join-Path $cefRoot 'CREDITS.html')) {
-    New-Item -ItemType Directory -Force -Path $cefRoot | Out-Null
-    & tar.exe -xf $archive -C $cefRoot --strip-components 1
-    if ($LASTEXITCODE -ne 0) { throw 'CEF archive extraction failed.' }
+    Expand-XenonCefArchive -Archive $archive -Destination $cefRoot
   }
   $cefHeader = Get-Content -LiteralPath (Join-Path $cefRoot 'include/cef_version.h') -Raw
   if ($cefHeader -notmatch ('#define CEF_VERSION "' + [Regex]::Escape($taskLock.cef.version) + '"')) { throw 'Existing CEF directory does not match dependencies.lock.json. Move it aside before bootstrapping the updated version.' }

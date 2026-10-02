@@ -11,17 +11,17 @@
 
 Downloads use HTTPS with certificate validation, a 30-second connection limit, a 45-second low-speed limit (below 1 KiB/s), and a five-minute limit per attempt. Transient failures receive at most three attempts with bounded backoff. A unique `.part` file becomes a usable cache entry only after its pinned SHA-256 matches. Existing cached downloads are verified on every bootstrap; a corrupt cached file is discarded and fetched again. HTTP errors such as 404, certificate verification errors and digest mismatches fail without repeated retries. Interrupted partial files are never reused or cached.
 
-The console reports the dependency, attempt, host, elapsed time and received byte count every ten seconds, then the HTTP/transfer result and hash verification. Extraction has separate stage messages and completion markers tied to the verified archive digest. Interrupted extraction is retried instead of treating the first extracted file as success. TLS checks and pinned digests are never bypassed. `curl.exe` ignores user curl configuration; bootstrap does not accept arbitrary mirror URLs or credentials.
+The console reports the dependency, attempt, host, elapsed time and received byte count every ten seconds, then the HTTP/transfer result and hash verification. CEF extraction selects Windows' `System32/tar.exe` explicitly, prints its version, reports extracted file counts/bytes every 30 seconds, and has its own five-minute limit. This avoids accidentally selecting Git's GNU tar, which can interpret drive-letter archive paths as remote locations. Extraction has completion markers tied to the verified archive digest. Interrupted extraction is retried instead of treating the first extracted file as success. TLS checks and pinned digests are never bypassed. `curl.exe` ignores user curl configuration; bootstrap does not accept arbitrary mirror URLs or credentials.
 
 Windows CI caches only downloaded archives and the JSON header, keyed by the full dependency lockfile, operating system and architecture. It never caches extracted dependency trees or partial transfers, and bootstrap rechecks cached hashes before use. The verified download cache is saved immediately after bootstrap, even if a later build fails. A cache service failure falls back to ordinary downloads. Fetching has a 20-minute step budget inside the existing 45-minute job budget. On a persistently corrupt shared cache, remove that Actions cache entry; immutable exact-key caches cannot be repaired in place.
 
 For download/CI changes, run the focused regression harness rather than the browser acceptance suites:
 
 ```powershell
-node --test tests/bootstrap-download-tests.mjs
+node --test tests/bootstrap-download-tests.mjs tests/bootstrap-extract-tests.mjs
 ```
 
-It uses actual PowerShell and curl against a generated loopback HTTP fixture, covering verification, cache repair, retries, interrupted transfers and bounded timeouts. Production dependency URLs remain HTTPS-only. Use `./scripts/bootstrap.ps1` to verify the currently cached pinned dependencies; the full CI run checks a fresh Windows checkout.
+These use actual PowerShell and curl against a generated loopback HTTP fixture, plus a small archive extracted while a different executable shadows `tar.exe` on PATH. They cover verification, cache repair, retries, interrupted transfers, bounded timeouts and selecting the correct Windows extractor. Production dependency URLs remain HTTPS-only. Use `./scripts/bootstrap.ps1` to verify the currently cached pinned dependencies; the full CI run checks a fresh Windows checkout.
 
 ```powershell
 ./scripts/bootstrap.ps1
