@@ -21,7 +21,7 @@ Consult [ARCHITECTURE](docs/ARCHITECTURE.md), [SECURITY](docs/SECURITY.md), [MCP
 
 ## Setup and checks
 
-Use Windows 10/11 x64, Visual Studio 2022 C++ Build Tools with the Windows SDK and CMake component, Node 24 and npm. From the repository root in PowerShell:
+Use Windows 10/11 x64, Visual Studio 2022 C++ Build Tools with the Windows SDK and CMake component, Node 24, npm and 7-Zip (installed in `Program Files/7-Zip`). From the repository root in PowerShell:
 
 ```powershell
 ./scripts/bootstrap.ps1

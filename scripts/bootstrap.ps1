@@ -1,4 +1,4 @@
-param([switch]$SkipCef, [switch]$SkipNode)
+param([switch]$SkipCef, [switch]$SkipNode, [switch]$DownloadOnly)
 $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $taskLock = Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.json') -Raw | ConvertFrom-Json
@@ -29,9 +29,18 @@ function Invoke-VerifiedExtraction([string]$Name, [string]$Hash, [string]$Marker
   Write-Host "[extract] $Name completed in $([Math]::Round($taskExtractClock.Elapsed.TotalSeconds,1))s"
 }
 $taskBootstrapClock = [Diagnostics.Stopwatch]::StartNew()
+$taskCefArchive = if (-not $SkipCef) { Get-Dependency ('https://cef-builds.spotifycdn.com/' + $taskLock.cef.archive) $taskLock.cef.archive $taskLock.cef.sha256 }
+$sqliteZip = Get-Dependency $taskLock.sqlite.url 'sqlite.zip' $taskLock.sqlite.sha256
+$jsonFile = Get-Dependency $taskLock.json.url 'json.hpp' $taskLock.json.sha256
+$nodeVersion = $taskLock.node.version
+$nodeName = "node-v$nodeVersion-win-x64.zip"
+$nodeZip = if (-not $SkipNode) { Get-Dependency "https://nodejs.org/dist/v$nodeVersion/$nodeName" $nodeName $taskLock.node.sha256 }
+if ($DownloadOnly) {
+  Write-Host "Pinned downloads are verified and ready to cache ($([Math]::Round($taskBootstrapClock.Elapsed.TotalSeconds,1))s total)."
+  return
+}
 if (-not $SkipCef) {
   $cefRoot = Join-Path $taskRoot 'third_party/cef'
-  $archive = Get-Dependency ('https://cef-builds.spotifycdn.com/' + $taskLock.cef.archive) $taskLock.cef.archive $taskLock.cef.sha256
   if (Test-Path -LiteralPath (Join-Path $cefRoot 'include/cef_version.h')) {
     $cefHeader = Get-Content -LiteralPath (Join-Path $cefRoot 'include/cef_version.h') -Raw
     # A recognizable different installation still needs an explicit move aside.
@@ -42,14 +51,13 @@ if (-not $SkipCef) {
   Invoke-VerifiedExtraction 'CEF' $taskLock.cef.sha256 (Join-Path $cefRoot '.xenon-extracted-sha256') @(
     (Join-Path $cefRoot 'include/cef_version.h'), (Join-Path $cefRoot 'Release/libcef.dll'),
     (Join-Path $cefRoot 'Release/bootstrap.exe'), (Join-Path $cefRoot 'LICENSE.txt'), (Join-Path $cefRoot 'CREDITS.html')) {
-    Expand-XenonCefArchive -Archive $archive -Destination $cefRoot
+    Expand-XenonCefArchive -Archive $taskCefArchive -Destination $cefRoot
   }
   $cefHeader = Get-Content -LiteralPath (Join-Path $cefRoot 'include/cef_version.h') -Raw
   if ($cefHeader -notmatch ('#define CEF_VERSION "' + [Regex]::Escape($taskLock.cef.version) + '"')) { throw 'Existing CEF directory does not match dependencies.lock.json. Move it aside before bootstrapping the updated version.' }
   Write-Host "[ready] CEF $($taskLock.cef.version)"
 }
 $sqliteRoot = Join-Path $taskRoot 'third_party/sqlite'
-$sqliteZip = Get-Dependency $taskLock.sqlite.url 'sqlite.zip' $taskLock.sqlite.sha256
 Invoke-VerifiedExtraction 'SQLite' $taskLock.sqlite.sha256 (Join-Path $sqliteRoot '.xenon-extracted-sha256') @(
   (Join-Path $sqliteRoot 'sqlite3.c'),(Join-Path $sqliteRoot 'sqlite3.h'),(Join-Path $sqliteRoot 'sqlite3ext.h')) {
   $sqliteStaging = Join-Path $taskDownloads 'sqlite-extracted'
@@ -63,14 +71,10 @@ if ($sqliteHeader -notmatch ('#define SQLITE_VERSION\s+"' + [Regex]::Escape($tas
 Write-Host "[ready] SQLite $($taskLock.sqlite.version)"
 $jsonRoot = Join-Path $taskRoot 'third_party/json/nlohmann'
 New-Item -ItemType Directory -Force -Path $jsonRoot | Out-Null
-$jsonFile = Get-Dependency $taskLock.json.url 'json.hpp' $taskLock.json.sha256
 Copy-Item -LiteralPath $jsonFile -Destination (Join-Path $jsonRoot 'json.hpp') -Force
 Write-Host "[ready] nlohmann/json $($taskLock.json.version)"
 if (-not $SkipNode) {
   $nodeRoot = Join-Path $taskRoot 'third_party/node'
-  $nodeVersion = $taskLock.node.version
-  $nodeName = "node-v$nodeVersion-win-x64.zip"
-  $nodeZip = Get-Dependency "https://nodejs.org/dist/v$nodeVersion/$nodeName" $nodeName $taskLock.node.sha256
   $nodeStaging = Join-Path $taskDownloads 'node-extracted'
   # The distribution also supplies npm to CI; a cached archive is not an
   # extracted Node installation. Never cache the extracted directory itself.

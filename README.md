@@ -43,7 +43,7 @@ Filtering hidden text reduces one source of misleading evidence; it cannot make 
 
 ## Build and contribute
 
-With the Windows C++ build tools, CMake, Node 24 and Git installed:
+With the Windows C++ build tools, CMake, Node 24, Git and 7-Zip installed (see [prerequisites](docs/BUILD.md)):
 
 ```powershell
 ./scripts/bootstrap.ps1

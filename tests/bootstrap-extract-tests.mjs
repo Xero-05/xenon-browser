@@ -1,7 +1,8 @@
-// Real Windows tar/PowerShell regression, using a tiny generated archive only.
+// Real Windows tar/7-Zip/PowerShell regression, using a generated archive only.
 // No CEF distribution, browser, downloaded content or existing profile is used.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { copyFile, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import test from 'node:test';
@@ -10,13 +11,16 @@ import { promisify } from 'node:util';
 const root = resolve(import.meta.dirname, '..');
 const run = promisify(execFile);
 
-test('CEF extraction ignores a shadowed PATH tar and strips the archive wrapper', {
+test('CEF extraction handles a large bzip2 body and ignores a shadowed PATH tar', {
   skip: process.platform !== 'win32', timeout: 25_000,
 }, async () => {
   const systemRoot = process.env.SystemRoot || process.env.WINDIR;
   assert(systemRoot, 'The fixture requires the Windows system directory.');
   const system32 = resolve(systemRoot, 'System32');
   const systemTar = resolve(system32, 'tar.exe');
+  const programFiles = process.env.ProgramFiles;
+  assert(programFiles, 'The fixture requires the Windows Program Files directory.');
+  const sevenZip = resolve(programFiles, '7-Zip', '7z.exe');
   const cache = resolve(root, '.cache');
   await mkdir(cache, { recursive: true });
   const directory = await mkdtemp(resolve(cache, 'bootstrap-extract-'));
@@ -24,15 +28,19 @@ test('CEF extraction ignores a shadowed PATH tar and strips the archive wrapper'
   const archiveRoot = resolve(source, 'cef_fixture_wrapper');
   const shadow = resolve(directory, 'shadow tar');
   const archive = resolve(directory, 'synthetic cef archive.tar.bz2');
+  const plainTar = resolve(directory, 'synthetic cef archive.tar');
   const destination = resolve(directory, 'extracted files');
   await mkdir(resolve(archiveRoot, 'include'), { recursive: true });
   await mkdir(resolve(archiveRoot, 'Resources', 'locales'), { recursive: true });
   await mkdir(shadow);
   const header = Buffer.from('#define XENON_SYNTHETIC_EXTRACTION_FIXTURE 1\r\n');
-  const resource = Buffer.from([0, 1, 2, 3, 127, 128, 254, 255]);
+  // Exceed typical process-pipe buffers with incompressible bytes; a tiny bzip2
+  // fixture did not reproduce the real archive's stalled decompression path.
+  const resource = randomBytes(512 * 1024);
   await writeFile(resolve(archiveRoot, 'include', 'fixture.h'), header);
   await writeFile(resolve(archiveRoot, 'Resources', 'locales', 'fixture.bin'), resource);
-  await run(systemTar, ['-cjf', archive, '-C', source, 'cef_fixture_wrapper'], { windowsHide: true, timeout: 10_000 });
+  await run(systemTar, ['-cf', plainTar, '-C', source, 'cef_fixture_wrapper'], { windowsHide: true, timeout: 10_000 });
+  await run(sevenZip, ['a', '-tbzip2', '-y', archive, plainTar], { windowsHide: true, timeout: 10_000 });
   // This is a real Windows executable, but it cannot extract an archive. If
   // the helper regresses to PATH discovery, extraction must fail this test.
   const shadowTar = resolve(shadow, 'tar.exe');

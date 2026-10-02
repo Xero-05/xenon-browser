@@ -30,10 +30,10 @@ jobs:
             third_party/downloads/*.zip
             third_party/downloads/*.hpp
           key: native-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dependencies.lock.json') }}
-      - name: Fetch pinned native dependencies
+      - name: Download and verify pinned native dependencies
         shell: pwsh
         timeout-minutes: 20
-        run: ./scripts/bootstrap.ps1
+        run: ./scripts/bootstrap.ps1 -DownloadOnly
       - name: Save verified dependency downloads
         if: steps.native-downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
@@ -46,6 +46,10 @@ jobs:
             third_party/downloads/*.zip
             third_party/downloads/*.hpp
           key: native-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dependencies.lock.json') }}
+      - name: Extract verified native dependencies
+        shell: pwsh
+        timeout-minutes: 8
+        run: ./scripts/bootstrap.ps1
       - name: Use bundled Node runtime
         shell: pwsh
         run: |
