@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testcase name="pairing configuration is written privately and never overwrites an existing grant" time="0.071270" classname="test" file="[workspace]\adapter\dist\test\adapter.test.js"/>
+	<testcase name="image result carries identity once without duplicating base64 into text" time="0.000513" classname="test" file="[workspace]\adapter\dist\test\adapter.test.js"/>
+	<testcase name="website evidence cannot promote its own trust through native result metadata" time="0.000208" classname="test" file="[workspace]\adapter\dist\test\adapter.test.js"/>
+	<testcase name="website dialogs and file names with invisible controls are withheld whole while normal Unicode survives" time="0.000476" classname="test" file="[workspace]\adapter\dist\test\adapter.test.js"/>
+	<testcase name="unknown outcome keeps operation ID and dispatch status" time="0.000138" classname="test" file="[workspace]\adapter\dist\test\adapter.test.js"/>
+	<testcase name="pipe routes out-of-order fragmented responses and never retries on timeout" time="0.052270" classname="test" file="[workspace]\adapter\dist\test\adapter.test.js"/>
+	<testcase name="real SDK stdio supports legacy clients with strict tool schemas" time="0.193833" classname="test" file="[workspace]\adapter\dist\test\adapter.test.js"/>
+	<testcase name="real SDK stdio supports modern clients with strict tool schemas" time="0.352575" classname="test" file="[workspace]\adapter\dist\test\adapter.test.js"/>
+	<testcase name="activity poll is single flight, rate limited, allowlisted, and batches short edits and pause transitions" time="0.002113" classname="test" file="[workspace]\adapter\dist\test\human-activity.test.js"/>
+	<testcase name="revocation, invalid rows, and disconnected transports do not retain or leak stale activity metadata" time="0.000527" classname="test" file="[workspace]\adapter\dist\test\human-activity.test.js"/>
+	<testcase name="close clears the timer and drops a late in-flight activity result" time="1.101723" classname="test" file="[workspace]\adapter\dist\test\human-activity.test.js"/>
+	<testcase name="system clock corrections affect timestamps without stalling or accelerating the poll rate" time="0.000544" classname="test" file="[workspace]\adapter\dist\test\human-activity.test.js"/>
+	<testcase name="real legacy SDK subscription receives human activity updates with no page or typed content" time="4.491137" classname="test" file="[workspace]\adapter\dist\test\human-activity.test.js"/>
+	<testcase name="real modern SDK subscription receives human activity updates with no page or typed content" time="4.640196" classname="test" file="[workspace]\adapter\dist\test\human-activity.test.js"/>
+	<!-- tests 14 -->
+	<!-- suites 0 -->
+	<!-- pass 14 -->
+	<!-- fail 0 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 10407.9062 -->
+</testsuites>

@@ -1,0 +1,14 @@
+{
+  "capturedAt": "2026-10-02T00:38:45.5343228Z",
+  "version": "0.1.0-alpha.9",
+  "artifact": "Xenon-0.1.0-alpha.9-windows-x64-unsigned.zip",
+  "sha256": "fd9e3476865d4c2cbceb77796e2e9bbf3da5ef02ec1269d388a948dc3d1556b8",
+  "signed": false,
+  "refreshedContent": "Public documentation, attribution and license copies; runtime payload unchanged",
+  "verifiedManifestFiles": 1243,
+  "unchangedExistingPayloadFiles": 1199,
+  "packageSmokePassed": true,
+  "cefStableIndexChecked": true,
+  "cefVersion": "154.0.32+g682c378+chromium-154.0.8037.58",
+  "securityAudit": "No independent audit; source privacy and license review only"
+}

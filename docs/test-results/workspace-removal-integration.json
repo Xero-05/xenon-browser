@@ -1,0 +1,66 @@
+{
+  "run": "workspace-removal-1790900393147-1d6ffdd7",
+  "capturedAt": "2026-10-02T00:20:33.357Z",
+  "binary": "build/auth-fixture/Release/XenonAuthTest.exe",
+  "applicationDllSha256": "fa0bb616a664ac3b6e8735ceb912951bab4c31ecc05da3e3883ff0aa7668f6a3",
+  "applicationDllSha256AtEnd": "fa0bb616a664ac3b6e8735ceb912951bab4c31ecc05da3e3883ff0aa7668f6a3",
+  "launches": 2,
+  "nativeApprovalRequired": false,
+  "passed": true,
+  "results": [
+    {
+      "name": "Two isolated workspaces have live data, popup, vault grant, approved file and download",
+      "passed": true,
+      "elapsedMs": 1454,
+      "details": {
+        "workspaces": 2,
+        "removableTabs": 2,
+        "relatedPopup": true,
+        "isolatedPersistentValues": true,
+        "encryptedVaultSeeded": true,
+        "approvedFileAndDownload": true
+      }
+    },
+    {
+      "name": "Native removal revokes access and pending reads while preserving unrelated live work",
+      "passed": true,
+      "elapsedMs": 594,
+      "details": {
+        "nativeInvocation": "unshipped_test_driver",
+        "tombstoneDurable": true,
+        "workerAndScopeRevoked": true,
+        "pendingReadDenied": true,
+        "staleMutationDenied": true,
+        "survivorDocumentUnchanged": true,
+        "survivorActionSucceeded": true,
+        "vaultAndExternalFilesRetained": true
+      }
+    },
+    {
+      "name": "Restart purges only the tombstoned profile and cannot recreate its grant",
+      "passed": true,
+      "elapsedMs": 36710,
+      "details": {
+        "launches": 2,
+        "seededLastUsedRemovedProfile": true,
+        "seededLastActiveRemovedProfile": true,
+        "removedProfileAbsent": true,
+        "tombstonePermanent": true,
+        "otherProfilePresent": true,
+        "noRecreation": true
+      }
+    },
+    {
+      "name": "Remaining workspace cookie and local storage survive while shared files remain",
+      "passed": true,
+      "elapsedMs": 414,
+      "details": {
+        "survivorCookieRetained": true,
+        "survivorLocalStorageRetained": true,
+        "actionAfterRestart": true,
+        "vaultDownloadAndApprovedSourceRetained": true
+      }
+    }
+  ],
+  "applicationDll": "build/auth-fixture/Release/XenonAuthTest.dll"
+}

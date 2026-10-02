@@ -1,0 +1,38 @@
+{
+  "run": "workspace-removal-1790894088457-1cddf983",
+  "capturedAt": "2026-10-01T22:35:27.953Z",
+  "classification": "pre_fix_failure",
+  "binary": "build/auth-fixture/Release/XenonAuthTest.exe",
+  "applicationDllSha256": "224a497e834ce582c2241f0aef566b8cc03ec8f76aba7c6b8c514068c9c5d965",
+  "applicationDllSha256AtEnd": "224a497e834ce582c2241f0aef566b8cc03ec8f76aba7c6b8c514068c9c5d965",
+  "passed": false,
+  "launches": 2,
+  "nativeInvocation": "unshipped_test_driver",
+  "results": [
+    { "name": "Two isolated workspaces have live data, popup, vault grant, approved file and download", "passed": true },
+    { "name": "Native removal revokes access and pending reads while preserving unrelated live work", "passed": true },
+    { "name": "Restart purges only the tombstoned profile and cannot recreate its grant", "passed": false, "error": "Removed synthetic profile remained after restart." }
+  ],
+  "cleanupDiagnostic": {
+    "status": "deferred",
+    "systemError": 32,
+    "systemErrorName": "ERROR_SHARING_VIOLATION",
+    "filesRemoved": 0,
+    "directoriesRemoved": 0,
+    "tombstoneRetained": true,
+    "removedWorkspaceNotActive": true,
+    "lastUsedProfileIsRemovedWorkspace": true,
+    "secondLaunchCreatedFileCount": 18,
+    "postExitReadOnlyOpenProbe": { "entries": 234, "openFailures": 0 },
+    "exactLockedFileRecorded": false
+  },
+  "diagnosis": "Chromium can load the last-used workspace as the initial profile before CEF OnContextInitialized. CEF adopts that already-loaded profile as its global context, overriding its populated cache path. The synthetic root selected its tombstoned workspace and reopened multiple database logs during restart. Cleanup safely refused a sharing violation during preflight; no entries were deleted.",
+  "fix": "Pin the browser-process initial profile to Default before Chromium profile creation. Preserve the existing cleanup deletion policy.",
+  "regression": "Seed the removed workspace in synthetic Local State profile.last_used and profile.last_active_profiles while the owned browser is stopped, then require the tombstoned profile to be absent after restart.",
+  "primarySources": [
+    { "url": "https://raw.githubusercontent.com/chromium/chromium/154.0.8037.58/chrome/browser/chrome_browser_main.cc", "lines": "463-502" },
+    { "url": "https://raw.githubusercontent.com/chromium/chromium/154.0.8037.58/chrome/browser/ui/startup/startup_browser_creator.cc", "lines": "1738-1764" },
+    { "url": "https://raw.githubusercontent.com/chromiumembedded/cef/682c378/libcef/browser/chrome/chrome_browser_main_extra_parts_cef.cc", "lines": "41-55" }
+  ],
+  "scope": "Generated synthetic profile only. No real profile contents, credential values or absolute local paths are included. This record does not claim human removal confirmation or a passing fixed build."
+}

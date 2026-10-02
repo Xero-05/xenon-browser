@@ -1,0 +1,12 @@
+Xenon Browser
+Copyright 2026 Xenon Browser contributors
+
+Xenon's original source is licensed under the Apache License, Version 2.0.
+This product includes Chromium Embedded Framework, Chromium, SQLite,
+nlohmann/json, Node.js, the Model Context Protocol TypeScript SDK, Zod,
+and their bundled dependencies. Their copyrights and licenses remain
+with their respective owners. See THIRD_PARTY_NOTICES.md and the
+accompanying license files for attribution and redistribution terms.
+
+Xenon is an independent project. Upstream project names are used for
+attribution and do not imply affiliation with or endorsement of Xenon.

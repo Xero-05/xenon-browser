@@ -1,0 +1,35 @@
+{
+  "run": "native-input-1790899917517",
+  "capturedAt": "2026-10-02T00:13:45.779Z",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "applicationDllSha256AtEnd": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "dialogUiMode": true,
+  "passed": true,
+  "results": [
+    {
+      "name": "Windows page input pauses dispatch while retaining creator ownership",
+      "passed": true,
+      "elapsedMs": 53993
+    },
+    {
+      "name": "Idle resumes authority only with fresh evidence and preserves the human draft",
+      "passed": true,
+      "elapsedMs": 21060
+    },
+    {
+      "name": "Human dialog holds the pause until dismissal without taking ownership",
+      "passed": true,
+      "elapsedMs": 31395,
+      "details": {
+        "opened": 1,
+        "accepted": 0,
+        "dismissed": 1,
+        "documentPreserved": true,
+        "ownerPreserved": true,
+        "uiSurfaceVerification": "manual observation required; response verified through fixture telemetry"
+      }
+    }
+  ],
+  "applicationDll": "build/app/Release/Xenon.dll"
+}

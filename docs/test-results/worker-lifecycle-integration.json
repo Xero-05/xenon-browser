@@ -1,0 +1,64 @@
+{
+  "run": "worker-lifecycle-1790900211616-85c5dc7c",
+  "capturedAt": "2026-10-02T00:16:56.692Z",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "applicationDllSha256AtEnd": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "configuredConnectedCap": 4,
+  "passed": true,
+  "results": [
+    {
+      "name": "Modern and legacy clients cannot retire each other’s workers",
+      "passed": true,
+      "elapsedMs": 13,
+      "details": {
+        "modernOwner": true,
+        "legacyCaller": true,
+        "denied": true
+      }
+    },
+    {
+      "name": "Twenty retired workers preserve one live drafted, selected and scrolled session",
+      "passed": true,
+      "elapsedMs": 2362,
+      "details": {
+        "retirements": 20,
+        "uniqueWorkers": 21,
+        "liveTabs": 1,
+        "grantedWorkspaces": 1,
+        "websiteEventsAdded": 0,
+        "documentPreserved": true,
+        "timerAndWebSocketContinue": true
+      }
+    },
+    {
+      "name": "Retirement cancels queued input and releases a started finite gesture honestly",
+      "passed": true,
+      "elapsedMs": 258,
+      "details": {
+        "retirementStatus": "retiring",
+        "startedOperation": "outcome_unknown",
+        "queuedDispatchStatus": "not_dispatched",
+        "heldMouseReleased": true,
+        "queuedClicks": 0
+      }
+    },
+    {
+      "name": "Configured global capacity spans clients and retirement frees a slot",
+      "passed": true,
+      "elapsedMs": 612,
+      "details": {
+        "configuredConnectedCap": 4,
+        "sharedAcrossClients": true,
+        "retiredSlotReused": true,
+        "disconnectedHandlesRetained": 2,
+        "disconnectedSlotsReused": 2,
+        "resumeRefusedAtCapacity": true,
+        "resumeSucceededAfterRetirement": true,
+        "noAutomaticReplay": true,
+        "additionalConnectedWorkers": 2
+      }
+    }
+  ],
+  "applicationDll": "build/app/Release/Xenon.dll"
+}

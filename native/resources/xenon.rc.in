@@ -1,0 +1,37 @@
+#include <windows.h>
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+101 ICON "@CMAKE_SOURCE_DIR@/assets/branding/xenon-icon.ico"
+
+1 VERSIONINFO
+ FILEVERSION 0,1,0,9
+ PRODUCTVERSION 0,1,0,9
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+ FILEFLAGS VS_FF_PRERELEASE
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_DLL
+ FILESUBTYPE 0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "Xenon Browser contributors\0"
+      VALUE "FileDescription", "Xenon Browser\0"
+      VALUE "FileVersion", "0.1.0.9\0"
+      VALUE "InternalName", "Xenon\0"
+      VALUE "LegalCopyright", "Apache-2.0; third-party notices included\0"
+#ifdef XENON_TEST_FIXTURE_CERT_SHA256
+      VALUE "OriginalFilename", "XenonAuthTest.dll\0"
+#else
+      VALUE "OriginalFilename", "Xenon.dll\0"
+#endif
+      VALUE "ProductName", "Xenon Browser\0"
+      VALUE "ProductVersion", "0.1.0.9\0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END

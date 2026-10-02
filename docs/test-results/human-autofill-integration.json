@@ -1,0 +1,111 @@
+{
+  "run": "human-autofill-1790900274279-7f4b4ff9",
+  "capturedAt": "2026-10-02T00:18:08.959Z",
+  "binary": "build/auth-fixture/Release/XenonAuthTest.exe",
+  "applicationDllSha256": "fa0bb616a664ac3b6e8735ceb912951bab4c31ecc05da3e3883ff0aa7668f6a3",
+  "applicationDllSha256AtEnd": "fa0bb616a664ac3b6e8735ceb912951bab4c31ecc05da3e3883ff0aa7668f6a3",
+  "nativeDriver": "AuthTest-only marked profile; real native API, no MCP autofill endpoint",
+  "physicalPickerUiTested": false,
+  "logCanaryScan": {
+    "passed": true,
+    "filesScanned": 107,
+    "bytesScanned": 55070
+  },
+  "passed": true,
+  "results": [
+    {
+      "name": "Human autofill fills a CWL-shaped form without submission or agent account grants",
+      "passed": true,
+      "elapsedMs": 630,
+      "details": {
+        "nativeFill": true,
+        "accountGrants": 0,
+        "ownerPreserved": true,
+        "generationPreserved": true,
+        "submitted": false
+      }
+    },
+    {
+      "name": "Autofilled credentials remain protected from all clients through ownership handoff",
+      "passed": true,
+      "elapsedMs": 2220,
+      "details": {
+        "observingClients": 2,
+        "modernAndLegacy": true,
+        "screenshotsWithheld": true,
+        "oneTimeOffer": true
+      }
+    },
+    {
+      "name": "Saved accounts cannot autofill a different HTTPS origin",
+      "passed": true,
+      "elapsedMs": 643,
+      "details": {
+        "exactOriginDenied": true,
+        "filled": false
+      }
+    },
+    {
+      "name": "Navigation invalidates an already offered native account selection",
+      "passed": true,
+      "elapsedMs": 954,
+      "details": {
+        "staleOfferDenied": true,
+        "newDocumentUntouched": true
+      }
+    },
+    {
+      "name": "Replacing the bound form cannot redirect an existing autofill offer",
+      "passed": true,
+      "elapsedMs": 843,
+      "details": {
+        "replacedNodesDenied": true,
+        "events": 0
+      }
+    },
+    {
+      "name": "Dismissing a native offer prevents subsequent filling",
+      "passed": true,
+      "elapsedMs": 895,
+      "details": {
+        "dismissedOfferDenied": true,
+        "events": 0
+      }
+    },
+    {
+      "name": "Username-first and password-only steps fill only the current phase without advancing",
+      "passed": true,
+      "elapsedMs": 2617,
+      "details": {
+        "usernameOnlyFirst": true,
+        "passwordOnlySecond": true,
+        "nativeSelections": 2,
+        "submitted": false
+      }
+    },
+    {
+      "name": "Locking the native vault invalidates pending offers and prevents new autofill",
+      "passed": true,
+      "elapsedMs": 994,
+      "details": {
+        "vaultLocked": true,
+        "priorOfferDenied": true,
+        "newOfferDenied": true,
+        "events": 0
+      }
+    },
+    {
+      "name": "Lock and unlock cannot revive an accepted fill waiting for a finite action to drain",
+      "passed": true,
+      "elapsedMs": 2430,
+      "details": {
+        "lockedAndUnlockedBeforeDrain": true,
+        "terminalStatus": "autofill_interrupted",
+        "credentialEvents": 0,
+        "staleOfferDenied": true,
+        "freshOfferAvailable": true
+      }
+    }
+  ],
+  "applicationDll": "build/auth-fixture/Release/XenonAuthTest.dll"
+}

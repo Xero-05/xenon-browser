@@ -1,0 +1,21 @@
+{
+  "capturedAt": "2026-10-01T23:43:42.1778851Z",
+  "run": "native-input-1790898060098",
+  "applicationDllSha256": "672faaad910b58859832baed1e09d81335f594b87dda62b849b029088f3f0d47",
+  "method": "Computer Use through native Windows UI in an isolated synthetic fixture",
+  "passed": true,
+  "observations": [
+    "Clicked the synthetic Draft input, waited for its pause to end, and typed the public suffix human edit. The harness independently verified a new keyboard activity epoch and pause.",
+    "The human edit remained on the same document. Agent ownership and generation stayed unchanged; fresh evidence was required before further input.",
+    "Clicked Confirm synthetic logout. Native Controls surfaced with the exact fixture tab selected, its loopback website origin shown, and the existing agent labelled paused for you.",
+    "The pause persisted beyond the ordinary idle period while the website confirmation awaited a native answer. Clicked Dismiss; fixture telemetry verified exactly one dismissal and unchanged owner/document.",
+    "Controls displayed Take ownership, Give to agent, Remove workspace, per-tab workspace labels, the shared encrypted vault heading and the new Fill saved account button without visible overlap."
+  ],
+  "limits": [
+    "No real website, saved password or existing user profile was used.",
+    "This check does not verify human account-picker interaction, automatic autofill suggestions, PD Portal logout or Save/Update acceptance.",
+    "Workspace removal confirmation was inspected in alpha.6; no deletion was approved in this check.",
+    "Complete physical-device, IME and multi-monitor coverage remains manual acceptance work."
+  ],
+  "computerUseClosed": true
+}

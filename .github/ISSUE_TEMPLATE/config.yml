@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private security report
+    url: https://github.com/Xero-05/xenon-browser/security/advisories/new
+    about: Report vulnerabilities privately using synthetic evidence.
+  - name: Setup and use
+    url: https://github.com/Xero-05/xenon-browser/blob/main/docs/GETTING_STARTED.md
+    about: Installation, client pairing, MCP configuration and first steps.

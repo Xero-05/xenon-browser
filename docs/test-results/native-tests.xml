@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Win32-MSBuild"
+	tests="7"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	time="1"
+	timestamp="2026-10-01T17:10:36"
+	>
+	<testcase name="broker_tests" classname="broker_tests" time="1.16366" status="run">
+		<properties/>
+		<system-out>Broker tests passed: authorization, recovery journal, vault grants, 4x3 concurrency, handoff, deduplication, disconnect, protected observations, and Windows pipe transport
+</system-out>
+	</testcase>
+	<testcase name="file_policy_tests" classname="file_policy_tests" time="0.0819972" status="run">
+		<properties/>
+		<system-out>Persistent file/folder capability, revocation, identity, path, junction and download tests passed.
+</system-out>
+	</testcase>
+	<testcase name="login_capture_tests" classname="login_capture_tests" time="0.0241865" status="run">
+		<properties/>
+		<system-out>login capture policy tests passed
+</system-out>
+	</testcase>
+	<testcase name="native_input_policy_tests" classname="native_input_policy_tests" time="0.0091203" status="run">
+		<properties/>
+		<system-out>Native page input policy tests passed: passive hover/Controls, held drag, renderer keys, independent pages, release reconciliation, and IME
+</system-out>
+	</testcase>
+	<testcase name="vault_tests" classname="vault_tests" time="0.134223" status="run">
+		<properties/>
+		<system-out>Vault DPAPI, pending login approval, encrypted storage, origin and browser CSV tests passed.
+</system-out>
+	</testcase>
+	<testcase name="visible_evidence_tests" classname="visible_evidence_tests" time="0.0131131" status="run">
+		<properties/>
+		<system-out>Visible evidence regression tests passed
+</system-out>
+	</testcase>
+	<testcase name="workspace_storage_tests" classname="workspace_storage_tests" time="0.0282438" status="run">
+		<properties/>
+		<system-out>Workspace storage cleanup tests passed (6 scenarios).
+</system-out>
+	</testcase>
+</testsuite>

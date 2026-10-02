@@ -1,0 +1,152 @@
+{
+  "run": "upload-entry-1790900246905-af4d040e",
+  "capturedAt": "2026-10-02T00:17:37.647Z",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "applicationDllSha256AtEnd": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "mode": "acceptance",
+  "benchmark": {
+    "sourceBasename": "browser-benchmark.cjs",
+    "sourceSha256": "aac50d9754706b96c1d21d108e33d81b1442aee20a67485e8c32e8b5f110e688",
+    "copiedUnchanged": true,
+    "benchmarkId": "upload-entry-1790900246905-af4d040e-health",
+    "trialId": "795f8b75-d80b-4265-a972-0cb41a20af3a",
+    "ownerSource": "CODEX_THREAD_ID",
+    "sourceUnchangedAfterRun": true
+  },
+  "passed": true,
+  "results": [
+    {
+      "name": "Visible direct file input transfers only an approved opaque file",
+      "passed": true,
+      "elapsedMs": 365,
+      "details": {
+        "uploadVerified": true,
+        "uploads": 1
+      }
+    },
+    {
+      "name": "Approved file follows trusted custom upload entry",
+      "passed": true,
+      "elapsedMs": 290,
+      "details": {
+        "reproducedUnsupportedEntry": false,
+        "uploaded": true,
+        "crossOriginFrame": false
+      }
+    },
+    {
+      "name": "Approved file follows trusted cross-frame upload entry",
+      "passed": true,
+      "elapsedMs": 368,
+      "details": {
+        "reproducedUnsupportedEntry": false,
+        "uploaded": true,
+        "crossOriginFrame": true
+      }
+    },
+    {
+      "name": "A visible button without a file chooser cannot receive a file",
+      "passed": true,
+      "elapsedMs": 3262,
+      "details": {
+        "denied": true,
+        "code": "file_chooser_not_opened",
+        "activatedOnce": true,
+        "uploads": 0
+      }
+    },
+    {
+      "name": "Invalid and cross-workspace grants are denied before entry activation",
+      "passed": true,
+      "elapsedMs": 811,
+      "details": {
+        "denials": 2,
+        "activations": 0,
+        "uploads": 0
+      }
+    },
+    {
+      "name": "A changed visible upload entry rejects its stale reference before input",
+      "passed": true,
+      "elapsedMs": 532,
+      "details": {
+        "deniedAsStale": true,
+        "clicks": 0,
+        "uploads": 0
+      }
+    },
+    {
+      "name": "A multiple-file chooser receives only the one approved file",
+      "passed": true,
+      "elapsedMs": 288,
+      "details": {
+        "selectedFileCount": 1,
+        "uploadVerified": true
+      }
+    },
+    {
+      "name": "Disabled controls and directory pickers cannot transfer files",
+      "passed": true,
+      "elapsedMs": 1775,
+      "details": {
+        "cases": [
+          {
+            "mode": "direct-disabled",
+            "denied": true,
+            "code": "unsupported_upload_entry"
+          },
+          {
+            "mode": "button-disabled",
+            "denied": true,
+            "code": "unsupported_upload_entry"
+          },
+          {
+            "mode": "direct-directory",
+            "denied": true,
+            "code": "unsupported_upload_entry"
+          },
+          {
+            "mode": "button-directory",
+            "denied": true,
+            "code": "unsupported_file_chooser"
+          }
+        ],
+        "transfers": 0
+      }
+    },
+    {
+      "name": "A parent entry cannot delegate its file grant to a different frame",
+      "passed": true,
+      "elapsedMs": 418,
+      "details": {
+        "denied": true,
+        "code": "unsupported_file_chooser",
+        "parentActivatedOnce": true,
+        "childReceivedFiles": false
+      }
+    },
+    {
+      "name": "Exact external health flow passes with final submission untouched",
+      "passed": true,
+      "elapsedMs": 1138,
+      "details": {
+        "fixtureSourceUnmodified": true,
+        "grade": {
+          "passed": true,
+          "failures": []
+        },
+        "finalSubmitUntouched": true,
+        "trustedActivation": true,
+        "import": true,
+        "uploaded": true,
+        "delayed": true,
+        "browserActionMs": 1023,
+        "targetMs": 90000,
+        "overrun": false,
+        "comparisonOrReusableCertification": false
+      }
+    }
+  ],
+  "applicationDll": "build/app/Release/Xenon.dll"
+}

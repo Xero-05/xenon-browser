@@ -1,0 +1,22 @@
+{
+  "capturedAt": "2026-10-02T00:16:12.9961272Z",
+  "run": "native-input-1790899917517",
+  "applicationDllSha256": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "method": "Computer Use through native Windows UI in an isolated synthetic fixture",
+  "passed": true,
+  "observations": [
+    "The ordinary fixture page retained its content while the browser frame used the new dark teal accent. Native window titles ended with Xenon; website tab labels remained unchanged.",
+    "Xenon Controls displayed the rounded navy/teal logo in its title bar and header, a navy brand header, pale slate canvas, white grouped cards and teal section headings. Main controls and status text were readable without visible overlap at the tested size.",
+    "Clicked the synthetic Draft input, waited for its pause to end, and appended human edit. The harness independently verified a new keyboard activity epoch and pause while preserving owner, generation and the draft.",
+    "Clicked Confirm synthetic logout; Controls surfaced with the exact fixture selected and the agent labelled paused for you. The pause persisted until clicking the restyled Dismiss button, and fixture telemetry verified one dismissal.",
+    "Controls retained Take ownership, Give to agent, Remove workspace, shared-vault labels and Fill saved account. Chromium native menu features remained available; its inherited About Chromium label is still present.",
+    "Used the native browser menu Exit in the separate startup fixture. The harness verified ordinary blank restart, retained workspace storage and no automatic old-page loads."
+  ],
+  "limits": [
+    "No real website, saved password or existing user profile was used.",
+    "This check does not verify human account-picker interaction, Save/Update prompts, automatic autofill suggestions or PD Portal.",
+    "Only the current desktop scale and theme were visually checked; high-contrast, light mode, multi-monitor/DPI and Explorer icon-cache behavior need wider manual coverage.",
+    "Workspace removal was not approved through the UI."
+  ],
+  "computerUseClosed": true
+}

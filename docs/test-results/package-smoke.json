@@ -1,0 +1,244 @@
+{
+  "run": "package-smoke-1790901636513",
+  "capturedAt": "2026-10-02T00:40:38.751Z",
+  "release": "Xenon-0.1.0-alpha.9-windows-x64-unsigned",
+  "applicationDllSha256": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "branding": {
+    "run": "branding-1790901636596",
+    "capturedAt": "2026-10-02T00:40:36.596Z",
+    "binary": "Xenon.exe",
+    "release": "Xenon-0.1.0-alpha.9-windows-x64-unsigned",
+    "originalBootstrapSha256": "847a6815f814c902f413ed726160a980f9cc19cdb529b6ed84f5182a0670acc0",
+    "executableSha256": "c841af71e86c4b423abd852b616264fdfadb1350fb0d0849a05bbca7d1df0c52",
+    "applicationDllSha256": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+    "iconSha256": "d846a7e96ed595e04d84c44b90197abfd64553cf70e6d600d05f9bf229d90fce",
+    "passed": true,
+    "results": [
+      {
+        "name": "Resource branding preserves CEF executable code, memory policy and all non-branding resources",
+        "passed": true,
+        "details": {
+          "executableBytes": 3701248,
+          "identicalNonResourceSections": [
+            ".text",
+            ".rdata",
+            ".data",
+            ".pdata",
+            ".fptable",
+            ".tls",
+            "CPADinfo",
+            "LZMADEC",
+            "_RDATA",
+            "malloc_h",
+            ".reloc"
+          ],
+          "preservedResourceLeaves": 6,
+          "manifestPreserved": true,
+          "normalizedResourceCodePages": [
+            {
+              "resource": [
+                5,
+                200,
+                1033
+              ],
+              "original": 0,
+              "branded": 1252
+            },
+            {
+              "resource": [
+                6,
+                7,
+                1033
+              ],
+              "original": 0,
+              "branded": 1252
+            },
+            {
+              "resource": [
+                6,
+                14,
+                1033
+              ],
+              "original": 0,
+              "branded": 1252
+            },
+            {
+              "resource": [
+                6,
+                15,
+                1033
+              ],
+              "original": 0,
+              "branded": 1252
+            },
+            {
+              "resource": [
+                10,
+                "CEF_REVOCATION_LIST",
+                1033
+              ],
+              "original": 0,
+              "branded": 1252
+            },
+            {
+              "resource": [
+                24,
+                1,
+                1033
+              ],
+              "original": 0,
+              "branded": 1252
+            }
+          ],
+          "resourceGrowthRelocation": {
+            "section": ".reloc",
+            "originalRva": 4554752,
+            "brandedRva": 4648960,
+            "originalRawOffset": 4332544,
+            "brandedRawOffset": 4427776,
+            "identicalPayloadBytes": 14336
+          }
+        }
+      },
+      {
+        "name": "Branded executable icon group matches the approved Xenon icon",
+        "passed": true,
+        "details": {
+          "groupId": 101,
+          "languages": [
+            1033
+          ],
+          "dimensions": [
+            {
+              "width": 16,
+              "height": 16
+            },
+            {
+              "width": 20,
+              "height": 20
+            },
+            {
+              "width": 24,
+              "height": 24
+            },
+            {
+              "width": 32,
+              "height": 32
+            },
+            {
+              "width": 40,
+              "height": 40
+            },
+            {
+              "width": 48,
+              "height": 48
+            },
+            {
+              "width": 64,
+              "height": 64
+            },
+            {
+              "width": 128,
+              "height": 128
+            },
+            {
+              "width": 256,
+              "height": 256
+            }
+          ]
+        }
+      },
+      {
+        "name": "Application DLL icon group matches the approved Xenon icon",
+        "passed": true,
+        "details": {
+          "groupId": 101,
+          "languages": [
+            1033
+          ],
+          "dimensions": [
+            {
+              "width": 16,
+              "height": 16
+            },
+            {
+              "width": 20,
+              "height": 20
+            },
+            {
+              "width": 24,
+              "height": 24
+            },
+            {
+              "width": 32,
+              "height": 32
+            },
+            {
+              "width": 40,
+              "height": 40
+            },
+            {
+              "width": 48,
+              "height": 48
+            },
+            {
+              "width": 64,
+              "height": 64
+            },
+            {
+              "width": 128,
+              "height": 128
+            },
+            {
+              "width": 256,
+              "height": 256
+            }
+          ]
+        }
+      },
+      {
+        "name": "Executable version resource identifies Xenon",
+        "passed": true,
+        "details": {
+          "fileVersion": "0.1.0.9",
+          "productVersion": "0.1.0.9",
+          "productName": "Xenon Browser",
+          "originalFilenames": [
+            "Xenon.exe"
+          ]
+        }
+      },
+      {
+        "name": "Application DLL version resource identifies Xenon",
+        "passed": true,
+        "details": {
+          "fileVersion": "0.1.0.9",
+          "productVersion": "0.1.0.9",
+          "productName": "Xenon Browser",
+          "originalFilenames": [
+            "Xenon.dll"
+          ]
+        }
+      }
+    ],
+    "scope": "Read-only PE/resources; no executable loading, browser launch, screenshot or visual appearance assertion"
+  },
+  "passed": true,
+  "results": [
+    {
+      "name": "Packaged branding changes only permitted CEF bootstrap resources",
+      "passed": true,
+      "elapsedMs": 12
+    },
+    {
+      "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+      "passed": true,
+      "elapsedMs": 1396
+    },
+    {
+      "name": "Packaged browser observes and performs a verified page action",
+      "passed": true,
+      "elapsedMs": 254
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Xenon integration workbench</title>
+<style>
+body{font:16px system-ui;background:#eef1f5;color:#18212d;margin:32px;max-width:1000px}section{background:white;padding:24px;margin:18px 0;border-radius:12px}button,input,select,textarea{font:inherit;padding:10px;margin:6px}button{cursor:pointer}#target{width:80px;height:60px;background:#4169e1;color:white}#drop{width:160px;height:70px;border:2px dashed #4169e1;margin:15px}#overlay{display:none;position:fixed;inset:0;background:#2229;z-index:20}#spacer{height:1000px}canvas{border:1px solid #888}pre{white-space:pre-wrap;overflow-wrap:anywhere}
+</style></head><body>
+<h1>Xenon integration workbench</h1><p id="ready">Ready for concurrent work</p>
+<section><h2>Editing and handoff</h2><label>Draft<input id="draft" aria-label="Draft" value="Unsent draft"></label>
+<label>Notes<textarea id="notes" aria-label="Notes">Keep this text across handoffs.</textarea></label>
+<button id="increment">Increment count</button><output id="count">Count: 0</output>
+<button id="replace">Replace target</button><button id="replaceable">Original target</button>
+<label><input type="checkbox" id="check">Approve fixture</label><select aria-label="Priority"><option>Normal</option><option>High</option></select>
+<button onclick="alert('Fixture alert')">Open dialog</button><button onclick="window.open('/frame','fixturePopup')">Open popup</button><button onclick="document.querySelector('#overlay').style.display='block'">Show overlay</button>
+<p><a id="scriptLogout" href="javascript:void(document.querySelector('#scriptLogoutResult').textContent='Script logout link executed')">Script logout link</a> <output id="scriptLogoutResult">Script logout link untouched</output></p>
+<button id="confirmLogout" onclick="document.querySelector('#confirmLogoutResult').textContent=confirm('Sign out of the synthetic fixture?')?'Synthetic logout confirmed':'Synthetic logout cancelled'">Confirm synthetic logout</button><output id="confirmLogoutResult">Synthetic logout untouched</output>
+<div style="display:flex;gap:120px;margin:10px"><div id="gestureStart" role="button" aria-label="Drag handle" style="padding:12px;background:#4169e1;color:white">Drag handle</div><div id="gestureEnd" role="button" aria-label="Drag destination" style="padding:12px;background:#ddd">Drag destination</div></div><output id="gestureResult">Drag idle</output>
+</section>
+<section><h2>Browser content</h2><table><caption>Test rows</caption><tr><th>Name</th><th>Value</th></tr><tr><td>Alpha</td><td>42</td></tr><tr><td>Beta</td><td>17</td></tr></table>
+<iframe title="Same origin frame" src="/frame?kind=same"></iframe><iframe title="Cross origin frame" src="http://localhost:18765/frame?kind=cross"></iframe><div id="shadow"></div>
+<canvas width="240" height="100" aria-label="Canvas target" id="canvas"></canvas><p id="canvasResult">Canvas untouched</p>
+</section>
+<section><h2>Files and live activity</h2><input type="file" aria-label="Fixture upload" id="upload"><output id="uploadResult"></output>
+<a href="/download">Download fixture report</a><button id="slow">Start slow request</button><output id="slowResult">Idle</output>
+<p id="stream">WebSocket connecting</p><div draggable="true" id="target">Drag item</div><div id="drop">Drop here</div>
+</section>
+<section><h2>Event record</h2><button id="reset">Clear event record</button><pre id="events"></pre><pre id="state"></pre></section><div id="spacer"></div><p>End of page</p><div id="overlay"><button onclick="document.querySelector('#overlay').style.display='none'">Close overlay</button></div>
+<script>
+window.fixtureEvents=[]; window.fixtureStarted=performance.timeOrigin;
+const events=document.querySelector('#events'); const state=document.querySelector('#state'); let count=0;
+function record(type){fixtureEvents.push({type,at:Math.round(performance.now())}); if(fixtureEvents.length>100)fixtureEvents.shift();events.textContent=JSON.stringify(fixtureEvents);}
+['focus','blur','visibilitychange','storage','beforeunload','pageshow','pagehide'].forEach(type=>window.addEventListener(type,()=>record(type)));
+['input','change','pointerdown','pointerup','keydown','keyup','compositionstart','compositionend'].forEach(type=>document.addEventListener(type,()=>record(type),true));
+document.querySelector('#increment').onclick=()=>{document.querySelector('#count').textContent='Count: '+(++count)};
+document.querySelector('#replace').onclick=()=>{const old=document.querySelector('#replaceable'),next=old.cloneNode(true);next.textContent='Replacement target';old.replaceWith(next)};
+document.querySelector('#reset').onclick=()=>{fixtureEvents.length=0;events.textContent='[]'};
+document.querySelector('#slow').onclick=async()=>{document.querySelector('#slowResult').textContent='Loading';document.querySelector('#slowResult').textContent=await(await fetch('/slow')).text()};
+document.querySelector('#upload').onchange=e=>{document.querySelector('#uploadResult').textContent=e.target.files[0]?.name??'No file'};
+const shadow=document.querySelector('#shadow').attachShadow({mode:'open'});shadow.innerHTML='<button onclick="this.textContent=\'Shadow clicked\'">Shadow button</button>';
+const canvas=document.querySelector('#canvas'),ctx=canvas.getContext('2d');ctx.fillStyle='#4169e1';ctx.fillRect(30,20,140,55);ctx.fillStyle='white';ctx.font='20px sans-serif';ctx.fillText('Canvas button',35,55);canvas.onclick=()=>document.querySelector('#canvasResult').textContent='Canvas clicked';
+document.querySelector('#target').ondragstart=e=>e.dataTransfer.setData('text/plain','fixture');
+document.querySelector('#drop').ondragover=e=>e.preventDefault();document.querySelector('#drop').ondrop=e=>{e.preventDefault();e.currentTarget.textContent='Dropped'};
+const stream=new WebSocket('ws://'+location.host+'/stream');stream.onmessage=e=>document.querySelector('#stream').textContent='WebSocket message '+e.data;
+const caseId=new URL(location.href).searchParams.get('case');
+let gestureDown=false;const gestureStart=document.querySelector('#gestureStart'),gestureEnd=document.querySelector('#gestureEnd');
+gestureStart.onpointerdown=()=>{gestureDown=true;if(caseId)fetch('/gesture?id='+encodeURIComponent(caseId)+'&phase=down',{method:'POST'});};
+document.addEventListener('pointerup',e=>{if(gestureDown){gestureDown=false;document.querySelector('#gestureResult').textContent=e.target===gestureEnd?'Drag completed':'Drag released';if(caseId)fetch('/gesture?id='+encodeURIComponent(caseId)+'&phase=up',{method:'POST'});}});
+window.fixtureState=()=>({timeOrigin:performance.timeOrigin,draft:document.querySelector('#draft').value,active:document.activeElement?.id,selectionStart:document.querySelector('#draft').selectionStart,selectionEnd:document.querySelector('#draft').selectionEnd,scrollX,scrollY,count,events:fixtureEvents,stream:document.querySelector('#stream').textContent,cookie:document.cookie});
+setInterval(()=>{const snapshot=fixtureState();state.textContent=JSON.stringify({...snapshot,events:undefined},null,2);if(caseId)fetch('/telemetry?id='+encodeURIComponent(caseId),{method:'POST',body:JSON.stringify(snapshot)}).catch(()=>{});},500);
+</script></body></html>

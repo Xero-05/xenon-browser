@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testcase name="conventional and public CWL-shaped POST forms fill once without submission" time="0.004606" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="explicit username phase fills only that field" time="0.001063" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="explicit password phase fills only that field" time="0.001032" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="username-first and password-only need explicit autocomplete semantics" time="0.002272" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="focus-only requires the actual nonnull eligible input" time="0.002970" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="only top-level exact HTTPS origin can offer or fill" time="0.003585" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="GET, cross-origin, credential-bearing action URLs and external targets are rejected" time="0.004632" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="readonly, disabled and disabled-fieldset credential controls never offer or fill" time="0.004642" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="OTP and new-password inputs are never treated as current login credentials" time="0.004619" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="multiple visible usernames or passwords fail closed" time="0.001916" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="hidden decoys are not selected and visible replacement ambiguity is rejected" time="0.001143" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="covered, transparent, hidden, inert and offscreen fields are not actionable" time="0.004791" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="a nonempty password suppresses offers and cannot be overwritten after offering" time="0.000948" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="changed human username is preserved and consumes the offer" time="0.000929" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="existing matching username is allowed but a different typed account is preserved" time="0.001785" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="disconnected and replaced bound nodes cannot receive saved credentials" time="0.001918" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="reparented form and document identities cannot be rebound" time="0.002587" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="same-origin action path and field semantics changes invalidate the offer" time="0.002684" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="both original values are set before page input handlers can replace destinations" time="0.001076" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="page input and change handlers resetting either bound value prevent a success claim" time="0.003551" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="page handlers detaching or reparenting the bound form or fields prevent a success claim" time="0.004093" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="native prototype setter is used and fixed output never includes credentials" time="0.001025" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="safe native offer metadata does not serialize the retained username or DOM" time="0.000961" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<testcase name="empty password and malformed credential arguments fail before setters" time="0.003341" classname="test" file="[workspace]\tests\human-autofill-tests.mjs"/>
+	<!-- tests 24 -->
+	<!-- suites 0 -->
+	<!-- pass 24 -->
+	<!-- fail 0 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 142.5589 -->
+</testsuites>

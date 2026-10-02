@@ -1,0 +1,102 @@
+{
+  "run": "upload-entry-1790892092269-6a36681a",
+  "capturedAt": "2026-10-01T22:01:38.726Z",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "3f6ffe2aa3008baa07b625ff75d673b927c76eac5b66eac4682c976694564a84",
+  "applicationDllSha256AtEnd": "3f6ffe2aa3008baa07b625ff75d673b927c76eac5b66eac4682c976694564a84",
+  "mode": "baseline_failure_reproduction",
+  "benchmark": {
+    "sourceBasename": "browser-benchmark.cjs",
+    "sourceSha256": "aac50d9754706b96c1d21d108e33d81b1442aee20a67485e8c32e8b5f110e688",
+    "copiedUnchanged": true,
+    "benchmarkId": "upload-entry-1790892092269-6a36681a-health",
+    "trialId": "30a9e0da-2e3f-4dcf-8fbe-0f74698d2862",
+    "ownerSource": "CODEX_THREAD_ID",
+    "sourceUnchangedAfterRun": true
+  },
+  "passed": true,
+  "results": [
+    {
+      "name": "Visible direct file input transfers only an approved opaque file",
+      "passed": true,
+      "elapsedMs": 373,
+      "details": {
+        "uploadVerified": true,
+        "uploads": 1
+      }
+    },
+    {
+      "name": "Baseline reproduces unsupported custom upload entry",
+      "passed": true,
+      "elapsedMs": 161,
+      "details": {
+        "reproducedUnsupportedEntry": true,
+        "uploaded": false,
+        "crossOriginFrame": false
+      }
+    },
+    {
+      "name": "Baseline reproduces unsupported cross-frame upload entry",
+      "passed": true,
+      "elapsedMs": 277,
+      "details": {
+        "reproducedUnsupportedEntry": true,
+        "uploaded": false,
+        "crossOriginFrame": true
+      }
+    },
+    {
+      "name": "A visible button without a file chooser cannot receive a file",
+      "passed": true,
+      "elapsedMs": 246,
+      "details": {
+        "denied": true,
+        "code": "not_file_input",
+        "uploads": 0
+      }
+    },
+    {
+      "name": "Invalid and cross-workspace grants are denied before entry activation",
+      "passed": true,
+      "elapsedMs": 494,
+      "details": {
+        "denials": 2,
+        "activations": 0,
+        "uploads": 0
+      }
+    },
+    {
+      "name": "A changed visible upload entry rejects its stale reference before input",
+      "passed": true,
+      "elapsedMs": 294,
+      "details": {
+        "deniedAsStale": true,
+        "clicks": 0,
+        "uploads": 0
+      }
+    },
+    {
+      "name": "Exact external health flow reproduces only upload_transfer failure",
+      "passed": true,
+      "elapsedMs": 1380,
+      "details": {
+        "fixtureSourceUnmodified": true,
+        "grade": {
+          "passed": false,
+          "failures": [
+            "upload_transfer"
+          ]
+        },
+        "finalSubmitUntouched": true,
+        "trustedActivation": true,
+        "import": true,
+        "uploaded": false,
+        "delayed": true,
+        "browserActionMs": 1231,
+        "targetMs": 90000,
+        "overrun": false,
+        "comparisonOrReusableCertification": false
+      }
+    }
+  ]
+}

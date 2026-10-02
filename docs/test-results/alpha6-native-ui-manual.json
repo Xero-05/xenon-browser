@@ -1,0 +1,22 @@
+{
+  "capturedAt": "2026-10-01T21:18:26.569Z",
+  "run": "native-input-1790889330513",
+  "applicationDllSha256": "3f6ffe2aa3008baa07b625ff75d673b927c76eac5b66eac4682c976694564a84",
+  "method": "Computer Use through native Windows UI in an isolated synthetic fixture",
+  "passed": true,
+  "observations": [
+    "Remove workspace button fits the workspace toolbar; live tab rows identify their workspace and the account heading explains shared vault scope.",
+    "Selected only the generated fixture workspace and opened its removal confirmation. The warning named that workspace, described deferred profile cleanup and listed preserved vault/download/source files. No was the default button.",
+    "Selected No; the warning closed and the workspace and both live tab rows remained. No removal was approved through the UI.",
+    "Opened fixture Controls and closed it to hide it before the website confirmation.",
+    "Clicked Confirm synthetic logout on the human-owned fixture page.",
+    "Controls reappeared without an activation request and selected the exact fixture tab; website confirm message and loopback origin were visible.",
+    "Clicked Dismiss; fixture telemetry separately verified one dismissal, unchanged document and human ownership."
+  ],
+  "limits": [
+    "This synthetic check does not verify the PD Portal logout flow.",
+    "The automatic password Save/Update flow was not exercised.",
+    "Workspace deletion completion was tested separately through the unshipped native driver, not by accepting this UI confirmation."
+  ],
+  "computerUseClosed": true
+}

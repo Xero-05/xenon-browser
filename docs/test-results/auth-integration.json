@@ -1,0 +1,101 @@
+{
+  "run": "auth-integration-1790900314121",
+  "capturedAt": "2026-10-02T00:18:41.907Z",
+  "binary": "build/auth-fixture/Release/XenonAuthTest.exe",
+  "applicationDll": "build/auth-fixture/Release/XenonAuthTest.dll",
+  "applicationDllSha256": "fa0bb616a664ac3b6e8735ceb912951bab4c31ecc05da3e3883ff0aa7668f6a3",
+  "applicationDllSha256AtEnd": "fa0bb616a664ac3b6e8735ceb912951bab4c31ecc05da3e3883ff0aa7668f6a3",
+  "passed": true,
+  "logCanaryScan": {
+    "passed": true,
+    "filesScanned": 107,
+    "bytesScanned": 53264,
+    "scope": "Entire synthetic-profile tree, *.log and LOG diagnostics; UTF-8 and UTF-16 canaries; unreadable directories fail verification"
+  },
+  "results": [
+    {
+      "name": "Safe page screenshots remain available",
+      "passed": true,
+      "elapsedMs": 80
+    },
+    {
+      "name": "No raw eval, CDP, cookies or storage tools",
+      "passed": true,
+      "elapsedMs": 39
+    },
+    {
+      "name": "Synthetic password and OTP input events seal all observers through reveal and handoff",
+      "passed": true,
+      "elapsedMs": 946,
+      "details": {
+        "inputPath": "synthetic DOM input event, not Windows manual input",
+        "passwordAndOtp": true,
+        "laterRevealProtected": true,
+        "handoffs": 8
+      }
+    },
+    {
+      "name": "Native folder grants persist and upload only approved opaque file handles",
+      "passed": true,
+      "elapsedMs": 369,
+      "details": {
+        "persistedNativeFolder": true,
+        "serverVerifiedUpload": true,
+        "rawPathRejected": true,
+        "disguisedPairingConfigExcluded": true
+      }
+    },
+    {
+      "name": "Account rights remain per client across handoff",
+      "passed": true,
+      "elapsedMs": 17
+    },
+    {
+      "name": "Exact credential origin enforced",
+      "passed": true,
+      "elapsedMs": 188
+    },
+    {
+      "name": "GET and readonly forms reject credentials before input or submission",
+      "passed": true,
+      "elapsedMs": 2777,
+      "details": {
+        "rejectedCases": 6,
+        "mcpSubmit": true,
+        "nativeFillOnly": true,
+        "injectedEvents": 0,
+        "submissions": 0,
+        "credentialQueries": 0
+      }
+    },
+    {
+      "name": "Opaque saved login authenticates without a model-visible credential",
+      "passed": true,
+      "elapsedMs": 295,
+      "details": {
+        "authenticationVerifiedByFixture": true,
+        "credentialBytesReturned": false
+      }
+    },
+    {
+      "name": "Four-agent handoff preserves quarantine and sends no website input",
+      "passed": true,
+      "elapsedMs": 27,
+      "details": {
+        "handoffs": 4,
+        "addedWebsiteEvents": 0,
+        "protectionPreserved": true
+      }
+    },
+    {
+      "name": "Username-first forms reuse only the exact-origin account",
+      "passed": true,
+      "elapsedMs": 666,
+      "details": {
+        "usernameStep": true,
+        "passwordStep": true,
+        "oneSubmission": true
+      }
+    }
+  ]
+}

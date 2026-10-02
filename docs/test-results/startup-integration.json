@@ -1,0 +1,230 @@
+{
+  "run": "startup-integration-1790900050596-02313c8c",
+  "capturedAt": "2026-10-02T00:15:11.564Z",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "applicationDllSha256AtEnd": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "launches": 2,
+  "shutdownMode": "native-menu-exit",
+  "firstExitCode": 0,
+  "seededStartupPreferences": [
+    {
+      "phase": "before-first-launch",
+      "restoreOnStartupSeeded": 1,
+      "wasRestarted": false
+    },
+    {
+      "phase": "before-second-launch",
+      "restorePreferenceObserved": 1,
+      "restorePreferenceSource": "Secure Preferences",
+      "restorePreferenceWritten": false,
+      "wasRestarted": true
+    }
+  ],
+  "fixtureCounts": {
+    "actionCount": 2,
+    "documentLoads": {
+      "before-exit-a": 1,
+      "before-exit-b": 1,
+      "explicit-reopen": 1,
+      "fresh-workspace": 1,
+      "fresh-after-last-close": 1
+    }
+  },
+  "fixtureStates": {
+    "before-exit-a": {
+      "persistent": "startup_7e66f016af5b529a55bb3f34",
+      "session": "startup_7e66f016af5b529a55bb3f34",
+      "localStorage": "startup_7e66f016af5b529a55bb3f34"
+    },
+    "before-exit-b": {
+      "persistent": "startup_7e66f016af5b529a55bb3f34",
+      "session": "startup_7e66f016af5b529a55bb3f34",
+      "localStorage": "startup_7e66f016af5b529a55bb3f34"
+    },
+    "explicit-reopen": {
+      "persistent": "startup_7e66f016af5b529a55bb3f34",
+      "session": "startup_7e66f016af5b529a55bb3f34",
+      "localStorage": "startup_7e66f016af5b529a55bb3f34"
+    },
+    "fresh-workspace": {
+      "persistent": "startup_7e66f016af5b529a55bb3f34",
+      "session": "startup_7e66f016af5b529a55bb3f34",
+      "localStorage": "startup_7e66f016af5b529a55bb3f34"
+    },
+    "fresh-after-last-close": {
+      "persistent": "startup_7e66f016af5b529a55bb3f34",
+      "session": "startup_7e66f016af5b529a55bb3f34",
+      "localStorage": "startup_7e66f016af5b529a55bb3f34"
+    }
+  },
+  "lastFixtureObservations": {
+    "before-exit-a": {
+      "url": "http://127.0.0.1:60806/page?page=before-exit-a",
+      "loading": false,
+      "names": [
+        "Startup fixture ready",
+        "Persistent cookie: startup_7e66f016af5b529a55bb3f34",
+        "Session cookie: startup_7e66f016af5b529a55bb3f34",
+        "Local storage: startup_7e66f016af5b529a55bb3f34",
+        "Write fixture state once",
+        "Startup fixture ready",
+        "Persistent cookie: startup_7e66f016af5b529a55bb3f34",
+        "Session cookie: startup_7e66f016af5b529a55bb3f34",
+        "Local storage: startup_7e66f016af5b529a55bb3f34",
+        "Write fixture state once"
+      ]
+    },
+    "before-exit-b": {
+      "url": "http://127.0.0.1:60806/page?page=before-exit-b",
+      "loading": false,
+      "names": [
+        "Startup fixture ready",
+        "Persistent cookie: startup_7e66f016af5b529a55bb3f34",
+        "Session cookie: startup_7e66f016af5b529a55bb3f34",
+        "Local storage: startup_7e66f016af5b529a55bb3f34",
+        "Write fixture state once",
+        "Startup fixture ready",
+        "Persistent cookie: startup_7e66f016af5b529a55bb3f34",
+        "Session cookie: startup_7e66f016af5b529a55bb3f34",
+        "Local storage: startup_7e66f016af5b529a55bb3f34",
+        "Write fixture state once"
+      ]
+    },
+    "explicit-reopen": {
+      "url": "http://127.0.0.1:60806/page?page=explicit-reopen",
+      "loading": false,
+      "names": [
+        "Startup fixture ready",
+        "Persistent cookie: startup_7e66f016af5b529a55bb3f34",
+        "Session cookie: startup_7e66f016af5b529a55bb3f34",
+        "Local storage: startup_7e66f016af5b529a55bb3f34",
+        "Write fixture state once",
+        "Startup fixture ready",
+        "Persistent cookie: startup_7e66f016af5b529a55bb3f34",
+        "Session cookie: startup_7e66f016af5b529a55bb3f34",
+        "Local storage: startup_7e66f016af5b529a55bb3f34",
+        "Write fixture state once"
+      ]
+    },
+    "fresh-workspace": {
+      "url": "http://127.0.0.1:60806/page?page=fresh-workspace",
+      "loading": false,
+      "names": [
+        "Startup fixture ready",
+        "Persistent cookie: startup_7e66f016af5b529a55bb3f34",
+        "Session cookie: startup_7e66f016af5b529a55bb3f34",
+        "Local storage: startup_7e66f016af5b529a55bb3f34",
+        "Write fixture state once",
+        "Startup fixture ready",
+        "Persistent cookie: startup_7e66f016af5b529a55bb3f34",
+        "Session cookie: startup_7e66f016af5b529a55bb3f34",
+        "Local storage: startup_7e66f016af5b529a55bb3f34",
+        "Write fixture state once"
+      ]
+    },
+    "fresh-after-last-close": {
+      "url": "http://127.0.0.1:60806/page?page=fresh-after-last-close",
+      "loading": false,
+      "names": [
+        "Startup fixture ready",
+        "Persistent cookie: startup_7e66f016af5b529a55bb3f34",
+        "Session cookie: startup_7e66f016af5b529a55bb3f34",
+        "Local storage: startup_7e66f016af5b529a55bb3f34",
+        "Write fixture state once",
+        "Startup fixture ready",
+        "Persistent cookie: startup_7e66f016af5b529a55bb3f34",
+        "Session cookie: startup_7e66f016af5b529a55bb3f34",
+        "Local storage: startup_7e66f016af5b529a55bb3f34",
+        "Write fixture state once"
+      ]
+    }
+  },
+  "passed": true,
+  "results": [
+    {
+      "name": "First launch opens exactly one human-owned blank tab",
+      "passed": true,
+      "elapsedMs": 9,
+      "details": {
+        "initialTabCount": 1,
+        "owner": "human",
+        "url": "about:blank",
+        "acquired": false
+      }
+    },
+    {
+      "name": "Two fixture tabs remain open with persisted state before native Exit",
+      "passed": true,
+      "elapsedMs": 405,
+      "details": {
+        "openTabs": 3,
+        "fixtureTabs": 2,
+        "stateWrites": 1,
+        "persistentHttpOnlyCookie": true,
+        "sessionHttpOnlyCookie": true,
+        "localStorage": true
+      }
+    },
+    {
+      "name": "Native whole-application Exit closes the first process successfully",
+      "passed": true,
+      "elapsedMs": 53114,
+      "details": {
+        "exitCode": 0,
+        "exitMethod": "native menu Exit",
+        "fixtureTabsClosedByHarness": false
+      }
+    },
+    {
+      "name": "Normal reopen starts blank without loading old tabs or replaying actions",
+      "passed": true,
+      "elapsedMs": 3112,
+      "details": {
+        "initialTabCount": 1,
+        "owner": "human",
+        "url": "about:blank",
+        "oldDocumentLoads": 0,
+        "actionReplays": 0,
+        "settlingIntervalMs": 3000
+      }
+    },
+    {
+      "name": "Explicit fixture reopen preserves cookies and local storage",
+      "passed": true,
+      "elapsedMs": 133,
+      "details": {
+        "persistentCookieRetained": true,
+        "sessionCookieRetained": true,
+        "localStorageRetained": true,
+        "repeatedWrites": 0
+      }
+    },
+    {
+      "name": "A fresh workspace does not inherit the native workspace session",
+      "passed": true,
+      "elapsedMs": 346,
+      "details": {
+        "persistentCookieEmpty": true,
+        "sessionCookieEmpty": true,
+        "localStorageEmpty": true
+      }
+    },
+    {
+      "name": "Closing a workspace only tab preserves its session while the browser stays open",
+      "passed": true,
+      "elapsedMs": 1522,
+      "details": {
+        "onlyWorkspaceTabClosed": true,
+        "otherWorkspaceStayedOpen": true,
+        "persistentCookieRetained": true,
+        "sessionCookieRetained": true,
+        "localStorageRetained": true,
+        "totalStateWrites": 2,
+        "repeatedWrites": 0,
+        "settlingIntervalMs": 1000
+      }
+    }
+  ],
+  "applicationDll": "build/app/Release/Xenon.dll"
+}

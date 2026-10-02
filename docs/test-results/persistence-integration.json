@@ -1,0 +1,178 @@
+{
+  "run": "persistence-integration-1790900334999-9b5df1d7",
+  "capturedAt": "2026-10-02T00:19:35.094Z",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "applicationDllSha256AtEnd": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "launches": 2,
+  "flushDelayMs": 35000,
+  "shutdownMode": "forced",
+  "persistenceDiagnostics": [
+    {
+      "phase": "after-first-shutdown",
+      "localStateReadable": true,
+      "keyPresent": true,
+      "keyUnchanged": true,
+      "appBoundKeyPresent": false,
+      "appBoundKeyUnchanged": false,
+      "cookieDatabases": [
+        {
+          "workspaceDirectory": "workspace-ab836e73ff01a2c15bd4c8985af0285e7f1511733561a3a51c774bcb1d19089b",
+          "databasePresent": true,
+          "databaseBytes": 20480,
+          "journalBytes": 0
+        },
+        {
+          "workspaceDirectory": "workspace-bfbfd77b2f7b71edbeb3c8f1c3e4dcfbe670ad6918320c62fbb2bee34754bba6",
+          "databasePresent": true,
+          "databaseBytes": 20480,
+          "journalBytes": 0
+        },
+        {
+          "workspaceDirectory": "workspace-e8a6d231fdf2584f34eaae185658773357bbf1d199c55d369aec5e7cc28b20e6",
+          "databasePresent": true,
+          "databaseBytes": 20480,
+          "journalBytes": 0
+        }
+      ]
+    },
+    {
+      "phase": "after-second-launch",
+      "localStateReadable": true,
+      "keyPresent": true,
+      "keyUnchanged": true,
+      "appBoundKeyPresent": false,
+      "appBoundKeyUnchanged": false,
+      "cookieDatabases": [
+        {
+          "workspaceDirectory": "workspace-ab836e73ff01a2c15bd4c8985af0285e7f1511733561a3a51c774bcb1d19089b",
+          "databasePresent": true,
+          "databaseBytes": 20480,
+          "journalBytes": 0
+        },
+        {
+          "workspaceDirectory": "workspace-bfbfd77b2f7b71edbeb3c8f1c3e4dcfbe670ad6918320c62fbb2bee34754bba6",
+          "databasePresent": true,
+          "databaseBytes": 20480,
+          "journalBytes": 0
+        },
+        {
+          "workspaceDirectory": "workspace-e8a6d231fdf2584f34eaae185658773357bbf1d199c55d369aec5e7cc28b20e6",
+          "databasePresent": true,
+          "databaseBytes": 20480,
+          "journalBytes": 0
+        }
+      ]
+    },
+    {
+      "phase": "after-second-launch-validation",
+      "localStateReadable": true,
+      "keyPresent": true,
+      "keyUnchanged": true,
+      "appBoundKeyPresent": false,
+      "appBoundKeyUnchanged": false,
+      "cookieDatabases": [
+        {
+          "workspaceDirectory": "workspace-8f1dea70e337d34fb0d7304ed218ec55557bacebcf62e36036746c5681af231d",
+          "databasePresent": true,
+          "databaseBytes": 20480,
+          "journalBytes": 0
+        },
+        {
+          "workspaceDirectory": "workspace-ab836e73ff01a2c15bd4c8985af0285e7f1511733561a3a51c774bcb1d19089b",
+          "databasePresent": true,
+          "databaseBytes": 20480,
+          "journalBytes": 0
+        },
+        {
+          "workspaceDirectory": "workspace-bfbfd77b2f7b71edbeb3c8f1c3e4dcfbe670ad6918320c62fbb2bee34754bba6",
+          "databasePresent": true,
+          "databaseBytes": 20480,
+          "journalBytes": 0
+        },
+        {
+          "workspaceDirectory": "workspace-e8a6d231fdf2584f34eaae185658773357bbf1d199c55d369aec5e7cc28b20e6",
+          "databasePresent": true,
+          "databaseBytes": 20480,
+          "journalBytes": 0
+        }
+      ]
+    }
+  ],
+  "fixtureStates": {
+    "initial-primary": {
+      "cookie": "primary_1fb643c43b1d4094a233dc24",
+      "localStorage": "primary_1fb643c43b1d4094a233dc24",
+      "at": 1790900336286
+    },
+    "initial-secondary": {
+      "cookie": "secondary_d421c3670436a54281b0378a",
+      "localStorage": "secondary_d421c3670436a54281b0378a",
+      "at": 1790900336584
+    },
+    "secondary-after-primary-write": {
+      "cookie": null,
+      "localStorage": null,
+      "at": 1790900336518
+    },
+    "primary-after-secondary-write": {
+      "cookie": "primary_1fb643c43b1d4094a233dc24",
+      "localStorage": "primary_1fb643c43b1d4094a233dc24",
+      "at": 1790900336831
+    },
+    "reopened-primary": {
+      "cookie": "primary_1fb643c43b1d4094a233dc24",
+      "localStorage": "primary_1fb643c43b1d4094a233dc24",
+      "at": 1790900373809
+    },
+    "reopened-secondary": {
+      "cookie": "secondary_d421c3670436a54281b0378a",
+      "localStorage": "secondary_d421c3670436a54281b0378a",
+      "at": 1790900373992
+    },
+    "fresh-after-restart": {
+      "cookie": null,
+      "localStorage": null,
+      "at": 1790900374260
+    }
+  },
+  "passed": true,
+  "results": [
+    {
+      "name": "Distinct workspaces isolate persistent cookies and local storage before restart",
+      "passed": true,
+      "elapsedMs": 1168,
+      "details": {
+        "workspaces": 2,
+        "cookie": "persistent HttpOnly Max-Age=86400",
+        "localStorageKeyShared": true,
+        "valuesDistinct": true
+      }
+    },
+    {
+      "name": "Stored state survives a forced process stop and a second launch",
+      "passed": true,
+      "elapsedMs": 37060,
+      "details": {
+        "launches": 2,
+        "flushDelayMs": 35000,
+        "shutdownMode": "forced",
+        "newWorkerHandles": true,
+        "originalWorkspaceHandles": true,
+        "primaryCookieAndStorageRetained": true,
+        "secondaryCookieAndStorageRetained": true,
+        "noWritesDuringSecondLaunch": true
+      }
+    },
+    {
+      "name": "A new workspace after restart does not inherit either saved session",
+      "passed": true,
+      "elapsedMs": 406,
+      "details": {
+        "freshCookieEmpty": true,
+        "freshLocalStorageEmpty": true
+      }
+    }
+  ],
+  "applicationDll": "build/app/Release/Xenon.dll"
+}

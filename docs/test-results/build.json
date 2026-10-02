@@ -1,0 +1,81 @@
+{
+  "capturedAt": "2026-10-02T00:21:11.345Z",
+  "platform": "Windows x64",
+  "stage": "unsigned local alpha",
+  "dependencies": {
+    "cef": {
+      "version": "154.0.32+g682c378+chromium-154.0.8037.58",
+      "archive": "cef_binary_154.0.32+g682c378+chromium-154.0.8037.58_windows64_minimal.tar.bz2",
+      "sha1": "9131b9d7a464202b9274beec1f24569599524cca",
+      "sha256": "aa1f7ab28005307edcc13f95e3ce5cd9d221894b00458fb5e368c00603204a2a"
+    },
+    "sqlite": {
+      "version": "3.53.4",
+      "url": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip",
+      "sha256": "1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d"
+    },
+    "json": {
+      "version": "3.12.0",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp",
+      "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+    },
+    "node": {
+      "version": "24.16.0",
+      "sha256": "edaca9bd58ec8e92037dac4e877d52f6b8f430b81c18b57e264b4e2fb111cd56"
+    }
+  },
+  "applicationDllSha256": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "bootstrapSha256": "c841af71e86c4b423abd852b616264fdfadb1350fb0d0849a05bbca7d1df0c52",
+  "reports": [
+    {
+      "name": "integration",
+      "passed": true,
+      "checks": 17
+    },
+    {
+      "name": "auth-integration",
+      "passed": true,
+      "checks": 10
+    },
+    {
+      "name": "persistence-integration",
+      "passed": true,
+      "checks": 3
+    },
+    {
+      "name": "native-input-smoke",
+      "passed": true,
+      "checks": 3
+    },
+    {
+      "name": "visibility-integration",
+      "passed": true,
+      "checks": 9
+    },
+    {
+      "name": "worker-lifecycle-integration",
+      "passed": true,
+      "checks": 4
+    },
+    {
+      "name": "startup-integration",
+      "passed": true,
+      "checks": 7
+    },
+    {
+      "name": "workspace-removal-integration",
+      "passed": true,
+      "checks": 4
+    },
+    {
+      "name": "upload-entry-integration",
+      "passed": true,
+      "checks": 10
+    },
+    {
+      "name": "human-autofill-integration",
+      "passed": true,
+      "checks": 9
+    }
+  ]
+}

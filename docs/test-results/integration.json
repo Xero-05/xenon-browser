@@ -1,0 +1,103 @@
+{
+  "run": "integration-1790900149227-18e8cea8",
+  "capturedAt": "2026-10-02T00:16:19.294Z",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b",
+  "passed": true,
+  "results": [
+    {
+      "name": "Four separate adapters, three live tabs each",
+      "passed": true,
+      "elapsedMs": 3134
+    },
+    {
+      "name": "Workspace and result isolation",
+      "passed": true,
+      "elapsedMs": 10739
+    },
+    {
+      "name": "A pending wait does not block other adapters",
+      "passed": true,
+      "elapsedMs": 4188
+    },
+    {
+      "name": "Page-only screenshots through real MCP image output",
+      "passed": true,
+      "elapsedMs": 88
+    },
+    {
+      "name": "Replaced nodes reject stale references",
+      "passed": true,
+      "elapsedMs": 70
+    },
+    {
+      "name": "Overlay hit testing rejects obscured input",
+      "passed": true,
+      "elapsedMs": 136
+    },
+    {
+      "name": "Same-origin and cross-origin frames expose usable references",
+      "passed": true,
+      "elapsedMs": 154
+    },
+    {
+      "name": "Shadow DOM actionability and semantics",
+      "passed": true,
+      "elapsedMs": 78
+    },
+    {
+      "name": "Visual coordinates require a current screenshot",
+      "passed": true,
+      "elapsedMs": 110
+    },
+    {
+      "name": "JavaScript dialogs are handled without blocking other tabs",
+      "passed": true,
+      "elapsedMs": 366
+    },
+    {
+      "name": "Website JavaScript links and logout confirmations remain usable",
+      "passed": true,
+      "elapsedMs": 889,
+      "detail": {
+        "scriptLinkExecuted": true,
+        "confirmationAcceptedAndDismissed": true
+      }
+    },
+    {
+      "name": "Download namespace reports opaque scoped metadata",
+      "passed": true,
+      "elapsedMs": 374
+    },
+    {
+      "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+      "passed": true,
+      "elapsedMs": 1722,
+      "detail": {
+        "documentPreserved": true,
+        "websiteEventsAdded": 0
+      }
+    },
+    {
+      "name": "Related popups transfer as one ownership group",
+      "passed": true,
+      "elapsedMs": 386
+    },
+    {
+      "name": "Mid-drag handoff waits for release before changing ownership",
+      "passed": true,
+      "elapsedMs": 503
+    },
+    {
+      "name": "Four workers behind one adapter, three tabs each",
+      "passed": true,
+      "elapsedMs": 3865
+    },
+    {
+      "name": "Disconnect/reconnect preserves page and never replays mutations",
+      "passed": true,
+      "elapsedMs": 744
+    }
+  ],
+  "applicationDll": "build/app/Release/Xenon.dll"
+}

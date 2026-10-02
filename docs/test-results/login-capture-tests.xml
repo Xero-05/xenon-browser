@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testcase name="capture installs only once in a top-level HTTPS document" time="0.004110" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="only trusted password editing emits a value-free form identity" time="0.001077" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="trusted conventional POST submission marks privacy before native-only credential message" time="0.001000" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="public CWL form shape captures its username and password without autocomplete attributes" time="0.001359" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="synthetic website input and submit never emit credentials" time="0.001154" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses GET method" time="0.000867" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses cross-origin action" time="0.000727" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses HTTP action" time="0.000690" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses URL credentials" time="0.000693" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses new-window target" time="0.000781" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses disconnected form" time="0.000791" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses readonly password" time="0.000764" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses disabled password" time="0.000676" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses readonly username" time="0.000668" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses hidden password" time="0.000627" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses new password" time="0.000624" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses one-time code" time="0.000670" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses multiple passwords" time="0.000650" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses missing username" time="0.000703" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="capture refuses ambiguous username" time="0.000795" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="submission refuses all submitter action, method, and target overrides" time="0.001856" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="submission rejects empty or oversized passwords and oversized usernames" time="0.001916" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="a revealed password retains its sensitive identity and original form token" time="0.000717" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="separate forms receive separate opaque identities" time="0.000742" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="submission is an attempt and never emits a site-inferred success claim" time="0.000928" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="a wrong-password attempt remains a human save decision rather than a success claim" time="0.001407" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="page alerts after submission cannot claim success or cancel the native human decision" time="0.000711" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="disabling or making a submitted password readonly emits no further credential message" time="0.001325" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="replacing the submitted form does not create another submission" time="0.000698" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="ordinary MFA input never emits a password-edit cancellation or captures its value" time="0.001314" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="SSO redirects never change the origin already emitted with the credential attempt" time="0.000698" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<testcase name="a new trusted password edit emits a distinct cancellation opportunity before replacement submission" time="0.000820" classname="test" file="[workspace]\tests\login-capture-tests.mjs"/>
+	<!-- tests 32 -->
+	<!-- suites 0 -->
+	<!-- pass 32 -->
+	<!-- fail 0 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 111.0365 -->
+</testsuites>
