@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.0-alpha.11
+
+The Windows installer now offers a **program folder chooser** on a fresh installation. Choose an empty, writable folder on a local fixed drive, or keep the default `%LOCALAPPDATA%\Programs\Xenon Browser`. Download the unsigned installer and its SHA-256 file from the [alpha.11 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.11). Portable ZIPs remain available.
+
+Updates reuse the existing installation folder. To relocate an installed copy, including alpha.10, close Xenon and stop its MCP adapters, uninstall through Windows **Installed apps**, then reinstall into the new folder. Uninstall preserves browser data and pairing files; choosing a program folder does not move the separate browser data directory. Update your MCP host's Node and adapter paths after relocation. See [installation and pairing](GETTING_STARTED.md) for examples.
+
+The native update checks, explicit installation decision, unsigned-release limitations and profile-preservation policy are unchanged. See [test evidence and scope](TESTING.md) for validation records.
+
 ## 0.1.0-alpha.10
 
 This Windows x64 release adds an **unsigned per-user installer** and native update controls. Download the installer and its SHA-256 file from the [alpha.10 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.10), or use the portable ZIP. Follow [Get started](GETTING_STARTED.md) for checksum verification, installation and MCP pairing.

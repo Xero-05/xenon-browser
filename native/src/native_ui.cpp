@@ -228,7 +228,7 @@ struct NativeUi::Impl {
       std::lock_guard lock(update_state->mutex);if(update_state->phase!=UpdatePhase::ready||!update_state->release)return;
       release=update_state->release;installer=update_state->installer;
     }
-    if(MessageBoxW(update_window,L"Open the unsigned Xenon setup program?\n\nStop external MCP adapters and close all Xenon windows before setup can install. Save unfinished website work first. Xenon will not close tabs or interrupt agents for you.\n\nSetup upgrades an installed copy, or installs a portable copy to your per-user Programs folder. When setup finishes, open Xenon from the Start menu.",
+    if(MessageBoxW(update_window,L"Open the unsigned Xenon setup program?\n\nStop external MCP adapters and close all Xenon windows before setup can install. Save unfinished website work first. Xenon will not close tabs or interrupt agents for you.\n\nSetup upgrades an installed copy in its existing folder. For a first installation, you can choose a folder. When setup finishes, open Xenon from the Start menu.",
       L"Install Xenon update",MB_YESNO|MB_ICONINFORMATION|MB_DEFBUTTON2)!=IDYES)return;
     {
       std::lock_guard lock(update_state->mutex);if(update_state->phase!=UpdatePhase::ready)return;

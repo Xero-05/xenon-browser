@@ -1,0 +1,215 @@
+{
+  "version": "0.1.0-alpha.11",
+  "capturedUtc": "2026-10-02T22:02:32.0499241Z",
+  "applicationDllSha256": "49b6c64cf933636d540f0ba9c12b0b6c4a877d37b0fda8bfaf4c5e01bbd93d51",
+  "installer": {
+    "checks": 47,
+    "results": [
+      {
+        "passed": true,
+        "name": "fresh install rejects occupied destination"
+      },
+      {
+        "passed": true,
+        "name": "fresh install rejects drive-root destination"
+      },
+      {
+        "passed": true,
+        "name": "fresh install rejects profile-child destination"
+      },
+      {
+        "passed": true,
+        "name": "fresh install rejects profile destination"
+      },
+      {
+        "passed": true,
+        "name": "fresh install rejects profile-ancestor destination"
+      },
+      {
+        "passed": true,
+        "name": "unrelated folder is not overwritten"
+      },
+      {
+        "passed": true,
+        "name": "fresh install fails closed when folder enumeration is denied"
+      },
+      {
+        "passed": true,
+        "name": "enumeration denial is distinguished from an empty folder"
+      },
+      {
+        "passed": true,
+        "name": "unlistable folder contents are not replaced"
+      },
+      {
+        "passed": true,
+        "name": "per-user first install accepts a chosen path containing spaces"
+      },
+      {
+        "passed": true,
+        "name": "destination chooser is enabled for fresh installation"
+      },
+      {
+        "passed": true,
+        "name": "custom installation does not create a second default copy"
+      },
+      {
+        "passed": true,
+        "name": "installed release recorded in isolated HKCU key"
+      },
+      {
+        "passed": true,
+        "name": "uninstall registration and Start Menu shortcut"
+      },
+      {
+        "passed": true,
+        "name": "uninstaller registration records the chosen folder"
+      },
+      {
+        "passed": true,
+        "name": "Start Menu shortcut uses the chosen executable and working directory"
+      },
+      {
+        "passed": true,
+        "name": "desktop shortcut is opt-in"
+      },
+      {
+        "passed": true,
+        "name": "running browser marker refuses upgrade"
+      },
+      {
+        "passed": true,
+        "name": "running browser marker refuses uninstall"
+      },
+      {
+        "passed": true,
+        "name": "running refusals leave release unchanged"
+      },
+      {
+        "passed": true,
+        "name": "held MCP Node runtime refuses upgrade before replacement"
+      },
+      {
+        "passed": true,
+        "name": "held MCP Node runtime refuses uninstall"
+      },
+      {
+        "passed": true,
+        "name": "locked-file refusals leave release unchanged"
+      },
+      {
+        "passed": true,
+        "name": "upgrade rejects relocation to prevent orphan binaries"
+      },
+      {
+        "passed": true,
+        "name": "relocation refusal explains uninstall and reinstall"
+      },
+      {
+        "passed": true,
+        "name": "missing standard registered path fails closed instead of choosing a conflicting default"
+      },
+      {
+        "passed": true,
+        "name": "force-close command override rejected"
+      },
+      {
+        "passed": true,
+        "name": "alpha.9 to alpha.10 upgrade succeeds"
+      },
+      {
+        "passed": true,
+        "name": "upgrade skips folder selection and remembers the chosen path without /DIR"
+      },
+      {
+        "passed": true,
+        "name": "upgrade replaces payload and release together"
+      },
+      {
+        "passed": true,
+        "name": "explicit desktop shortcut created"
+      },
+      {
+        "passed": true,
+        "name": "desktop shortcut points to the custom installation"
+      },
+      {
+        "passed": true,
+        "name": "alpha.10 to alpha.9 downgrade rejected numerically"
+      },
+      {
+        "passed": true,
+        "name": "invalid installed release fails closed: not-a-release"
+      },
+      {
+        "passed": true,
+        "name": "invalid installed release fails closed: 0.1.0.-alpha.9"
+      },
+      {
+        "passed": true,
+        "name": "invalid installed release fails closed: 0.1.0-alpha.09"
+      },
+      {
+        "passed": true,
+        "name": "prerelease to stable upgrade succeeds"
+      },
+      {
+        "passed": true,
+        "name": "stable to prerelease downgrade rejected"
+      },
+      {
+        "passed": true,
+        "name": "uninstall succeeds when runtime is closed"
+      },
+      {
+        "passed": true,
+        "name": "uninstall removes only fixture registration and shortcuts"
+      },
+      {
+        "passed": true,
+        "name": "custom runtime removed by its uninstaller"
+      },
+      {
+        "passed": true,
+        "name": "fresh install still accepts the default empty folder"
+      },
+      {
+        "passed": true,
+        "name": "legacy registration uses standard Inno app path without new InstallDir metadata"
+      },
+      {
+        "passed": true,
+        "name": "existing default installation upgrades in place without /DIR"
+      },
+      {
+        "passed": true,
+        "name": "default upgrade retains its registered folder"
+      },
+      {
+        "passed": true,
+        "name": "default fixture cleanup succeeds"
+      },
+      {
+        "passed": true,
+        "name": "separate synthetic browser profile survives upgrade and uninstall"
+      }
+    ],
+    "passed": true,
+    "scope": "Actual Inno installer with synthetic payload, isolated fixture identity, registry, shortcuts, mutexes and profile sentinel"
+  },
+  "nativeInstallerUi": {
+    "computerUseClosed": true,
+    "passed": true,
+    "scope": "Computer Use on the same isolated installer: visible destination field, edited custom path, Browse dialog, accepted selection and matching Ready-page destination; cancelled before installation",
+    "productionInstallTouched": false
+  },
+  "branding": {
+    "checks": 5,
+    "passed": true
+  },
+  "limitations": [
+    "No real user installation or relocation performed",
+    "Unrelated live browser acceptance suites not repeated",
+    "Unsigned alpha; no Authenticode publisher certificate"
+  ]
+}

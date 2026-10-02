@@ -1,6 +1,6 @@
 # Using Xenon
 
-Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.10**. Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
+Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.11**. Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
 
 ## Browser and Controls
 
@@ -135,9 +135,11 @@ Download the offered update in the native Updates window, then choose to install
 
 Finish your work, stop Xenon's MCP adapters in your hosts, and exit the browser normally when setup asks. Setup waits for running Xenon instances; it does not force-close pages, agents or adapters. Start Xenon again from the Start menu after installation. Updates require a normal application restart and do not preserve live renderer state as a handoff does. Profiles, saved accounts, grants and pairing configuration remain separate from the application files.
 
-The installer uses `%LOCALAPPDATA%\Programs\Xenon Browser`, so MCP executable and adapter paths stay stable between updates. When moving from an older portable ZIP, install once and update those two paths in your MCP host. Use the Start menu shortcut afterward; an older portable copy is not overwritten. Uninstall through Windows **Installed apps**; uninstall keeps your browser data and pairing files. Downgrades through the installer are refused because profile migrations may not be reversible.
+On a fresh installation, setup lets you choose an empty, dedicated folder on a local fixed drive that your Windows account can write to. The default is `%LOCALAPPDATA%\Programs\Xenon Browser`. Updates reuse the recorded installation folder, keeping MCP executable and adapter paths stable. Choosing a different program folder does not move browser data from its separate data directory.
 
-Portable ZIPs remain available for manual installation. Extract the complete package into a separate folder and keep its matching runtime files together. The Updates window in a portable copy can install the newer release into the standard per-user location.
+To relocate an existing installation, including alpha.10, stop its MCP adapters, close Xenon and uninstall through Windows **Installed apps**. Uninstall keeps your browser data and pairing files. Run the new installer, choose the new folder, and change the Node and adapter paths in your MCP host to match. Downgrades through the installer are refused because profile migrations may not be reversible.
+
+Portable ZIPs remain available for manual installation. Extract the complete package into a separate folder and keep its matching runtime files together. The Updates window in a portable copy opens setup: a fresh installation offers the folder chooser, while an existing installation is updated in its recorded folder. After moving to an installed copy, use its Start menu shortcut and update your MCP host paths; setup does not automatically replace an older portable folder.
 
 ## Troubleshooting
 

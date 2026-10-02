@@ -6,9 +6,9 @@
 
 Xenon combines a visible Chromium browser with tools that let external agents inspect pages, interact with controls, and hand off a live tab. You choose which clients can connect, which workspaces they can use, and which saved accounts or local files they may access.
 
-**Current release: 0.1.0-alpha.10 · Windows x64 · unsigned alpha.** A per-user installer and in-browser update checks are available. Installation remains a human decision. The included tests exercise synthetic websites and specific native workflows; they do not establish universal website compatibility or an independent security audit.
+**Current release: 0.1.0-alpha.11 · Windows x64 · unsigned alpha.** A per-user installer with a folder chooser and in-browser update checks are available. Installation remains a human decision. The included tests exercise synthetic websites and specific native workflows; they do not establish universal website compatibility or an independent security audit.
 
-[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.10) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent instructions](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
+[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.11) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent instructions](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
 
 ## What Xenon does
 
@@ -24,7 +24,7 @@ The browser uses CEF's sandboxed Chrome runtime, a native C++ broker and an exte
 
 ## Start here
 
-1. Download the **unsigned Windows installer** and its SHA-256 file from the release, verify the checksum, and run setup. See [Get started](docs/GETTING_STARTED.md) for the exact steps.
+1. Download the **unsigned Windows installer** and its SHA-256 file from the release, verify the checksum, and run setup. A fresh installation lets you choose an empty, writable program folder on a local fixed drive; later updates reuse it. See [Get started](docs/GETTING_STARTED.md) for the exact steps.
 2. Open **Xenon Browser** from the Start menu. A fresh launch opens a blank tab.
 3. Open **Xenon Controls** with **Ctrl+Shift+X**, or choose **Xenon Controls and Accounts** from a webpage's context menu.
 4. Follow [Get started](docs/GETTING_STARTED.md) to pair an MCP client using the included Node runtime.

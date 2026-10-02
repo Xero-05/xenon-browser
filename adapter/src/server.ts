@@ -48,7 +48,7 @@ export function toolResult(reply: NativeReply, containsWebsiteContent = false, c
 }
 
 export function createServer(transport: BrokerTransport, era: 'legacy' | 'modern' = 'legacy'): McpServer {
-  const server = new McpServer({ name: 'xenon-browser', version: '0.1.0-alpha.10' }, {
+  const server = new McpServer({ name: 'xenon-browser', version: '0.1.0-alpha.11' }, {
     instructions: `${description} Tabs created by a worker are owned by that worker automatically. Human page input keeps that owner and pauses agent input until about two seconds of inactivity, with longer pauses while an input gesture or human dialog remains active. ${ACTIVITY_MESSAGE} Read xenon_activity or ${ACTIVITY_URI} for current status. Clients can subscribe to that resource for change notifications.`,
     capabilities: { resources: { subscribe: true } },
   });

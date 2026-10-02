@@ -23,6 +23,11 @@
   #define ProductName "Xenon Installer Fixture " + TestId
   #define ProductDir TestInstallDir
   #define ProductRegistry "Software\XenonInstallerTests\" + TestId
+  #define ProductUninstallRegistry "Software\Microsoft\Windows\CurrentVersion\Uninstall\Xenon.InstallerFixture." + TestId + "_is1"
+  #ifndef TestProfileDir
+    #error TestProfileDir is required for isolated installer tests
+  #endif
+  #define ProfileDir TestProfileDir
   #define RunningMutex "Local\XenonInstallerFixtureRunning-" + TestId
   #define InstallerMutex "Local\XenonInstallerFixtureSetup-" + TestId
   #define OutputName "fixture-" + ReleaseVersion
@@ -31,6 +36,8 @@
   #define ProductName "Xenon Browser"
   #define ProductDir "{localappdata}\Programs\Xenon Browser"
   #define ProductRegistry "Software\Xenon Browser\Installer"
+  #define ProductUninstallRegistry "Software\Microsoft\Windows\CurrentVersion\Uninstall\{C0D7CF52-A672-4B76-82E4-BE1664F9D305}_is1"
+  #define ProfileDir "{localappdata}\Xenon Browser"
   #define RunningMutex "Local\XenonBrowserRunning"
   #define InstallerMutex "Local\XenonBrowserSetup"
   #define OutputName "Xenon-" + ReleaseVersion + "-windows-x64-setup-unsigned"
@@ -49,9 +56,10 @@ VersionInfoVersion={#ReleaseNumericVersion}
 VersionInfoDescription={#ProductName} per-user installer (unsigned alpha)
 DefaultDirName={#ProductDir}
 DefaultGroupName={#ProductName}
-DisableDirPage=yes
+DisableDirPage=no
+AlwaysShowDirOnReadyPage=yes
 DisableProgramGroupPage=yes
-UsePreviousAppDir=no
+UsePreviousAppDir=yes
 PrivilegesRequired=lowest
 SetupArchitecture=x64
 ArchitecturesAllowed=x64os
@@ -99,8 +107,111 @@ function CreateInstallerMutex(Security: NativeInt; InitialOwner: Boolean; Name: 
   external 'CreateMutexW@kernel32.dll stdcall';
 function LastWindowsError: DWORD;
   external 'GetLastError@kernel32.dll stdcall';
+function PathAttributes(Name: String): DWORD;
+  external 'GetFileAttributesW@kernel32.dll stdcall';
+function LocalDriveType(Name: String): UINT;
+  external 'GetDriveTypeW@kernel32.dll stdcall';
+function LongPath(Name: String; Buffer: String; BufferLength: DWORD): DWORD;
+  external 'GetLongPathNameW@kernel32.dll stdcall';
 
 var UninstallMutex: THandle;
+
+function NormalizedDir(Name: String): String;
+var Existing, Tail, Buffer: String; Count: DWORD;
+begin
+  Result := RemoveBackslashUnlessRoot(ExpandFileName(Name));
+  // Resolve existing 8.3 aliases without creating the selected directory.
+  Existing := Result; Tail := '';
+  while (not DirExists(Existing)) and (Length(Existing) > 3) do begin
+    Tail := '\' + ExtractFileName(Existing) + Tail;
+    Existing := RemoveBackslashUnlessRoot(ExtractFileDir(Existing));
+  end;
+  Buffer := StringOfChar(#0, 32768);
+  Count := LongPath(Existing, Buffer, Length(Buffer));
+  if (Count > 0) and (Count < DWORD(Length(Buffer))) then begin
+    Result := RemoveBackslashUnlessRoot(Copy(Buffer, 1, Count));
+    if Tail <> '' then Result := AddBackslash(Result) + Copy(Tail, 2, Length(Tail));
+  end;
+end;
+
+function RegisteredInstallDir: String;
+begin
+  Result := '';
+  // The alpha.10 installer already wrote this standard Inno value. Use exactly
+  // the same value as UsePreviousAppDir; do not infer a path from today's default.
+  RegQueryStringValue(HKCU, '{#ProductUninstallRegistry}', 'Inno Setup: App Path', Result);
+  if Result <> '' then Result := NormalizedDir(Result);
+end;
+
+function PathWithin(Path, Parent: String): Boolean;
+begin
+  Result := (CompareText(Path, Parent) = 0) or
+    (CompareText(Copy(Path, 1, Length(AddBackslash(Parent))), AddBackslash(Parent)) = 0);
+end;
+
+function DestinationError(Name: String): String;
+var Selected, Existing, Profile, Ancestor, Parent: String;
+    Attributes, EnumerationError: DWORD; Found: TFindRec;
+begin
+  Result := '';
+  Selected := NormalizedDir(Name);
+  if (Length(Selected) <= 3) or (Selected[2] <> ':') or (Selected[3] <> '\') or
+     (LocalDriveType(Copy(Selected, 1, 3)) <> 3) then begin
+    Result := 'Choose a dedicated folder on a local fixed drive, not a drive root or network location.';
+    Exit;
+  end;
+  Profile := NormalizedDir(ExpandConstant('{#ProfileDir}'));
+  if PathWithin(Selected, Profile) or PathWithin(Profile, Selected) then begin
+    Result := 'Choose an application folder separate from Xenon browser data. Do not select the profile folder, a folder inside it, or a folder containing it.';
+    Exit;
+  end;
+  // Do not follow a junction/symlink into profile or unrelated application data.
+  Ancestor := Selected;
+  while Length(Ancestor) > 3 do begin
+    Attributes := PathAttributes(Ancestor);
+    if (Attributes <> $FFFFFFFF) and ((Attributes and $400) <> 0) then begin
+      Result := 'Choose a normal folder without symbolic links or directory junctions in its path.';
+      Exit;
+    end;
+    Parent := RemoveBackslashUnlessRoot(ExtractFileDir(Ancestor));
+    if Parent = Ancestor then Break;
+    Ancestor := Parent;
+  end;
+  Existing := RegisteredInstallDir;
+  if Existing <> '' then begin
+    if CompareText(Selected, Existing) <> 0 then
+      Result := 'Updates keep the existing Xenon installation folder so shortcuts and MCP paths remain valid. To move Xenon, uninstall it first, then reinstall and choose the new folder. Uninstalling keeps browser data; update your MCP client paths after moving.';
+    Exit;
+  end;
+  if RegKeyExists(HKCU, '{#ProductUninstallRegistry}') then begin
+    Result := 'The previous installation folder cannot be verified. Uninstall the existing Xenon installation before choosing a new location. Your browser data will be kept.';
+    Exit;
+  end;
+  Attributes := PathAttributes(Selected);
+  if Attributes = $FFFFFFFF then begin
+    EnumerationError := LastWindowsError;
+    if (EnumerationError <> 2) and (EnumerationError <> 3) then
+      Result := 'Setup cannot verify the selected folder is empty. Choose a new folder that your Windows user can read and write.';
+    Exit;
+  end;
+  if (Attributes and $10) = 0 then begin
+    Result := 'The selected location is a file. Choose a new, empty application folder.';
+    Exit;
+  end;
+  if FindFirst(AddBackslash(Selected) + '*', Found) then begin
+    try
+      repeat
+        if (Found.Name <> '.') and (Found.Name <> '..') then begin
+          Result := 'Choose a new or empty folder dedicated to Xenon. Setup will not overwrite an unrelated folder or a portable copy; choose another folder instead.';
+          Break;
+        end;
+      until not FindNext(Found);
+      EnumerationError := LastWindowsError;
+      if (Result = '') and (EnumerationError <> 18) then
+        Result := 'Setup cannot finish checking the selected folder is empty. Choose a new folder that your Windows user can read and write.';
+    finally FindClose(Found); end;
+  end else Result := 'Setup cannot verify the selected folder is empty. Choose a new folder that your Windows user can read and write.';
+end;
 
 function VersionError: String;
 var Existing: String;
@@ -159,13 +270,31 @@ begin
   NeedsRestart := False;
   Result := VersionError;
   if Result <> '' then Exit;
-  if CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')),
-      RemoveBackslashUnlessRoot(ExpandConstant('{#ProductDir}'))) <> 0 then begin
-    Result := 'Xenon uses a fixed per-user installation folder so updates and MCP paths remain stable. Run Setup without a /DIR override.';
-    Exit;
-  end;
+  Result := DestinationError(ExpandConstant('{app}'));
+  if Result <> '' then Exit;
   if CheckForMutexes('{#RunningMutex}') then Result := 'Close every Xenon window before installing. Your work will not be closed automatically.'
   else if LockedRuntime then Result := 'Xenon runtime files are in use or cannot be updated. Close Xenon and stop its MCP adapter in your agent client, then retry. No application will be forcibly closed.';
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if PageID = wpSelectDir then begin
+    Result := RegisteredInstallDir <> '';
+    if Result then Log('Xenon destination page: existing installation retained.')
+    else Log('Xenon destination page: enabled for new installation.');
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var Error: String;
+begin
+  Result := True;
+  if CurPageID = wpSelectDir then begin
+    Error := DestinationError(WizardDirValue);
+    Result := Error = '';
+    if not Result then SuppressibleMsgBox(Error, mbError, MB_OK, IDOK);
+  end;
 end;
 
 function InitializeUninstall: Boolean;
@@ -186,6 +315,6 @@ end;
 procedure InitializeWizard;
 begin
   WizardForm.WelcomeLabel2.Caption := 'Install Xenon for this Windows user. This is an unsigned alpha release.' + #13#10 + #13#10 +
-    'Close Xenon and stop its MCP adapter before installing or upgrading. Setup will not close applications or restart Windows.' + #13#10 + #13#10 +
+    'Choose a new or empty application folder. Updates retain the registered installation folder; to move it, uninstall and reinstall, then update your MCP client paths.' + #13#10 + #13#10 +
     'Browser profiles, saved accounts, and pairing permissions remain in your separate local application data folder. Uninstalling keeps that data.';
 end;

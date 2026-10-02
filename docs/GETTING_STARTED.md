@@ -1,22 +1,22 @@
 # Get started with Xenon
 
-This guide uses **0.1.0-alpha.10**, an unsigned Windows x64 alpha. You need Windows 10 or 11 with a desktop session. Browsing needs no model account. Agent use additionally needs an MCP host that can launch a local stdio server; image support is needed for visual tasks.
+This guide uses **0.1.0-alpha.11**, an unsigned Windows x64 alpha. You need Windows 10 or 11 with a desktop session. Browsing needs no model account. Agent use additionally needs an MCP host that can launch a local stdio server; image support is needed for visual tasks.
 
 The release includes the browser, its matching Chromium/CEF runtime, the MCP adapter and Node. You do not need to install Node separately to run the packaged version.
 
 ## 1. Install Xenon
 
-Download these two assets from the [alpha.10 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.10):
+Download these two assets from the [alpha.11 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.11):
 
-- `Xenon-0.1.0-alpha.10-windows-x64-setup-unsigned.exe`
-- `Xenon-0.1.0-alpha.10-windows-x64-setup-unsigned.exe.sha256`
+- `Xenon-0.1.0-alpha.11-windows-x64-setup-unsigned.exe`
+- `Xenon-0.1.0-alpha.11-windows-x64-setup-unsigned.exe.sha256`
 
 Use the release asset, rather than GitHub's automatically generated **Source code** archive. Source archives require a [build](BUILD.md).
 
 In PowerShell, change to the folder containing both downloaded files and verify the checksum:
 
 ```powershell
-$installer = '.\Xenon-0.1.0-alpha.10-windows-x64-setup-unsigned.exe'
+$installer = '.\Xenon-0.1.0-alpha.11-windows-x64-setup-unsigned.exe'
 $expected = (Get-Content -LiteralPath ($installer + '.sha256') -Raw).Trim().Split(' ')[0]
 $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
 if ($actual -ine $expected) { throw 'Checksum mismatch. Do not run this installer.' }
@@ -25,9 +25,13 @@ Write-Host 'Checksum matches.'
 
 This checks the installer against the published checksum; it is not a publisher signature. The alpha is unsigned, so Windows may show an unknown-publisher or reputation warning. Verify the release source before deciding to run it; normal use does not require administrator privileges or disabling Windows protection.
 
-Run the installer. It installs for your Windows account in `%LOCALAPPDATA%\Programs\Xenon Browser`, adds a Start menu shortcut and offers a desktop shortcut. Existing browser data stays in `%LOCALAPPDATA%\Xenon Browser`. Stop connected Xenon MCP adapters and close Xenon normally before an upgrade; setup will not force-close your work.
+Run the installer. On a fresh installation, choose an empty, dedicated folder on a local fixed drive that your Windows account can write to; the default is `%LOCALAPPDATA%\Programs\Xenon Browser`. Setup rejects network/removable drives, drive roots, linked folders and locations that contain or overlap Xenon's default browser-data folder. Review the destination shown before installing.
 
-The portable ZIP and its checksum remain available on the same release. To use them, verify the ZIP's SHA-256 the same way and extract **all** files into a stable folder you own. Keep the DLLs, `locales`, resource files, `adapter`, `runtime` and `node_modules` together. A portable copy's update flow installs into the standard per-user location; it does not overwrite the portable folder.
+Setup adds a Start menu shortcut and offers a desktop shortcut. Browser data stays separately in `%LOCALAPPDATA%\Xenon Browser`; choosing a program folder does not move it.
+
+Updates reuse your existing installation folder. To relocate an existing installation, including alpha.10, stop connected Xenon MCP adapters, close Xenon, uninstall it through Windows **Installed apps**, then run the new installer and choose another folder. Uninstall keeps your browser data and pairing files. Update your MCP host's Node and adapter paths after relocation. Setup will not force-close your work.
+
+The portable ZIP and its checksum remain available on the same release. To use them, verify the ZIP's SHA-256 the same way and extract **all** files into a stable folder you own. Keep the DLLs, `locales`, resource files, `adapter`, `runtime` and `node_modules` together. A portable copy's update flow opens the installer: choose a program folder if no installed copy exists, or update the existing installed copy. It does not automatically replace the portable folder.
 
 Once this release is installed, future releases can be downloaded through **Xenon Controls → Check for updates**. You do not need to manually download and unpack another ZIP. See [updates and local data](USER_GUIDE.md#updates-and-local-data).
 
@@ -41,14 +45,14 @@ Closing Controls hides it; it does not exit the browser. Use the browser menu's 
 
 ## 3. Pair your MCP host
 
-Keep Xenon open. For the installed version, run these commands in PowerShell:
+Keep Xenon open. For an installation in the default folder, run these commands in PowerShell:
 
 ```powershell
 Set-Location "$env:LOCALAPPDATA\Programs\Xenon Browser"
 .\runtime\node.exe .\adapter\dist\src\cli.js pair --name "My agent host" --output "$env:LOCALAPPDATA\Xenon-agent.json"
 ```
 
-For a portable ZIP, replace the `Set-Location` path with the extracted folder containing `Xenon.exe`, then run the same pairing command. Use that portable folder's `runtime` and `adapter` paths in your host configuration below.
+If you chose another installation folder, replace the `Set-Location` path with that folder. For a portable ZIP, use the extracted folder containing `Xenon.exe`. Run the same pairing command, then use that folder's `runtime` and `adapter` paths in your host configuration below.
 
 In Controls, select **My agent host** under **Pending pairing requests**, then click **Approve**. The terminal waits up to five minutes for this approval. When pairing succeeds, it saves a private configuration at the output path.
 
@@ -74,7 +78,7 @@ Add Xenon as a local stdio MCP server in your host. Setting names vary by host; 
 }
 ```
 
-Replace all three example paths with your actual absolute paths. Keep each argument separate, including paths containing spaces. Use `node.exe` as the command; the host starts the adapter itself. Start the browser before connecting the host.
+Replace all three example paths with your actual absolute paths. The Node and adapter paths must use your chosen installation folder, or your portable extraction folder; the pairing-file path is the output path you selected above. Keep each argument separate, including paths containing spaces. Use `node.exe` as the command; the host starts the adapter itself. Start the browser before connecting the host.
 
 The adapter talks to a private Windows named pipe. It is not an HTTP server, and no model API key belongs in the Xenon pairing file. See [MCP setup](MCP.md) for custom pipes, protocol details and reconnection.
 
