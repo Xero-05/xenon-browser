@@ -4,6 +4,8 @@ This guide is for an external agent controlling Xenon through its advertised MCP
 
 The human starts Xenon and pairs the MCP host once. Follow [MCP setup](MCP.md) for the `pair --name ... --output ...` and `serve --config ...` commands. Pairing configuration contains a token; the host loads it privately. Never ask to put it in a model prompt or page. Tool access authorizes only the scopes granted to that paired client and the work requested by the human.
 
+Browser installation and updates are native human operations, with no MCP update tool. Before a planned update, finish or report uncertain work and let the human stop the host's adapter and close Xenon. After restart, reconnect normally and obtain fresh evidence; do not replay pending mutations. Installer updates retain the standard application path and separate profile/pairing state. Moving from a portable ZIP to an installed copy requires the human to update the host's Node and adapter paths once.
+
 ## Copyable host instruction template
 
 Place this in the agent host's trusted instructions, alongside the actual user task. Replace the task line; keep handles returned by tools in working state, not guessed constants.

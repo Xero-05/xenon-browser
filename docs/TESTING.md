@@ -7,6 +7,8 @@ Xenon is a Windows x64 development alpha. The attached test records distinguish 
 | Layer | Command | What it exercises |
 | --- | --- | --- |
 | Dependency bootstrap | `node --test tests/bootstrap-download-tests.mjs tests/bootstrap-extract-tests.mjs` | Actual curl/PowerShell against a loopback fixture: checked cache reuse/repair, transient and interrupted-transfer recovery, bounded timeouts, permanent failure and partial-file cleanup; small-archive extraction despite PATH shadowing. No browser launch or full acceptance suite is needed for a downloader-only change. |
+| Native updater | `ctest --test-dir build -C Release -R '^updater_tests$' --output-on-failure` | Release/channel/version selection, exact repository and asset binding, redirect policy, digest/size verification and private staging with synthetic sources. No real profile or installer execution. |
+| Windows installer | `./scripts/bootstrap-installer.ps1`; `./tests/installer-tests.ps1` | Actual Inno install/upgrade/uninstall with a tiny synthetic payload, unique test-only identity/HKCU keys/shortcuts/mutexes and a disposable install folder. Running/locked files, invalid versions, downgrade rejection and preserved synthetic profile data. No production installation. |
 | Native C++ | `ctest --test-dir build -C Release --output-on-failure` | Broker authorization, async queues, clean-boundary handoffs, popup groups, dispatch guards, durable deduplication, Windows named pipes, DPAPI/SQLite and pending-login confirmation, native login-capture state transitions, CSV import, file and folder capabilities. |
 | Adapter and credential scripts | `npm test` | Private pairing-file creation, image envelopes, fragmented/out-of-order pipe replies, uncertain outcomes, strict schemas, actual modern and legacy SDK stdio clients, plus the production login-monitor and human-autofill scripts in a synthetic DOM. |
 | Login monitor only | `node --test tests/login-capture-tests.mjs` | Production isolated-world script: supported forms including the public CWL form shape, rejection cases, trusted-event filtering, privacy-before-capture ordering, revealed-password identity, submitted-attempt semantics and MFA input exclusion. No native prompt is opened. |
@@ -40,19 +42,21 @@ For an additional ordinary-shutdown check, run the persistence suite with `--gra
 
 Machine-readable reports in [test-results](test-results/) record each live check, timestamps, dependency pins and application DLL hashes. Native and adapter JUnit records are preserved there as well. Run the commands above to reproduce results on another Windows machine.
 
+The alpha.10 installer/update change used focused validation: six native updater test groups, 24 isolated Inno lifecycle checks, a real GitHub metadata request, a native Updates window inspection in a fresh profile, normal test-browser shutdown, and the five bootstrap branding checks. The UI showed the current version and disabled download/install when no newer eligible installer existed. These checks do not claim that the available-update UI or a future production upgrade has been exercised end to end. The packaged-browser smoke and public installer download are recorded separately after packaging/publication. See [alpha.10 evidence](test-results/alpha10-installer-updater.json). Unrelated browser acceptance suites were not repeated for this change; their historical release-specific results remain below.
+
 The alpha.9 branding build passed all 76 live browser checks, seven native tests,
 14 adapter tests, 32 login-monitor tests, 24 human-autofill script tests and five
-bootstrap-resource integrity checks. The current production DLL is
+bootstrap-resource integrity checks. The alpha.9 production DLL is
 `51cca524e7c4948ce064877c1d040594f63e3dd970b4ce4bfbb07a9934eeb25b`;
 the separate authentication fixture DLL is
 `fa0bb616a664ac3b6e8735ceb912951bab4c31ecc05da3e3883ff0aa7668f6a3`.
 The Windows visual check confirmed the teal frame, Xenon window titles, small
 logo, navy Controls header and readable grouped controls. A physical page edit,
-restyled dialog dismissal, native Exit and blank restart also passed. Current UI
+restyled dialog dismissal, native Exit and blank restart also passed. Alpha.9 UI
 observations and their narrower coverage are in `test-results/native-ui-manual.json`;
 resource evidence is in `test-results/branding.json`. Computer Use was closed.
 
-The alpha.8 local run passed 76 live browser checks, seven native tests, 14 adapter tests, 32 login-monitor tests and 24 human-autofill script tests. The ordinary Windows page-edit/dialog and native Exit/startup checks were repeated on the current production DLL. Controls showed the new **Fill saved account…** button without visible overlap; this inspection did not exercise account selection or filling through the picker. Those alpha.8 UI observations are archived in `test-results/alpha8-native-ui-manual.json`. Computer Use was closed afterward.
+The alpha.8 local run passed 76 live browser checks, seven native tests, 14 adapter tests, 32 login-monitor tests and 24 human-autofill script tests. The ordinary Windows page-edit/dialog and native Exit/startup checks were repeated on that release's production DLL. Controls showed the new **Fill saved account…** button without visible overlap; this inspection did not exercise account selection or filling through the picker. Those alpha.8 UI observations are archived in `test-results/alpha8-native-ui-manual.json`. Computer Use was closed afterward.
 
 The alpha.7 upload suite passed ten live checks, including the same external synthetic health-fixture source that previously failed `upload_transfer`. The source was copied unchanged into a new disposable run and its digest rechecked afterward; original benchmark evidence was left untouched. Alpha.6 reproduced that exact graded failure, while alpha.7 transferred the approved fixture file through the visible button and hidden input and passed the health flow. Final submission remained untouched in both runs. The baseline record is explicitly labelled `baseline_failure_reproduction`; its `passed` means the failure was reproduced, not that alpha.6 passed upload acceptance. Harness timings are deterministic test-driver measurements, not model-speed comparisons or reusable browser certification.
 

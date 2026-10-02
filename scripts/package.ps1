@@ -1,7 +1,8 @@
-param([string]$Version = '0.1.0-alpha.9')
+param([string]$Version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../VERSION') -Raw).Trim())
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^[0-9A-Za-z.-]+$') { throw 'Invalid release version.' }
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if ($Version -ne (Get-Content -LiteralPath (Join-Path $taskRoot 'VERSION') -Raw).Trim()) { throw 'Package version must match VERSION. Rebuild after changing it.' }
 $taskApp = Join-Path $taskRoot 'build/app/Release'
 $taskDist = Join-Path $taskRoot 'dist'
 $taskName = "Xenon-$Version-windows-x64-unsigned"
@@ -10,6 +11,8 @@ $taskPackage = Join-Path $taskStage $taskName
 foreach ($required in @('Xenon.exe','Xenon.dll','libcef.dll','CEF-LICENSE.txt','Chromium-CREDITS.html')) {
   if (-not (Test-Path -LiteralPath (Join-Path $taskApp $required))) { throw "Missing build artifact: $required" }
 }
+$taskNumericVersion = if ($Version -match '^([0-9]+\.[0-9]+\.[0-9]+)-alpha\.([0-9]+)$') { $Matches[1] + '.' + $Matches[2] } else { $Version + '.0' }
+if ([Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $taskApp 'Xenon.dll')).FileVersion -ne $taskNumericVersion) { throw 'The built browser version does not match VERSION. Rebuild before packaging.' }
 if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'adapter/dist/src/cli.js'))) { throw 'Build the MCP adapter first.' }
 if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'third_party/licenses/nlohmann-json-MIT.txt'))) { throw 'The checked-in nlohmann/json license is required for packaging.' }
 New-Item -ItemType Directory -Force -Path $taskPackage,(Join-Path $taskPackage 'runtime'),(Join-Path $taskPackage 'adapter/dist/src') | Out-Null
@@ -20,7 +23,7 @@ Copy-Item -LiteralPath (Join-Path $taskApp 'locales') -Destination $taskPackage 
 Copy-Item -LiteralPath (Join-Path $taskRoot 'third_party/node/node.exe') -Destination (Join-Path $taskPackage 'runtime')
 Copy-Item -LiteralPath (Join-Path $taskRoot 'third_party/node/LICENSE') -Destination (Join-Path $taskPackage 'runtime/NODE-LICENSE.txt')
 Get-ChildItem -LiteralPath (Join-Path $taskRoot 'adapter/dist/src') -Filter '*.js' -File | Copy-Item -Destination (Join-Path $taskPackage 'adapter/dist/src')
-foreach ($item in @('LICENSE','NOTICE','README.md','THIRD_PARTY_NOTICES.md','CONTRIBUTING.md','AGENTS.md','SECURITY.md','package.json','package-lock.json','dependencies.lock.json')) { Copy-Item -LiteralPath (Join-Path $taskRoot $item) -Destination $taskPackage }
+foreach ($item in @('LICENSE','NOTICE','README.md','THIRD_PARTY_NOTICES.md','CONTRIBUTING.md','AGENTS.md','SECURITY.md','VERSION','package.json','package-lock.json','dependencies.lock.json')) { Copy-Item -LiteralPath (Join-Path $taskRoot $item) -Destination $taskPackage }
 Copy-Item -LiteralPath (Join-Path $taskRoot 'docs') -Destination $taskPackage -Recurse
 New-Item -ItemType Directory -Force -Path (Join-Path $taskPackage 'assets') | Out-Null
 Copy-Item -LiteralPath (Join-Path $taskRoot 'assets/branding') -Destination (Join-Path $taskPackage 'assets/branding') -Recurse
@@ -31,6 +34,7 @@ foreach ($taskAfterPackagingReport in @('package-smoke.json','publication.json')
   if (Test-Path -LiteralPath $taskPriorReport) { Remove-Item -LiteralPath $taskPriorReport }
 }
 Copy-Item -LiteralPath (Join-Path $taskRoot 'third_party/licenses') -Destination (Join-Path $taskPackage 'licenses') -Recurse
+Copy-Item -LiteralPath (Join-Path $taskRoot 'installer/INNO-SETUP-LICENSE.txt') -Destination (Join-Path $taskPackage 'licenses/INNO-SETUP-LICENSE.txt')
 Push-Location $taskPackage
 try {
   & npm.cmd ci --omit=dev --ignore-scripts --cache (Join-Path $taskRoot '.cache/npm')

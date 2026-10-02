@@ -6,6 +6,8 @@ import { resolve, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = resolve(import.meta.dirname, '..');
+const releaseVersion = (await readFile(resolve(root, 'VERSION'), 'utf8')).trim();
+const expectedResourceVersion = releaseVersion.includes('-alpha.') ? releaseVersion.replace('-alpha.', '.') : releaseVersion + '.0';
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const align4 = value => Math.ceil(value / 4) * 4;
 const bounds = (bytes, offset, length) => assert(Number.isSafeInteger(offset) && Number.isSafeInteger(length) && offset >= 0 && length >= 0 && offset + length <= bytes.length, 'PE data extends outside its file');
@@ -175,15 +177,15 @@ function checkVersion(pe, allowedNames, fileType) {
   const resources = [...pe.resources.values()].filter(resource => resource.path[0] === 16); assert(resources.length, 'Version resource missing');
   const names = new Set();
   for (const resource of resources) {
-    const version = versionInfo(resource.bytes); assert.equal(version.fileVersion, '0.1.0.9'); assert.equal(version.productVersion, '0.1.0.9'); assert.equal(version.fileType, fileType, 'Fixed version file type is incorrect');
+    const version = versionInfo(resource.bytes); assert.equal(version.fileVersion, expectedResourceVersion); assert.equal(version.productVersion, expectedResourceVersion); assert.equal(version.fileType, fileType, 'Fixed version file type is incorrect');
     for (const strings of version.tables) {
       for (const name of ['ProductName', 'FileDescription']) assert.equal(strings[name], 'Xenon Browser', name + ' branding mismatch');
       assert.equal(strings.CompanyName, 'Xenon Browser contributors');
-      assert.equal(strings.FileVersion, '0.1.0.9'); assert.equal(strings.ProductVersion, '0.1.0.9');
+      assert.equal(strings.FileVersion, expectedResourceVersion); assert.equal(strings.ProductVersion, expectedResourceVersion);
       assert(allowedNames.includes(strings.OriginalFilename), 'Unexpected branded OriginalFilename'); names.add(strings.OriginalFilename);
     }
   }
-  return { fileVersion: '0.1.0.9', productVersion: '0.1.0.9', productName: 'Xenon Browser', originalFilenames: [...names] };
+  return { fileVersion: expectedResourceVersion, productVersion: expectedResourceVersion, productName: 'Xenon Browser', originalFilenames: [...names] };
 }
 
 export async function verifyBranding({ release = resolve(root, 'build/app/Release') } = {}) {

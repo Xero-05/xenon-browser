@@ -1,35 +1,39 @@
 # Get started with Xenon
 
-This guide uses **0.1.0-alpha.9**, an unsigned Windows x64 alpha. You need Windows 10 or 11 with a desktop session. Browsing needs no model account. Agent use additionally needs an MCP host that can launch a local stdio server; image support is needed for visual tasks.
+This guide uses **0.1.0-alpha.10**, an unsigned Windows x64 alpha. You need Windows 10 or 11 with a desktop session. Browsing needs no model account. Agent use additionally needs an MCP host that can launch a local stdio server; image support is needed for visual tasks.
 
 The release includes the browser, its matching Chromium/CEF runtime, the MCP adapter and Node. You do not need to install Node separately to run the packaged version.
 
-## 1. Download and extract
+## 1. Install Xenon
 
-Download these two assets from the [alpha.9 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.9):
+Download these two assets from the [alpha.10 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.10):
 
-- `Xenon-0.1.0-alpha.9-windows-x64-unsigned.zip`
-- `Xenon-0.1.0-alpha.9-windows-x64-unsigned.zip.sha256`
+- `Xenon-0.1.0-alpha.10-windows-x64-setup-unsigned.exe`
+- `Xenon-0.1.0-alpha.10-windows-x64-setup-unsigned.exe.sha256`
 
 Use the release asset, rather than GitHub's automatically generated **Source code** archive. Source archives require a [build](BUILD.md).
 
 In PowerShell, change to the folder containing both downloaded files and verify the checksum:
 
 ```powershell
-$zip = '.\Xenon-0.1.0-alpha.9-windows-x64-unsigned.zip'
-$expected = (Get-Content -LiteralPath ($zip + '.sha256') -Raw).Trim().Split(' ')[0]
-$actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
-if ($actual -ine $expected) { throw 'Checksum mismatch. Do not use this archive.' }
+$installer = '.\Xenon-0.1.0-alpha.10-windows-x64-setup-unsigned.exe'
+$expected = (Get-Content -LiteralPath ($installer + '.sha256') -Raw).Trim().Split(' ')[0]
+$actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+if ($actual -ine $expected) { throw 'Checksum mismatch. Do not run this installer.' }
 Write-Host 'Checksum matches.'
 ```
 
-This checks the archive against the published checksum; it is not a publisher signature. The alpha is unsigned, so Windows may show an unknown-publisher or reputation warning. Verify the release source before deciding to run it; normal use does not require administrator privileges or disabling Windows protection.
+This checks the installer against the published checksum; it is not a publisher signature. The alpha is unsigned, so Windows may show an unknown-publisher or reputation warning. Verify the release source before deciding to run it; normal use does not require administrator privileges or disabling Windows protection.
 
-Extract **all** files into a stable folder you own. For example, put the folder containing `Xenon.exe` at `C:\Users\you\Apps\Xenon`. Keep the DLLs, `locales`, resource files, `adapter`, `runtime` and `node_modules` with it. Do not run the executable inside the ZIP or copy it out by itself.
+Run the installer. It installs for your Windows account in `%LOCALAPPDATA%\Programs\Xenon Browser`, adds a Start menu shortcut and offers a desktop shortcut. Existing browser data stays in `%LOCALAPPDATA%\Xenon Browser`. Stop connected Xenon MCP adapters and close Xenon normally before an upgrade; setup will not force-close your work.
+
+The portable ZIP and its checksum remain available on the same release. To use them, verify the ZIP's SHA-256 the same way and extract **all** files into a stable folder you own. Keep the DLLs, `locales`, resource files, `adapter`, `runtime` and `node_modules` together. A portable copy's update flow installs into the standard per-user location; it does not overwrite the portable folder.
+
+Once this release is installed, future releases can be downloaded through **Xenon Controls → Check for updates**. You do not need to manually download and unpack another ZIP. See [updates and local data](USER_GUIDE.md#updates-and-local-data).
 
 ## 2. Open the browser
 
-Run `Xenon.exe`. A fresh launch opens one blank tab in **Personal**. Use the address bar to visit a website.
+Open **Xenon Browser** from the Start menu, or run `Xenon.exe` in its installation folder. A fresh launch opens one blank tab in **Personal**. Use the address bar to visit a website.
 
 Press **Ctrl+Shift+X** while a Xenon browser window is active to open **Xenon Controls**. You can also right-click a webpage and select **Xenon Controls and Accounts**. This native window manages paired clients, workspaces, control ownership, saved accounts and file permissions.
 
@@ -37,9 +41,10 @@ Closing Controls hides it; it does not exit the browser. Use the browser menu's 
 
 ## 3. Pair your MCP host
 
-Keep Xenon open. In PowerShell, change to the extracted folder containing `Xenon.exe`, then run:
+Keep Xenon open. In PowerShell, change to the installation folder containing `Xenon.exe`, then run:
 
 ```powershell
+Set-Location "$env:LOCALAPPDATA\Programs\Xenon Browser"
 .\runtime\node.exe .\adapter\dist\src\cli.js pair --name "My agent host" --output "$env:LOCALAPPDATA\Xenon-agent.json"
 ```
 
@@ -55,9 +60,9 @@ Add Xenon as a local stdio MCP server in your host. Setting names vary by host; 
 {
   "mcpServers": {
     "xenon": {
-      "command": "C:\\Users\\you\\Apps\\Xenon\\runtime\\node.exe",
+      "command": "C:\\Users\\you\\AppData\\Local\\Programs\\Xenon Browser\\runtime\\node.exe",
       "args": [
-        "C:\\Users\\you\\Apps\\Xenon\\adapter\\dist\\src\\cli.js",
+        "C:\\Users\\you\\AppData\\Local\\Programs\\Xenon Browser\\adapter\\dist\\src\\cli.js",
         "serve",
         "--config",
         "C:\\Users\\you\\AppData\\Local\\Xenon-agent.json"

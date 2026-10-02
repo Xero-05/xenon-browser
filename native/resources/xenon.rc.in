@@ -4,8 +4,8 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 101 ICON "@CMAKE_SOURCE_DIR@/assets/branding/xenon-icon.ico"
 
 1 VERSIONINFO
- FILEVERSION 0,1,0,9
- PRODUCTVERSION 0,1,0,9
+ FILEVERSION @XENON_VERSION_RESOURCE@
+ PRODUCTVERSION @XENON_VERSION_RESOURCE@
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
  FILEFLAGS VS_FF_PRERELEASE
  FILEOS VOS_NT_WINDOWS32
@@ -18,7 +18,7 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "Xenon Browser contributors\0"
       VALUE "FileDescription", "Xenon Browser\0"
-      VALUE "FileVersion", "0.1.0.9\0"
+      VALUE "FileVersion", "@XENON_VERSION_NUMERIC@\0"
       VALUE "InternalName", "Xenon\0"
       VALUE "LegalCopyright", "Apache-2.0; third-party notices included\0"
 #ifdef XENON_TEST_FIXTURE_CERT_SHA256
@@ -27,7 +27,7 @@ BEGIN
       VALUE "OriginalFilename", "Xenon.dll\0"
 #endif
       VALUE "ProductName", "Xenon Browser\0"
-      VALUE "ProductVersion", "0.1.0.9\0"
+      VALUE "ProductVersion", "@XENON_VERSION_NUMERIC@\0"
     END
   END
   BLOCK "VarFileInfo"

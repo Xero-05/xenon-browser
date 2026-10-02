@@ -1,6 +1,6 @@
 # Using Xenon
 
-Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.9**. Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
+Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.10**. Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
 
 ## Browser and Controls
 
@@ -129,7 +129,15 @@ All website content—including visible text, images, dialogs, titles and downlo
 
 The default data directory is `%LOCALAPPDATA%\Xenon Browser`; pairing files are wherever you chose during pairing. Keep this data private. Do not upload profiles, vault databases, password exports or pairing files to GitHub.
 
-Updates are manual. Exit Xenon normally, verify the new release, and extract its complete package into a separate folder. Use that package's executable and matching libraries together. If its folder changed, update the absolute adapter paths in your MCP host; your pairing configuration and default browser data are separate from the application folder. Check release notes before assuming migration or downgrade compatibility.
+Press **Ctrl+Shift+X**, then **Check for updates**. Xenon contacts its fixed GitHub repository over HTTPS and looks for a newer compatible installer. Alpha builds can receive newer alpha releases; stable builds exclude prereleases. Nothing is checked or installed in the background without opening this flow. A network error or missing verifiable installer cannot trigger installation.
+
+Download the offered update in the native Updates window, then choose to install it. Xenon checks its size and SHA-256 against GitHub's release metadata and checks again before starting setup. The alpha installer remains unsigned: this verification trusts GitHub and the repository maintainers, not an independent publisher certificate.
+
+Finish your work, stop Xenon's MCP adapters in your hosts, and exit the browser normally when setup asks. Setup waits for running Xenon instances; it does not force-close pages, agents or adapters. Start Xenon again from the Start menu after installation. Updates require a normal application restart and do not preserve live renderer state as a handoff does. Profiles, saved accounts, grants and pairing configuration remain separate from the application files.
+
+The installer uses `%LOCALAPPDATA%\Programs\Xenon Browser`, so MCP executable and adapter paths stay stable between updates. When moving from an older portable ZIP, install once and update those two paths in your MCP host. Use the Start menu shortcut afterward; an older portable copy is not overwritten. Uninstall through Windows **Installed apps**; uninstall keeps your browser data and pairing files. Downgrades through the installer are refused because profile migrations may not be reversible.
+
+Portable ZIPs remain available for manual installation. Extract the complete package into a separate folder and keep its matching runtime files together. The Updates window in a portable copy can install the newer release into the standard per-user location.
 
 ## Troubleshooting
 

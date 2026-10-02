@@ -5,15 +5,22 @@
 #include "xenon/file_policy.hpp"
 #include "xenon/dialog_notices.hpp"
 #include "xenon/branding.hpp"
+#include "xenon/updater.hpp"
+#include "xenon/version.hpp"
 #include <windows.h>
 #include <commdlg.h>
 #include <wtsapi32.h>
 #include <shobjidl.h>
 #include <algorithm>
+#include <atomic>
 #include <deque>
+#include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
+#include <stdexcept>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -24,7 +31,7 @@ std::string utf8(const std::wstring& s){if(s.empty())return {};int n=WideCharToM
 std::string str(const Json& j,const char* key){auto i=j.find(key);return i!=j.end()&&i->is_string()?i->get<std::string>():"";}
 std::string compact(const std::string& text,size_t limit){if(text.size()<=limit)return text;while(limit&&(static_cast<unsigned char>(text[limit])&0xc0)==0x80)--limit;return text.substr(0,limit)+"…";}
 enum Id { Pairings=101,Approve,Deny,Clients,Workspaces,Share,Tabs,Take,Workers,Give,Stop,ResumeAuth,
-          Origin,Username,Password,Label,Save,Import,Accounts,DeleteAccount,Grant,NewWorkspace,UploadGrant,Status,Revoke,PrivateWorkspace,RestoreSession,DialogAccept,DialogDismiss,DialogText,RemoveWorkspace,FillSavedAccount };
+          Origin,Username,Password,Label,Save,Import,Accounts,DeleteAccount,Grant,NewWorkspace,UploadGrant,Status,Revoke,PrivateWorkspace,RestoreSession,DialogAccept,DialogDismiss,DialogText,RemoveWorkspace,FillSavedAccount,CheckUpdates };
 constexpr UINT LoginNotice=WM_APP+41;
 constexpr UINT DialogNotice=WM_APP+42;
 constexpr UINT RemovalNotice=WM_APP+43;
@@ -58,6 +65,17 @@ struct NativeUi::Impl {
   DialogNotices dialog_notices;
   struct RemovalResults {std::mutex mutex;std::deque<Json> values;};
   std::shared_ptr<RemovalResults> removal_results=std::make_shared<RemovalResults>();
+  enum class UpdatePhase { idle,checking,current,available,downloading,ready,launching,launched,canceled,failed };
+  struct UpdateState {
+    std::mutex mutex;std::atomic_bool cancel=false;bool alive=true;
+    UpdatePhase phase=UpdatePhase::idle;std::optional<updates::Release> release;
+    std::filesystem::path installer;std::string message="Check for a newer Xenon release when you are ready.";
+    uint64_t downloaded{},total{},revision{};
+  };
+  std::shared_ptr<UpdateState> update_state=std::make_shared<UpdateState>();
+  HWND update_window{},update_latest{},update_message{},update_progress{};
+  HWND update_check{},update_download{},update_install{},update_cancel{};
+  uint64_t update_shown_revision=~uint64_t{};int update_percent=-1;
   Impl(Broker& b,CefEngine& e,Vault& v,FilePolicy& f):broker(b),engine(e),vault(v),files(f){}
   void text_style(HWND control,TextTone tone,HFONT face=nullptr){
     SetPropW(control,TextToneProperty,reinterpret_cast<HANDLE>(static_cast<INT_PTR>(tone)));
@@ -95,6 +113,11 @@ struct NativeUi::Impl {
       if(auto icon=branding_icon(28))DrawIconEx(dc,20,13,icon,28,28,0,nullptr,DI_NORMAL);
       const auto edge=target==file_window?client.bottom-60:client.bottom-76;
       card({12,66,client.right-12,edge});
+      if(target==update_window&&update_percent>=0){
+        RECT track{26,236,client.right-26,244};FillRect(dc,&track,contrast?GetSysColorBrush(COLOR_BTNFACE):canvas_brush);
+        track.right=track.left+(track.right-track.left)*std::clamp(update_percent,0,100)/100;
+        auto fill=CreateSolidBrush(contrast?GetSysColor(COLOR_HIGHLIGHT):Teal);FillRect(dc,&track,fill);DeleteObject(fill);
+      }
     }
   }
   void draw_button(const DRAWITEMSTRUCT& item){
@@ -107,7 +130,7 @@ struct NativeUi::Impl {
     else if(pressed)background=RGB(223,238,240);
     if(disabled){background=RGB(232,239,241);foreground=RGB(129,146,152);outline=RGB(218,229,232);}
     if(contrast){background=GetSysColor(pressed?COLOR_HIGHLIGHT:COLOR_BTNFACE);foreground=GetSysColor(disabled?COLOR_GRAYTEXT:pressed?COLOR_HIGHLIGHTTEXT:COLOR_BTNTEXT);outline=GetSysColor(COLOR_WINDOWFRAME);}
-    FillRect(item.hDC,&item.rcItem,contrast?GetSysColorBrush(COLOR_WINDOW):GetParent(item.hwndItem)==window?surface_brush:canvas_brush);
+    FillRect(item.hDC,&item.rcItem,contrast?GetSysColorBrush(COLOR_WINDOW):GetParent(item.hwndItem)==window?(GetDlgCtrlID(item.hwndItem)==CheckUpdates?navy_brush:surface_brush):canvas_brush);
     auto brush=CreateSolidBrush(background);auto pen=CreatePen(PS_SOLID,1,outline);
     const auto old_brush=SelectObject(item.hDC,brush),old_pen=SelectObject(item.hDC,pen);
     const auto& bounds=item.rcItem;RoundRect(item.hDC,bounds.left,bounds.top,bounds.right,bounds.bottom,7,7);
@@ -135,6 +158,176 @@ struct NativeUi::Impl {
       SetTextColor(dc,foreground);SetBkColor(dc,background);result=reinterpret_cast<LRESULT>(brush);return true;
     }
     return false;
+  }
+  static bool update_busy(UpdatePhase phase){return phase==UpdatePhase::checking||phase==UpdatePhase::downloading||phase==UpdatePhase::launching;}
+  static void pin_update_module(){
+    // Background transfers may outlive the native window. Keep their code
+    // loaded until process exit without joining network work on the UI thread.
+    HMODULE module{};
+    if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,
+      reinterpret_cast<LPCWSTR>(&pin_update_module),&module))throw std::runtime_error("Updates could not start.");
+  }
+  void update_worker(std::function<void(const std::shared_ptr<UpdateState>&)> work){
+    const auto state=update_state;
+    try{
+      pin_update_module();
+      std::thread([state,work=std::move(work)]{
+        try{work(state);}
+        catch(const std::exception& error){
+          std::lock_guard lock(state->mutex);if(!state->alive)return;
+          state->phase=state->cancel?UpdatePhase::canceled:UpdatePhase::failed;
+          state->message=state->cancel?"Canceled. No update was installed.":compact(error.what(),300);++state->revision;
+        }catch(...){
+          std::lock_guard lock(state->mutex);if(!state->alive)return;
+          state->phase=UpdatePhase::failed;state->message="The update operation could not be completed.";++state->revision;
+        }
+      }).detach();
+    }catch(...){
+      std::lock_guard lock(state->mutex);state->phase=UpdatePhase::failed;state->message="Updates could not start. Try again later.";++state->revision;
+    }
+  }
+  void begin_update_check(){
+    {
+      std::lock_guard lock(update_state->mutex);if(update_busy(update_state->phase))return;
+      update_state->cancel=false;update_state->phase=UpdatePhase::checking;update_state->release.reset();update_state->installer.clear();
+      update_state->downloaded=0;update_state->total=0;update_state->message="Checking for a newer release…";++update_state->revision;
+    }
+    update_worker([current=std::string(kVersion)](const auto& state){
+      auto release=updates::check_for_update(current);
+      std::lock_guard lock(state->mutex);if(!state->alive)return;
+      if(state->cancel){state->phase=UpdatePhase::canceled;state->message="Update check canceled.";}
+      else if(release){state->release=std::move(release);state->phase=UpdatePhase::available;state->message="A newer Xenon release is available.";}
+      else{state->phase=UpdatePhase::current;state->message="No newer release is available for this version.";}
+      ++state->revision;
+    });
+    poll_updates();
+  }
+  void begin_update_download(){
+    std::optional<updates::Release> release;
+    {
+      std::lock_guard lock(update_state->mutex);
+      if(update_busy(update_state->phase)||!update_state->release)return;
+      release=update_state->release;update_state->cancel=false;update_state->phase=UpdatePhase::downloading;
+      update_state->downloaded=0;update_state->total=release->bytes;update_state->message="Downloading the update installer…";++update_state->revision;
+    }
+    update_worker([release=std::move(*release)](const auto& state){
+      auto path=updates::download_installer(release,[state](uint64_t bytes,uint64_t total){
+        std::lock_guard lock(state->mutex);if(!state->alive||state->cancel)return;
+        state->downloaded=bytes;state->total=total;++state->revision;
+      },state->cancel);
+      std::lock_guard lock(state->mutex);if(!state->alive)return;
+      if(state->cancel){state->phase=UpdatePhase::canceled;state->message="Download canceled. No update was installed.";}
+      else{state->installer=std::move(path);state->downloaded=release.bytes;state->total=release.bytes;state->phase=UpdatePhase::ready;state->message="Installer downloaded and verified. Choose Install update when ready.";}
+      ++state->revision;
+    });
+    poll_updates();
+  }
+  void begin_update_install(){
+    std::optional<updates::Release> release;std::filesystem::path installer;
+    {
+      std::lock_guard lock(update_state->mutex);if(update_state->phase!=UpdatePhase::ready||!update_state->release)return;
+      release=update_state->release;installer=update_state->installer;
+    }
+    if(MessageBoxW(update_window,L"Open the unsigned Xenon setup program?\n\nStop external MCP adapters and close all Xenon windows before setup can install. Save unfinished website work first. Xenon will not close tabs or interrupt agents for you.\n\nSetup upgrades an installed copy, or installs a portable copy to your per-user Programs folder. When setup finishes, open Xenon from the Start menu.",
+      L"Install Xenon update",MB_YESNO|MB_ICONINFORMATION|MB_DEFBUTTON2)!=IDYES)return;
+    {
+      std::lock_guard lock(update_state->mutex);if(update_state->phase!=UpdatePhase::ready)return;
+      update_state->cancel=false;update_state->phase=UpdatePhase::launching;update_state->message="Rechecking the installer and opening setup…";++update_state->revision;
+    }
+    update_worker([release=std::move(*release),installer=std::move(installer)](const auto& state){
+      if(state->cancel)return;
+      updates::launch_installer(installer,release);
+      std::lock_guard lock(state->mutex);if(!state->alive)return;
+      state->phase=UpdatePhase::launched;state->message="Setup opened. Stop external adapters and close Xenon when ready; setup will wait for the browser.";++state->revision;
+    });
+    poll_updates();
+  }
+  void cancel_update(){
+    std::lock_guard lock(update_state->mutex);
+    if(update_state->phase==UpdatePhase::checking||update_state->phase==UpdatePhase::downloading){
+      update_state->cancel=true;update_state->message="Canceling the current update operation…";++update_state->revision;
+    }
+  }
+  void close_updates(){
+    cancel_update();auto target=std::exchange(update_window,nullptr);
+    update_latest=nullptr;update_message=nullptr;update_progress=nullptr;update_check=nullptr;update_download=nullptr;update_install=nullptr;update_cancel=nullptr;
+    update_shown_revision=~uint64_t{};update_percent=-1;if(target&&IsWindow(target))DestroyWindow(target);
+  }
+  void poll_updates(){
+    if(!update_window)return;
+    UpdatePhase phase;std::optional<updates::Release> release;std::string message;uint64_t downloaded{},total{};bool canceling{};
+    {
+      std::lock_guard lock(update_state->mutex);if(update_shown_revision==update_state->revision)return;
+      update_shown_revision=update_state->revision;phase=update_state->phase;release=update_state->release;message=update_state->message;
+      downloaded=update_state->downloaded;total=update_state->total;canceling=update_state->cancel;
+    }
+    const auto latest=release?wide("Available version: "+release->version):L"Available version: —";
+    SetWindowTextW(update_latest,latest.c_str());SetWindowTextW(update_message,wide(message).c_str());
+    std::wstring progress;
+    update_percent=-1;
+    if(phase==UpdatePhase::downloading||phase==UpdatePhase::ready||phase==UpdatePhase::launching||phase==UpdatePhase::launched){
+      const auto decimal_mib=[](uint64_t bytes){return std::to_wstring(bytes/(1024*1024))+L"."+std::to_wstring((bytes%(1024*1024))*10/(1024*1024));};
+      progress=L"Downloaded "+decimal_mib(downloaded)+L" MiB";
+      if(total){update_percent=static_cast<int>(std::min(100.0,100.0*static_cast<double>(downloaded)/static_cast<double>(total)));progress+=L" of "+decimal_mib(total)+L" MiB ("+std::to_wstring(update_percent)+L"%)";}
+    }
+    SetWindowTextW(update_progress,progress.c_str());
+    const bool busy=update_busy(phase);
+    EnableWindow(update_check,!busy);EnableWindow(update_download,!busy&&release.has_value()&&phase!=UpdatePhase::ready&&phase!=UpdatePhase::launched);
+    EnableWindow(update_install,phase==UpdatePhase::ready);EnableWindow(update_cancel,phase!=UpdatePhase::launching&&(!busy||!canceling));
+    SetWindowTextW(update_cancel,busy?L"Cancel":L"Close");
+    EnableMenuItem(GetSystemMenu(update_window,FALSE),SC_CLOSE,MF_BYCOMMAND|(phase==UpdatePhase::launching?MF_GRAYED:MF_ENABLED));
+    RECT bar{26,236,614,244};InvalidateRect(update_window,&bar,TRUE);
+  }
+  void update_command(int id){
+    if(id==1)begin_update_check();else if(id==2)begin_update_download();else if(id==3)begin_update_install();
+    else if(id==4){bool busy;{std::lock_guard lock(update_state->mutex);busy=update_busy(update_state->phase);}if(busy){cancel_update();poll_updates();}else close_updates();}
+  }
+  static LRESULT CALLBACK update_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){
+    auto self=reinterpret_cast<Impl*>(GetWindowLongPtrW(h,GWLP_USERDATA));
+    if(message==WM_NCCREATE){self=static_cast<Impl*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}
+    if(!self)return DefWindowProcW(h,message,wp,lp);
+    LRESULT painted{};if(self->theme_message(h,message,wp,lp,painted))return painted;
+    if(message==WM_COMMAND&&HIWORD(wp)==BN_CLICKED){self->update_command(LOWORD(wp));return 0;}
+    if(message==WM_CLOSE||(message==WM_KEYDOWN&&wp==VK_ESCAPE)){
+      bool launching;{std::lock_guard lock(self->update_state->mutex);launching=self->update_state->phase==UpdatePhase::launching;}
+      if(!launching)self->close_updates();return 0;
+    }
+    if(message==WM_NCDESTROY){SetWindowLongPtrW(h,GWLP_USERDATA,0);return DefWindowProcW(h,message,wp,lp);}
+    return DefWindowProcW(h,message,wp,lp);
+  }
+  void show_updates(){
+    if(!update_window){
+      WNDCLASSW wc{};wc.lpfnWndProc=update_proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonUpdates";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
+      constexpr DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_CLIPCHILDREN;
+      RECT bounds{0,0,640,450};AdjustWindowRectEx(&bounds,style,FALSE,0);
+      RECT owner{};GetWindowRect(window,&owner);MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromWindow(window,MONITOR_DEFAULTTONEAREST),&monitor);
+      const int width=bounds.right-bounds.left,height=bounds.bottom-bounds.top;
+      const int x=std::clamp(owner.left+110,monitor.rcWork.left,std::max(monitor.rcWork.left,monitor.rcWork.right-width));
+      const int y=std::clamp(owner.top+70,monitor.rcWork.top,std::max(monitor.rcWork.top,monitor.rcWork.bottom-height));
+      update_window=CreateWindowExW(0,wc.lpszClassName,L"Xenon Updates",style,x,y,width,height,window,nullptr,wc.hInstance,this);
+      if(!update_window){status(L"The updates window could not open.");return;}
+      window_icon(update_window);
+      auto add_update=[&](int id,const wchar_t* type,const wchar_t* caption,int x,int y,int width,int height,DWORD extra=0){
+        auto control=CreateWindowExW(0,type,caption,WS_CHILD|WS_VISIBLE|extra,x,y,width,height,update_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);
+        SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);if(std::wstring(type)==L"BUTTON")button_style(control,id==3?ButtonTone::primary:ButtonTone::normal);return control;
+      };
+      text_style(add_update(0,L"STATIC",L"Xenon  /  Updates",60,16,252,27),TextTone::brand,heading_font);
+      text_style(add_update(0,L"STATIC",L"Automatic checks are off",327,21,286,20,SS_RIGHT),TextTone::brand_muted,small_font);
+      text_style(add_update(0,L"STATIC",wide("Current version: "+std::string(kVersion)).c_str(),26,84,588,24),TextTone::heading,heading_font);
+      update_latest=add_update(0,L"STATIC",L"Available version: —",26,117,588,22);
+      update_message=add_update(0,L"STATIC",L"",26,155,588,46);
+      update_progress=add_update(0,L"STATIC",L"",26,211,588,22);text_style(update_progress,TextTone::muted,small_font);
+      text_style(add_update(0,L"STATIC",L"Unsigned alpha software. Downloading does not install it. You choose when to open setup and close the browser.",26,267,588,42),TextTone::muted,small_font);
+      text_style(add_update(0,L"STATIC",L"Setup upgrades or installs Xenon for your Windows account. Portable users should launch the installed copy from the Start menu afterward.",26,319,588,42),TextTone::muted,small_font);
+      update_check=add_update(1,L"BUTTON",L"Check again",26,395,124,34,WS_TABSTOP);
+      update_download=add_update(2,L"BUTTON",L"Download update",162,395,152,34,WS_TABSTOP);
+      update_install=add_update(3,L"BUTTON",L"Install update",326,395,144,34,WS_TABSTOP);
+      update_cancel=add_update(4,L"BUTTON",L"Close",482,395,132,34,WS_TABSTOP);
+      update_shown_revision=~uint64_t{};
+    }
+    poll_updates();ShowWindow(update_window,SW_SHOWNORMAL);SetForegroundWindow(update_window);
+    bool first;{std::lock_guard lock(update_state->mutex);first=update_state->phase==UpdatePhase::idle;}
+    if(first)begin_update_check();
   }
   void close_login_prompt(bool dismiss){
     auto id=std::exchange(login_candidate,{});auto h=std::exchange(login_window,nullptr);login_accept=nullptr;login_status=nullptr;
@@ -599,6 +792,7 @@ struct NativeUi::Impl {
         engine.restore_session(allowed,[this](Json r){if(r.value("ok",false))status(L"Restored "+std::to_wstring(r["result"].value("restored",0))+L" tabs with human control. Closed, private and protected tabs are excluded.");else result(r);});
       }
       else if(id==UploadGrant)show_files();
+      else if(id==CheckUpdates)show_updates();
       refresh();
     }catch(const std::exception&){status(L"The operation failed. No secret details were logged.");}
   }
@@ -608,7 +802,8 @@ struct NativeUi::Impl {
     window_icon(window);
     text_style(add(0,L"STATIC",L"Xenon",58,6,106,30),TextTone::brand,brand_font);
     text_style(add(0,L"STATIC",L"Browser controls",179,13,310,22),TextTone::brand_muted,small_font);
-    text_style(add(0,L"STATIC",L"Your browser. Your agents.",714,13,230,22,SS_RIGHT),TextTone::brand_muted,small_font);
+    text_style(add(0,L"STATIC",wide(std::string(kVersion)).c_str(),590,13,174,22,SS_RIGHT),TextTone::brand_muted,small_font);
+    button(CheckUpdates,L"Check for updates",783,7,161);
     label(L"Pending pairing requests",24,58,340,TextTone::heading);label(L"Paired clients and unsaved revocations",389,58,554,TextTone::heading);
     add(Pairings,L"LISTBOX",L"",24,82,347,59,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
     add(Clients,L"LISTBOX",L"",389,82,554,59,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
@@ -643,7 +838,7 @@ struct NativeUi::Impl {
     switch(msg){
       case WM_CREATE:self->build();return 0;
       case WM_COMMAND:if(HIWORD(wp)==BN_CLICKED)self->command(LOWORD(wp));return 0;
-      case WM_TIMER:self->poll_login_prompts();self->poll_autofill();self->poll_dialog_notices();self->poll_removal_results();self->refresh();return 0;
+      case WM_TIMER:self->poll_login_prompts();self->poll_autofill();self->poll_dialog_notices();self->poll_removal_results();self->poll_updates();self->refresh();return 0;
       case LoginNotice:self->poll_login_prompts();return 0;
       case DialogNotice:self->poll_dialog_notices();return 0;
       case RemovalNotice:self->poll_removal_results();return 0;
@@ -665,6 +860,8 @@ NativeUi::NativeUi(Broker& b,CefEngine& e,Vault& v,FilePolicy& f):impl_(std::mak
 NativeUi::~NativeUi(){
   impl_->engine.set_save_prompt_callback({});impl_->engine.set_autofill_prompt_callback({});impl_->engine.set_dialog_callback({});
   {std::lock_guard lock(impl_->autofill_results->mutex);impl_->autofill_results->alive=false;impl_->autofill_results->values.clear();}
+  {std::lock_guard lock(impl_->update_state->mutex);impl_->update_state->alive=false;impl_->update_state->cancel=true;}
+  impl_->close_updates();
   impl_->clear_login_prompts();impl_->clear_autofill();if(impl_->file_window)DestroyWindow(impl_->file_window);if(impl_->window)DestroyWindow(impl_->window);
   for(auto face:{impl_->font,impl_->heading_font,impl_->brand_font,impl_->small_font})if(face)DeleteObject(face);
   for(auto brush:{impl_->canvas_brush,impl_->surface_brush,impl_->navy_brush})if(brush)DeleteObject(brush);

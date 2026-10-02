@@ -6,9 +6,9 @@
 
 Xenon combines a visible Chromium browser with tools that let external agents inspect pages, interact with controls, and hand off a live tab. You choose which clients can connect, which workspaces they can use, and which saved accounts or local files they may access.
 
-**Current release: 0.1.0-alpha.9 · Windows x64 · unsigned alpha.** This is experimental software with manual updates. The included tests exercise synthetic websites and specific native workflows; they do not establish universal website compatibility or an independent security audit.
+**Current release: 0.1.0-alpha.10 · Windows x64 · unsigned alpha.** A per-user installer and in-browser update checks are available. Installation remains a human decision. The included tests exercise synthetic websites and specific native workflows; they do not establish universal website compatibility or an independent security audit.
 
-[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.9) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent instructions](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
+[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.10) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent instructions](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
 
 ## What Xenon does
 
@@ -33,7 +33,7 @@ Keep the executable, DLLs, resources, locales and adapter together. Closing Xeno
 
 ## Know the alpha's boundaries
 
-Xenon supports external **local stdio MCP hosts**; remote-only hosts need another transport. Visual tasks need an image-capable client/model. There is no built-in model, cloud sync, signed installer or automatic updater, and no guarantee of proprietary DRM or arbitrary extension compatibility.
+Xenon supports external **local stdio MCP hosts**; remote-only hosts need another transport. Visual tasks need an image-capable client/model. There is no built-in model, cloud sync or signed installer, and no guarantee of proprietary DRM or arbitrary extension compatibility. Update checks and downloads are available in Xenon Controls; updates never silently close the browser or replace a running session.
 
 Ordinary browser controls come from Chromium. Some inherited menus still say **Chromium** or expose features that have not received exhaustive Xenon acceptance testing. Chromium's password manager is replaced by Xenon's native vault.
 

@@ -302,6 +302,24 @@ class App final : public CefApp,public CefBrowserProcessHandler {
 int run(HINSTANCE instance,void* sandbox_info){
   if(!sandbox_info){MessageBoxW(nullptr,L"Xenon requires the matching sandbox bootstrap executable.",L"Xenon Browser",MB_OK|MB_ICONERROR);return 1;}
   CefMainArgs args(instance);int child=CefExecuteProcess(args,nullptr,sandbox_info);if(child>=0)return child;
+  // Installation waits for normal browser shutdown. Creating this before
+  // checking SetupMutex closes the start/upgrade race without killing a tab.
+  struct RunningMarker {
+    HANDLE handle{};
+    RunningMarker(){
+      local_security::SecurityDescriptor policy;
+      handle=CreateMutexW(&policy.attributes,FALSE,L"Local\\XenonBrowserRunning");
+      if(!handle)throw std::runtime_error("Cannot protect the running installation");
+    }
+    ~RunningMarker(){if(handle)CloseHandle(handle);}
+  } running_marker;
+  const auto setup=OpenMutexW(SYNCHRONIZE,FALSE,L"Local\\XenonBrowserSetup");
+  const auto setup_error=GetLastError();
+  if(setup||setup_error!=ERROR_FILE_NOT_FOUND){
+    if(setup)CloseHandle(setup);
+    MessageBoxW(nullptr,L"Xenon setup is open. Finish or cancel setup before starting the browser.",L"Xenon Browser",MB_OK|MB_ICONINFORMATION);
+    return 1;
+  }
   SetCurrentProcessExplicitAppUserModelID(L"Xenon.Browser");
   auto command=CefCommandLine::CreateCommandLine();command->InitFromString(GetCommandLineW());
   Broker::Limits limits;

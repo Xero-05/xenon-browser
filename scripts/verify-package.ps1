@@ -19,6 +19,12 @@ try {
   $taskReader = [IO.StreamReader]::new($taskManifestEntry.Open())
   try { $taskManifest = $taskReader.ReadToEnd() | ConvertFrom-Json } finally { $taskReader.Dispose() }
   if ($taskManifest.signed -ne $false) { throw 'Alpha must be labelled unsigned.' }
+  $taskVersionEntry = $taskEntries[$taskPrefix + 'VERSION']
+  if (-not $taskVersionEntry) { throw 'Release VERSION is missing.' }
+  $taskVersionReader = [IO.StreamReader]::new($taskVersionEntry.Open())
+  try { $taskVersionText = $taskVersionReader.ReadToEnd().Trim() } finally { $taskVersionReader.Dispose() }
+  if ($taskVersionText -cne $taskManifest.version -or $taskVersionText -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-alpha\.[0-9]+)?$') { throw 'Release manifest and VERSION disagree.' }
+  if (-not $taskEntries.ContainsKey($taskPrefix + 'licenses/INNO-SETUP-LICENSE.txt')) { throw 'Installer runtime license is missing.' }
   $taskSeen = @{}
   foreach ($item in $taskManifest.files) {
     $name = $taskPrefix + $item.path

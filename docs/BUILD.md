@@ -66,10 +66,24 @@ Protected HTTPS sign-in tests use a separate build target. Configure with `-DXEN
 ./scripts/package.ps1
 ```
 
-Packaging requires built browser and adapter output. It creates a fresh staging directory under `dist/`, installs only the locked production npm dependencies there, copies the pinned Node runtime and CEF runtime/resources, includes project and dependency licenses, creates the Windows x64 ZIP and writes a SHA-256 checksum. Generated runtime profiles are never packaged. This is an **unsigned alpha**, not a signed installer or an automatic update channel.
+Packaging requires built browser and adapter output. It creates a fresh staging directory under `dist/`, installs only the locked production npm dependencies there, copies the pinned Node runtime and CEF runtime/resources, includes project and dependency licenses, creates the Windows x64 ZIP and writes a SHA-256 checksum. Generated runtime profiles are never packaged. This is an **unsigned alpha**. `VERSION` drives the native application version and default package name; packaging refuses a browser DLL built for a different version. Keep npm package metadata and the MCP server version aligned when preparing a release.
+
+## Windows installer and update publication
+
+```powershell
+./scripts/bootstrap-installer.ps1
+$version = (Get-Content ./VERSION -Raw).Trim()
+./scripts/build-installer.ps1 -Zip "./dist/Xenon-$version-windows-x64-unsigned.zip"
+```
+
+The installer compiler is pinned separately and installed in portable mode in ignored build storage. The installer builder first verifies the ZIP checksum and every manifest entry, then compiles the same runtime files into `Xenon-<version>-windows-x64-setup-unsigned.exe` and writes its SHA-256. The default installer requires no administrator access, uses a stable per-user program directory and keeps browser data separate. Do not replace the signed upstream compiler with an unverified download.
+
+Publish the ZIP, installer and both `.sha256` files as assets on a release tagged `v<version>` in `Xero-05/xenon-browser`, after reviewing checks and release notes. Mark alpha releases as prereleases. Do not edit existing release assets in place or reuse a version for different bytes. Verify that GitHub reports each installer asset's `digest` as `sha256:<expected digest>` before publishing: the native updater refuses missing/mismatched digests, unexpected asset names and downgrades. The updater enumerates published releases, so alpha releases are eligible without relying on GitHub's stable-only latest-release endpoint.
+
+The native updater uses GitHub HTTPS metadata and asset hashes; it does not yet verify an Authenticode publisher. No signing private key belongs in the repository. Introducing signed releases requires a reviewed expected-publisher verification policy, signing after branding, timestamping, regeneration of manifests/checksums after signing, and signing the final installer. Keep unsigned filenames and labels until that complete path is configured.
 
 ## CEF security maintenance
 
-Alpha updates are manual. Before each public release, inspect the current stable [CEF build index](https://cef-builds.spotifycdn.com/index.html) and [Chromium security releases](https://chromereleases.googleblog.com/search/label/Stable%20updates). Pick the complete matching Windows x64 CEF distribution, verify the publisher checksum, record a locally verified SHA-256, update the lockfile, and rebuild from a clean dependency directory. Review CEF API changes, bootstrap/sandbox requirements and Chromium licensing notices. Run native, SDK and live acceptance tests on the new runtime before distributing it. Never update just `libcef.dll` inside an older ZIP.
+CEF dependency updates remain manual maintainer work. Before each public release, inspect the current stable [CEF build index](https://cef-builds.spotifycdn.com/index.html) and [Chromium security releases](https://chromereleases.googleblog.com/search/label/Stable%20updates). Pick the complete matching Windows x64 CEF distribution, verify the publisher checksum, record a locally verified SHA-256, update the lockfile, and rebuild from a clean dependency directory. Review CEF API changes, bootstrap/sandbox requirements and Chromium licensing notices. Run native, SDK and live acceptance tests on the new runtime before distributing it. Never update just `libcef.dll` inside an older ZIP.
 
 CEF integration guidance: [sandbox/bootstrap requirements](https://github.com/chromiumembedded/cef/blob/master/docs/sandbox_setup.md), [CEF General Usage](https://github.com/chromiumembedded/cef/wiki/GeneralUsage). Xenon does not guarantee proprietary DRM, arbitrary extension compatibility, cloud synchronization, mobile support or built-in AI chat.

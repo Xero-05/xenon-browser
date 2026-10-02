@@ -1,0 +1,40 @@
+{
+  "version": "0.1.0-alpha.10",
+  "capturedUtc": "2026-10-02T21:31:30.7050913Z",
+  "applicationDllSha256": "c03bcb0bb04cac8ab975ca9aa3bf47218165ddeed63a947482b344464b2941a6",
+  "nativeUpdater": {
+    "groups": [
+      "SemVer and release channel",
+      "fixed repository and asset metadata",
+      "HTTPS redirect policy",
+      "bounded JSON parsing",
+      "file size, digest, links and sharing",
+      "verified staging and failure/cancel cleanup"
+    ],
+    "passed": true
+  },
+  "installer": {
+    "scope": "Actual Inno policy with tiny synthetic payload, unique test-only identity, HKCU keys, install folder, shortcuts and mutexes; separate synthetic profile retained",
+    "passed": true,
+    "checks": 24
+  },
+  "liveMetadata": {
+    "source": "Fixed public GitHub release API via production WinHTTP; no eligible newer installer before alpha.10 publication",
+    "passed": true
+  },
+  "nativeUi": {
+    "scope": "Computer Use on a fresh generated profile: Controls version/button, readable Updates window, successful no-update response, disabled unavailable actions, normal browser shutdown",
+    "passed": true,
+    "computerUseClosed": true
+  },
+  "branding": {
+    "checks": 5,
+    "passed": true
+  },
+  "limitations": [
+    "Available-update download/install UI not exercised end to end",
+    "No production-profile installation or migration test",
+    "Unrelated browser acceptance suites not repeated; earlier reports belong to their recorded DLL hashes",
+    "Unsigned alpha; no Authenticode publisher verification"
+  ]
+}

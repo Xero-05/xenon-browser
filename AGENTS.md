@@ -16,6 +16,7 @@ Xenon is a Windows x64 alpha built with C++20, CEF's sandboxed Chrome runtime, a
 | MCP schemas, stdio CLI, named-pipe transport and activity resource | `adapter/src/server.ts`, `cli.ts`, `ipc.ts`, `human-activity.ts` |
 | Native/unit/live regression coverage | `tests/native/`, `adapter/test/`, `tests/*.mjs`, `tests/fixtures/` |
 | Dependency pins, build and release assembly | `dependencies.lock.json`, `package-lock.json`, `CMakeLists.txt`, `scripts/` |
+| Native update checks and Windows setup | `native/src/updater.cpp`, `native/include/xenon/updater.hpp`, `installer/`, `scripts/build-installer.ps1`, `VERSION` |
 
 Consult [ARCHITECTURE](docs/ARCHITECTURE.md), [SECURITY](docs/SECURITY.md), [MCP](docs/MCP.md) and [TESTING](docs/TESTING.md) for the contract and current limitations. Tool schemas in `adapter/src/server.ts` and broker enforcement are the source of truth when documentation differs; correct the inconsistency as part of the change.
 
@@ -42,6 +43,7 @@ Choose checks that exercise the changed behavior:
 | Login capture or human autofill | Relevant native tests plus `node --test tests/login-capture-tests.mjs` or `node --test tests/human-autofill-tests.mjs`; run the matching synthetic live suite when integration changed. |
 | CEF input, evidence, ownership or native UI | Full native build and relevant live fixture suites from [TESTING](docs/TESTING.md); verify website state, not just a successful protocol reply. |
 | Branding or packaging | `node tests/branding-resources.mjs` after building; package verification and extracted-package smoke testing for release changes. |
+| Installer or native updater | Focused `updater_tests`, isolated installer fixture tests, native update UI check, package verification and the packaged-browser smoke test. Use synthetic state and test installer identities; do not install over the user's copy merely to test setup. |
 
 `-CoreOnly` reconfigures the shared `build` directory without the browser. Run the build script without that switch to restore the full configuration. Do not run concurrent builds against the same output tree, rebuild a DLL while a live suite uses it, or run desktop suites concurrently. Coordinate shared files and browser test slots when multiple contributors are working.
 
@@ -58,6 +60,7 @@ Live suites create disposable profiles and private pipes. Use their generated sy
 - Preserve final-path/file-identity validation, protected roots, link rejection and opaque upload handles. Workspace removal must preserve shared vault accounts and original/downloaded files; cleanup stays bounded and fails closed on unsafe or locked paths.
 - Keep operation outcomes honest. A dispatched click, navigation or file selection is not proof of website success. Persist dispatch intent before effects, preserve unknown outcomes across restart, and never automatically replay uncertain mutations. Journal retention is bounded.
 - Keep test certificate exceptions and native fixture drivers compile-time gated into the separate `XenonAuthTest` target. Never ship that target, fixture keys, seed utilities or a production certificate/security bypass.
+- Keep updates native-only, bound to the fixed release repository and exact versioned installer asset, with mandatory size/SHA-256 verification, normal TLS validation and bounded requests. Preserve the running/setup mutex boundary, human installation decision, profile retention and downgrade rejection. Do not claim unsigned hashes establish publisher identity or add unattended forced shutdowns.
 
 ## Change and review hygiene
 

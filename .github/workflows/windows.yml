@@ -65,13 +65,30 @@ jobs:
         run: ./scripts/package.ps1
       - name: Verify release manifest and archive
         shell: pwsh
-        run: ./scripts/verify-package.ps1 -Zip ./dist/Xenon-0.1.0-alpha.9-windows-x64-unsigned.zip
+        run: |
+          $version = (Get-Content ./VERSION -Raw).Trim()
+          ./scripts/verify-package.ps1 -Zip "./dist/Xenon-$version-windows-x64-unsigned.zip"
+      - name: Bootstrap pinned installer compiler
+        shell: pwsh
+        timeout-minutes: 10
+        run: ./scripts/bootstrap-installer.ps1
+      - name: Test isolated installer lifecycle
+        shell: pwsh
+        timeout-minutes: 5
+        run: ./tests/installer-tests.ps1
+      - name: Build unsigned Windows installer
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $version = (Get-Content ./VERSION -Raw).Trim()
+          ./scripts/build-installer.ps1 -Zip "./dist/Xenon-$version-windows-x64-unsigned.zip"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: xenon-windows-x64-unsigned
           path: |
             dist/*.zip
             dist/*.sha256
+            dist/*-setup-unsigned.exe
             out/*results.json
             out/*tests.xml
           if-no-files-found: error
