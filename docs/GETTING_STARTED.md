@@ -1,6 +1,6 @@
 # Get started with Xenon
 
-The installation instructions use **0.1.0-alpha.11**, an unsigned Windows x64 alpha. Sections 2–5 describe the latest development source, including the new native shell, Controls and read-only client defaults; those changes are not in the published alpha.11 installer. [Build the source](BUILD.md) to use them, or consult the [alpha.11 guide](https://github.com/Xero-05/xenon-browser/blob/v0.1.0-alpha.11/docs/GETTING_STARTED.md) for that package's workflow. See [unreleased changes](RELEASE_NOTES.md#unreleased).
+This guide uses **0.1.0-alpha.12**, an unsigned Windows x64 alpha with the native shell, reorganized Controls and read-only defaults for new paired clients. See [release notes](RELEASE_NOTES.md).
 
 You need Windows 10 or 11 with a desktop session. Browsing needs no model account. Agent use additionally needs an MCP host that can launch a local stdio server; image support is needed for visual tasks.
 
@@ -8,17 +8,17 @@ The release includes the browser, its matching Chromium/CEF runtime, the MCP ada
 
 ## 1. Install Xenon
 
-Download these two assets from the [alpha.11 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.11):
+Download these two assets from the [alpha.12 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.12):
 
-- `Xenon-0.1.0-alpha.11-windows-x64-setup-unsigned.exe`
-- `Xenon-0.1.0-alpha.11-windows-x64-setup-unsigned.exe.sha256`
+- `Xenon-0.1.0-alpha.12-windows-x64-setup-unsigned.exe`
+- `Xenon-0.1.0-alpha.12-windows-x64-setup-unsigned.exe.sha256`
 
 Use the release asset, rather than GitHub's automatically generated **Source code** archive. Source archives require a [build](BUILD.md).
 
 In PowerShell, change to the folder containing both downloaded files and verify the checksum:
 
 ```powershell
-$installer = '.\Xenon-0.1.0-alpha.11-windows-x64-setup-unsigned.exe'
+$installer = '.\Xenon-0.1.0-alpha.12-windows-x64-setup-unsigned.exe'
 $expected = (Get-Content -LiteralPath ($installer + '.sha256') -Raw).Trim().Split(' ')[0]
 $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
 if ($actual -ine $expected) { throw 'Checksum mismatch. Do not run this installer.' }
@@ -39,7 +39,7 @@ Once this release is installed, future releases can be downloaded through **Xeno
 
 ## 2. Open the browser
 
-Run `build/app/Release/Xenon.exe` after building the development source. Packaged versions open from the **Xenon Browser** Start menu entry or `Xenon.exe` in their installation folder. A fresh launch opens one blank tab in **Personal**. Use the address bar to visit a website.
+Open **Xenon Browser** from the Start menu, or run `Xenon.exe` in its installation folder. A fresh launch opens one blank tab in **Personal**. Use the address bar to visit a website. For a source build, run `build/app/Release/Xenon.exe`.
 
 Press **Ctrl+Shift+X** while a Xenon browser window is active to open **Xenon Controls**, or use its toolbar button or webpage context-menu item. Its Clients, Workspaces and Passwords sections manage pairings, access, control ownership, saved accounts and file permissions.
 

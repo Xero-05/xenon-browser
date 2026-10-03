@@ -1,6 +1,14 @@
-# Local alpha validation
+# Alpha validation
 
 Xenon is a Windows x64 development alpha. The attached test records distinguish exercised behavior from inherited Chromium features and remaining manual coverage. They are not an independent security audit or a production reliability certification.
+
+## Alpha.12 release preparation
+
+The matching CEF distribution was updated to `154.0.33+ga03e714` (Chromium `154.0.8037.94`) after checking the Windows x64 stable index, verifying the publisher SHA-1 and recording SHA-256. Chrome's `154.0.8037.97/.98` security release is ahead of that available CEF build; no claim is made that all of its fixes are included. Runtime licenses/notices and dependency pins remain aligned.
+
+Release preparation passed 11 native groups, adapter typechecking, 84 adapter/script tests, five branding checks, 65 live checks across eight serial suites and 47 isolated installer checks. The [release validation record](test-results/alpha12-validation.json) binds the rebuilt production and unshipped AuthTest binaries to those suites. It distinguishes automated broker/CEF coverage from earlier physical UI observations and retains the initial UI-test failure. That fixture now reads a fixed 32-bit offscreen bitmap after `GdiFlush`, preserving exact Light/Dark hover and mouse-leave assertions; `GetPixel` disagreed with its actual bitmap bytes. Browser painting code was unchanged.
+
+The full physical theme, high-contrast, multiple-DPI/monitor, permission, credential-dialog and menu matrix remains unverified on the release binary. Earlier startup/input/dialog and visual observations retain their original hashes; the runtime update does not turn those records into new physical acceptance coverage. Package smoke and publication results are recorded after their respective steps.
 
 ## Visual and controls overhaul
 
@@ -48,7 +56,7 @@ actual website outcome check.
 | Native updater | `ctest --test-dir build -C Release -R '^updater_tests$' --output-on-failure` | Release/channel/version selection, exact repository and asset binding, redirect policy, digest/size verification and private staging with synthetic sources. No real profile or installer execution. |
 | Windows installer | `./scripts/bootstrap-installer.ps1`; `./tests/installer-tests.ps1` | Actual Inno install/upgrade/uninstall with a tiny synthetic payload, unique test-only identity/HKCU keys/shortcuts/mutexes and a disposable install folder. Running/locked files, invalid versions, downgrade rejection and preserved synthetic profile data. No production installation. |
 | Native C++ | `ctest --test-dir build -C Release --output-on-failure` | Broker authorization, async queues, clean-boundary handoffs, popup groups, dispatch guards, durable deduplication, Windows named pipes, DPAPI/SQLite and pending-login confirmation, native login-capture state transitions, CSV import, file and folder capabilities. |
-| Native UI regression | `ctest --test-dir build -C Release -R '^native_ui_tests$' --output-on-failure` | Hidden real Win32 controls verify case-insensitive subclass attachment, Light/Dark hover enter/leave painting and DPI list height. Synthetic settings exercise legacy loading, atomic theme/width persistence, bounds and malformed input. This simulates messages and does not establish physical hover, resize or high-contrast acceptance. |
+| Native UI regression | `ctest --test-dir build -C Release -R '^native_ui_tests$' --output-on-failure` | Hidden real Win32 controls verify case-insensitive subclass attachment, exact Light/Dark hover enter/leave paint using synchronized 32-bit bitmap bytes, and DPI list height. Synthetic settings exercise legacy loading, atomic theme/width persistence, bounds and malformed input. This simulates messages and does not establish physical hover, resize or high-contrast acceptance. |
 | Pointer targeting | `node --test tests/pointer-target-tests.mjs` | Exact production target script with deterministic randomness: visible unobscured interior, partial coverage fallback, fixed final revalidation, clipped/tiny targets, shadow hit tests, stale geometry and opacity changes. Native `pointer_motion_tests` covers bounded curves and visual-only pause/resume transitions; live retirement/handoff tests check release after actual pointer-down. |
 | Adapter and credential scripts | `npm test` | Private pairing-file creation, image envelopes, fragmented/out-of-order pipe replies, uncertain outcomes, strict schemas, actual modern and legacy SDK stdio clients, plus the production login-monitor and human-autofill scripts in a synthetic DOM. |
 | Login monitor only | `node --test tests/login-capture-tests.mjs` | Production isolated-world script: supported forms including the public CWL form shape, rejection cases, trusted-event filtering, privacy-before-capture ordering, revealed-password identity, submitted-attempt semantics and MFA input exclusion. No native prompt is opened. |

@@ -6,11 +6,11 @@
 
 Xenon combines a Windows browser powered by Chromium with tools that let external agents inspect pages, interact with controls, and hand off a live tab. You choose which clients can connect, which workspaces they can use, and which saved accounts or local files they may access.
 
-**Current release: 0.1.0-alpha.11 · Windows x64 · unsigned alpha.** A per-user installer with a folder chooser and in-browser update checks are available. Installation remains a human decision. The included tests exercise synthetic websites and specific native workflows; they do not establish universal website compatibility or an independent security audit.
+**Current release: 0.1.0-alpha.12 · Windows x64 · unsigned alpha.** A per-user installer with a folder chooser and in-browser update checks are available. Installation remains a human decision. The included tests exercise synthetic websites and specific native workflows; they do not establish universal website compatibility or an independent security audit.
 
-[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.11) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent instructions](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
+[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.12) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent instructions](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
 
-**Development source:** this checkout includes the new native shell, Controls and client policies described below. The published alpha.11 installer retains the earlier interface and permissions. [Build this source](docs/BUILD.md) to try the overhaul; see [unreleased changes](docs/RELEASE_NOTES.md#unreleased) and [validation scope](docs/TESTING.md).
+This release adds the native shell, reorganized Controls and client policies described below. See [release notes](docs/RELEASE_NOTES.md) and [validation scope](docs/TESTING.md).
 
 ## What Xenon does
 
@@ -39,7 +39,7 @@ Closing Xenon does not sign you out of websites: persistent workspaces retain co
 
 Xenon supports external **local stdio MCP hosts**; remote-only hosts need another transport. Visual tasks need an image-capable client/model. There is no built-in model, cloud sync or signed installer, and no guarantee of proprietary DRM or arbitrary extension compatibility. Update checks and downloads are available in Xenon Controls; updates never silently close the browser or replace a running session.
 
-The source build supplies native Xenon navigation and menus for find, zoom, bookmarks, history, downloads, printing/PDF and site permissions. Engine credits and licenses remain accessible through About and Third-party Notices. Xenon's native vault manages passwords. The complete physical menu/dialog, high-contrast and multiple-DPI acceptance matrix remains unfinished; see [test scope](docs/TESTING.md).
+Xenon supplies native navigation and menus for find, zoom, bookmarks, history, downloads, printing/PDF and site permissions. Engine credits and licenses remain accessible through About and Third-party Notices. Xenon's native vault manages passwords. The complete physical menu/dialog, high-contrast and multiple-DPI acceptance matrix remains unfinished; see [test scope](docs/TESTING.md).
 
 Saved-account support covers a bounded set of HTTPS forms. MFA, passkeys, CAPTCHA, embedded login widgets and unusual flows need human handling. Automatic Save/Update and human autofill have renderer/native fixture coverage, but the complete human credential-prompt workflow and real-site compatibility remain manual acceptance work. See the [user guide](docs/USER_GUIDE.md#saved-accounts) and [test scope](docs/TESTING.md).
 

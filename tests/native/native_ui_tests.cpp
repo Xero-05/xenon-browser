@@ -5,9 +5,14 @@ using namespace xenon;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 COLORREF button_pixel(HWND button){
-  const auto screen=GetDC(nullptr),dc=CreateCompatibleDC(screen);auto bitmap=CreateCompatibleBitmap(screen,48,36);const auto old=SelectObject(dc,bitmap);
+  const auto dc=CreateCompatibleDC(nullptr);BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=48;info.bmiHeader.biHeight=-36;info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;void* pixels{};
+  auto bitmap=CreateDIBSection(dc,&info,DIB_RGB_COLORS,&pixels,nullptr,0);require(dc&&bitmap&&pixels,"Create fixed 32-bit drawing surface");const auto old=SelectObject(dc,bitmap);
   DRAWITEMSTRUCT item{};item.CtlType=ODT_BUTTON;item.hwndItem=button;item.hDC=dc;item.rcItem={0,0,48,36};ui::button(item,reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
-  const auto color=GetPixel(dc,24,18);SelectObject(dc,old);DeleteObject(bitmap);DeleteDC(dc);ReleaseDC(nullptr,screen);return color;
+  GdiFlush();
+  // Read the actual 32-bit DIB after flushing GDI. GetPixel can report a
+  // device-converted value that differs from these offscreen bitmap bytes.
+  const auto pixel=reinterpret_cast<const unsigned*>(pixels)[18*48+24];const auto color=RGB((pixel>>16)&255,(pixel>>8)&255,pixel&255);
+  SelectObject(dc,old);DeleteObject(bitmap);DeleteDC(dc);return color;
 }
 void reset_preferences(){ui::theme_mode=ui::ThemeMode::system;ui::sidebar_width=240;}
 }
@@ -21,7 +26,7 @@ int main(){try{
   require(button!=nullptr,"Create real built-in button");ui::control_theme(button);DWORD_PTR data{};
   require(GetWindowSubclass(button,ui::hover_proc,1,&data)!=FALSE,"Attach hover handler to the mixed-case Win32 Button class");
   for(const auto mode:{ui::ThemeMode::light,ui::ThemeMode::dark}){
-    ui::theme_mode=mode;SendMessageW(button,WM_MOUSELEAVE,0,0);const auto normal=button_pixel(button);require(normal==ui::palette().surface,"Normal button uses themed surface");
+    ui::theme_mode=mode;SendMessageW(button,WM_MOUSELEAVE,0,0);const auto normal=button_pixel(button);if(normal!=ui::palette().surface)throw std::runtime_error("Normal button uses themed surface: actual="+std::to_string(normal)+" expected="+std::to_string(ui::palette().surface));
     SendMessageW(button,WM_MOUSEMOVE,0,MAKELPARAM(20,15));require(GetPropW(button,L"XenonHover")!=nullptr,"Mouse movement enters hover state");
     const auto hovered=button_pixel(button);require(hovered==ui::hover_background()&&hovered!=normal,"Hover paints a distinct background in Light and Dark");
     SendMessageW(button,WM_MOUSELEAVE,0,0);require(GetPropW(button,L"XenonHover")==nullptr&&button_pixel(button)==normal,"Mouse leave restores normal background");
