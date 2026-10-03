@@ -68,7 +68,18 @@ inline std::wstring wide(const std::string& value) {if(value.empty())return {};c
 inline std::string utf8(const std::wstring& value) {if(value.empty())return {};const int count=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,value.data(),static_cast<int>(value.size()),nullptr,0,nullptr,nullptr);std::string out(count,'\0');if(count)WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,value.data(),static_cast<int>(value.size()),out.data(),count,nullptr,nullptr);return out;}
 inline std::string text(HWND control) {const int count=GetWindowTextLengthW(control);std::wstring value(count+1,L'\0');GetWindowTextW(control,value.data(),count+1);value.resize(count);return utf8(value);}
 inline void text(HDC dc,RECT rect,const std::wstring& value,HFONT face,COLORREF color,UINT flags=DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS) {const auto old=SelectObject(dc,face);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,color);DrawTextW(dc,value.c_str(),static_cast<int>(value.size()),&rect,flags);SelectObject(dc,old);}
-enum class Icon {none,back,forward,reload,stop,go,controls,menu,plus,up,down,close};
+// IsDialogMessage otherwise consumes Return/Escape as dialog commands before
+// the edit subclass sees them. Other keys retain ordinary native tab traversal.
+inline bool edit_command(MSG& message,HWND control) {
+  if(message.hwnd!=control||message.message!=WM_KEYDOWN||(message.wParam!=VK_RETURN&&message.wParam!=VK_ESCAPE))return false;
+  SendMessageW(control,message.message,message.wParam,message.lParam);return true;
+}
+inline bool keyboard_focus(HWND control) {return (SendMessageW(control,WM_QUERYUISTATE,0,0)&UISF_HIDEFOCUS)==0;}
+inline void focus_mark(HDC dc,RECT rect,HWND control) {
+  if(!keyboard_focus(control))return;const auto colors=palette();const int width=dip(control,2);
+  RECT mark{rect.left,rect.top+dip(control,4),rect.left+width,rect.bottom-dip(control,4)};fill(dc,mark,colors.contrast?colors.ink:colors.gray);
+}
+enum class Icon {none,back,forward,reload,stop,go,controls,menu,plus,up,down,chevron_right,close};
 inline void icon(HDC dc,RECT rect,Icon kind,COLORREF ink,HWND window) {
   if(vector_rendering()){Gdiplus::Graphics graphics(dc);graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);const float scale=GetDpiForWindow(window)/96.0f,cx=(rect.left+rect.right)/2.0f,cy=(rect.top+rect.bottom)/2.0f;
     Gdiplus::Pen pen(vector_color(ink),1.8f*scale);pen.SetStartCap(Gdiplus::LineCapRound);pen.SetEndCap(Gdiplus::LineCapRound);pen.SetLineJoin(Gdiplus::LineJoinRound);Gdiplus::SolidBrush brush(vector_color(ink));
@@ -79,6 +90,7 @@ inline void icon(HDC dc,RECT rect,Icon kind,COLORREF ink,HWND window) {
     else if(kind==Icon::plus){line(-7,0,7,0);line(0,-7,0,7);}
     else if(kind==Icon::close){line(-5,-5,5,5);line(-5,5,5,-5);}
     else if(kind==Icon::up||kind==Icon::down){const float sign=kind==Icon::up?-1.0f:1.0f;line(-5,-sign*3,0,sign*3);line(0,sign*3,5,-sign*3);}
+    else if(kind==Icon::chevron_right){line(-3,-5,3,0);line(3,0,-3,5);}
     else if(kind==Icon::controls){for(float y:{-6.0f,0.0f,6.0f}){const float x=y==0?4.0f:-3.0f;line(-8,y,x-2,y);line(x+2,y,8,y);graphics.DrawEllipse(&pen,cx+(x-2)*scale,cy+(y-2)*scale,4*scale,4*scale);}}
     else if(kind==Icon::menu)for(float x:{-6.0f,0.0f,6.0f})graphics.FillEllipse(&brush,cx+(x-1.5f)*scale,cy-1.5f*scale,3*scale,3*scale);
     return;}
@@ -91,6 +103,7 @@ inline void icon(HDC dc,RECT rect,Icon kind,COLORREF ink,HWND window) {
   else if(kind==Icon::plus){line(-7,0,7,0);line(0,-7,0,7);}
   else if(kind==Icon::close){line(-5,-5,5,5);line(-5,5,5,-5);}
   else if(kind==Icon::up||kind==Icon::down){const int sign=kind==Icon::up?-1:1;line(-5,-sign*3,0,sign*3);line(0,sign*3,5,-sign*3);}
+  else if(kind==Icon::chevron_right){line(-3,-5,3,0);line(3,0,-3,5);}
   else if(kind==Icon::controls){for(int y:{-6,0,6}){line(-8,y,8,y);const int x=y==0?4:-3;Ellipse(dc,cx+d(x-2),cy+d(y-2),cx+d(x+2)+unit,cy+d(y+2)+unit);}}
   else if(kind==Icon::menu){auto brush=CreateSolidBrush(ink);SelectObject(dc,brush);for(int x:{-6,0,6})Ellipse(dc,cx+d(x-1),cy-d(1),cx+d(x+1)+unit,cy+d(1)+unit);SelectObject(dc,old_brush);DeleteObject(brush);}
   SelectObject(dc,old_brush);SelectObject(dc,old_pen);DeleteObject(pen);
@@ -104,7 +117,7 @@ inline void button_contents(const DRAWITEMSTRUCT& item,HFONT face,Icon glyph,boo
   else {
   wchar_t caption[256]{};GetWindowTextW(item.hwndItem,caption,256);text(item.hDC,rect,caption,face,ink,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
   }
-  if(item.itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);DrawFocusRect(item.hDC,&rect);}}
+  if(item.itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);focus_mark(item.hDC,rect,item.hwndItem);}}
 inline void button(const DRAWITEMSTRUCT& item,HFONT face,Icon glyph=Icon::none,bool active=false) {
   const int width=item.rcItem.right-item.rcItem.left,height=item.rcItem.bottom-item.rcItem.top;auto dc=CreateCompatibleDC(item.hDC);auto bitmap=CreateCompatibleBitmap(item.hDC,width,height);
   if(!dc||!bitmap){if(dc)DeleteDC(dc);if(bitmap)DeleteObject(bitmap);button_contents(item,face,glyph,active);return;}
@@ -117,7 +130,7 @@ inline bool list_draw(UINT message,WPARAM,LPARAM lp,HWND parent,LRESULT& result)
   if(message==WM_DRAWITEM){auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(!item||item->CtlType!=ODT_LISTBOX)return false;const auto colors=palette();auto rect=item->rcItem;fill(item->hDC,rect,colors.canvas);
     const bool selected=(item->itemState&ODS_SELECTED)!=0;if(selected){InflateRect(&rect,-2,-1);rounded(item->hDC,rect,selection(),selection(),dip(parent,6));}
     if(item->itemID!=static_cast<UINT>(-1)){const auto length=SendMessageW(item->hwndItem,LB_GETTEXTLEN,item->itemID,0);if(length>=0&&length<=4096){std::wstring caption(static_cast<size_t>(length)+1,L'\0');SendMessageW(item->hwndItem,LB_GETTEXT,item->itemID,reinterpret_cast<LPARAM>(caption.data()));caption.resize(static_cast<size_t>(length));rect.left+=dip(parent,8);rect.right-=dip(parent,6);text(item->hDC,rect,caption,reinterpret_cast<HFONT>(SendMessageW(item->hwndItem,WM_GETFONT,0,0)),selected?selection_ink():colors.ink);}}
-    if((item->itemState&ODS_FOCUS)&&GetFocus()==item->hwndItem){InflateRect(&rect,-2,-2);DrawFocusRect(item->hDC,&rect);}result=TRUE;return true;
+    if((item->itemState&ODS_FOCUS)&&GetFocus()==item->hwndItem){rect=item->rcItem;InflateRect(&rect,-4,-2);focus_mark(item->hDC,rect,item->hwndItem);}result=TRUE;return true;
   }
   if(message!=WM_NOTIFY)return false;auto notice=reinterpret_cast<NMHDR*>(lp);if(!notice||notice->code!=NM_CUSTOMDRAW)return false;
   wchar_t type[64]{};GetClassNameW(notice->hwndFrom,type,64);if(std::wstring_view(type)!=WC_LISTVIEWW)return false;auto draw=reinterpret_cast<NMLVCUSTOMDRAW*>(lp);
@@ -131,7 +144,7 @@ inline bool list_draw(UINT message,WPARAM,LPARAM lp,HWND parent,LRESULT& result)
     if(column==0&&checkboxes){RECT box{cell.left+dip(parent,4),(row.top+row.bottom)/2-dip(parent,7),cell.left+dip(parent,18),(row.top+row.bottom)/2+dip(parent,7)};DrawFrameControl(draw->nmcd.hdc,&box,DFC_BUTTON,DFCS_BUTTONCHECK|(ListView_GetCheckState(control,index)?DFCS_CHECKED:0));cell.left+=dip(parent,22);}
     wchar_t caption[4096]{};ListView_GetItemText(control,index,column,caption,4096);cell.left+=dip(parent,6);cell.right-=dip(parent,6);text(draw->nmcd.hdc,cell,caption,reinterpret_cast<HFONT>(SendMessageW(control,WM_GETFONT,0,0)),selected?selection_ink():colors.ink);
   }
-  if(selected&&GetFocus()==control){InflateRect(&row,-4,-2);DrawFocusRect(draw->nmcd.hdc,&row);}result=CDRF_SKIPDEFAULT;return true;
+  if(selected&&GetFocus()==control){InflateRect(&row,-4,-2);focus_mark(draw->nmcd.hdc,row,control);}result=CDRF_SKIPDEFAULT;return true;
 }
 inline bool ctl_color(UINT message,WPARAM wp,LPARAM lp,LRESULT& result) {
   if(message!=WM_CTLCOLORSTATIC&&message!=WM_CTLCOLOREDIT&&message!=WM_CTLCOLORLISTBOX&&message!=WM_CTLCOLORBTN)return false;

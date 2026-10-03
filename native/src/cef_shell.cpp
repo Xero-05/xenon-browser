@@ -41,6 +41,7 @@ struct BrowserShell::Impl {
   std::vector<std::pair<std::string,bool>> tree_keys;Json tree_signature;bool rebuilding{},find_visible{};RECT page{},panel_bounds{},address_bounds{};
   std::wstring status;bool dark{};bool shutting_down{};size_t pairing_count{};Clock::time_point next_state{},next_flush{};
   int sidebar{240},drag_origin{},drag_width{};bool resizing_sidebar{},sidebar_hover{};
+  bool address_dirty{},setting_address{};HTREEITEM hovered_row{};
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
   std::filesystem::path fixture_destination;std::map<int,std::pair<uint64_t,uint64_t>> fixture_paints;
   void fixture_snapshot(const std::filesystem::path& destination);
@@ -59,7 +60,7 @@ struct BrowserShell::Impl {
     address=add(Address,L"EDIT",L"",WS_TABSTOP|ES_AUTOHSCROLL);
     find_text=add(FindText,L"EDIT",L"",WS_TABSTOP|ES_AUTOHSCROLL|WS_BORDER);
     tree=add(Tree,WC_TREEVIEWW,L"Workspace tabs",WS_TABSTOP|TVS_HASBUTTONS|TVS_LINESATROOT|TVS_SHOWSELALWAYS|TVS_FULLROWSELECT|TVS_NOHSCROLL);
-    SetWindowSubclass(tree,tree_proc,3,reinterpret_cast<DWORD_PTR>(this));TreeView_SetItemHeight(tree,ui::dip(window,38));theme();layout();SetTimer(window,1,16,nullptr);SetTimer(window,2,1000,nullptr);
+    SetWindowSubclass(tree,tree_proc,3,reinterpret_cast<DWORD_PTR>(this));TreeView_SetExtendedStyle(tree,TVS_EX_DOUBLEBUFFER,TVS_EX_DOUBLEBUFFER);TreeView_SetItemHeight(tree,ui::dip(window,38));theme();layout();SetTimer(window,1,16,nullptr);SetTimer(window,2,1000,nullptr);
   }
   void theme(){auto colors=ui::palette();dark=colors.dark;ui::frame(window);TreeView_SetBkColor(tree,colors.canvas);TreeView_SetTextColor(tree,colors.ink);TreeView_SetLineColor(tree,colors.border);
     SetWindowTheme(tooltips,L"",L"");SendMessageW(tooltips,TTM_SETTIPBKCOLOR,colors.surface,0);SendMessageW(tooltips,TTM_SETTIPTEXTCOLOR,colors.ink,0);
@@ -86,13 +87,16 @@ struct BrowserShell::Impl {
     InvalidateRect(window,nullptr,TRUE);
   }
   bool sidebar_hit(POINT point) const {RECT bounds{};GetClientRect(window,&bounds);return point.x>=ui::dip(window,sidebar-10)&&point.x<ui::dip(window,sidebar)&&point.y>=ui::dip(window,12)&&point.y<bounds.bottom-ui::dip(window,12);}
+  RECT sidebar_grip() const {RECT bounds{};GetClientRect(window,&bounds);return {ui::dip(window,sidebar-8),bounds.bottom-ui::dip(window,87),ui::dip(window,sidebar-3),bounds.bottom-ui::dip(window,53)};}
+  void invalidate_grip(){auto rect=sidebar_grip();InvalidateRect(window,&rect,FALSE);}
+  void set_address(const std::string& value){if(ui::text(address)==value)return;setting_address=true;SetWindowTextW(address,ui::wide(value).c_str());setting_address=false;}
   void save_sidebar(){if(!ui::save_settings())status=L"Sidebar resized for this run; saving failed.";InvalidateRect(window,nullptr,FALSE);}
   void finish_sidebar(bool save){if(!resizing_sidebar)return;resizing_sidebar=false;RemovePropW(window,L"XenonSidebarDrag");if(GetCapture()==window)ReleaseCapture();if(save)save_sidebar();}
   void resize_sidebar(int width){RECT bounds{};GetClientRect(window,&bounds);const auto maximum=std::max(180,std::min(480,MulDiv(bounds.right,96,GetDpiForWindow(window))-400));const auto next=std::clamp(width,180,maximum);
     if(ui::sidebar_width!=next){ui::sidebar_width=next;layout();}}
   std::string workspace() const {auto found=hosts.find(selected);return found==hosts.end()?"native-default":found->second.workspace;}
   bool is_private() const {auto found=hosts.find(selected);return found!=hosts.end()&&found->second.metadata.value("private",false);}
-  void choose(const std::string& id,bool focus){auto found=hosts.find(id);if(found==hosts.end())return;selected=id;
+  void choose(const std::string& id,bool focus){auto found=hosts.find(id);if(found==hosts.end())return;if(selected!=id){address_dirty=false;set_address(str(found->second.metadata,"url"));}selected=id;
     status.clear();
     SetWindowPos(found->second.window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
     engine.select_native_tab(id);if(focus&&found->second.browser)engine.native_command(id,"focus");sync_toolbar();InvalidateRect(window,nullptr,FALSE);InvalidateRect(tree,nullptr,FALSE);update_cursor();
@@ -105,7 +109,7 @@ struct BrowserShell::Impl {
     if(state.value("protected",false))value+=L" · Protected authentication";return value;
   }
   void sync_toolbar(){auto found=hosts.find(selected);const auto metadata=found==hosts.end()?Json::object():found->second.metadata;
-    if(GetFocus()!=address){const auto text=ui::wide(str(metadata,"url"));if(ui::text(address)!=str(metadata,"url"))SetWindowTextW(address,text.c_str());}
+    if(GetFocus()!=address&&!address_dirty)set_address(str(metadata,"url"));
     const auto enable=[&](int id,bool enabled){if((IsWindowEnabled(controls.at(id))!=FALSE)!=enabled)EnableWindow(controls.at(id),enabled);};
     enable(Back,metadata.value("canGoBack",false));enable(Forward,metadata.value("canGoForward",false));enable(Reload,found!=hosts.end());
     const auto reload_title=metadata.value("loading",false)?L"Stop":L"Reload";if(ui::text(controls.at(Reload))!=ui::utf8(reload_title)){SetWindowTextW(controls.at(Reload),reload_title);TOOLINFOW tip{sizeof(tip)};tip.hwnd=window;tip.uId=reinterpret_cast<UINT_PTR>(controls.at(Reload));tip.lpszText=const_cast<LPWSTR>(reload_title);SendMessageW(tooltips,TTM_UPDATETIPTEXTW,0,reinterpret_cast<LPARAM>(&tip));}
@@ -119,13 +123,15 @@ struct BrowserShell::Impl {
   }
   void draw_tree(NMTVCUSTOMDRAW& draw){const auto index=draw.nmcd.lItemlParam;if(index<=0||static_cast<size_t>(index)>tree_keys.size())return;const auto& [id,group]=tree_keys[index-1];auto colors=ui::palette();RECT bounds{};GetClientRect(tree,&bounds);auto rect=draw.nmcd.rc;rect.left=0;rect.right=bounds.right;ui::fill(draw.nmcd.hdc,rect,colors.canvas);
     RECT label{};TreeView_GetItemRect(tree,reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec),&label,TRUE);label.right=bounds.right-ui::dip(window,12);
-    if(group){TVITEMW value{};value.hItem=reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec);value.mask=TVIF_STATE;value.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&value);RECT arrow=label;arrow.left=ui::dip(window,2);arrow.right=ui::dip(window,24);ui::icon(draw.nmcd.hdc,arrow,value.state&TVIS_EXPANDED?ui::Icon::down:ui::Icon::forward,colors.muted,window);
-      ui::text(draw.nmcd.hdc,label,ui::wide(workspace_names.contains(id)?workspace_names.at(id):"Workspace"),font,colors.muted);return;}
+    const bool hover=reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec)==hovered_row;
+    if(group){if(hover){auto background=rect;InflateRect(&background,-ui::dip(window,2),-ui::dip(window,3));ui::rounded(draw.nmcd.hdc,background,ui::hover_background(),ui::hover_background(),ui::dip(window,6));}TVITEMW value{};value.hItem=reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec);value.mask=TVIF_STATE;value.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&value);RECT arrow=label;arrow.left=ui::dip(window,2);arrow.right=ui::dip(window,24);ui::icon(draw.nmcd.hdc,arrow,value.state&TVIS_EXPANDED?ui::Icon::down:ui::Icon::chevron_right,hover&&colors.contrast?ui::selection_ink():colors.muted,window);
+      ui::text(draw.nmcd.hdc,label,ui::wide(workspace_names.contains(id)?workspace_names.at(id):"Workspace"),font,hover&&colors.contrast?ui::selection_ink():colors.muted);return;}
     const bool active=id==selected;rect.left=ui::dip(window,12);InflateRect(&rect,0,-ui::dip(window,3));rect.right-=active?0:ui::dip(window,6);auto shape=rect;if(active)shape.right+=ui::dip(window,16);
     const auto state=states.find(id);const bool outlined=active||(state!=states.end()&&state->second.value("agentAvailable",false)&&!state->second.value("humanPaused",false));
-    ui::rounded(draw.nmcd.hdc,shape,active?colors.surface:colors.canvas,outlined?color(id):colors.canvas,ui::dip(window,8),ui::dip(window,active?2:1));
-    auto found=hosts.find(id);const auto title=found==hosts.end()?std::string{}:str(found->second.metadata,"title");label.left=ui::dip(window,26);ui::text(draw.nmcd.hdc,label,ui::wide(title.empty()?"New tab":title),font,colors.ink);
-    if((draw.nmcd.uItemState&CDIS_FOCUS)&&GetFocus()==tree){auto focus=rect;InflateRect(&focus,-ui::dip(window,5),-ui::dip(window,3));DrawFocusRect(draw.nmcd.hdc,&focus);}
+    const auto background=active?colors.surface:hover?ui::hover_background():colors.canvas;
+    ui::rounded(draw.nmcd.hdc,shape,background,outlined?color(id):background,ui::dip(window,8),ui::dip(window,active?2:1));
+    auto found=hosts.find(id);const auto title=found==hosts.end()?std::string{}:str(found->second.metadata,"title");label.left=ui::dip(window,26);ui::text(draw.nmcd.hdc,label,ui::wide(title.empty()?"New tab":title),font,hover&&!active&&colors.contrast?ui::selection_ink():colors.ink);
+    if((draw.nmcd.uItemState&CDIS_FOCUS)&&GetFocus()==tree){auto focus=rect;InflateRect(&focus,-ui::dip(window,5),-ui::dip(window,3));ui::focus_mark(draw.nmcd.hdc,focus,tree);}
   }
   void paint(HDC dc){RECT rect{};GetClientRect(window,&rect);const auto colors=ui::palette();ui::fill(dc,rect,colors.canvas);
     ui::rounded(dc,panel_bounds,colors.surface,color(selected),ui::dip(window,10),ui::dip(window,2));ui::rounded(dc,address_bounds,colors.canvas,colors.canvas,ui::dip(window,17));
@@ -139,7 +145,7 @@ struct BrowserShell::Impl {
     if(signature==tree_signature)return;tree_signature=signature;std::set<std::string> expanded;
     for(auto item=TreeView_GetRoot(tree);item;item=TreeView_GetNextSibling(tree,item)){TVITEMW entry{};entry.hItem=item;entry.mask=TVIF_PARAM|TVIF_STATE;entry.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&entry);
       if(entry.lParam>0&&static_cast<size_t>(entry.lParam)<=tree_keys.size()&&(entry.state&TVIS_EXPANDED))expanded.insert(tree_keys[entry.lParam-1].first);}
-    const bool first=tree_keys.empty();rebuilding=true;SendMessageW(tree,WM_SETREDRAW,FALSE,0);TreeView_DeleteAllItems(tree);tree_keys.clear();std::map<std::string,HTREEITEM> groups;HTREEITEM current=nullptr;
+    const bool first=tree_keys.empty();rebuilding=true;hovered_row=nullptr;SendMessageW(tree,WM_SETREDRAW,FALSE,0);TreeView_DeleteAllItems(tree);tree_keys.clear();std::map<std::string,HTREEITEM> groups;HTREEITEM current=nullptr;
     for(const auto& id:order)if(auto found=hosts.find(id);found!=hosts.end()){
       auto& host=found->second;if(!groups.contains(host.workspace)){const auto label=ui::wide(workspace_names.contains(host.workspace)?workspace_names[host.workspace]:"Workspace");
         tree_keys.emplace_back(host.workspace,true);TVINSERTSTRUCTW entry{};entry.hParent=TVI_ROOT;entry.hInsertAfter=TVI_LAST;entry.item.mask=TVIF_TEXT|TVIF_PARAM;entry.item.pszText=const_cast<LPWSTR>(label.c_str());entry.item.lParam=tree_keys.size();groups[host.workspace]=TreeView_InsertItem(tree,&entry);}
@@ -188,7 +194,7 @@ struct BrowserShell::Impl {
     if(input.find(' ')==std::string::npos&&input.find('.')!=std::string::npos&&input.find(':')==std::string::npos)return "https://"+input;
     return "https://www.google.com/search?q="+CefURIEncode(input,true).ToString();
   }
-  void navigate(){engine.native_command(selected,"navigate",navigate_value());engine.native_command(selected,"focus");}
+  void navigate(){const auto value=navigate_value();address_dirty=false;engine.native_command(selected,"navigate",value,[this](Json result){if(!result.value("ok",false)){status=L"This address could not be opened.";InvalidateRect(window,nullptr,FALSE);}});engine.native_command(selected,"focus");}
   void show_find(){find_visible=true;layout();SetFocus(find_text);SendMessageW(find_text,EM_SETSEL,0,-1);}
   void menu(){auto popup=CreatePopupMenu();auto item=[&](int id,const wchar_t* caption){AppendMenuW(popup,MF_STRING,id,caption);};
     item(MenuFind,L"Find on page\tCtrl+F");item(MenuZoomIn,L"Zoom in\tCtrl++");item(MenuZoomOut,L"Zoom out\tCtrl+-");item(MenuZoomReset,L"Reset zoom\tCtrl+0");AppendMenuW(popup,MF_SEPARATOR,0,nullptr);
@@ -202,9 +208,10 @@ struct BrowserShell::Impl {
   }
   static LRESULT CALLBACK edit_proc(HWND control,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR owner){auto self=reinterpret_cast<Impl*>(owner);
     if(message==WM_KEYDOWN&&wp==VK_RETURN){if(control==self->address)self->navigate();else self->engine.native_command(self->selected,"find",ui::text(control));return 0;}
-    if(message==WM_KEYDOWN&&wp==VK_ESCAPE){if(control==self->find_text){self->find_visible=false;self->engine.native_command(self->selected,"find-close");self->layout();}self->engine.native_command(self->selected,"focus");return 0;}return DefSubclassProc(control,message,wp,lp);
+    if(message==WM_KEYDOWN&&wp==VK_ESCAPE){if(control==self->find_text){self->find_visible=false;self->engine.native_command(self->selected,"find-close");self->layout();}else {self->address_dirty=false;auto found=self->hosts.find(self->selected);self->set_address(found==self->hosts.end()?std::string{}:str(found->second.metadata,"url"));}self->engine.native_command(self->selected,"focus");return 0;}return DefSubclassProc(control,message,wp,lp);
   }
   static LRESULT CALLBACK tree_proc(HWND control,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR owner){auto result=DefSubclassProc(control,message,wp,lp);auto self=reinterpret_cast<Impl*>(owner);
+    if(message==WM_MOUSEMOVE||message==WM_MOUSELEAVE){TVHITTESTINFO hit{};hit.pt={GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};const auto next=message==WM_MOUSELEAVE?nullptr:TreeView_HitTest(control,&hit);if(next!=self->hovered_row){self->hovered_row=next;InvalidateRect(control,nullptr,FALSE);}if(message==WM_MOUSEMOVE){TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,control,0};TrackMouseEvent(&track);}}
     if(message==WM_VSCROLL||message==WM_MOUSEWHEEL||message==WM_KEYDOWN)InvalidateRect(self->window,nullptr,FALSE);if(message==WM_NCDESTROY)RemoveWindowSubclass(control,tree_proc,3);return result;}
   static LRESULT CALLBACK host_proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){if(msg==WM_NCHITTEST)return HTCLIENT;return DefWindowProcW(h,msg,wp,lp);}
   static LRESULT CALLBACK cursor_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){auto self=reinterpret_cast<Impl*>(GetWindowLongPtrW(h,GWLP_USERDATA));
@@ -227,8 +234,8 @@ struct BrowserShell::Impl {
       case WM_SETCURSOR:{POINT point{};GetCursorPos(&point);ScreenToClient(h,&point);if(LOWORD(lp)==HTCLIENT&&(self->resizing_sidebar||self->sidebar_hit(point))){SetCursor(LoadCursorW(nullptr,IDC_SIZEWE));return TRUE;}break;}
       case WM_LBUTTONDOWN:if(self->sidebar_hit({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)})){self->drag_origin=GET_X_LPARAM(lp);self->drag_width=self->sidebar;self->resizing_sidebar=true;SetPropW(h,L"XenonSidebarDrag",reinterpret_cast<HANDLE>(1));SetCapture(h);return 0;}break;
       case WM_MOUSEMOVE:if(self->resizing_sidebar){self->resize_sidebar(self->drag_width+MulDiv(GET_X_LPARAM(lp)-self->drag_origin,96,GetDpiForWindow(h)));return 0;}
-        {const bool hover=self->sidebar_hit({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});if(hover!=self->sidebar_hover){self->sidebar_hover=hover;InvalidateRect(h,nullptr,FALSE);}if(hover){TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,h,0};TrackMouseEvent(&track);}}break;
-      case WM_MOUSELEAVE:self->sidebar_hover=false;InvalidateRect(h,nullptr,FALSE);return 0;
+        {const bool hover=self->sidebar_hit({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});if(hover!=self->sidebar_hover){self->sidebar_hover=hover;self->invalidate_grip();}if(hover){TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,h,0};TrackMouseEvent(&track);}}break;
+      case WM_MOUSELEAVE:if(self->sidebar_hover){self->sidebar_hover=false;self->invalidate_grip();}return 0;
       case WM_LBUTTONUP:if(self->resizing_sidebar){self->finish_sidebar(true);return 0;}break;
       case WM_CAPTURECHANGED:self->finish_sidebar(true);return 0;
       case WM_CANCELMODE:self->finish_sidebar(true);break;
@@ -242,7 +249,7 @@ struct BrowserShell::Impl {
         if(message==WM_TIMER&&wp==2&&!self->fixture_destination.empty())self->fixture_snapshot(self->fixture_destination);
 #endif
         return 0;
-      case WM_COMMAND:if(HIWORD(wp)==BN_CLICKED)self->command(LOWORD(wp));return 0;
+      case WM_COMMAND:if(LOWORD(wp)==Address&&HIWORD(wp)==EN_CHANGE&&!self->setting_address)self->address_dirty=true;else if(HIWORD(wp)==BN_CLICKED)self->command(LOWORD(wp));return 0;
       case WM_DRAWITEM:{auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item&&item->CtlType==ODT_BUTTON){
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
         if(self->controls.contains(static_cast<int>(item->CtlID))){auto& counts=self->fixture_paints[static_cast<int>(item->CtlID)];++counts.first;if(ui::hovered(*item))++counts.second;}
@@ -256,7 +263,7 @@ struct BrowserShell::Impl {
           if(draw->nmcd.dwDrawStage==CDDS_ITEMPREPAINT){self->draw_tree(*draw);return CDRF_SKIPDEFAULT;}}
         break;}
       case WM_ERASEBKGND:return 1;
-      case WM_PAINT:{PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);self->paint(dc);EndPaint(h,&paint);return 0;}
+      case WM_PAINT:{PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT bounds{};GetClientRect(h,&bounds);auto memory=CreateCompatibleDC(dc);auto bitmap=CreateCompatibleBitmap(dc,std::max<LONG>(1,bounds.right),std::max<LONG>(1,bounds.bottom));if(memory&&bitmap){auto old=SelectObject(memory,bitmap);self->paint(memory);BitBlt(dc,paint.rcPaint.left,paint.rcPaint.top,paint.rcPaint.right-paint.rcPaint.left,paint.rcPaint.bottom-paint.rcPaint.top,memory,paint.rcPaint.left,paint.rcPaint.top,SRCCOPY);SelectObject(memory,old);}else self->paint(dc);if(bitmap)DeleteObject(bitmap);if(memory)DeleteDC(memory);EndPaint(h,&paint);return 0;}
       case WM_CLOSE:if(!self->shutting_down){self->shutting_down=true;self->data.flush();self->engine.shutdown();}return 0;
       case WM_DESTROY:self->finish_sidebar(false);KillTimer(h,1);KillTimer(h,2);return 0;
     }return DefWindowProcW(h,message,wp,lp);
@@ -372,6 +379,7 @@ bool BrowserShell::pretranslate(MSG& message){
     if(alt&&message.wParam==VK_LEFT){impl_->command(Back);return true;}
     if(alt&&message.wParam==VK_RIGHT){impl_->command(Forward);return true;}
   }
+  if(ui::edit_command(message,impl_->address)||ui::edit_command(message,impl_->find_text))return true;
   for(const auto& [id,control]:impl_->controls)if(message.hwnd==control)return IsDialogMessageW(impl_->window,&message)!=FALSE;
   return false;
 }

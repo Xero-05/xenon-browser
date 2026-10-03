@@ -15,6 +15,13 @@ COLORREF button_pixel(HWND button){
   SelectObject(dc,old);DeleteObject(bitmap);DeleteDC(dc);return color;
 }
 void reset_preferences(){ui::theme_mode=ui::ThemeMode::system;ui::sidebar_width=240;}
+struct EditCommands {int submitted{},cancelled{};};
+LRESULT CALLBACK edit_fixture(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR data){
+  auto& commands=*reinterpret_cast<EditCommands*>(data);
+  if(message==WM_KEYDOWN&&wp==VK_RETURN){++commands.submitted;return 0;}
+  if(message==WM_KEYDOWN&&wp==VK_ESCAPE){++commands.cancelled;return 0;}
+  return DefSubclassProc(window,message,wp,lp);
+}
 }
 int main(){try{
   // Hidden real Win32 controls exercise class-name normalization and subclass
@@ -22,9 +29,22 @@ int main(){try{
   INITCOMMONCONTROLSEX common{sizeof(common),ICC_STANDARD_CLASSES};InitCommonControlsEx(&common);ui::VectorRenderer vectors;
   auto parent=CreateWindowExW(0,L"STATIC",L"Synthetic native UI test",WS_OVERLAPPED,0,0,200,100,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
   require(parent!=nullptr,"Create hidden fixture parent");
+  auto address=CreateWindowExW(0,L"EDIT",L"http://127.0.0.1/fixture",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,0,0,180,24,parent,nullptr,GetModuleHandleW(nullptr),nullptr);
+  require(address!=nullptr,"Create native address-edit fixture");EditCommands commands;SetWindowSubclass(address,edit_fixture,1,reinterpret_cast<DWORD_PTR>(&commands));
+  for(const auto key:{VK_RETURN,VK_ESCAPE}){MSG message{};message.hwnd=address;message.message=WM_KEYDOWN;message.wParam=key;
+    require(ui::edit_command(message,address),"Address command is handled before Windows dialog translation");
+  }
+  require(commands.submitted==1&&commands.cancelled==1,"Enter and Escape each reach the edit handler exactly once");
+  require(ui::text(address)=="http://127.0.0.1/fixture","Command routing preserves the entered address");
+  for(const auto key:{VK_TAB,static_cast<int>('A'),VK_LEFT}){MSG message{};message.hwnd=address;message.message=WM_KEYDOWN;message.wParam=key;
+    require(!ui::edit_command(message,address),"Traversal and editing keys retain native Windows behavior");
+  }
+  MSG elsewhere{};elsewhere.hwnd=parent;elsewhere.message=WM_KEYDOWN;elsewhere.wParam=VK_RETURN;require(!ui::edit_command(elsewhere,address),"Page and other controls cannot trigger address submission");
   auto button=CreateWindowExW(0,L"BUTTON",L"",WS_CHILD|WS_VISIBLE|BS_OWNERDRAW,0,0,48,36,parent,nullptr,GetModuleHandleW(nullptr),nullptr);
   require(button!=nullptr,"Create real built-in button");ui::control_theme(button);DWORD_PTR data{};
   require(GetWindowSubclass(button,ui::hover_proc,1,&data)!=FALSE,"Attach hover handler to the mixed-case Win32 Button class");
+  SendMessageW(button,WM_UPDATEUISTATE,MAKEWPARAM(UIS_SET,UISF_HIDEFOCUS),0);require(!ui::keyboard_focus(button),"Mouse focus hides the keyboard-only focus mark");
+  SendMessageW(button,WM_UPDATEUISTATE,MAKEWPARAM(UIS_CLEAR,UISF_HIDEFOCUS),0);require(ui::keyboard_focus(button),"Keyboard navigation retains a visible focus mark");
   for(const auto mode:{ui::ThemeMode::light,ui::ThemeMode::dark}){
     ui::theme_mode=mode;SendMessageW(button,WM_MOUSELEAVE,0,0);const auto normal=button_pixel(button);if(normal!=ui::palette().surface)throw std::runtime_error("Normal button uses themed surface: actual="+std::to_string(normal)+" expected="+std::to_string(ui::palette().surface));
     SendMessageW(button,WM_MOUSEMOVE,0,MAKELPARAM(20,15));require(GetPropW(button,L"XenonHover")!=nullptr,"Mouse movement enters hover state");
@@ -44,5 +64,5 @@ int main(){try{
   {std::ofstream output(root/"ui-settings.json");output<<"{ invalid settings";}
   reset_preferences();ui::load_theme(root);require(ui::theme_mode==ui::ThemeMode::system&&ui::sidebar_width==240,"Malformed settings retain safe defaults");
   require(std::filesystem::canonical(root).parent_path()==fixture_directory,"Cleanup stays inside the generated fixture directory");std::filesystem::remove_all(root);
-  std::cout<<"Native UI tests passed: real Win32 class matching, hover paint/leave, DPI list height, legacy settings and sidebar persistence\n";return 0;
+  std::cout<<"Native UI tests passed: address command routing, keyboard focus, real Win32 class matching, hover paint/leave, DPI list height, legacy settings and sidebar persistence\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

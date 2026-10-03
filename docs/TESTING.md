@@ -2,6 +2,12 @@
 
 Xenon is a Windows x64 development alpha. The attached test records distinguish exercised behavior from inherited Chromium features and remaining manual coverage. They are not an independent security audit or a production reliability certification.
 
+## Unreleased navigation and visual fixes
+
+The original alpha.12 fixture reproduced Enter failing to navigate and Go replacing the typed address with `about:blank`, through Windows UI input on a disposable loopback profile. Computer Use was closed immediately afterward. Both changed native targets compiled and all 11 native test groups passed, including command-edit routing and keyboard-only focus regression. Adapter typechecking and 84 adapter/script tests passed. The first build failed on a mixed-type initializer in the new test; the corrected build retained that original log separately.
+
+Production branding verification failed after Defender quarantined the generated bootstrap and its resource-update temporary files. Reassembly was attempted before the detection was identified; further restoration, production launches and packaging stopped. No new physical checks or live suites have run on the changed binary. A separate read-only, in-memory comparison of the unchanged published alpha.12 ZIP verified its recorded hashes, identical CEF non-resource section bytes, manifest and other non-branding resource payloads. That comparison is provenance evidence, not a passing production branding run or malware clearance. See the [validation record](test-results/navigation-fixes.json) and [detection report](DEFENDER_REPORT.md).
+
 ## Alpha.12 release preparation
 
 The matching CEF distribution was updated to `154.0.33+ga03e714` (Chromium `154.0.8037.94`) after checking the Windows x64 stable index, verifying the publisher SHA-1 and recording SHA-256. Chrome's `154.0.8037.97/.98` security release is ahead of that available CEF build; no claim is made that all of its fixes are included. Runtime licenses/notices and dependency pins remain aligned.

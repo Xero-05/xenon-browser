@@ -1,6 +1,14 @@
 # Release notes
 
+## Unreleased navigation and visual fixes
+
+Address and Find command keys now reach their native handlers before Windows dialog translation. Toolbar refresh preserves an address draft when focus moves to Go. Frame painting is buffered, divider hover invalidates only its grip, background tab hover uses gray, and collapsed workspace groups use a chevron. Dashed focus boxes are replaced by a small keyboard-only mark in browser tabs and Controls.
+
+Both native targets compiled, 11 native groups and 84 adapter/script tests passed, and adapter typechecking passed. Production branding verification failed because Defender quarantined the bootstrap. New physical browser checks and live suites have not run. The [fix validation record](test-results/navigation-fixes.json) preserves these limits and the initial test-fixture compile failure.
+
 ## 0.1.0-alpha.12
+
+**Installation hold (2026-10-03):** Defender has quarantined `Xenon.exe` as `Trojan:Win32/Bearfoos.A!ml`. The [detection report](DEFENDER_REPORT.md) establishes specific artifact integrity checks, not malware clearance. The original validation below remains historical; installation should wait for resolution without exclusions or restoring detected files.
 
 This release replaces the visible Chromium shell with a native Xenon interface while retaining the pinned sandbox bootstrap, isolated workspace profiles and broker boundaries. Download the unsigned installer or portable ZIP from the [alpha.12 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.12), with its matching checksum. See [installation and pairing](GETTING_STARTED.md).
 

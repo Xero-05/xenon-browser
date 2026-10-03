@@ -2,6 +2,8 @@
 
 This guide uses **0.1.0-alpha.12**, an unsigned Windows x64 alpha with the native shell, reorganized Controls and read-only defaults for new paired clients. See [release notes](RELEASE_NOTES.md).
 
+**Installation hold (2026-10-03):** Defender has quarantined this release's `Xenon.exe` as `Trojan:Win32/Bearfoos.A!ml`. Do not proceed with the installation steps below while that detection remains unresolved, restore detected files, or add exclusions. The [detection report](DEFENDER_REPORT.md) records verified provenance and the remaining review requirement; it does not certify the release as safe.
+
 You need Windows 10 or 11 with a desktop session. Browsing needs no model account. Agent use additionally needs an MCP host that can launch a local stdio server; image support is needed for visual tasks.
 
 The release includes the browser, its matching Chromium/CEF runtime, the MCP adapter and Node. You do not need to install Node separately to run the packaged version.

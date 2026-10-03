@@ -8,6 +8,8 @@ Xenon combines a Windows browser powered by Chromium with tools that let externa
 
 **Current release: 0.1.0-alpha.12 · Windows x64 · unsigned alpha.** A per-user installer with a folder chooser and in-browser update checks are available. Installation remains a human decision. The included tests exercise synthetic websites and specific native workflows; they do not establish universal website compatibility or an independent security audit.
 
+**Installation hold (2026-10-03):** Microsoft Defender has quarantined alpha.12's `Xenon.exe` as `Trojan:Win32/Bearfoos.A!ml`. The cause remains unresolved. Keep detected files quarantined and do not add exclusions to install or test this release. See the [detection and integrity report](docs/DEFENDER_REPORT.md). Current source includes navigation and visual fixes, but production browser verification is blocked by this detection.
+
 [Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.12) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent instructions](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
 
 This release adds the native shell, reorganized Controls and client policies described below. See [release notes](docs/RELEASE_NOTES.md) and [validation scope](docs/TESTING.md).
