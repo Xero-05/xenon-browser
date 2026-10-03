@@ -12,6 +12,10 @@ Exact release-build hashes and automated coverage are recorded in [alpha.14 vali
 
 The Windows x64 installer and portable ZIP remain unsigned. See [signing preparation](SIGNING.md) for the public-trust setup and packaging changes required for a future signed release.
 
+The [alpha.14 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.14) publishes both runtime formats and matching checksums. All 1,262 runtime hashes and three smoke checks passed; [package verification](test-results/alpha14-package-smoke.json) and [publication verification](test-results/alpha14-publication.json) retain exact assets, tested source and successful Windows CI. Native update code also discovered and verified the public installer without running it. These records were produced after packaging and are not retroactively inserted into the archive.
+
+To upgrade alpha.13 or earlier, download the installer, close all Xenon instances and stop their MCP adapters before running setup. The corrected **Install and exit** flow becomes available after alpha.14 is installed; it cannot alter the older installed updater code.
+
 ## 0.1.0-alpha.13
 
 Address and Find command keys now reach their native handlers before Windows dialog translation. Toolbar refresh preserves an address draft when focus moves to Go. Frame painting is buffered, divider hover invalidates only its grip, background tab hover uses gray, and collapsed workspace groups use a chevron. Dashed focus boxes are replaced by a small keyboard-only mark in browser tabs and Controls.

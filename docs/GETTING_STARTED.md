@@ -35,7 +35,9 @@ Updates reuse your existing installation folder. To relocate an existing install
 
 The portable ZIP and its checksum remain available on the same release. To use them, verify the ZIP's SHA-256 the same way and extract **all** files into a stable folder you own. Keep the DLLs, `locales`, resource files, `adapter`, `runtime` and `node_modules` together. A portable copy's update flow opens the installer: choose a program folder if no installed copy exists, or update the existing installed copy. It does not automatically replace the portable folder.
 
-Once this release is installed, future releases can be downloaded through **Xenon Controls → Check for updates**. You do not need to manually download and unpack another ZIP. See [updates and local data](USER_GUIDE.md#updates-and-local-data).
+When upgrading alpha.13 or earlier, close all Xenon instances and stop their MCP adapters, then run the verified installer. The corrected **Install and exit** flow becomes available after alpha.14 is installed; it cannot alter the older installed updater code.
+
+Once this release is installed, future releases can be downloaded through **Menu → Check for updates** or **Xenon Controls → Check for updates**. You do not need to manually download and unpack another ZIP. See [updates and local data](USER_GUIDE.md#updates-and-local-data).
 
 ## 2. Open the browser
 
