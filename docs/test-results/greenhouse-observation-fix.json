@@ -1,0 +1,246 @@
+{
+  "capturedAt": "2026-10-03T12:09:10.921Z",
+  "scope": "Local source fix and production-browser candidate validation; existing alpha.14 release artifacts are separate.",
+  "version": "0.1.0-alpha.14",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "ebf60afdcc6e681dc31270f93638238bcd23ae0b7bf2c78d1b593e223f7d4b24",
+  "sourceSha256": {
+    "native/src/visible_evidence.cpp": "3e4bf335a2a0909a7585ce7e45ed47201f081d64848f3553c2d2656d8aecc2ef",
+    "tests/native/visible_evidence_tests.cpp": "2868e1201a0b61bcd7678afcfc375682b3f589feab9c7259f03a6eef9a547bba",
+    "tests/fixtures/visibility-fixture.mjs": "e65f1e6a7931a277b8c481df70a05938009043e8c7c9b8771264c8ae57d24027",
+    "tests/visibility-integration.mjs": "06909f7ea9d53651f0d93d86a8984582f8bd9dcac683aa84b86382930191d4bb",
+    "tests/upload-entry-integration.mjs": "ae333e46349a1e0dbe2c9a749af48967819961a984e36e7e462549cb0f4bc304"
+  },
+  "rootCause": "Every box shadow was treated as potentially unbounded paint. A later-painted decorative shadow could block every earlier control and text box, even when its element was far below the viewport. Supported sRGB shadows now have conservative bounds for offset, blur and spread, with ancestor overflow clipping. Unsupported syntax/colors, transformed ancestry and fragmented geometry remain unbounded blockers.",
+  "blurExtentReference": "https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/core/style/shadow_data.cc",
+  "baseline": {
+    "mode": "failure_reproduced",
+    "applicationDllSha256": "15a64cd8086a9c4095025d8f7cd9535abb10bdda9dfcffbba21ee2542724774f",
+    "matchedReportedAlpha14Binary": true,
+    "url": "https://job-boards.greenhouse.io/abcellera/jobs/8006394003",
+    "nodes": 0,
+    "coverage": "partial",
+    "truncated": false,
+    "omitted": {
+      "malformedTextBox": 7,
+      "unprovenGeometry": 373,
+      "unprovenTextGeometry": 77,
+      "unprovenViewport": 3,
+      "unsupportedFragmentedLayout": 21
+    },
+    "viewport": {
+      "height": 637,
+      "pageX": 0,
+      "pageY": 0,
+      "width": 913
+    },
+    "method": "Fresh disposable workspace, public page observation and screenshot through the normal MCP adapter."
+  },
+  "validation": {
+    "native": {
+      "passed": true,
+      "groups": 11,
+      "command": "ctest --test-dir build -C Release --output-on-failure --output-junit out/greenhouse-final-native.xml",
+      "report": "out/greenhouse-final-native.xml"
+    },
+    "adapterAndScripts": {
+      "passed": true,
+      "checks": 76,
+      "command": "./scripts/build.ps1 -Test",
+      "groups": {
+        "adapter": 14,
+        "loginCapture": 32,
+        "humanAutofill": 24,
+        "formFill": 6
+      },
+      "report": "out/greenhouse-fix-build.log"
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npm.cmd run typecheck"
+    },
+    "branding": {
+      "passed": true,
+      "checks": 5,
+      "command": "node tests/branding-resources.mjs",
+      "applicationDllSha256": "ebf60afdcc6e681dc31270f93638238bcd23ae0b7bf2c78d1b593e223f7d4b24"
+    },
+    "visibility": {
+      "passed": true,
+      "checks": 10,
+      "command": "node tests/visibility-integration.mjs",
+      "applicationDllSha256": "ebf60afdcc6e681dc31270f93638238bcd23ae0b7bf2c78d1b593e223f7d4b24",
+      "applicationDllSha256AtEnd": "ebf60afdcc6e681dc31270f93638238bcd23ae0b7bf2c78d1b593e223f7d4b24",
+      "results": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ]
+    },
+    "upload": {
+      "passed": true,
+      "checks": 9,
+      "command": "node tests/upload-entry-integration.mjs",
+      "applicationDllSha256": "ebf60afdcc6e681dc31270f93638238bcd23ae0b7bf2c78d1b593e223f7d4b24",
+      "applicationDllSha256AtEnd": "ebf60afdcc6e681dc31270f93638238bcd23ae0b7bf2c78d1b593e223f7d4b24",
+      "results": [
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true
+        }
+      ]
+    },
+    "greenhouse": {
+      "passed": true,
+      "url": "https://job-boards.greenhouse.io/abcellera/jobs/8006394003",
+      "mode": "read-only public-page observation; no fields filled or files sent",
+      "applicationDllSha256": "ebf60afdcc6e681dc31270f93638238bcd23ae0b7bf2c78d1b593e223f7d4b24",
+      "applicationDllSha256AtEnd": "ebf60afdcc6e681dc31270f93638238bcd23ae0b7bf2c78d1b593e223f7d4b24",
+      "observations": [
+        {
+          "nodes": 36,
+          "fieldRefs": [
+            "First Name *",
+            "Last Name *",
+            "Email *"
+          ],
+          "attachRefs": 0,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 290,
+            "unprovenTextGeometry": 58,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 0,
+            "width": 913
+          },
+          "coverage": "partial"
+        },
+        {
+          "nodes": 33,
+          "fieldRefs": [
+            "Email *"
+          ],
+          "attachRefs": 2,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 300,
+            "unprovenTextGeometry": 59,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 410,
+            "width": 913
+          },
+          "coverage": "partial"
+        },
+        {
+          "nodes": 24,
+          "fieldRefs": [],
+          "attachRefs": 1,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 326,
+            "unprovenTextGeometry": 63,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 820,
+            "width": 913
+          },
+          "coverage": "partial"
+        }
+      ]
+    }
+  },
+  "failedAttemptsPreserved": [
+    "The original alpha.14 empty-node observation remains a labelled baseline reproduction.",
+    "The restricted runner blocked subprocess/ACL setup with spawn EPERM; checks ran successfully under the ordinary user runner.",
+    "A final shared-DLL link attempt failed while another README capture fixture held it open (out/greenhouse-fix-final-build.log). An isolated full build passed. After the user authorized closure of that exact finished fixture, the shared build passed (out/greenhouse-shared-final-build.log)."
+  ],
+  "limitations": [
+    "Greenhouse coverage remains partial for unsupported text/layout and unproven embedded frames; the three text inputs and both Attach button references are now present.",
+    "Actual file transfer was verified only against synthetic local fixtures with synthetic approved files. No Greenhouse fields were filled, files uploaded or application submitted.",
+    "These are automated production CEF/MCP and native checks, without physical UI acceptance or release packaging/publication."
+  ],
+  "passed": true
+}

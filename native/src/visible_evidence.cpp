@@ -120,6 +120,46 @@ double contrast(Rgba fg, const Rgba& bg, double opacity) {
   const double a = luminance(fg), b = luminance(bg);
   return (std::max(a,b) + .05) / (std::min(a,b) + .05);
 }
+std::optional<Rect> box_shadow_bounds(const std::string& value, const Rect& box) {
+  if(value=="none")return box;
+  if(value.empty() || value.size()>4096)return {};
+  Rect bounds=box;std::vector<std::string> tokens;size_t shadows=0;
+  auto shadow=[&]() {
+    if(tokens.empty() || tokens.size()>6 || ++shadows>64)return false;
+    bool inset=false;std::optional<Rgba> rgba;std::vector<double> lengths;
+    for(const auto& token:tokens) {
+      if(token=="inset") {if(inset)return false;inset=true;}
+      else if(const auto parsed=color(token)) {if(rgba)return false;rgba=parsed;}
+      else {const auto length=css_number(token,true);if(!length || std::abs(*length)>1e8)return false;lengths.push_back(*length);}
+    }
+    // Computed Chromium shadows have an sRGB color and two offsets, with
+    // optional blur/spread. Unsupported colors or syntax remain unbounded.
+    if(!rgba || lengths.size()<2 || lengths.size()>4)return false;
+    const double blur=lengths.size()>2?lengths[2]:0,spread=lengths.size()>3?lengths[3]:0;
+    if(blur<0)return false;
+    if(inset || rgba->a==0)return true;
+    // Blink uses ceil(3*sigma), where sigma is half the CSS blur radius
+    // (core/style/shadow_data.{h,cc}). Retain a rounding margin and never
+    // shrink for negative spread, so these are conservative ink bounds.
+    const double expand=std::ceil(1.5*blur)+std::max(0.0,spread)+1;
+    const Rect ink{box.x+lengths[0]-expand,box.y+lengths[1]-expand,box.w+2*expand,box.h+2*expand};
+    const double right=std::max(bounds.x+bounds.w,ink.x+ink.w),bottom=std::max(bounds.y+bounds.h,ink.y+ink.h);
+    bounds.x=std::min(bounds.x,ink.x);bounds.y=std::min(bounds.y,ink.y);bounds.w=right-bounds.x;bounds.h=bottom-bounds.y;
+    return true;
+  };
+  // Split only outside color parentheses: rgba() contains commas and spaces.
+  size_t start=0;int depth=0;
+  for(size_t i=0;i<=value.size();++i) {
+    const char c=i<value.size()?value[i]:',';
+    if(c=='(') {if(++depth>1)return {};}
+    else if(c==')') {if(--depth<0)return {};}
+    if(depth || (c!=' ' && c!=','))continue;
+    if(i>start)tokens.push_back(value.substr(start,i-start));start=i+1;
+    if(c==',') {if(!shadow())return {};tokens.clear();}
+  }
+  if(depth)return {};
+  return bounds;
+}
 struct TextUnits { std::vector<size_t> offsets; bool safe{true}; };
 TextUnits utf16_offsets(const std::string& text) {
   TextUnits out; out.offsets.push_back(0);
@@ -347,10 +387,12 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
       l.basic=l.node>=0 && basic_style(l);d.layouts.push_back(std::move(l));
     }
     for(auto& l:d.layouts) {
-      double opacity=1;int n=l.node,depth=0;
+      double opacity=1;bool shadow_geometry=l.node>=0 && l.styles_complete;int n=l.node,depth=0;
       for(;n>=0 && static_cast<size_t>(n)<count && depth++<128;n=d.parents[n]) {
         if(d.node_types[n]==9 || d.node_types[n]==11)continue;
-        const int li=d.node_layout[n];if(li<0)continue;const auto value=css_number(d.layouts[li].styles[Opacity]);
+        const int li=d.node_layout[n];if(li<0)continue;const auto& a=d.layouts[li];const auto value=css_number(a.styles[Opacity]);
+        const auto zoom=css_number(a.styles[Zoom]);
+        if(!a.styles_complete || a.styles[Transform]!="none" || a.styles[Perspective]!="none" || !zoom || *zoom!=1)shadow_geometry=false;
         if(!value || *value<0 || *value>1){opacity=0;break;}opacity*=*value;
       }
       l.effective_opacity=depth>128?0:opacity;
@@ -361,23 +403,28 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
         const auto rgba=color(l.styles[BorderTopColor+edge]);
         if(!width || (*width>0 && (!rgba || rgba->a>0)))border_paint=true;
       }
-      l.paint_box=l.box;
+      // CSS shadow offsets/radii are usable only in an unscaled frame space.
+      const auto shadow_bounds=l.box && (l.styles[BoxShadow]=="none" || (shadow_geometry && depth<=128))?box_shadow_bounds(l.styles[BoxShadow],*l.box):std::nullopt;
+      l.paint_box=shadow_bounds?shadow_bounds:l.box;
       const auto outline_width=css_number(l.styles[OutlineWidth],true),outline_offset=css_number(l.styles[OutlineOffset],true);
       const auto outline_color=color(l.styles[OutlineColor]);
       const bool outline_paint=l.styles[OutlineStyle]!="none" && (!outline_width || *outline_width>0) && (!outline_color || outline_color->a>0);
       if(outline_paint && l.paint_box && outline_width && outline_offset) {
         const double expand=std::max(0.0,*outline_width+*outline_offset);
-        l.paint_box->x-=expand;l.paint_box->y-=expand;l.paint_box->w+=2*expand;l.paint_box->h+=2*expand;
+        // Include the outline without losing any separately offset shadow.
+        const double right=std::max(l.paint_box->x+l.paint_box->w,l.box->x+l.box->w+expand),bottom=std::max(l.paint_box->y+l.paint_box->h,l.box->y+l.box->h+expand);
+        l.paint_box->x=std::min(l.paint_box->x,l.box->x-expand);l.paint_box->y=std::min(l.paint_box->y,l.box->y-expand);
+        l.paint_box->w=right-l.paint_box->x;l.paint_box->h=bottom-l.paint_box->y;
       }
-      // Snapshot layout bounds do not bound shadow/filter ink. Do not infer
-      // that text behind a higher-painted such layer remains readable.
-      l.unbounded_paint=l.styles[BoxShadow]!="none" || l.styles[TextShadow]!="none" || l.styles[Filter]!="none" ||
+      // Only supported box shadows have bounded ink. Unknown shadow/filter
+      // paint still blocks evidence globally rather than guessing its reach.
+      l.unbounded_paint=!shadow_bounds || l.styles[TextShadow]!="none" || l.styles[Filter]!="none" ||
         l.styles[BackdropFilter]!="none" || (outline_paint && (!outline_width || !outline_offset));
       const std::string tag=l.node>=0?d.tags[l.node]:"";
       const bool media=tag=="IMG" || tag=="SVG" || tag=="CANVAS" || tag=="VIDEO" || tag=="IFRAME" || tag=="OBJECT" || tag=="EMBED";
       // Unknown paint is a blocker too. pointer-events does not affect pixels.
       l.potentially_painted=l.effective_opacity>0 && l.styles[Visibility]=="visible" && l.styles[Display]!="none" &&
-        (media || border_paint || outline_paint || l.unbounded_paint || !l.text.empty() || !bg || bg->a>0 || l.styles[BackgroundImage]!="none" || !l.basic);
+        (media || border_paint || outline_paint || l.styles[BoxShadow]!="none" || l.unbounded_paint || !l.text.empty() || !bg || bg->a>0 || l.styles[BackgroundImage]!="none" || !l.basic);
     }
     for(auto& l:d.layouts)clip_paint_bounds(d,l);
     docs.push_back(std::move(d));

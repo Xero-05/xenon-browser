@@ -137,6 +137,15 @@ try {
     await act('Rendered label action', 'Referenced label action completed');
     return { visibleLabelsUsed: true, hiddenNamesExcluded: true };
   });
+  await check('Decorative box shadows preserve unrelated rendered control references and queries', async () => {
+    const observation = await observe({ query: 'Visible input label' });
+    const input = observation.nodes.find(node => node.role === 'textbox' && node.ref && node.name.includes('Visible input label'));
+    assert(input, 'A later-painted offscreen shadow must not remove a visible form input');
+    const wait = await raw('wait', { ...scope(), text: 'Visible input label', timeoutMs: 1000 });
+    assert(!wait.isError, 'Rendered input labels must satisfy waits while decorative shadows are present');
+    assertNoHiddenPayload(wait);
+    return { visibleTextboxReference: true, queryAndWaitSucceeded: true, offscreenShadow: '0 0 1px #888', visibleShadow: '0 2px 6px #0003' };
+  });
   await check('Icon-only control uses a semantic fallback without exposing its hidden label', async () => {
     const visual = await raw('screenshot', scope());
     assert(!visual.isError && visual.content.some(item => item.type === 'image' && item.data?.length > 100), 'Unlabeled icon needs available visual evidence');

@@ -133,6 +133,51 @@ void corner_and_center_geometry_are_distinct() {
   auto hidden=corner.run();require(Fixture::output(hidden,button).is_null(),"Covered center was reported as actionable geometry");
   require(hidden.dump().find("Visible button")==std::string::npos,"A partly covered text box leaked its full text");
 }
+void bounded_box_shadows() {
+  // A late-painted decorative shadow (including one below the viewport)
+  // must not suppress unrelated visible controls or their rendered labels.
+  for(const auto& shadow:std::vector<std::string>{
+      "rgb(136, 136, 136) 0px 0px 1px 0px",
+      "rgba(0, 0, 0, 0.3) 0px 2px 6px 0px",
+      "rgb(0, 0, 0) 0px -2px 0px 0px inset",
+      "rgb(0, 0, 0) 1px 2px 3px -2px, rgba(0, 0, 0, 0.5) -3px -4px 6px 2px"}) {
+    Fixture f;auto [button,text]=f.button(0,1);
+    int n=f.node(0,1,"DIV"),l=f.layout(0,n,{500,900,20,20},100);f.style(0,l,"box-shadow",shadow);
+    auto result=f.run();const auto& output=Fixture::output(result,button);
+    require(!output.is_null() && output["name"]=="Visible button","A distant bounded box shadow hid unrelated viewport evidence");
+  }
+  for(const auto& shadow:std::vector<std::string>{
+      "rgb(255, 255, 255) -400px -870px 0px 0px",
+      "rgb(255, 255, 255) 0px 0px 0px 1000px",
+      "rgb(0, 0, 0) 0px 0px 1px 0px, rgb(255, 255, 255) -400px -870px 0px 0px",
+      "rgb(0, 0, 0) 0px 0px -1px 0px",
+      "color(display-p3 1 1 1) 0px 0px 1px 0px",
+      "rgb(0, 0, 0) 0px 0px 1px 0px garbage"}) {
+    Fixture f;auto [button,text]=f.button(0,1,"HIDDEN_SHADOW_TEXT");
+    int n=f.node(0,1,"DIV"),l=f.layout(0,n,{500,900,20,20},100);f.style(0,l,"box-shadow",shadow);
+    auto result=f.run();require(Fixture::output(result,button).is_null(),"Covering or unsupported shadow exposed actionable geometry");
+    require(result.dump().find("HIDDEN_SHADOW_TEXT")==std::string::npos,"Covering or unsupported shadow exposed text");
+  }
+  Fixture blur;auto [button,text]=blur.button(0,1,"HIDDEN_BLUR_TEXT");
+  int n=blur.node(0,1,"DIV"),l=blur.layout(0,n,{205,20,20,40},100);blur.style(0,l,"box-shadow","rgb(255, 255, 255) 0px 0px 80px 0px");
+  require(Fixture::output(blur.run(),button).is_null(),"Blur ink outside the layout box was ignored");
+  require(blur.run().dump().find("HIDDEN_BLUR_TEXT")==std::string::npos,"Blur ink outside the layout box exposed text");
+  Fixture clipped;auto [visible,t]=clipped.button(0,1);
+  int parent=clipped.node(0,1,"DIV"),pl=clipped.layout(0,parent,{500,500,20,20},10);
+  clipped.style(0,pl,"overflow-x","hidden");clipped.style(0,pl,"overflow-y","hidden");
+  n=clipped.node(0,parent,"DIV");l=clipped.layout(0,n,{500,500,20,20},100);clipped.style(0,l,"box-shadow","rgb(255, 255, 255) 0px 0px 0px 1000px");
+  require(Fixture::output(clipped.run(),visible)["name"]=="Visible button","Clipped-away bounded shadow suppressed unrelated text");
+  for(const auto& [key,value]:std::vector<std::pair<std::string,std::string>>{{"transform","matrix(2, 0, 0, 2, 0, 0)"},{"perspective","100px"},{"zoom","2"}}) {
+    Fixture scaled;scaled.button(0,1,"HIDDEN_SCALED_SHADOW");
+    int p=scaled.node(0,1,"DIV"),layout=scaled.layout(0,p,{500,500,20,20},10);scaled.style(0,layout,key,value);
+    int child=scaled.node(0,p,"DIV"),cl=scaled.layout(0,child,{500,500,20,20},100);scaled.style(0,cl,"box-shadow","rgb(0, 0, 0) 0px 0px 1px 0px");
+    require(scaled.run().dump().find("HIDDEN_SCALED_SHADOW")==std::string::npos,"Shadow bounds were guessed through a transformed ancestor");
+  }
+  Fixture fragmented;fragmented.button(0,1,"HIDDEN_FRAGMENT_SHADOW");
+  n=fragmented.node(0,1,"DIV");fragmented.layout(0,n,{500,500,20,20},100);
+  l=fragmented.layout(0,n,{500,900,20,20},100);fragmented.style(0,l,"box-shadow","rgb(0, 0, 0) 0px 0px 1px 0px");
+  require(fragmented.run().dump().find("HIDDEN_FRAGMENT_SHADOW")==std::string::npos,"Unsupported fragmented shadow ancestry was guessed");
+}
 void editable_values_and_visible_labels() {
   Fixture f;int label=f.node(0,1,"LABEL",{{"for","field"}});f.layout(0,label,{20,100,180,30});int lt=f.node(0,label,"#text");int tl=f.layout(0,lt,{20,100,160,20},1,"Visible account");f.box(0,tl,{20,100,160,20},0,15);
   int input=f.node(0,1,"INPUT",{{"id","field"},{"type","text"},{"aria-label","HIDDEN_LABEL"}});f.layout(0,input,{20,140,180,30},2);
@@ -176,7 +221,7 @@ int main(int argc,char** argv) {
     // Optional offline replay accepts only a caller-selected synthetic snapshot;
     // no browser diagnostics or raw website snapshots are enabled in production.
     if(argc==2){std::ifstream input(argv[1]);Json fixture;input>>fixture;std::cout<<xenon::visible_snapshot(fixture.at("snapshot"),fixture.at("viewports")).dump(2)<<'\n';return 0;}
-    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();editable_values_and_visible_labels();svg_text_requires_visual_evidence();utf16_and_unicode_controls();child_frames_and_malformed_evidence();
+    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();editable_values_and_visible_labels();svg_text_requires_visual_evidence();utf16_and_unicode_controls();child_frames_and_malformed_evidence();
     std::cout<<"Visible evidence regression tests passed\n";return 0;
   }catch(const std::exception& e){std::cerr<<"Visible evidence test failed: "<<e.what()<<'\n';return 1;}
 }

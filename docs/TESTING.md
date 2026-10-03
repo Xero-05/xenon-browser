@@ -2,6 +2,12 @@
 
 Xenon is a Windows x64 development alpha. The attached test records distinguish exercised behavior from inherited Chromium features and remaining manual coverage. They are not an independent security audit or a production reliability certification.
 
+## Greenhouse observation fix candidate
+
+The [candidate validation record](test-results/greenhouse-observation-fix.json) records the alpha.14 empty-observation reproduction and the corrected production browser. Decorative box shadows previously acted as potential page-wide blockers, including shadows below the viewport. The filter now bounds supported shadows conservatively and preserves fail-closed handling of uncertain paint and geometry.
+
+The native regression covers distant, offset, blurred, spread, inset, multiple and clipped shadows, unsupported syntax/colors, transformed ancestry and fragmented layouts. Live visibility and upload fixtures include decorative shadows below the viewport; they verify usable rendered references, queries/waits, hidden-content exclusion, stale-reference denial and actual synthetic file transfer. The public Greenhouse check only observes, captures screenshots and scrolls in a fresh disposable profile; it verifies the three reported text inputs and both Attach references without filling the application or sending files. Coverage remains explicitly partial for other unsupported content and unproven frame embeddings.
+
 ## Alpha.14 release validation
 
 Alpha.14 packages the tab, workspace, updater and date-field fixes below with updated version metadata. The [release validation record](test-results/alpha14-validation.json) binds fresh Release-build tests and serial automated live suites to the new production/AuthTest hashes. The local candidate record below retains its original hashes and physical observations; those UI checks were not repeated on the version-bumped binary. Post-packaging smoke and publication evidence are recorded separately after assembly.
