@@ -10,6 +10,8 @@ This release also includes the rendered-observation fix for decorative box shado
 
 The Windows x64 installer and portable ZIP remain unsigned prerelease artifacts. Runtime dependencies are unchanged. See [installation](GETTING_STARTED.md) and the [alpha.15 validation scope](TESTING.md#alpha15-release-validation).
 
+The [alpha.15 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.15) publishes both formats and their checksums. All 1,273 runtime hashes and three extracted-package smoke checks passed; [package evidence](test-results/alpha15-package-smoke.json) and [publication evidence](test-results/alpha15-publication.json) bind the uploaded bytes, successful Windows CI and source tag. Native update code discovered and verified the public installer without running it. These records were produced after packaging and are separate from the archive documentation.
+
 ## 0.1.0-alpha.14
 
 Tabs now have visible **X** buttons and middle-click closure, alongside **Ctrl+W** and sidebar **Delete**. Closing the last tab preserves its workspace. Empty saved workspaces remain in the sidebar after restart; selecting one opens a blank human-owned tab without automatically reloading old pages.
