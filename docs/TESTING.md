@@ -8,7 +8,11 @@ Alpha.13 fixes native Enter/Go address submission and Find command routing, keep
 
 The full Release build passed 11 native test groups, adapter typechecking, 84 adapter/production-script tests and five branding checks. All 18 bootstrap tests and 47 isolated installer checks passed. Ten live suites ran serially and passed 75 checks, including production Windows input with dialog dismissal and native menu Exit/restart. Computer Use also verified native Enter/Go navigation, Find Enter/Escape, retained form text after sidebar resizing and tab switching, gray background-tab feedback, workspace chevrons and Controls selection/table headings.
 
-The production UI inspection used Dark mode at 96 DPI and Windows input injection. Static captures do not establish continuous flicker-free rendering. Light/System, high contrast, other DPI and the complete native pairing, permission and password-dialog matrix remain manual acceptance work. Extracted-package verification is recorded separately after assembly.
+The production UI inspection used Dark mode at 96 DPI and Windows input injection. Static captures do not establish continuous flicker-free rendering. Light/System, high contrast, other DPI and the complete native pairing, permission and password-dialog matrix remain manual acceptance work.
+
+The [alpha.13 package record](test-results/alpha13-package-smoke.json) verifies the ZIP checksum/inventory and all 1,257 extracted runtime file hashes. All three smoke checks passed using the packaged production browser and bundled Node adapter, including a verified synthetic page action. The installer was assembled from that verified ZIP. This post-packaging record is separate from the documentation bundled in the archive; its isolated installer coverage uses a synthetic payload and test identity.
+
+The [publication record](test-results/alpha13-publication.json) binds the published four-asset inventory and tag to tested source commit `427c26762022cd939101aca5c15a14fb06d6f94a` and its successful Windows CI run. Remote asset sizes and SHA-256 digests matched the local verified ZIP, installer and checksum files. These unsigned checksums establish byte integrity, not publisher identity.
 
 ## Alpha.12 release preparation
 

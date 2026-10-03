@@ -6,6 +6,10 @@ Address and Find command keys now reach their native handlers before Windows dia
 
 Validation passed 11 native groups, adapter typechecking, 84 adapter/production-script tests, 18 bootstrap tests, five branding checks, 47 isolated installer checks and 75 checks across ten serial live suites. Production UI checks exercised Enter/Go navigation, Find, sidebar resizing, retained form text, workspace chevrons and neutral selections. Exact tested hashes and remaining manual coverage are recorded in [alpha.13 validation](test-results/alpha13-validation.json).
 
+The ZIP passed checksum/inventory verification for all 1,257 runtime files, and all three extracted-package smoke checks passed with the bundled Node adapter. The installer was assembled from that ZIP. Asset hashes and the post-packaging scope are recorded in [alpha.13 package verification](test-results/alpha13-package-smoke.json).
+
+The [alpha.13 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.13) publishes the unsigned Windows x64 installer and portable ZIP with matching checksums. The [publication record](test-results/alpha13-publication.json) binds the uploaded assets, successful Windows CI and exact tested source commit. Post-packaging records are separate from the documentation bundled in the archive.
+
 ## 0.1.0-alpha.12
 
 This release replaces the visible Chromium shell with a native Xenon interface while retaining the pinned sandbox bootstrap, isolated workspace profiles and broker boundaries. Download the unsigned installer or portable ZIP from the [alpha.12 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.12), with its matching checksum. See [installation and pairing](GETTING_STARTED.md).
