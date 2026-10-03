@@ -1,12 +1,14 @@
 # Using Xenon
 
-Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.13** and its [native interface overhaul](RELEASE_NOTES.md). Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
+Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.14** and its [native interface overhaul](RELEASE_NOTES.md). Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
 
 ## Browser and Controls
 
 Use the rounded icon buttons in the left rail for back, forward and reload; hover over an icon for its label. Enter an address or search in the pill above the page. The **Controls** sliders icon, **New tab** plus and **Menu** dots sit at the bottom of the rail. Open Controls there, with **Ctrl+Shift+X**, or **Xenon Controls** in a webpage's context menu. Tabs appear in the left sidebar, grouped under workspace names. The selected tab joins the page outline. Collapsing a group keeps its tabs and agents running.
 
-Address submission works with **Enter** or **Go** and preserves a typed address when toolbar focus changes. **Escape** restores the current address. Background tabs have subtle gray hover feedback, workspace disclosure uses arrowheads, and mouse selection has no dashed focus box. Keyboard navigation uses a small solid focus mark. See the [alpha.13 validation scope](TESTING.md#alpha13-navigation-and-visual-fixes).
+Each tab has an **X** to close it; middle-click also closes a tab. **Ctrl+W** closes the selected tab, and **Delete** closes a tab selected in the sidebar. Closing the last tab keeps its workspace and saved website data. Empty saved workspaces remain in the sidebar, including after restart; click one, or select it and press **Enter**, to open a blank human-owned tab. Startup still opens one blank Personal tab. Use the explicit session restore action to reload previously saved pages.
+
+Address submission works with **Enter** or **Go** and preserves a typed address when toolbar focus changes. **Escape** restores the current address. Background tabs have subtle gray hover feedback, workspace disclosure uses arrowheads, and mouse selection has no dashed focus box. Keyboard navigation uses a small solid focus mark. See the [alpha.14 validation scope](TESTING.md#alpha13-navigation-and-visual-fixes).
 
 Drag the sidebar's right edge to change its width, or use **Menu → Sidebar width** for keyboard access to Narrower, Wider and Reset width. Its range is 180–480 logical pixels, further bounded by space for the page. Double-clicking the edge restores the default. Xenon saves the width alongside your theme preference. Dark mode uses charcoal surfaces with visible gray hover feedback; Light mode uses white surfaces. **System** follows Windows.
 
@@ -137,11 +139,11 @@ All website content—including visible text, images, dialogs, titles and downlo
 
 The default data directory is `%LOCALAPPDATA%\Xenon Browser`; pairing files are wherever you chose during pairing. Keep this data private. Do not upload profiles, vault databases, password exports or pairing files to GitHub.
 
-Press **Ctrl+Shift+X**, then **Check for updates**. Xenon contacts its fixed GitHub repository over HTTPS and looks for a newer compatible installer. Alpha builds can receive newer alpha releases; stable builds exclude prereleases. Nothing is checked or installed in the background without opening this flow. A network error or missing verifiable installer cannot trigger installation.
+Choose **Menu → Check for updates**, or press **Ctrl+Shift+X**, then **Check for updates**. Xenon contacts its fixed GitHub repository over HTTPS and looks for a newer compatible installer. Alpha builds can receive newer alpha releases; stable builds exclude prereleases. Nothing is checked or installed in the background without opening this flow. A network error or missing verifiable installer cannot trigger installation.
 
 Download the offered update in the native Updates window, then choose to install it. Xenon checks its size and SHA-256 against GitHub's release metadata and checks again before starting setup. The alpha installer remains unsigned: this verification trusts GitHub and the repository maintainers, not an independent publisher certificate.
 
-Finish your work, stop Xenon's MCP adapters in your hosts, and exit the browser normally when setup asks. Setup waits for running Xenon instances; it does not force-close pages, agents or adapters. Start Xenon again from the Start menu after installation. Updates require a normal application restart and do not preserve live renderer state as a handoff does. Profiles, saved accounts, grants and pairing configuration remain separate from the application files.
+Finish your website work and choose **Install and exit**, then confirm. Xenon reverifies setup, closes its tabs through normal application shutdown, disconnects its agents and starts setup after releasing its running marker. Close any other Xenon instances too; setup refuses installation while another instance is running. Xenon does not terminate external MCP hosts or adapters. Start Xenon again from the Start menu after installation. Updates require a normal application restart and do not preserve live renderer state as a handoff does. Profiles, saved accounts, grants and pairing configuration remain separate from the application files.
 
 On a fresh installation, setup lets you choose an empty, dedicated folder on a local fixed drive that your Windows account can write to. The default is `%LOCALAPPDATA%\Programs\Xenon Browser`. Updates reuse the recorded installation folder, keeping MCP executable and adapter paths stable. Choosing a different program folder does not move browser data from its separate data directory.
 

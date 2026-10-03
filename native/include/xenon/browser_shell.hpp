@@ -12,6 +12,7 @@ class BrowserShell {
   BrowserShell(Broker&,CefEngine&,const std::filesystem::path& root);
   ~BrowserShell();
   void show();
+  void request_exit();
   HWND create_host(const std::string& workspace,const std::string& tab,bool human);
   void tab_created(const std::string& tab,HWND browser);
   void tab_closed(const std::string& tab);

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -22,9 +23,26 @@ std::optional<Release> select_release(const Json& releases, const std::string& c
 std::optional<Release> check_for_update(const std::string& current);
 std::filesystem::path download_installer(const Release& release, Progress progress,
                                        const std::atomic_bool& cancel);
-// Revalidates the private staged file and returns after CreateProcess succeeds;
-// it neither waits for installation nor closes the running browser.
-void launch_installer(const std::filesystem::path& installer, const Release& release);
+class InstallerLaunch;
+namespace detail {
+std::shared_ptr<InstallerLaunch> prepare_installer_in(const std::filesystem::path&,
+    const Release&, const std::filesystem::path& private_root);
+}
+// A verified image created suspended. Discarding it cancels only that unstarted
+// process. Start exactly once, after normal CEF shutdown releases the running
+// marker; this never terminates a running browser or waits for installation.
+class InstallerLaunch {
+ public:
+  ~InstallerLaunch();
+  void start();
+ private:
+  struct Impl;
+  explicit InstallerLaunch(std::unique_ptr<Impl>);
+  std::unique_ptr<Impl> impl_;
+  friend std::shared_ptr<InstallerLaunch> detail::prepare_installer_in(
+      const std::filesystem::path&, const Release&, const std::filesystem::path&);
+};
+std::shared_ptr<InstallerLaunch> prepare_installer(const std::filesystem::path&, const Release&);
 
 namespace detail {
 // Shared boundary checks, exposed for synthetic native tests. These two checks

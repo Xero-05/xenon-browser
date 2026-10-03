@@ -81,7 +81,7 @@ const mutation = tab => ({ ...scope(tab), ownershipGeneration: tab.ownershipGene
 const observe = (client, tab, worker = tab) => tool(client, 'observe', { ...scope(tab, worker), maxNodes: 1000 });
 async function pageReady(client, tab, expected) {
   return until(async () => {
-    try { const result = await observe(client, tab); return result.nodes?.some(n => n.name === expected) ? result : false; }
+    try { const result = await observe(client, tab); return !result.loading && result.nodes?.some(n => n.name === expected) ? result : false; }
     catch { return false; }
   });
 }
@@ -94,7 +94,7 @@ async function expectSealed(client, worker, tab) {
   for (const action of ['observe', 'screenshot']) {
     const result = await raw(client, action, scope(tab, worker));
     assert(result.isError, `${action} exposed a protected authentication document`);
-    assert(['SENSITIVE_AUTH_IN_PROGRESS', 'protected_auth', 'screenshot_protected'].includes(result.structuredContent?.error?.code), `${action} failed for an unrelated reason`);
+    assert(['SENSITIVE_AUTH_IN_PROGRESS', 'protected_auth', 'screenshot_protected'].includes(result.structuredContent?.error?.code), `${action} failed for an unrelated reason: ${result.structuredContent?.error?.code ?? 'missing error code'}`);
     assert(!result.content?.some(c => c.type === 'image'), 'Protected screenshot returned image bytes');
   }
   safe(await tool(client, 'tabs', { agentSessionId: worker.agentSessionId, workspaceId }));
@@ -263,8 +263,14 @@ try {
   await check('Opaque saved login authenticates without a model-visible credential', async () => {
     protectedTab = await create(0, '/login?case=protected&mode=hold');
     const evidence = await pageReady(clients[0], protectedTab, 'Authentication fixture ready');
-    const loginPromise = raw(clients[0], 'login', { ...mutation(protectedTab), observationId: evidence.observationId, accountId: seeded.accountId });
-    await sleep(20);
+    let settledLogin;
+    const loginPromise = raw(clients[0], 'login', { ...mutation(protectedTab), observationId: evidence.observationId, accountId: seeded.accountId }).then(result => { settledLogin = result; return result; });
+    // Admission and CEF callbacks have no fixed wall-clock deadline. Wait for
+    // native quarantine, while still failing any denied login without retrying it.
+    await until(async () => {
+      assert(!settledLogin?.isError, `Login failed before quarantine: ${settledLogin?.structuredContent?.error?.code ?? 'missing error code'}`);
+      return (await tool(clients[0], 'control_status', scope(protectedTab))).protected;
+    }, 20000, 'Native login quarantine');
     await Promise.all(clients.map((client, i) => expectSealed(client, workers[i], protectedTab)));
     const loginResult = await loginPromise;
     assert(!loginResult.isError, JSON.stringify(loginResult.structuredContent));

@@ -21,7 +21,9 @@ class CefEngine final : public BrowserEngine {
   void native_input(CefWindowHandle window, bool busy, bool credential_input = false, bool substantive = true);
   void set_native_key_callback(std::function<void(CefWindowHandle, UINT, WPARAM)> callback);
   void show_controls();
+  void show_updates();
   void set_controls_callback(std::function<void()> callback);
+  void set_updates_callback(std::function<void()> callback);
   void set_dialog_callback(std::function<void(const std::string&)> callback);
   void set_private_workspace_callback(std::function<void()> callback);
   void set_host_callbacks(std::function<HWND(const std::string&,const std::string&,bool)> create,

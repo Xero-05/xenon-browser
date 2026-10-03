@@ -33,6 +33,32 @@ struct Scratch {
 };
 void write(const fs::path& path,const std::string& bytes){std::ofstream stream(path,std::ios::binary);stream.write(bytes.data(),static_cast<std::streamsize>(bytes.size()));require(stream.good(),"Cannot write updater fixture");}
 void no_stages(const fs::path& root){require(!fs::exists(root/"updates")||fs::is_empty(root/"updates"),"Failed or canceled download left a partial or published stage");}
+void prepared_launch(){
+  wchar_t executable[MAX_PATH]{};require(GetModuleFileNameW(nullptr,executable,MAX_PATH)>0,"Cannot find test executable");
+  std::ifstream input(fs::path(executable).parent_path()/"updater_launch_fixture.exe",std::ios::binary);
+  const std::string image{std::istreambuf_iterator<char>(input),{}};require(!image.empty(),"Missing synthetic launch fixture");
+  auto value=release();value.bytes=image.size();value.sha256=local_security::sha256(image);
+  Scratch scratch;std::atomic_bool cancel=false;
+  auto stage=[&](const char* name){return detail::stage_installer(value,scratch.root/name,{},cancel,[&](const detail::ByteSink& sink){sink(reinterpret_cast<const unsigned char*>(image.data()),image.size());});};
+  const auto path=stage("launch"),result=path.parent_path()/"launch-result.txt";
+  HANDLE marker=CreateMutexW(nullptr,FALSE,L"Local\\XenonUpdateFixtureRunning");require(marker&&GetLastError()!=ERROR_ALREADY_EXISTS,"Synthetic marker already in use");
+  struct Close{HANDLE value;~Close(){if(value)CloseHandle(value);}} held{marker};
+  auto prepared=detail::prepare_installer_in(path,value,scratch.root/"launch");
+  Sleep(100);require(!fs::exists(result),"Prepared setup ran while the browser was active");
+  CloseHandle(held.value);held.value=nullptr;prepared->start();
+  rejected([&]{prepared->start();},"Setup replay was permitted");
+  for(unsigned attempt=0;attempt<100&&!fs::exists(result);++attempt)Sleep(50);
+  std::ifstream observed(result);std::string status;std::getline(observed,status);
+  require(status=="running-marker-absent","Setup did not observe the released running marker");
+  const auto abandoned=stage("abandoned");
+  {auto pending=detail::prepare_installer_in(abandoned,value,scratch.root/"abandoned");}
+  Sleep(100);require(!fs::exists(abandoned.parent_path()/"launch-result.txt"),"Discarded prepared setup ran");
+  auto invalid=value;invalid.sha256=std::string(64,'0');
+  rejected([&]{detail::prepare_installer_in(path,invalid,scratch.root/"launch");},"Tampered setup image launched");
+  rejected([&]{detail::prepare_installer_in(path,value,scratch.root/"other");},"Setup outside its private root was accepted");
+  const auto renamed=path.parent_path()/"arbitrary.exe";fs::copy_file(path,renamed);
+  rejected([&]{detail::prepare_installer_in(renamed,value,scratch.root/"launch");},"Wrong versioned setup filename accepted");
+}
 void versions(){
   auto selected=select_release(Json::array({metadata("0.1.0-alpha.8"),metadata("0.1.0-alpha.10"),metadata("0.1.0-alpha.9")}),"0.1.0-alpha.9");
   require(selected&&selected->version=="0.1.0-alpha.10","Numeric prerelease ordering is incorrect");
@@ -131,7 +157,7 @@ int main(int argc,char** argv){
       const auto path=detail::download_installer_in(*selected,scratch.root/"download",{},cancel);detail::verify_installer_file(path,*selected);
       std::cout<<"Verified release download: "<<selected->version<<" ("<<selected->bytes<<" bytes); no installer launched\n";return 0;
     }
-    versions();asset_boundaries();transport_urls();bounded_json();file_verification();staged_downloads();
-    std::cout<<"Updater tests passed: SemVer/channel, metadata, redirect, bounded JSON, file integrity, staged transfer cleanup\n";return 0;
+    versions();asset_boundaries();transport_urls();bounded_json();file_verification();staged_downloads();prepared_launch();
+    std::cout<<"Updater tests passed: SemVer/channel, metadata, redirect, bounded JSON, file integrity, staged transfer cleanup, suspended setup handoff/cancellation\n";return 0;
   }catch(const std::exception& error){std::cerr<<error.what()<<"\n";return 1;}
 }

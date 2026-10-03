@@ -1,0 +1,598 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-03T10:53:12.162Z",
+  "releaseStatus": "Unreleased local worktree; configured version 0.1.0-alpha.13; published assets untouched",
+  "baseCommit": "dd48553",
+  "dependencyPins": {
+    "cef": {
+      "version": "154.0.33+ga03e714+chromium-154.0.8037.94",
+      "archive": "cef_binary_154.0.33+ga03e714+chromium-154.0.8037.94_windows64_minimal.tar.bz2",
+      "sha1": "fced8a0428b7ef68d0df5e288281c673798d3071",
+      "sha256": "a211b8f10a99d1db49afd5b7d9fa7ab3222ebc6ea3026b31c3c9431e7d4a5ac2"
+    },
+    "sqlite": {
+      "version": "3.53.4",
+      "url": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip",
+      "sha256": "1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d"
+    },
+    "json": {
+      "version": "3.12.0",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp",
+      "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+    },
+    "node": {
+      "version": "24.16.0",
+      "sha256": "edaca9bd58ec8e92037dac4e877d52f6b8f430b81c18b57e264b4e2fb111cd56"
+    }
+  },
+  "binaries": {
+    "executable": "3c7d036bb1cfa1294f00be3ceba154219a4808d9dfa3fc6ef47b6858cc45ab9a",
+    "productionDll": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+    "authTestDll": "674ff47c709716a3635e04f03259a0891925f54811b37102375f06393b201a9b",
+    "libcef": "e73aeafbd0c1f7169f3d0b2fb78f385cba7f00d7bf93b2cfbdcd82fe9980e6b6",
+    "inertUpdaterFixture": "5637e857a47ae4dbc95631100b087bebee2727afb6ea8350b84e9065e7eb9cfd"
+  },
+  "passed": true,
+  "changes": [
+    "Visible tab X, middle-click and keyboard closure",
+    "All saved workspace groups remain visible without live tabs, including after restart",
+    "Selecting an empty workspace opens one blank human-owned tab",
+    "Confirmed Install and exit prepares verified setup suspended and starts it after normal shutdown and running-marker release",
+    "Canonical native date input filling, with original text input path retained"
+  ],
+  "automated": {
+    "fullReleaseBuild": true,
+    "nativeGroups": 11,
+    "adapterTypecheck": true,
+    "adapterAndFixedScriptChecks": 90,
+    "bootstrapChecks": 18,
+    "brandingChecks": 5,
+    "isolatedInstallerChecks": 47,
+    "inertUpdaterLaunch": [
+      "Remains suspended while marker exists",
+      "Starts once after marker release",
+      "Discard cancels only its own unstarted process",
+      "Tampered bytes, wrong staging root and wrong asset filename denied"
+    ]
+  },
+  "live": {
+    "serial": true,
+    "checks": 87,
+    "suites": [
+      {
+        "name": "integration",
+        "capturedAt": "2026-10-03T10:41:37.459Z",
+        "applicationDllSha256": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Four separate adapters, three live tabs each",
+            "passed": true
+          },
+          {
+            "name": "Workspace and result isolation",
+            "passed": true
+          },
+          {
+            "name": "A pending wait does not block other adapters",
+            "passed": true
+          },
+          {
+            "name": "Page-only screenshots through real MCP image output",
+            "passed": true
+          },
+          {
+            "name": "Replaced nodes reject stale references",
+            "passed": true
+          },
+          {
+            "name": "Overlay hit testing rejects obscured input",
+            "passed": true
+          },
+          {
+            "name": "Same-origin and cross-origin frames expose usable references",
+            "passed": true
+          },
+          {
+            "name": "Shadow DOM actionability and semantics",
+            "passed": true
+          },
+          {
+            "name": "Visual coordinates require a current screenshot",
+            "passed": true
+          },
+          {
+            "name": "JavaScript dialogs are handled without blocking other tabs",
+            "passed": true
+          },
+          {
+            "name": "Website JavaScript links and logout confirmations remain usable",
+            "passed": true
+          },
+          {
+            "name": "Download namespace reports opaque scoped metadata",
+            "passed": true
+          },
+          {
+            "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+            "passed": true
+          },
+          {
+            "name": "Related popups transfer as one ownership group",
+            "passed": true
+          },
+          {
+            "name": "Mid-drag handoff waits for release before changing ownership",
+            "passed": true
+          },
+          {
+            "name": "Four workers behind one adapter, three tabs each",
+            "passed": true
+          },
+          {
+            "name": "Disconnect/reconnect preserves page and never replays mutations",
+            "passed": true
+          }
+        ],
+        "method": "Production browser plus real MCP/CEF"
+      },
+      {
+        "name": "visibility-integration",
+        "capturedAt": "2026-10-03T10:41:46.513Z",
+        "applicationDllSha256": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+            "passed": true
+          },
+          {
+            "name": "Visible button text remains actionable despite hostile accessibility labels",
+            "passed": true
+          },
+          {
+            "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+            "passed": true
+          },
+          {
+            "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+            "passed": true
+          },
+          {
+            "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+            "passed": true
+          },
+          {
+            "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+            "passed": true
+          },
+          {
+            "name": "Visible generated content is represented or explicitly marked incomplete",
+            "passed": true
+          },
+          {
+            "name": "Hidden-only text cannot satisfy observation queries or waits",
+            "passed": true
+          },
+          {
+            "name": "Visible page instructions remain untrusted content without instruction authority",
+            "passed": true
+          }
+        ],
+        "method": "Production browser plus real MCP/CEF"
+      },
+      {
+        "name": "auth-integration",
+        "capturedAt": "2026-10-03T10:41:55.212Z",
+        "applicationDllSha256": "674ff47c709716a3635e04f03259a0891925f54811b37102375f06393b201a9b",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Safe page screenshots remain available",
+            "passed": true
+          },
+          {
+            "name": "No raw eval, CDP, cookies or storage tools",
+            "passed": true
+          },
+          {
+            "name": "Synthetic password and OTP input events seal all observers through reveal and handoff",
+            "passed": true
+          },
+          {
+            "name": "Native folder grants persist and upload only approved opaque file handles",
+            "passed": true
+          },
+          {
+            "name": "Account rights remain per client across handoff",
+            "passed": true
+          },
+          {
+            "name": "Exact credential origin enforced",
+            "passed": true
+          },
+          {
+            "name": "GET and readonly forms reject credentials before input or submission",
+            "passed": true
+          },
+          {
+            "name": "Opaque saved login authenticates without a model-visible credential",
+            "passed": true
+          },
+          {
+            "name": "Four-agent handoff preserves quarantine and sends no website input",
+            "passed": true
+          },
+          {
+            "name": "Username-first forms reuse only the exact-origin account",
+            "passed": true
+          }
+        ],
+        "method": "Unshipped native fixture driver plus real MCP/CEF"
+      },
+      {
+        "name": "human-autofill-integration",
+        "capturedAt": "2026-10-03T10:42:08.824Z",
+        "applicationDllSha256": "674ff47c709716a3635e04f03259a0891925f54811b37102375f06393b201a9b",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Human autofill fills a CWL-shaped form without submission or agent account grants",
+            "passed": true
+          },
+          {
+            "name": "Autofilled credentials remain protected from all clients through ownership handoff",
+            "passed": true
+          },
+          {
+            "name": "Saved accounts cannot autofill a different HTTPS origin",
+            "passed": true
+          },
+          {
+            "name": "Navigation invalidates an already offered native account selection",
+            "passed": true
+          },
+          {
+            "name": "Replacing the bound form cannot redirect an existing autofill offer",
+            "passed": true
+          },
+          {
+            "name": "Dismissing a native offer prevents subsequent filling",
+            "passed": true
+          },
+          {
+            "name": "Username-first and password-only steps fill only the current phase without advancing",
+            "passed": true
+          },
+          {
+            "name": "Locking the native vault invalidates pending offers and prevents new autofill",
+            "passed": true
+          },
+          {
+            "name": "Lock and unlock cannot revive an accepted fill waiting for a finite action to drain",
+            "passed": true
+          }
+        ],
+        "method": "Unshipped native fixture driver plus real MCP/CEF"
+      },
+      {
+        "name": "worker-lifecycle-integration",
+        "capturedAt": "2026-10-03T10:42:14.362Z",
+        "applicationDllSha256": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Modern and legacy clients cannot retire each other’s workers",
+            "passed": true
+          },
+          {
+            "name": "Twenty retired workers preserve one live drafted, selected and scrolled session",
+            "passed": true
+          },
+          {
+            "name": "Retirement cancels queued input and releases a started finite gesture honestly",
+            "passed": true
+          },
+          {
+            "name": "Configured global capacity spans clients and retirement frees a slot",
+            "passed": true
+          }
+        ],
+        "method": "Production browser plus real MCP/CEF"
+      },
+      {
+        "name": "workspace-removal-integration",
+        "capturedAt": "2026-10-03T10:42:58.377Z",
+        "applicationDllSha256": "674ff47c709716a3635e04f03259a0891925f54811b37102375f06393b201a9b",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Two isolated workspaces have live data, popup, vault grant, approved file and download",
+            "passed": true
+          },
+          {
+            "name": "Native removal revokes access and pending reads while preserving unrelated live work",
+            "passed": true
+          },
+          {
+            "name": "Restart purges only the tombstoned profile and cannot recreate its grant",
+            "passed": true
+          },
+          {
+            "name": "Remaining workspace cookie and local storage survive while shared files remain",
+            "passed": true
+          }
+        ],
+        "method": "Unshipped native fixture driver plus real MCP/CEF"
+      },
+      {
+        "name": "persistence-integration",
+        "capturedAt": "2026-10-03T10:43:38.782Z",
+        "applicationDllSha256": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Distinct workspaces isolate persistent cookies and local storage before restart",
+            "passed": true
+          },
+          {
+            "name": "Stored state survives a forced process stop and a second launch",
+            "passed": true
+          },
+          {
+            "name": "A new workspace after restart does not inherit either saved session",
+            "passed": true
+          }
+        ],
+        "method": "Production browser plus real MCP/CEF"
+      },
+      {
+        "name": "benchmark",
+        "capturedAt": "2026-10-03T10:44:09.558Z",
+        "applicationDllSha256": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Visible direct file input transfers only an approved opaque file",
+            "passed": true
+          },
+          {
+            "name": "Approved file follows trusted custom upload entry",
+            "passed": true
+          },
+          {
+            "name": "Approved file follows trusted cross-frame upload entry",
+            "passed": true
+          },
+          {
+            "name": "A visible button without a file chooser cannot receive a file",
+            "passed": true
+          },
+          {
+            "name": "Invalid and cross-workspace grants are denied before entry activation",
+            "passed": true
+          },
+          {
+            "name": "A changed visible upload entry rejects its stale reference before input",
+            "passed": true
+          },
+          {
+            "name": "A multiple-file chooser receives only the one approved file",
+            "passed": true
+          },
+          {
+            "name": "Disabled controls and directory pickers cannot transfer files",
+            "passed": true
+          },
+          {
+            "name": "A parent entry cannot delegate its file grant to a different frame",
+            "passed": true
+          },
+          {
+            "name": "Exact external health flow passes with final submission untouched",
+            "passed": true
+          },
+          {
+            "name": "External comparison fixture passes the complete MCP workflow",
+            "passed": true
+          },
+          {
+            "name": "External calibration fixture passes the complete MCP workflow",
+            "passed": true
+          },
+          {
+            "name": "Four external concurrency fixtures preserve distinct data through background MCP input",
+            "passed": true
+          }
+        ],
+        "method": "Production browser plus real MCP/CEF"
+      },
+      {
+        "name": "startup",
+        "capturedAt": "2026-10-03T10:45:54.247Z",
+        "applicationDllSha256": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+        "passed": true,
+        "checks": [
+          {
+            "name": "First launch opens exactly one human-owned blank tab",
+            "passed": true
+          },
+          {
+            "name": "Two fixture tabs remain open with persisted state before native Exit",
+            "passed": true
+          },
+          {
+            "name": "Native whole-application Exit closes the first process successfully",
+            "passed": true
+          },
+          {
+            "name": "Normal reopen starts blank without loading old tabs or replaying actions",
+            "passed": true
+          },
+          {
+            "name": "Explicit fixture reopen preserves cookies and local storage",
+            "passed": true
+          },
+          {
+            "name": "A fresh workspace does not inherit the native workspace session",
+            "passed": true
+          },
+          {
+            "name": "Closing a workspace only tab preserves its session while the browser stays open",
+            "passed": true
+          }
+        ],
+        "method": "Production browser with actual Windows input through Computer Use"
+      },
+      {
+        "name": "shell-tabs",
+        "capturedAt": "2026-10-03T10:39:36.775Z",
+        "applicationDllSha256": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Visible X closes a background tab without selecting its page",
+            "passed": true
+          },
+          {
+            "name": "Middle click closes the last tab and keeps its workspace",
+            "passed": true
+          },
+          {
+            "name": "Selecting an empty saved workspace opens a blank human-owned tab",
+            "passed": true
+          },
+          {
+            "name": "Native Exit persists saved workspaces",
+            "passed": true
+          },
+          {
+            "name": "Restart retains names and opens only one Personal blank tab",
+            "passed": true
+          },
+          {
+            "name": "Saved empty workspace remains selectable after restart",
+            "passed": true
+          },
+          {
+            "name": "Ctrl+W closes the selected tab without deleting its workspace",
+            "passed": true
+          },
+          {
+            "name": "Final native Exit completes normally",
+            "passed": true
+          }
+        ],
+        "method": "Production browser with actual Windows input through Computer Use"
+      },
+      {
+        "name": "native-input",
+        "capturedAt": "2026-10-03T10:50:46.360Z",
+        "applicationDllSha256": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Windows page input pauses dispatch while retaining creator ownership",
+            "passed": true
+          },
+          {
+            "name": "Idle resumes authority only with fresh evidence and preserves the human draft",
+            "passed": true
+          },
+          {
+            "name": "Human dialog holds the pause until dismissal without taking ownership",
+            "passed": true
+          }
+        ],
+        "method": "Production browser with actual Windows input through Computer Use"
+      }
+    ]
+  },
+  "externalBenchmark": {
+    "sourceBasename": "browser-benchmark.cjs",
+    "sourceSha256": "aac50d9754706b96c1d21d108e33d81b1442aee20a67485e8c32e8b5f110e688",
+    "copiedUnchanged": true,
+    "sourceUnchangedAfterRun": true,
+    "workflowKinds": [
+      "health",
+      "comparison",
+      "calibration",
+      "concurrency"
+    ],
+    "concurrentWorkers": 4,
+    "allSevenWorkflowsGradedPassed": true,
+    "finalSubmissionUntouched": true,
+    "modelPerformanceComparison": false
+  },
+  "physicalUi": {
+    "productionDllSha256": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+    "inputMethod": "Windows input through Computer Use",
+    "theme": "Dark and System resolved to Dark",
+    "dpi": 96,
+    "checks": [
+      "Background X and middle-click closure",
+      "Surviving page document, draft and input counters unchanged",
+      "Saved groups visible after normal restart and selectable",
+      "Empty workspace opens a blank human tab and expands its group",
+      "Ctrl+W preserves workspace",
+      "Native menu Exit and blank startup",
+      "New Check for updates menu opens Updates",
+      "Install and exit label and disabled state with no newer version",
+      "Teal/orange pause and recovery",
+      "Human draft retained",
+      "Controls surfaces exact fixture tab, gray selections and table headers",
+      "Native website dialog dismissed without ownership change"
+    ],
+    "computerUseExited": true
+  },
+  "runtimeCopy": {
+    "localOnly": true,
+    "publishedAssetsUntouched": true,
+    "manifestFilesVerified": 1257,
+    "applicationDllSha256": "dc180479882164e8c0d92e0e13b1d975fba07c90811e9ed7944e78e833880913",
+    "unshippedFixturesExcluded": true,
+    "smokeChecks": [
+      {
+        "name": "Packaged branding changes only permitted CEF bootstrap resources",
+        "passed": true
+      },
+      {
+        "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+        "passed": true
+      },
+      {
+        "name": "Packaged browser observes and performs a verified page action",
+        "passed": true
+      }
+    ]
+  },
+  "updateDownload": {
+    "simulatedCurrent": "0.1.0-alpha.12",
+    "available": "0.1.0-alpha.13",
+    "bytes": 203169788,
+    "sizeAndSha256Verified": true,
+    "installerLaunched": false
+  },
+  "retainedFailures": [
+    {
+      "localRecord": "out/workspace-update-benchmark-first-failure.json",
+      "result": "Comparison failed its date check before the production fix; original record retained"
+    },
+    {
+      "localRecord": "out/workspace-update-shell-tabs-first-failure.json",
+      "result": "Harness assumed a URL in tab listing; corrected to authorized observe, original record retained"
+    },
+    {
+      "localRecord": "out/workspace-update-adapter.log",
+      "result": "Restricted runner denied SDK subprocess spawn; ordinary-user repeat passed"
+    }
+  ],
+  "limits": [
+    "No production upgrade was installed over the user copy",
+    "Available-update confirmation and full install UI not exercised end to end",
+    "Light/high contrast/other DPI and full permission/password UI matrix remain unverified",
+    "Synthetic fixture compatibility does not establish universal website or model performance",
+    "Unsigned update hashes establish byte integrity, not publisher identity"
+  ],
+  "privacy": "Only generated profiles, synthetic accounts and files were used. No raw calls, tokens, profiles, browsing logs, screenshots or private state are included."
+}

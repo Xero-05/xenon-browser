@@ -15,6 +15,7 @@
 #include "xenon/workspace_storage.hpp"
 #include "xenon/removal_fixture.hpp"
 #include "xenon/autofill_fixture.hpp"
+#include "xenon/updater.hpp"
 #include <windows.h>
 #include <shlobj.h>
 #include <charconv>
@@ -111,6 +112,10 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       engine_->set_permission_callback([this](const std::string& tab,const std::string& origin,const std::string& description,std::function<void(bool)> answer){shell_->permission(tab,origin,description,std::move(answer));});
       broker_->set_ui_state_callback([this]{if(shell_)shell_->refresh();});
       engine_->set_controls_callback([this]{native_->show();});
+      engine_->set_updates_callback([this]{native_->show_updates();});
+      native_->set_update_install_callback([this](std::shared_ptr<updates::InstallerLaunch> installer){
+        if(pending_update_)return;pending_update_=std::move(installer);shell_->request_exit();
+      });
       engine_->set_private_workspace_callback([this]{broker_->open_human_workspace("about:blank",[](Json){},true);});
       server_=std::make_unique<PipeServer>(*broker_,pipe_name_);server_->start();
       active_=this;
@@ -131,6 +136,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
   CefRefPtr<CefClient> GetDefaultClient()override{return engine_?engine_->default_client():nullptr;}
   CefRefPtr<CefRequestContextHandler> GetDefaultRequestContextHandler()override{return engine_?engine_->default_context_handler():nullptr;}
   bool OnAlreadyRunningAppRelaunch(CefRefPtr<CefCommandLine>,const CefString&)override{if(shell_)shell_->show();return true;}
+  std::shared_ptr<updates::InstallerLaunch> pending_update()const{return pending_update_;}
   void stop(){
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
     removal_fixture_.reset();
@@ -139,6 +145,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     active_=nullptr;if(hook_){UnhookWindowsHookEx(hook_);hook_=nullptr;}
     if(input_timer_){KillTimer(nullptr,input_timer_);input_timer_=0;}
     if(engine_)engine_->set_native_key_callback({});
+    if(engine_){engine_->set_controls_callback({});engine_->set_updates_callback({});engine_->set_private_workspace_callback({});}
     if(broker_)broker_->set_ui_state_callback({});
     if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_permission_callback({});}
     if(server_)server_->stop();server_.reset();native_.reset();shell_.reset();broker_.reset();engine_.reset();files_.reset();vault_.reset();
@@ -305,6 +312,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
   std::unique_ptr<CefEngine> engine_;std::unique_ptr<Vault> vault_;std::unique_ptr<FilePolicy> files_;
   std::unique_ptr<Broker> broker_;std::unique_ptr<NativeUi> native_;std::unique_ptr<PipeServer> server_;
   std::unique_ptr<BrowserShell> shell_;
+  std::shared_ptr<updates::InstallerLaunch> pending_update_;
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
   std::shared_ptr<NativeRemovalFixture> removal_fixture_;
   std::shared_ptr<NativeAutofillFixture> autofill_fixture_;
@@ -326,7 +334,8 @@ int run(HINSTANCE instance,void* sandbox_info){
       handle=CreateMutexW(&policy.attributes,FALSE,L"Local\\XenonBrowserRunning");
       if(!handle)throw std::runtime_error("Cannot protect the running installation");
     }
-    ~RunningMarker(){if(handle)CloseHandle(handle);}
+    void release(){if(handle){CloseHandle(handle);handle=nullptr;}}
+    ~RunningMarker(){release();}
   } running_marker;
   const auto setup=OpenMutexW(SYNCHRONIZE,FALSE,L"Local\\XenonBrowserSetup");
   const auto setup_error=GetLastError();
@@ -369,7 +378,10 @@ int run(HINSTANCE instance,void* sandbox_info){
 #endif
   CefRefPtr<App> app=new App(root,limits,pipe_name,test_removal,test_autofill);
   if(!CefInitialize(args,settings,app,sandbox_info))return CefGetExitCode();
-  CefRunMessageLoop();app->stop();app=nullptr;CefShutdown();return 0;
+  CefRunMessageLoop();auto installer=app->pending_update();app->stop();app=nullptr;CefShutdown();
+  running_marker.release();
+  if(installer){try{installer->start();}catch(const std::exception&){MessageBoxW(nullptr,L"Xenon closed, but setup could not start. Open Xenon and try the update again.",L"Xenon update",MB_OK|MB_ICONERROR);return 1;}}
+  return 0;
 }
 }
 }

@@ -266,16 +266,30 @@ std::filesystem::path download_installer(const Release& release,Progress progres
   check_budget(&cancel,Clock::now()+std::chrono::minutes(10));
   return detail::download_installer_in(release,local_root()/L"Xenon Browser",std::move(progress),cancel);
 }
-void launch_installer(const std::filesystem::path& installer,const Release& release){
+struct InstallerLaunch::Impl {
+  PROCESS_INFORMATION process{};bool started{};
+  ~Impl(){if(process.hProcess){if(!started){TerminateProcess(process.hProcess,ERROR_CANCELLED);WaitForSingleObject(process.hProcess,5000);}CloseHandle(process.hProcess);}if(process.hThread)CloseHandle(process.hThread);}
+};
+InstallerLaunch::InstallerLaunch(std::unique_ptr<Impl> impl):impl_(std::move(impl)){}
+InstallerLaunch::~InstallerLaunch()=default;
+void InstallerLaunch::start(){
+  if(!impl_||impl_->started)fail("Setup has already been started. Check its window before trying again.");
+  if(ResumeThread(impl_->process.hThread)==static_cast<DWORD>(-1))fail("The verified installer could not start. No installation was confirmed.");
+  impl_->started=true;
+}
+std::shared_ptr<InstallerLaunch> detail::prepare_installer_in(const std::filesystem::path& installer,const Release& release,const std::filesystem::path& base){
   if(!release_valid(release))fail("Update release metadata is invalid.");
-  const auto base=local_root()/L"Xenon Browser",expected=base/L"updates";
+  if(base==base.root_path()||!base.is_absolute()||base!=base.lexically_normal())fail("The private update storage root is invalid.");
+  const auto expected=base/L"updates";
   const auto stage=installer.parent_path();const auto name=stage.filename().wstring();
   if(!same_path(stage.parent_path(),expected)||name.size()!=38||!name.starts_with(L"stage-")||!std::all_of(name.begin()+6,name.end(),[](wchar_t c){return (c>=L'0'&&c<=L'9')||(c>=L'a'&&c<=L'f');})||installer.filename()!=widen(filename(release)))fail("Only a verified private staged installer can be launched.");
   auto held=directories(stage,false,base);auto verified=verified_file(installer,release);
   // Retain read-only file and non-delete-sharing ancestor handles until the
   // image is created, so the verified pathname cannot be replaced in between.
-  auto command=L"\""+installer.native()+L"\"";STARTUPINFOW startup{sizeof(startup)};PROCESS_INFORMATION process{};
-  if(!CreateProcessW(installer.c_str(),command.data(),nullptr,nullptr,FALSE,0,nullptr,stage.c_str(),&startup,&process))fail("The verified installer could not start. Windows may have blocked this unsigned file.");
-  CloseHandle(process.hThread);CloseHandle(process.hProcess);
+  auto pending=std::make_unique<InstallerLaunch::Impl>();
+  auto command=L"\""+installer.native()+L"\"";STARTUPINFOW startup{sizeof(startup)};
+  if(!CreateProcessW(installer.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_SUSPENDED,nullptr,stage.c_str(),&startup,&pending->process))fail("The verified installer could not start. Windows may have blocked this unsigned file.");
+  return std::shared_ptr<InstallerLaunch>(new InstallerLaunch(std::move(pending)));
 }
+std::shared_ptr<InstallerLaunch> prepare_installer(const std::filesystem::path& installer,const Release& release){return detail::prepare_installer_in(installer,release,local_root()/L"Xenon Browser");}
 }

@@ -17,6 +17,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <utility>
 
 namespace xenon {
 namespace {
@@ -24,7 +25,7 @@ constexpr UINT ShellChanged=WM_APP+90;
 enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,FindText,FindNext,FindPrevious,FindClose,
   MenuFind=2100,MenuZoomIn,MenuZoomOut,MenuZoomReset,MenuBookmark,MenuBookmarks,MenuHistory,MenuDownloads,MenuPrint,MenuPdf,
   MenuPermissions,MenuThemeSystem,MenuThemeLight,MenuThemeDark,MenuAbout,MenuNotices,MenuExit,MenuPrivate,MenuCloseTab,
-  MenuSidebarNarrower,MenuSidebarWider,MenuSidebarReset};
+  MenuSidebarNarrower,MenuSidebarWider,MenuSidebarReset,MenuUpdates};
 std::string str(const Json& value,const char* key){auto found=value.find(key);return found!=value.end()&&found->is_string()?found->get<std::string>():std::string{};}
 std::wstring short_title(const std::string& value,size_t maximum=55){auto text=ui::wide(value);if(text.size()>maximum)text=text.substr(0,maximum-1)+L"…";return text;}
 using Clock=std::chrono::steady_clock;
@@ -41,7 +42,7 @@ struct BrowserShell::Impl {
   std::vector<std::pair<std::string,bool>> tree_keys;Json tree_signature;bool rebuilding{},find_visible{};RECT page{},panel_bounds{},address_bounds{};
   std::wstring status;bool dark{};bool shutting_down{};size_t pairing_count{};Clock::time_point next_state{},next_flush{};
   int sidebar{240},drag_origin{},drag_width{};bool resizing_sidebar{},sidebar_hover{};
-  bool address_dirty{},setting_address{};HTREEITEM hovered_row{};
+  bool address_dirty{},setting_address{};HTREEITEM hovered_row{};std::string pressed_close,opening_workspace,hovered_close;
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
   std::filesystem::path fixture_destination;std::map<int,std::pair<uint64_t,uint64_t>> fixture_paints;
   void fixture_snapshot(const std::filesystem::path& destination);
@@ -96,6 +97,12 @@ struct BrowserShell::Impl {
     if(ui::sidebar_width!=next){ui::sidebar_width=next;layout();}}
   std::string workspace() const {auto found=hosts.find(selected);return found==hosts.end()?"native-default":found->second.workspace;}
   bool is_private() const {auto found=hosts.find(selected);return found!=hosts.end()&&found->second.metadata.value("private",false);}
+  bool empty_workspace(const std::string& id) const {return std::none_of(hosts.begin(),hosts.end(),[&](const auto& entry){return entry.second.workspace==id;});}
+  void open_workspace(const std::string& id){if(!workspace_names.contains(id)||!empty_workspace(id)||!opening_workspace.empty())return;
+    opening_workspace=id;broker.open_human_tab(id,"about:blank",[this](Json value){opening_workspace.clear();if(!value.value("ok",false)){status=ui::wide(str(value["error"],"message"));InvalidateRect(window,nullptr,FALSE);}});}
+  RECT close_rect(HTREEITEM item) const {RECT rect{};if(!TreeView_GetItemRect(tree,item,&rect,FALSE))return {};RECT bounds{};GetClientRect(tree,&bounds);rect.left=bounds.right-ui::dip(window,34);rect.right=bounds.right-ui::dip(window,6);rect.top+=ui::dip(window,5);rect.bottom-=ui::dip(window,5);return rect;}
+  std::string close_at(POINT point) const {TVHITTESTINFO hit{};hit.pt=point;auto item=TreeView_HitTest(tree,&hit);if(!item)return {};TVITEMW value{};value.hItem=item;value.mask=TVIF_PARAM;TreeView_GetItem(tree,&value);
+    if(value.lParam<=0||static_cast<size_t>(value.lParam)>tree_keys.size()||tree_keys[value.lParam-1].second)return {};auto rect=close_rect(item);return PtInRect(&rect,point)?tree_keys[value.lParam-1].first:std::string{};}
   void choose(const std::string& id,bool focus){auto found=hosts.find(id);if(found==hosts.end())return;if(selected!=id){address_dirty=false;set_address(str(found->second.metadata,"url"));}selected=id;
     status.clear();
     SetWindowPos(found->second.window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
@@ -125,12 +132,15 @@ struct BrowserShell::Impl {
     RECT label{};TreeView_GetItemRect(tree,reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec),&label,TRUE);label.right=bounds.right-ui::dip(window,12);
     const bool hover=reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec)==hovered_row;
     if(group){if(hover){auto background=rect;InflateRect(&background,-ui::dip(window,2),-ui::dip(window,3));ui::rounded(draw.nmcd.hdc,background,ui::hover_background(),ui::hover_background(),ui::dip(window,6));}TVITEMW value{};value.hItem=reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec);value.mask=TVIF_STATE;value.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&value);RECT arrow=label;arrow.left=ui::dip(window,2);arrow.right=ui::dip(window,24);ui::icon(draw.nmcd.hdc,arrow,value.state&TVIS_EXPANDED?ui::Icon::down:ui::Icon::chevron_right,hover&&colors.contrast?ui::selection_ink():colors.muted,window);
+      if(empty_workspace(id)){label.right-=ui::dip(window,24);auto add=close_rect(reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec));ui::icon(draw.nmcd.hdc,add,ui::Icon::plus,colors.muted,window);}
       ui::text(draw.nmcd.hdc,label,ui::wide(workspace_names.contains(id)?workspace_names.at(id):"Workspace"),font,hover&&colors.contrast?ui::selection_ink():colors.muted);return;}
     const bool active=id==selected;rect.left=ui::dip(window,12);InflateRect(&rect,0,-ui::dip(window,3));rect.right-=active?0:ui::dip(window,6);auto shape=rect;if(active)shape.right+=ui::dip(window,16);
     const auto state=states.find(id);const bool outlined=active||(state!=states.end()&&state->second.value("agentAvailable",false)&&!state->second.value("humanPaused",false));
     const auto background=active?colors.surface:hover?ui::hover_background():colors.canvas;
     ui::rounded(draw.nmcd.hdc,shape,background,outlined?color(id):background,ui::dip(window,8),ui::dip(window,active?2:1));
-    auto found=hosts.find(id);const auto title=found==hosts.end()?std::string{}:str(found->second.metadata,"title");label.left=ui::dip(window,26);ui::text(draw.nmcd.hdc,label,ui::wide(title.empty()?"New tab":title),font,hover&&!active&&colors.contrast?ui::selection_ink():colors.ink);
+    auto close=close_rect(reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec));POINT pointer{};GetCursorPos(&pointer);ScreenToClient(tree,&pointer);if(hover&&PtInRect(&close,pointer))ui::rounded(draw.nmcd.hdc,close,ui::hover_background(),ui::hover_background(),ui::dip(window,5));
+    ui::icon(draw.nmcd.hdc,close,ui::Icon::close,hover&&!active&&colors.contrast?ui::selection_ink():colors.muted,window);
+    auto found=hosts.find(id);const auto title=found==hosts.end()?std::string{}:str(found->second.metadata,"title");label.left=ui::dip(window,26);label.right=close.left-ui::dip(window,3);ui::text(draw.nmcd.hdc,label,ui::wide(title.empty()?"New tab":title),font,hover&&!active&&colors.contrast?ui::selection_ink():colors.ink);
     if((draw.nmcd.uItemState&CDIS_FOCUS)&&GetFocus()==tree){auto focus=rect;InflateRect(&focus,-ui::dip(window,5),-ui::dip(window,3));ui::focus_mark(draw.nmcd.hdc,focus,tree);}
   }
   void paint(HDC dc){RECT rect{};GetClientRect(window,&rect);const auto colors=ui::palette();ui::fill(dc,rect,colors.canvas);
@@ -141,18 +151,21 @@ struct BrowserShell::Impl {
       const auto thickness=ui::dip(window,2);ui::fill(dc,{bridge.left,bridge.top,bridge.right,bridge.top+thickness},color(selected));ui::fill(dc,{bridge.left,bridge.bottom-thickness,bridge.right,bridge.bottom},color(selected));}
     if(sidebar_hover||resizing_sidebar){RECT grip{ui::dip(window,sidebar-7),rect.bottom-ui::dip(window,86),ui::dip(window,sidebar-4),rect.bottom-ui::dip(window,54)};ui::rounded(dc,grip,colors.muted,colors.muted,ui::dip(window,1));}
   }
-  void rebuild_tree(){Json signature=Json::array();for(const auto& id:order)if(auto found=hosts.find(id);found!=hosts.end())signature.push_back({id,found->second.workspace,str(found->second.metadata,"title"),workspace_names[found->second.workspace]});
+  void rebuild_tree(){Json signature=Json::array();for(const auto& [id,name]:workspace_names)signature.push_back({id,name});for(const auto& id:order)if(auto found=hosts.find(id);found!=hosts.end())signature.push_back({id,found->second.workspace,str(found->second.metadata,"title")});
     if(signature==tree_signature)return;tree_signature=signature;std::set<std::string> expanded;
     for(auto item=TreeView_GetRoot(tree);item;item=TreeView_GetNextSibling(tree,item)){TVITEMW entry{};entry.hItem=item;entry.mask=TVIF_PARAM|TVIF_STATE;entry.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&entry);
-      if(entry.lParam>0&&static_cast<size_t>(entry.lParam)<=tree_keys.size()&&(entry.state&TVIS_EXPANDED))expanded.insert(tree_keys[entry.lParam-1].first);}
-    const bool first=tree_keys.empty();rebuilding=true;hovered_row=nullptr;SendMessageW(tree,WM_SETREDRAW,FALSE,0);TreeView_DeleteAllItems(tree);tree_keys.clear();std::map<std::string,HTREEITEM> groups;HTREEITEM current=nullptr;
+      if(entry.lParam>0&&static_cast<size_t>(entry.lParam)<=tree_keys.size()&&((entry.state&TVIS_EXPANDED)||!TreeView_GetChild(tree,item)))expanded.insert(tree_keys[entry.lParam-1].first);}
+    std::set<std::string> known;for(const auto& [id,group]:tree_keys)if(group)known.insert(id);
+    const bool first=tree_keys.empty();rebuilding=true;hovered_row=nullptr;hovered_close.clear();SendMessageW(tree,WM_SETREDRAW,FALSE,0);TreeView_DeleteAllItems(tree);tree_keys.clear();std::map<std::string,HTREEITEM> groups;HTREEITEM current=nullptr;
+    auto add_group=[&](const std::string& id){if(groups.contains(id))return;auto label=ui::wide(workspace_names.contains(id)?workspace_names.at(id):"Workspace");tree_keys.emplace_back(id,true);TVINSERTSTRUCTW entry{};entry.hParent=TVI_ROOT;entry.hInsertAfter=TVI_LAST;entry.item.mask=TVIF_TEXT|TVIF_PARAM;entry.item.pszText=label.data();entry.item.lParam=tree_keys.size();groups[id]=TreeView_InsertItem(tree,&entry);};
+    if(workspace_names.contains("native-default"))add_group("native-default");for(const auto& [id,name]:workspace_names)add_group(id);
     for(const auto& id:order)if(auto found=hosts.find(id);found!=hosts.end()){
       auto& host=found->second;if(!groups.contains(host.workspace)){const auto label=ui::wide(workspace_names.contains(host.workspace)?workspace_names[host.workspace]:"Workspace");
         tree_keys.emplace_back(host.workspace,true);TVINSERTSTRUCTW entry{};entry.hParent=TVI_ROOT;entry.hInsertAfter=TVI_LAST;entry.item.mask=TVIF_TEXT|TVIF_PARAM;entry.item.pszText=const_cast<LPWSTR>(label.c_str());entry.item.lParam=tree_keys.size();groups[host.workspace]=TreeView_InsertItem(tree,&entry);}
       auto label=short_title(str(host.metadata,"title").empty()?"New tab":str(host.metadata,"title"),37);tree_keys.emplace_back(id,false);
       TVINSERTSTRUCTW entry{};entry.hParent=groups[host.workspace];entry.hInsertAfter=TVI_LAST;entry.item.mask=TVIF_TEXT|TVIF_PARAM;entry.item.pszText=label.data();entry.item.lParam=tree_keys.size();auto item=TreeView_InsertItem(tree,&entry);if(id==selected)current=item;
     }
-    for(const auto& [id,group]:groups)if(first||expanded.contains(id))TreeView_Expand(tree,group,TVE_EXPAND);
+    for(const auto& [id,group]:groups)if(first||!known.contains(id)||expanded.contains(id))TreeView_Expand(tree,group,TVE_EXPAND);
     if(current&&(first||expanded.contains(hosts.at(selected).workspace)))TreeView_SelectItem(tree,current);SendMessageW(tree,WM_SETREDRAW,TRUE,0);InvalidateRect(tree,nullptr,TRUE);rebuilding=false;
   }
   PointerPoint parked(const Host& host) const {RECT rect{};GetClientRect(host.window,&rect);const double scale=GetDpiForWindow(host.window)/96.0*host.metadata.value("zoom",1.0);const auto random=seed();return {rect.right/scale*(.76+(random%100)/1000.0),rect.bottom/scale*(.76+((random/100)%100)/1000.0)};}
@@ -203,15 +216,22 @@ struct BrowserShell::Impl {
     item(MenuThemeSystem,L"Theme: System");item(MenuThemeLight,L"Theme: Light");item(MenuThemeDark,L"Theme: Dark");
     CheckMenuItem(popup,ui::theme_mode==ui::ThemeMode::system?MenuThemeSystem:ui::theme_mode==ui::ThemeMode::light?MenuThemeLight:MenuThemeDark,MF_BYCOMMAND|MF_CHECKED);
     auto sidebar_menu=CreatePopupMenu();AppendMenuW(sidebar_menu,MF_STRING,MenuSidebarNarrower,L"Narrower");AppendMenuW(sidebar_menu,MF_STRING,MenuSidebarWider,L"Wider");AppendMenuW(sidebar_menu,MF_STRING,MenuSidebarReset,L"Reset width");AppendMenuW(popup,MF_POPUP,reinterpret_cast<UINT_PTR>(sidebar_menu),L"Sidebar width");
-    AppendMenuW(popup,MF_SEPARATOR,0,nullptr);item(MenuAbout,L"About Xenon");item(MenuNotices,L"Third-party notices");item(MenuExit,L"Exit Xenon");
+    AppendMenuW(popup,MF_SEPARATOR,0,nullptr);item(MenuUpdates,L"Check for updates");item(MenuAbout,L"About Xenon");item(MenuNotices,L"Third-party notices");item(MenuExit,L"Exit Xenon");
     RECT rect{};GetWindowRect(controls.at(Menu),&rect);const auto id=TrackPopupMenu(popup,TPM_RETURNCMD|TPM_RIGHTALIGN,rect.right,rect.bottom,0,window,nullptr);DestroyMenu(popup);if(id)command(id);
   }
   static LRESULT CALLBACK edit_proc(HWND control,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR owner){auto self=reinterpret_cast<Impl*>(owner);
     if(message==WM_KEYDOWN&&wp==VK_RETURN){if(control==self->address)self->navigate();else self->engine.native_command(self->selected,"find",ui::text(control));return 0;}
     if(message==WM_KEYDOWN&&wp==VK_ESCAPE){if(control==self->find_text){self->find_visible=false;self->engine.native_command(self->selected,"find-close");self->layout();}else {self->address_dirty=false;auto found=self->hosts.find(self->selected);self->set_address(found==self->hosts.end()?std::string{}:str(found->second.metadata,"url"));}self->engine.native_command(self->selected,"focus");return 0;}return DefSubclassProc(control,message,wp,lp);
   }
-  static LRESULT CALLBACK tree_proc(HWND control,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR owner){auto result=DefSubclassProc(control,message,wp,lp);auto self=reinterpret_cast<Impl*>(owner);
-    if(message==WM_MOUSEMOVE||message==WM_MOUSELEAVE){TVHITTESTINFO hit{};hit.pt={GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};const auto next=message==WM_MOUSELEAVE?nullptr:TreeView_HitTest(control,&hit);if(next!=self->hovered_row){self->hovered_row=next;InvalidateRect(control,nullptr,FALSE);}if(message==WM_MOUSEMOVE){TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,control,0};TrackMouseEvent(&track);}}
+  static LRESULT CALLBACK tree_proc(HWND control,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR owner){auto self=reinterpret_cast<Impl*>(owner);
+    if(message==WM_KEYDOWN&&(wp==VK_DELETE||wp==VK_RETURN)){TVITEMW item{};item.hItem=TreeView_GetSelection(control);item.mask=TVIF_PARAM;if(item.hItem&&TreeView_GetItem(control,&item)&&item.lParam>0&&static_cast<size_t>(item.lParam)<=self->tree_keys.size()){const auto [id,group]=self->tree_keys[item.lParam-1];if(wp==VK_DELETE&&!group){self->engine.native_command(id,"close");return 0;}if(wp==VK_RETURN&&group&&self->empty_workspace(id)){self->open_workspace(id);return 0;}}}
+    if(message==WM_LBUTTONDOWN){self->pressed_close=self->close_at({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});if(!self->pressed_close.empty()){SetCapture(control);return 0;}}
+    if(message==WM_LBUTTONUP&&!self->pressed_close.empty()){auto id=std::exchange(self->pressed_close,{});if(GetCapture()==control)ReleaseCapture();if(id==self->close_at({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)}))self->engine.native_command(id,"close");return 0;}
+    if(message==WM_CAPTURECHANGED||message==WM_CANCELMODE)self->pressed_close.clear();
+    if(message==WM_MBUTTONUP){TVHITTESTINFO hit{};hit.pt={GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};auto item=TreeView_HitTest(control,&hit);TVITEMW entry{};entry.hItem=item;entry.mask=TVIF_PARAM;if(item&&TreeView_GetItem(control,&entry)&&entry.lParam>0&&static_cast<size_t>(entry.lParam)<=self->tree_keys.size()&&!self->tree_keys[entry.lParam-1].second)self->engine.native_command(self->tree_keys[entry.lParam-1].first,"close");return 0;}
+    if(message==WM_LBUTTONDOWN||message==WM_LBUTTONDBLCLK){TVHITTESTINFO hit{};hit.pt={GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};auto item=TreeView_HitTest(control,&hit);TVITEMW entry{};entry.hItem=item;entry.mask=TVIF_PARAM;if(item&&TreeView_GetItem(control,&entry)&&entry.lParam>0&&static_cast<size_t>(entry.lParam)<=self->tree_keys.size()){const auto& [id,group]=self->tree_keys[entry.lParam-1];if(group&&self->empty_workspace(id)){self->open_workspace(id);return 0;}}}
+    auto result=DefSubclassProc(control,message,wp,lp);
+    if(message==WM_MOUSEMOVE||message==WM_MOUSELEAVE){TVHITTESTINFO hit{};hit.pt={GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};const auto next=message==WM_MOUSELEAVE?nullptr:TreeView_HitTest(control,&hit);const auto close=message==WM_MOUSELEAVE?std::string{}:self->close_at(hit.pt);if(next!=self->hovered_row||close!=self->hovered_close){self->hovered_row=next;self->hovered_close=close;InvalidateRect(control,nullptr,FALSE);}if(message==WM_MOUSEMOVE){TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,control,0};TrackMouseEvent(&track);}}
     if(message==WM_VSCROLL||message==WM_MOUSEWHEEL||message==WM_KEYDOWN)InvalidateRect(self->window,nullptr,FALSE);if(message==WM_NCDESTROY)RemoveWindowSubclass(control,tree_proc,3);return result;}
   static LRESULT CALLBACK host_proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){if(msg==WM_NCHITTEST)return HTCLIENT;return DefWindowProcW(h,msg,wp,lp);}
   static LRESULT CALLBACK cursor_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){auto self=reinterpret_cast<Impl*>(GetWindowLongPtrW(h,GWLP_USERDATA));
@@ -275,6 +295,7 @@ void BrowserShell::Impl::command(int id){try{
   else if(id==NewTab)broker.open_human_tab(workspace(),"about:blank",[this](Json value){if(!value.value("ok",false))status=ui::wide(str(value["error"],"message"));});
   else if(id==MenuPrivate)broker.open_human_workspace("about:blank",[](Json){},true);
   else if(id==MenuCloseTab)engine.native_command(selected,"close");
+  else if(id==MenuUpdates)engine.show_updates();
   else if(id==MenuFind)show_find();else if(id==FindClose){find_visible=false;engine.native_command(selected,"find-close");layout();engine.native_command(selected,"focus");}
   else if(id==FindNext||id==FindPrevious)engine.native_command(selected,id==FindNext?"find-next":"find-previous",ui::text(find_text));
   else if(id==MenuZoomIn||id==MenuZoomOut||id==MenuZoomReset){double zoom=hosts.contains(selected)?hosts.at(selected).metadata.value("zoom",1.0):1;zoom=id==MenuZoomReset?1:id==MenuZoomIn?zoom*1.2:zoom/1.2;engine.native_command(selected,"zoom",std::to_string(zoom));}
@@ -347,6 +368,7 @@ BrowserShell::BrowserShell(Broker& broker,CefEngine& engine,const std::filesyste
 }
 BrowserShell::~BrowserShell(){impl_->data.flush();for(auto& panel:impl_->panels)if(panel->window)DestroyWindow(panel->window);if(impl_->cursor)DestroyWindow(impl_->cursor);if(impl_->window)DestroyWindow(impl_->window);if(impl_->font)DeleteObject(impl_->font);}
 void BrowserShell::show(){ShowWindow(impl_->window,SW_SHOWNORMAL);SetWindowPos(impl_->window,nullptr,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_SHOWWINDOW);SetForegroundWindow(impl_->window);}
+void BrowserShell::request_exit(){PostMessageW(impl_->window,WM_CLOSE,0,0);}
 HWND BrowserShell::create_host(const std::string& workspace,const std::string& id,bool human){if(auto found=impl_->hosts.find(id);found!=impl_->hosts.end())return found->second.window;
   Impl::Host host;host.id=id;host.workspace=workspace;host.human=human;host.window=CreateWindowExW(0,L"XenonTabHost",L"Web page",WS_CHILD|WS_VISIBLE|WS_CLIPCHILDREN|WS_CLIPSIBLINGS,0,0,100,100,impl_->window,nullptr,branding_module(),nullptr);
   if(!host.window)return nullptr;impl_->hosts.emplace(id,std::move(host));impl_->order.push_back(id);impl_->layout();

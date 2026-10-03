@@ -78,9 +78,11 @@ struct NativeUi::Impl {
     std::mutex mutex;std::atomic_bool cancel=false;bool alive=true;
     UpdatePhase phase=UpdatePhase::idle;std::optional<updates::Release> release;
     std::filesystem::path installer;std::string message="Check for a newer Xenon release when you are ready.";
+    std::shared_ptr<updates::InstallerLaunch> prepared;
     uint64_t downloaded{},total{},revision{};
   };
   std::shared_ptr<UpdateState> update_state=std::make_shared<UpdateState>();
+  std::function<void(std::shared_ptr<updates::InstallerLaunch>)> update_install_callback;
   int page{},building_page{-1};
   std::optional<ui::Palette> applied_palette;
   struct Placement {HWND control{};RECT bounds{};int page{-1};};
@@ -309,17 +311,18 @@ struct NativeUi::Impl {
       std::lock_guard lock(update_state->mutex);if(update_state->phase!=UpdatePhase::ready||!update_state->release)return;
       release=update_state->release;installer=update_state->installer;
     }
-    if(MessageBoxW(update_window,L"Open the unsigned Xenon setup program?\n\nStop external MCP adapters and close all Xenon windows before setup can install. Save unfinished website work first. Xenon will not close tabs or interrupt agents for you.\n\nSetup upgrades an installed copy in its existing folder. For a first installation, you can choose a folder. When setup finishes, open Xenon from the Start menu.",
+    if(!update_install_callback){status(L"Update installation is unavailable in this window.");return;}
+    if(MessageBoxW(update_window,L"Install the update and exit Xenon?\n\nSave unfinished website work first. Xenon will close its tabs normally and disconnect agents, then open the verified unsigned setup program. Other Xenon instances must also be closed before installation.\n\nSetup upgrades your installed copy in its existing folder. Your saved workspaces and accounts are retained. When setup finishes, open Xenon from the Start menu.",
       L"Install Xenon update",MB_YESNO|MB_ICONINFORMATION|MB_DEFBUTTON2)!=IDYES)return;
     {
       std::lock_guard lock(update_state->mutex);if(update_state->phase!=UpdatePhase::ready)return;
-      update_state->cancel=false;update_state->phase=UpdatePhase::launching;update_state->message="Rechecking the installer and opening setup…";++update_state->revision;
+      update_state->cancel=false;update_state->phase=UpdatePhase::launching;update_state->message="Rechecking the installer before exiting Xenon…";++update_state->revision;
     }
     update_worker([release=std::move(*release),installer=std::move(installer)](const auto& state){
       if(state->cancel)return;
-      updates::launch_installer(installer,release);
+      auto prepared=updates::prepare_installer(installer,release);
       std::lock_guard lock(state->mutex);if(!state->alive)return;
-      state->phase=UpdatePhase::launched;state->message="Setup opened. Stop external adapters and close Xenon when ready; setup will wait for the browser.";++state->revision;
+      state->prepared=std::move(prepared);state->message="Installer verified. Closing Xenon before starting setup…";++state->revision;
     });
     poll_updates();
   }
@@ -335,6 +338,9 @@ struct NativeUi::Impl {
     update_shown_revision=~uint64_t{};update_percent=-1;if(target&&IsWindow(target))DestroyWindow(target);
   }
   void poll_updates(){
+    std::shared_ptr<updates::InstallerLaunch> prepared;
+    {std::lock_guard lock(update_state->mutex);prepared=std::move(update_state->prepared);}
+    if(prepared&&update_install_callback){update_install_callback(std::move(prepared));return;}
     if(!update_window)return;
     UpdatePhase phase;std::optional<updates::Release> release;std::string message;uint64_t downloaded{},total{};bool canceling{};
     {
@@ -398,11 +404,11 @@ struct NativeUi::Impl {
       update_latest=add_update(0,L"STATIC",L"Available version: —",26,117,588,22);
       update_message=add_update(0,L"STATIC",L"",26,155,588,46);
       update_progress=add_update(0,L"STATIC",L"",26,211,588,22);text_style(update_progress,TextTone::muted,small_font);
-      text_style(add_update(0,L"STATIC",L"Unsigned alpha software. Downloading does not install it. You choose when to open setup and close the browser.",26,267,588,42),TextTone::muted,small_font);
+      text_style(add_update(0,L"STATIC",L"Unsigned alpha software. Downloading does not install it. Install and exit asks for confirmation, then closes Xenon before opening setup.",26,267,588,42),TextTone::muted,small_font);
       text_style(add_update(0,L"STATIC",L"Setup upgrades or installs Xenon for your Windows account. Portable users should launch the installed copy from the Start menu afterward.",26,319,588,42),TextTone::muted,small_font);
       update_check=add_update(1,L"BUTTON",L"Check again",26,395,124,34,WS_TABSTOP);
       update_download=add_update(2,L"BUTTON",L"Download update",162,395,152,34,WS_TABSTOP);
-      update_install=add_update(3,L"BUTTON",L"Install update",326,395,144,34,WS_TABSTOP);
+      update_install=add_update(3,L"BUTTON",L"Install and exit",326,395,144,34,WS_TABSTOP);
       update_cancel=add_update(4,L"BUTTON",L"Close",482,395,132,34,WS_TABSTOP);
       update_shown_revision=~uint64_t{};
     }
@@ -986,6 +992,8 @@ NativeUi::~NativeUi(){
   for(auto brush:{impl_->canvas_brush,impl_->surface_brush,impl_->navy_brush})if(brush)DeleteObject(brush);
 }
 void NativeUi::show(){impl_->apply_theme();impl_->refresh();ShowWindow(impl_->window,SW_SHOWNORMAL);SetForegroundWindow(impl_->window);}
+void NativeUi::show_updates(){impl_->show_updates();}
+void NativeUi::set_update_install_callback(std::function<void(std::shared_ptr<updates::InstallerLaunch>)> callback){impl_->update_install_callback=std::move(callback);}
 bool NativeUi::pretranslate(MSG& message){
   if(message.message<WM_KEYFIRST||message.message>WM_KEYLAST)return false;
   const auto root=GetAncestor(message.hwnd,GA_ROOT);

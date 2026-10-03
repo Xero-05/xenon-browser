@@ -1,5 +1,17 @@
 # Release notes
 
+## 0.1.0-alpha.14
+
+Tabs now have visible **X** buttons and middle-click closure, alongside **Ctrl+W** and sidebar **Delete**. Closing the last tab preserves its workspace. Empty saved workspaces remain in the sidebar after restart; selecting one opens a blank human-owned tab without automatically reloading old pages.
+
+**Menu → Check for updates** opens native Updates. **Install and exit** confirms the human decision, prepares the verified installer suspended, closes Xenon normally and releases its running marker before starting setup. Other running instances still block installation. Profiles, pairing state, fixed-repository checks, exact asset matching and mandatory size/SHA-256 verification remain protected.
+
+The expanded MCP benchmark fixture exposed native date-field filling that reported dispatch without changing the field. Canonical date values are now validated before applying the native setter and script-generated input/change events; ordinary text keeps the existing input path. These are deterministic MCP compatibility checks, not model speed or cost comparisons.
+
+Exact release-build hashes and automated coverage are recorded in [alpha.14 validation](test-results/alpha14-validation.json). Earlier physical UI coverage remains bound to the distinct [local candidate hashes](test-results/workspace-tabs-updater.json); the version bump does not turn those observations into physical checks of the release binary. No production upgrade was installed over the user copy.
+
+The Windows x64 installer and portable ZIP remain unsigned. See [signing preparation](SIGNING.md) for the public-trust setup and packaging changes required for a future signed release.
+
 ## 0.1.0-alpha.13
 
 Address and Find command keys now reach their native handlers before Windows dialog translation. Toolbar refresh preserves an address draft when focus moves to Go. Frame painting is buffered, divider hover invalidates only its grip, background tab hover uses gray, and collapsed workspace groups use a chevron. Dashed focus boxes are replaced by a small keyboard-only mark in browser tabs and Controls.

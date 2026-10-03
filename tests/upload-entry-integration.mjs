@@ -24,6 +24,8 @@ const binary = resolve(root, 'build/app/Release/Xenon.exe'), dll = resolve(root,
 const baseline = process.argv.includes('--baseline'), benchmarkIndex = process.argv.indexOf('--benchmark');
 if (benchmarkIndex >= 0 && !process.argv[benchmarkIndex + 1]) throw new Error('--benchmark requires the source path');
 const benchmarkSource = benchmarkIndex >= 0 ? resolve(process.argv[benchmarkIndex + 1]) : undefined;
+const benchmarkMatrix = process.argv.includes('--benchmark-matrix');
+if (benchmarkMatrix && (!benchmarkSource || baseline)) throw new Error('--benchmark-matrix requires --benchmark and acceptance mode');
 const workspaceId = 'auth_fixture_shared';
 const results = [], calls = [], servers = [], fixtureStates = new Map();
 const runFile = promisify(execFile), sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -172,35 +174,51 @@ async function prepareBenchmark() {
   benchmarkMetadata = { sourceBasename: basename(benchmarkSource), sourceSha256, copiedUnchanged: true, benchmarkId, trialId: benchmarkTrial.id,
     ownerSource: envOwner === owner ? 'CODEX_THREAD_ID' : 'generated_synthetic_identity', syntheticRoot: benchmarkRoot };
 }
-async function fullHealthFlow() {
-  const url = 'http://127.0.0.1:' + benchmarkServer.address().port + '/trial/' + benchmarkTrial.id;
-  const tab = { ...worker, ...await tool('tab_create', { ...workerScope(worker), url }) };
-  const started = Date.now(); await until(async () => (await observe(tab)).nodes.some(node => node.name === 'Browser health check'));
+async function fullHealthFlow(candidate = { id: benchmarkId, trial: benchmarkTrial, server: benchmarkServer, worker }) {
+  const { id, trial, server, worker: owner } = candidate;
+  const current = () => benchmarkModule.read(benchmarkRoot, id).trials.find(item => item.id === trial.id);
+  const expected = benchmarkModule.expectedForTrial(trial), health = trial.kind === 'health';
+  const url = 'http://127.0.0.1:' + server.address().port + '/trial/' + trial.id;
+  const tab = { ...owner, ...await tool('tab_create', { ...workerScope(owner), url }) };
+  const started = Date.now(); await until(async () => (await observe(tab)).nodes.some(node => node.name === (health ? 'Browser health check' : 'Synthetic application')));
   await act(tab, 'Import sample résumé');
-  await until(() => benchmarkModule.read(benchmarkRoot, benchmarkId).trials[0].fixture?.imported);
-  await act(tab, 'Full name', 'fill', { text: 'Taylor Example' });
-  await act(tab, 'Location', 'select', { values: ['Vancouver'] });
-  await act(tab, 'Add employment'); await act(tab, 'Employer 3', 'fill', { text: 'Cedar Projects' });
+  await until(() => current().fixture?.imported);
+  await act(tab, 'Full name', 'fill', { text: expected.name });
+  if (!health) {
+    await act(tab, 'Email', 'fill', { text: expected.email });
+    await act(tab, 'Start date', 'fill', { text: expected.start });
+  }
+  await act(tab, 'Location', 'select', { values: [expected.city] });
+  if (!health) { await act(tab, 'Add employment'); await act(tab, 'Employer 2', 'fill', { text: expected.employers[1] }); }
+  await act(tab, 'Add employment'); await act(tab, 'Employer 3', 'fill', { text: expected.employers[2] });
   await act(tab, 'I checked this synthetic information', 'check', { checked: true });
   await act(tab, 'Continue to attachments');
-  const files = await tool('files', { ...workerScope(worker), folderId, limit: 1000 });
-  const fixture = files.files.find(item => item.name === 'benchmark-fixture.txt' && item.relativePath?.includes(benchmarkId)); assert(fixture);
+  const files = await tool('files', { ...workerScope(owner), folderId, limit: 1000 });
+  const fixture = files.files.find(item => item.name === 'benchmark-fixture.txt' && item.relativePath?.includes(id)); assert(fixture);
   const selected = await upload(tab, 'Choose fixture file', fixture.fileId);
   if (baseline) { assert(selected.isError); assert.equal(selected.structuredContent?.error?.code, 'not_file_input'); }
-  else { assert(!selected.isError, JSON.stringify(selected.structuredContent)); selectionFacts(selected, 'dispatched', 'selected'); await until(() => benchmarkModule.read(benchmarkRoot, benchmarkId).trials[0].fixture?.uploaded); }
+  else { assert(!selected.isError, JSON.stringify(selected.structuredContent)); selectionFacts(selected, 'dispatched', 'selected'); await until(() => current().fixture?.uploaded); }
   await act(tab, 'Prepare review');
-  await until(() => benchmarkModule.read(benchmarkRoot, benchmarkId).trials[0].fixture?.delayed);
+  await until(() => current().fixture?.delayed);
   await act(tab, 'Review application');
-  const graded = await until(() => { const trial = benchmarkModule.read(benchmarkRoot, benchmarkId).trials[0]; return trial.grade ? trial : false; });
+  const graded = await until(() => { const value = current(); return value.grade ? value : false; });
   assert.equal(graded.fixture?.final_activated ?? false, false); assert.equal(graded.fixture?.untrusted ?? false, false);
   assert(!graded.observations.some(item => item.type === 'final'));
   if (baseline) { assert.equal(graded.grade.passed, false); assert.deepEqual(graded.grade.failures, ['upload_transfer']); }
   else { assert.equal(graded.grade.passed, true); assert.deepEqual(graded.grade.failures, []); }
   await target(tab, 'Final Submit — do not activate', 'BUTTON'); // Evidence only, never activate.
   const browserActionMs = Date.now() - started;
-  return { fixtureSourceUnmodified: true, grade: graded.grade, finalSubmitUntouched: true, trustedActivation: true,
+  return { kind: trial.kind, fixtureSourceUnmodified: true, grade: graded.grade, finalSubmitUntouched: true, trustedActivation: true,
     import: graded.fixture.imported, uploaded: !!graded.fixture.uploaded, delayed: graded.fixture.delayed, browserActionMs,
     targetMs: 90000, overrun: browserActionMs > 90000, comparisonOrReusableCertification: false };
+}
+async function matrixCandidate(kind, index, owner = worker) {
+  const id = run + '-' + kind + '-' + index;
+  await benchmarkModule.main({ action: 'init', root: benchmarkRoot, run: id, owner: 'synthetic-' + randomUUID() });
+  const trial = benchmarkModule.addTrial(benchmarkRoot, id, ...benchmarkModule.CONFIGS[0], kind);
+  benchmarkModule.register(benchmarkRoot, id, trial.id, 'synthetic-' + randomUUID());
+  const server = await benchmarkModule.main({ action: 'serve', root: benchmarkRoot, run: id, trial: trial.id, port: '0' });
+  servers.push(server);return { id, trial, server, worker: owner };
 }
 
 if (process.platform !== 'win32') throw new Error('Upload regression requires Windows.');
@@ -283,6 +301,17 @@ try {
     });
   }
   if (benchmarkSource) await check(baseline ? 'Exact external health flow reproduces only upload_transfer failure' : 'Exact external health flow passes with final submission untouched', fullHealthFlow);
+  if (benchmarkMatrix) {
+    await check('External comparison fixture passes the complete MCP workflow', async () => fullHealthFlow(await matrixCandidate('comparison', 0)));
+    await check('External calibration fixture passes the complete MCP workflow', async () => fullHealthFlow(await matrixCandidate('calibration', 0)));
+    await check('Four external concurrency fixtures preserve distinct data through background MCP input', async () => {
+      const candidates=[];
+      for(let index=0;index<4;++index){const owner=await tool('worker_create',{name:'Concurrent fixture '+index,workspaceId});candidates.push(await matrixCandidate('concurrency',index,owner));}
+      const flows=await Promise.all(candidates.map(fullHealthFlow));
+      assert.equal(new Set(flows.map(flow=>flow.grade.expected_sha256)).size,4);
+      return { workers:4, flows, modelPerformanceComparison:false };
+    });
+  }
 } catch (error) {
   if (!results.some(result => !result.passed)) results.push({ name: 'Upload entry harness', passed: false, error: error.message });
   console.log('FAIL upload entry harness: ' + error.message);
@@ -302,7 +331,7 @@ try {
   } catch (error) { results.push({ name: 'Source and binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe', profile,
     applicationDllSha256, applicationDllSha256AtEnd, mode: baseline ? 'baseline_failure_reproduction' : 'acceptance', benchmark: benchmarkMetadata ?? null,
-    passed: results.length === 6 + (baseline ? 0 : 3) + (benchmarkSource ? 1 : 0) && results.every(result => result.passed), results };
+    passed: results.length === 6 + (baseline ? 0 : 3) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0) && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true }); const reportPath = resolve(root, baseline ? 'out/upload-entry-baseline-results.json' : 'out/upload-entry-integration-results.json');
   await writeFile(reportPath, JSON.stringify(report, null, 2)); console.log('Report: ' + reportPath); process.exitCode = report.passed ? 0 : 1;
 }

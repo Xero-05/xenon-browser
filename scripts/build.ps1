@@ -27,6 +27,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Login monitor tests failed.' }
     & node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=out/human-autofill-tests.xml 'tests/human-autofill-tests.mjs'
     if ($LASTEXITCODE -ne 0) { throw 'Human autofill tests failed.' }
+    & node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=out/form-fill-tests.xml 'tests/form-fill-tests.mjs'
+    if ($LASTEXITCODE -ne 0) { throw 'Form fill tests failed.' }
     if (-not $CoreOnly) {
       & node tests/branding-resources.mjs
       if ($LASTEXITCODE -ne 0) { throw 'Bootstrap branding integrity failed.' }

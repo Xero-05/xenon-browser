@@ -1,4 +1,5 @@
 #include "xenon/cef_engine.hpp"
+#include "xenon/form_fill.hpp"
 #include "xenon/cef_branding.hpp"
 #include "xenon/pointer_motion.hpp"
 #include "xenon/pointer_target.hpp"
@@ -227,6 +228,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   EventSink sink_;
   std::mutex sink_mutex_;
   std::function<void()> controls_;
+  std::function<void()> updates_;
   std::function<void(CefWindowHandle,UINT,WPARAM)> native_key_;
   std::function<void(const std::string&)> dialog_opened_;
   std::function<void()> private_workspace_;
@@ -1318,10 +1320,11 @@ void CefEngine::Impl::click(const std::shared_ptr<Tab>& t,const Json& p,Reply re
 void CefEngine::Impl::fill(const std::shared_ptr<Tab>& t,const Json& p,Reply reply,bool secret) {
   const auto text=field(p,"text");if(text.size()>65536){reply(failure("input_too_large","Text exceeds the input limit."));return;}
   element(t,p,reply,[this,t,p,text,reply,secret](Element e,std::string obj) {
-    constexpr const char* prepare=R"JS(function(secret){if(!this.isConnected)return false;const tag=this.tagName.toLowerCase();if(!(tag==='input'||tag==='textarea'||this.isContentEditable)||this.disabled||this.readOnly)return false;const sensitive=this.type==='password'||/password|one-time-code/.test(this.autocomplete||'');if(sensitive&&!secret)return false;this.focus();if(this.select)this.select();else{const r=document.createRange();r.selectNodeContents(this);const s=getSelection();s.removeAllRanges();s.addRange(r)}return true})JS";
-    send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration",prepare},{"arguments",Json::array({{{"value",secret}}})},{"returnByValue",true}},
+    send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration",form_fill_prepare_script},{"arguments",Json::array({{{"value",secret}},{{"value",text}}})},{"returnByValue",true}},
       [this,t,e,text,reply](Json r) {
-        if(!cdp_ok(r)||!r.value("result",Json::object()).value("value",false)||t->epoch!=e.epoch){reply(failure("not_editable","This field cannot be filled by this action. Use protected login for credentials."));return;}
+        const auto prepared=field(r.value("result",Json::object()),"value");
+        if(!cdp_ok(r)||prepared.empty()||t->epoch!=e.epoch){reply(failure("not_editable","This field or value cannot be filled by this action. Dates require YYYY-MM-DD; use protected login for credentials."));return;}
+        if(prepared=="dispatched"){reply(success({{"status","dispatched"}}));return;}
         send(t,"Input.insertText",{{"text",text}},[reply](Json r2){reply(cdp_ok(r2)?success({{"status","dispatched"}}):failure("input_uncertain","Text input did not complete. Observe before retrying."));},e.session);
       },e.session);
   });
@@ -1882,6 +1885,7 @@ void CefEngine::execute_guarded(const std::string& cmd,const Json& p,std::functi
 }
 void CefEngine::set_event_sink(EventSink sink){std::lock_guard lock(impl_->sink_mutex_);impl_->sink_=std::move(sink);}
 void CefEngine::set_controls_callback(std::function<void()> f){impl_->controls_=std::move(f);}
+void CefEngine::set_updates_callback(std::function<void()> f){impl_->updates_=std::move(f);}
 void CefEngine::set_native_key_callback(std::function<void(CefWindowHandle,UINT,WPARAM)> f){impl_->native_key_=std::move(f);}
 void CefEngine::set_dialog_callback(std::function<void(const std::string&)> f){impl_->dialog_opened_=std::move(f);}
 void CefEngine::set_private_workspace_callback(std::function<void()> f){impl_->private_workspace_=std::move(f);}
@@ -1941,6 +1945,7 @@ void CefEngine::cancel_login_prompts(){on_ui([p=impl_]{
   for(auto& [id,t]:p->tabs_){++t->autofill_requested;p->clear_login_edit(t);p->discard_login(t);}
 });}
 void CefEngine::show_controls(){on_ui([p=impl_]{if(p->controls_)p->controls_();});}
+void CefEngine::show_updates(){on_ui([p=impl_]{if(p->updates_)p->updates_();});}
 void CefEngine::set_vault(Vault* v){impl_->vault_=v;}
 void CefEngine::set_file_policy(FilePolicy* f){impl_->files_=f;}
 void CefEngine::exclude_workspaces(const std::vector<std::string>& workspaces){
