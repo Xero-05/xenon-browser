@@ -1,14 +1,12 @@
 # Release notes
 
-## Unreleased navigation and visual fixes
+## 0.1.0-alpha.13
 
 Address and Find command keys now reach their native handlers before Windows dialog translation. Toolbar refresh preserves an address draft when focus moves to Go. Frame painting is buffered, divider hover invalidates only its grip, background tab hover uses gray, and collapsed workspace groups use a chevron. Dashed focus boxes are replaced by a small keyboard-only mark in browser tabs and Controls.
 
-Both native targets compiled, 11 native groups and 84 adapter/script tests passed, and adapter typechecking passed. Production branding verification failed because Defender quarantined the bootstrap. The [initial fix validation record](test-results/navigation-fixes.json) preserves that failure and the initial test-fixture compile failure. A later local-only check used the existing unshipped AuthTest target against a disposable loopback page: Enter/Go, Find, gray feedback, chevrons, neutral selection and sidebar resizing with retained form text were verified through Windows UI input in Dark mode at 96 DPI. The [follow-up record](test-results/defender-local-followup.json) identifies the exact binaries and remaining limits. Production verification and release packaging remain on hold; no detection has been declared a false positive.
+Validation passed 11 native groups, adapter typechecking, 84 adapter/production-script tests, 18 bootstrap tests, five branding checks, 47 isolated installer checks and 75 checks across ten serial live suites. Production UI checks exercised Enter/Go navigation, Find, sidebar resizing, retained form text, workspace chevrons and neutral selections. Exact tested hashes and remaining manual coverage are recorded in [alpha.13 validation](test-results/alpha13-validation.json).
 
 ## 0.1.0-alpha.12
-
-**Installation hold (2026-10-03):** Defender has quarantined `Xenon.exe` as `Trojan:Win32/Bearfoos.A!ml`. The [detection report](DEFENDER_REPORT.md) establishes specific artifact integrity checks, not malware clearance. The original validation below remains historical; installation should wait for resolution without exclusions or restoring detected files.
 
 This release replaces the visible Chromium shell with a native Xenon interface while retaining the pinned sandbox bootstrap, isolated workspace profiles and broker boundaries. Download the unsigned installer or portable ZIP from the [alpha.12 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.12), with its matching checksum. See [installation and pairing](GETTING_STARTED.md).
 

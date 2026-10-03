@@ -1,12 +1,12 @@
 # Using Xenon
 
-Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.12** and its [native interface overhaul](RELEASE_NOTES.md). Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
+Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.13** and its [native interface overhaul](RELEASE_NOTES.md). Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
 
 ## Browser and Controls
 
 Use the rounded icon buttons in the left rail for back, forward and reload; hover over an icon for its label. Enter an address or search in the pill above the page. The **Controls** sliders icon, **New tab** plus and **Menu** dots sit at the bottom of the rail. Open Controls there, with **Ctrl+Shift+X**, or **Xenon Controls** in a webpage's context menu. Tabs appear in the left sidebar, grouped under workspace names. The selected tab joins the page outline. Collapsing a group keeps its tabs and agents running.
 
-Current unreleased source fixes address submission with **Enter** or **Go**, preserves a typed address when toolbar focus changes, and restores the current address with **Escape**. Background tabs have subtle gray hover feedback, workspace disclosure uses arrowheads, and mouse selection has no dashed focus box. Keyboard navigation uses a small solid focus mark. These fixes have compiled/native-test coverage and limited [loopback UI checks on the unshipped test target](test-results/defender-local-followup.json). Production browser verification and installation remain blocked by the [Defender detection](DEFENDER_REPORT.md).
+Address submission works with **Enter** or **Go** and preserves a typed address when toolbar focus changes. **Escape** restores the current address. Background tabs have subtle gray hover feedback, workspace disclosure uses arrowheads, and mouse selection has no dashed focus box. Keyboard navigation uses a small solid focus mark. See the [alpha.13 validation scope](TESTING.md#alpha13-navigation-and-visual-fixes).
 
 Drag the sidebar's right edge to change its width, or use **Menu → Sidebar width** for keyboard access to Narrower, Wider and Reset width. Its range is 180–480 logical pixels, further bounded by space for the page. Double-clicking the edge restores the default. Xenon saves the width alongside your theme preference. Dark mode uses charcoal surfaces with visible gray hover feedback; Light mode uses white surfaces. **System** follows Windows.
 
