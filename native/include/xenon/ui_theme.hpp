@@ -2,6 +2,7 @@
 #include "xenon/branding.hpp"
 #include "xenon/contracts.hpp"
 #include "xenon/local_security.hpp"
+#include "xenon/ui_language.hpp"
 #include <dwmapi.h>
 #include <commctrl.h>
 #include <fstream>
@@ -18,6 +19,7 @@ struct Palette {COLORREF canvas,surface,ink,muted,border,teal,orange,gray;bool d
 inline ThemeMode theme_mode=ThemeMode::system;
 inline int sidebar_width=240;
 inline std::filesystem::path settings_path;
+inline bool introduction_completed{};
 inline bool high_contrast() {HIGHCONTRASTW value{sizeof(value)};return SystemParametersInfoW(SPI_GETHIGHCONTRAST,sizeof(value),&value,0)&&(value.dwFlags&HCF_HIGHCONTRASTON);}
 inline Palette palette() {
   if(high_contrast())return {GetSysColor(COLOR_WINDOW),GetSysColor(COLOR_WINDOW),GetSysColor(COLOR_WINDOWTEXT),GetSysColor(COLOR_WINDOWTEXT),GetSysColor(COLOR_WINDOWFRAME),GetSysColor(COLOR_HIGHLIGHT),GetSysColor(COLOR_HIGHLIGHT),GetSysColor(COLOR_WINDOWFRAME),false,true};
@@ -28,18 +30,33 @@ inline Palette palette() {
 }
 inline void load_theme(const std::filesystem::path& root) {
   settings_path=root/"ui-settings.json";
+  language=preferred_language=Language::english;
+  introduction_completed=false;
   try{if(std::filesystem::exists(settings_path)&&std::filesystem::file_size(settings_path)<4096){Json value;std::ifstream(settings_path)>>value;
     const auto mode=value.value("theme",std::string("system"));theme_mode=mode=="dark"?ThemeMode::dark:mode=="light"?ThemeMode::light:ThemeMode::system;
+    if(auto locale=value.find("language");locale!=value.end()&&locale->is_string())
+      language=preferred_language=*locale=="zh-CN"?Language::simplified_chinese:Language::english;
+    if(auto completed=value.find("introductionCompleted");completed!=value.end()&&completed->is_boolean())introduction_completed=completed->get<bool>();
     if(auto width=value.find("sidebarWidth");width!=value.end()&&width->is_number_integer())sidebar_width=std::clamp(width->get<int>(),180,480);}}catch(...){}
 }
 inline bool save_settings() {
-  try{auto temporary=settings_path;temporary+=L".tmp";{std::ofstream stream(temporary);stream<<Json{{"version",1},{"theme",theme_mode==ThemeMode::dark?"dark":theme_mode==ThemeMode::light?"light":"system"},{"sidebarWidth",sidebar_width}};stream.flush();if(!stream)return false;}
+  try{auto temporary=settings_path;temporary+=L".tmp";{std::ofstream stream(temporary);stream<<Json{{"version",1},{"theme",theme_mode==ThemeMode::dark?"dark":theme_mode==ThemeMode::light?"light":"system"},{"sidebarWidth",sidebar_width},{"language",language_tag(preferred_language)},{"introductionCompleted",introduction_completed}};stream.flush();if(!stream)return false;}
     local_security::restrict_path(temporary);return MoveFileExW(temporary.c_str(),settings_path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE;}catch(...){return false;}
 }
 inline bool save_theme(ThemeMode mode) {theme_mode=mode;return save_settings();}
+inline bool save_language(Language value) {
+  const auto previous=preferred_language;preferred_language=value;
+  if(save_settings())return true;preferred_language=previous;return false;
+}
+inline bool complete_introduction(Language value) {
+  const auto previous=preferred_language;const bool completed=introduction_completed;
+  preferred_language=value;introduction_completed=true;
+  if(save_settings())return true;
+  preferred_language=previous;introduction_completed=completed;return false;
+}
 inline int dip(HWND window,int value) {return MulDiv(value,GetDpiForWindow(window),96);}
 inline void frame(HWND window) {BOOL dark=palette().dark;DwmSetWindowAttribute(window,20,&dark,sizeof(dark));}
-inline HFONT font(HWND window,int size=14,int weight=FW_NORMAL) {return CreateFontW(-dip(window,size),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");}
+inline HFONT font(HWND window,int size=14,int weight=FW_NORMAL,Language locale=language) {return CreateFontW(-dip(window,size),0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,locale==Language::simplified_chinese?L"Microsoft YaHei UI":L"Segoe UI");}
 inline void icons(HWND window) {SendMessageW(window,WM_SETICON,ICON_SMALL,reinterpret_cast<LPARAM>(branding_icon(GetSystemMetrics(SM_CXSMICON))));SendMessageW(window,WM_SETICON,ICON_BIG,reinterpret_cast<LPARAM>(branding_icon(GetSystemMetrics(SM_CXICON))));frame(window);}
 inline void fill(HDC dc,RECT rect,COLORREF color) {auto brush=CreateSolidBrush(color);FillRect(dc,&rect,brush);DeleteObject(brush);}
 inline COLORREF selection() {const auto colors=palette();return colors.contrast?GetSysColor(COLOR_HIGHLIGHT):colors.dark?RGB(65,65,65):RGB(228,228,228);}
@@ -66,6 +83,20 @@ inline void rounded(HDC dc,RECT rect,COLORREF background,COLORREF border,int rad
 }
 inline std::wstring wide(const std::string& value) {if(value.empty())return {};const int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,value.data(),static_cast<int>(value.size()),nullptr,0);std::wstring out(count,L'\0');if(count)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,value.data(),static_cast<int>(value.size()),out.data(),count);return out;}
 inline std::string utf8(const std::wstring& value) {if(value.empty())return {};const int count=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,value.data(),static_cast<int>(value.size()),nullptr,0,nullptr,nullptr);std::string out(count,'\0');if(count)WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,value.data(),static_cast<int>(value.size()),out.data(),count,nullptr,nullptr);return out;}
+inline std::string tr8(const char* english) {return utf8(tr(wide(english).c_str()));}
+inline std::string workspace_label(const std::string& id,const std::string& name,bool private_mode=false) {
+  if((id=="native-default"&&name=="Personal")||(private_mode&&name=="Private workspace"))return tr8(name.c_str());
+  return name;
+}
+inline std::string tab_title(const std::string& title,const std::string& url) {
+  return title.empty()||((url.empty()||url=="about:blank")&&(title=="New tab"||title=="about:blank"))?tr8("New tab"):title;
+}
+inline std::wstring error_text(const std::string& english) {
+  const auto value=wide(english);const auto translated=tr(value.c_str());
+  if(language==Language::simplified_chinese&&translated==value.c_str())
+    return std::wstring(tr(L"The operation failed. No secret details were logged."))+L"\n"+value;
+  return translated;
+}
 inline std::string text(HWND control) {const int count=GetWindowTextLengthW(control);std::wstring value(count+1,L'\0');GetWindowTextW(control,value.data(),count+1);value.resize(count);return utf8(value);}
 inline void text(HDC dc,RECT rect,const std::wstring& value,HFONT face,COLORREF color,UINT flags=DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS) {const auto old=SelectObject(dc,face);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,color);DrawTextW(dc,value.c_str(),static_cast<int>(value.size()),&rect,flags);SelectObject(dc,old);}
 // IsDialogMessage otherwise consumes Return/Escape as dialog commands before

@@ -10,6 +10,7 @@
 #include "xenon/native_ui.hpp"
 #include "xenon/browser_shell.hpp"
 #include "xenon/ui_theme.hpp"
+#include "xenon/introduction.hpp"
 #include "xenon/native_input_policy.hpp"
 #include "xenon/local_security.hpp"
 #include "xenon/workspace_storage.hpp"
@@ -64,7 +65,7 @@ void cleanup_removed_profiles(const std::filesystem::path& root,std::vector<std:
 }
 class App final : public CefApp,public CefBrowserProcessHandler {
  public:
-  App(std::filesystem::path root,Broker::Limits limits,std::wstring pipe,bool test_removal=false,bool test_autofill=false):root_(std::move(root)),limits_(limits),pipe_name_(std::move(pipe)),test_removal_enabled_(test_removal),test_autofill_enabled_(test_autofill){}
+  App(std::filesystem::path root,Broker::Limits limits,std::wstring pipe,bool test_removal=false,bool test_autofill=false,bool open_documentation=false):root_(std::move(root)),limits_(limits),pipe_name_(std::move(pipe)),test_removal_enabled_(test_removal),test_autofill_enabled_(test_autofill),open_documentation_(open_documentation){}
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler()override{return this;}
   void OnBeforeCommandLineProcessing(const CefString& process_type,CefRefPtr<CefCommandLine> command)override{
     if(process_type.empty()){
@@ -103,7 +104,6 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       // OnContextInitialized runs only after CEF acquired this data root's
       // single-instance ownership, and before Xenon opens workspace contexts.
       cleanup_removed_profiles(root_,removed);
-      ui::load_theme(root_);
       native_=std::make_unique<NativeUi>(*broker_,*engine_,*vault_,*files_);
       shell_=std::make_unique<BrowserShell>(*broker_,*engine_,root_);
       engine_->set_host_callbacks([this](const std::string& workspace,const std::string& tab,bool human){return shell_->create_host(workspace,tab,human);},
@@ -122,7 +122,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       engine_->set_native_key_callback([this](HWND page,UINT message,WPARAM key){native_key(page,message,key);});
       POINT pointer{};if(GetCursorPos(&pointer))input_policy_.seed_pointer(pointer.x,pointer.y);
       hook_=SetWindowsHookExW(WH_GETMESSAGE,InputHook,nullptr,GetCurrentThreadId());
-      broker_->open_initial_human_workspace("about:blank",[](Json){});
+      broker_->open_initial_human_workspace(open_documentation_?ui::utf8(ui::documentation_url):"about:blank",[](Json){});
       shell_->show();
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
       shell_->fixture_snapshot(root_);
@@ -131,7 +131,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       }
       if(test_autofill_enabled_){autofill_fixture_=std::make_shared<NativeAutofillFixture>(root_,*broker_,*engine_,*vault_);autofill_fixture_->start();}
 #endif
-    }catch(const std::exception&){MessageBoxW(nullptr,L"Xenon could not initialize its protected local state.",L"Xenon Browser",MB_OK|MB_ICONERROR);CefQuitMessageLoop();}
+    }catch(const std::exception&){MessageBoxW(nullptr,ui::tr(L"Xenon could not initialize its protected local state."),ui::tr(L"Xenon Browser"),MB_OK|MB_ICONERROR);CefQuitMessageLoop();}
   }
   CefRefPtr<CefClient> GetDefaultClient()override{return engine_?engine_->default_client():nullptr;}
   CefRefPtr<CefRequestContextHandler> GetDefaultRequestContextHandler()override{return engine_?engine_->default_context_handler():nullptr;}
@@ -304,7 +304,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     }
   }
   static inline App* active_=nullptr;
-  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;bool test_removal_enabled_{},test_autofill_enabled_{};HHOOK hook_{};
+  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{};HHOOK hook_{};
   NativeInputPolicy input_policy_;
   struct KeyboardPage {HWND page{};ULONGLONG observed_at{};};
   std::map<HWND,KeyboardPage> keyboard_pages_;
@@ -320,7 +320,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
   IMPLEMENT_REFCOUNTING(App);
 };
 int run(HINSTANCE instance,void* sandbox_info){
-  if(!sandbox_info){MessageBoxW(nullptr,L"Xenon requires the matching sandbox bootstrap executable.",L"Xenon Browser",MB_OK|MB_ICONERROR);return 1;}
+  if(!sandbox_info){MessageBoxW(nullptr,ui::tr(L"Xenon requires the matching sandbox bootstrap executable."),ui::tr(L"Xenon Browser"),MB_OK|MB_ICONERROR);return 1;}
   CefMainArgs args(instance);int child=CefExecuteProcess(args,nullptr,sandbox_info);if(child>=0)return child;
   // Start native vector drawing only in the browser process. Shut it down
   // after the UI closes, outside DLL loader callbacks.
@@ -341,7 +341,7 @@ int run(HINSTANCE instance,void* sandbox_info){
   const auto setup_error=GetLastError();
   if(setup||setup_error!=ERROR_FILE_NOT_FOUND){
     if(setup)CloseHandle(setup);
-    MessageBoxW(nullptr,L"Xenon setup is open. Finish or cancel setup before starting the browser.",L"Xenon Browser",MB_OK|MB_ICONINFORMATION);
+    MessageBoxW(nullptr,ui::tr(L"Xenon setup is open. Finish or cancel setup before starting the browser."),ui::tr(L"Xenon Browser"),MB_OK|MB_ICONINFORMATION);
     return 1;
   }
   SetCurrentProcessExplicitAppUserModelID(L"Xenon.Browser");
@@ -351,7 +351,7 @@ int run(HINSTANCE instance,void* sandbox_info){
   if(command->HasSwitch("broker-pipe")){
     const auto value=command->GetSwitchValue("broker-pipe").ToString();
     if(value.size()>100||!value.starts_with("xenon-")||!std::all_of(value.begin(),value.end(),[](unsigned char c){return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_';})){
-      MessageBoxW(nullptr,L"--broker-pipe requires a name beginning xenon- with at most 100 letters, digits, hyphens or underscores.",L"Xenon Browser",MB_OK|MB_ICONERROR);return 1;
+      MessageBoxW(nullptr,ui::tr(L"--broker-pipe requires a name beginning xenon- with at most 100 letters, digits, hyphens or underscores."),ui::tr(L"Xenon Browser"),MB_OK|MB_ICONERROR);return 1;
     }
     pipe_name.assign(value.begin(),value.end());
   }
@@ -359,15 +359,43 @@ int run(HINSTANCE instance,void* sandbox_info){
     const auto value=command->GetSwitchValue("max-concurrent-workers").ToString();
     size_t count{};const auto parsed=std::from_chars(value.data(),value.data()+value.size(),count);
     if(parsed.ec!=std::errc{}||parsed.ptr!=value.data()+value.size()||count<1||count>256){
-      MessageBoxW(nullptr,L"--max-concurrent-workers requires an integer from 1 to 256.",L"Xenon Browser",MB_OK|MB_ICONERROR);return 1;
+      MessageBoxW(nullptr,ui::tr(L"--max-concurrent-workers requires an integer from 1 to 256."),ui::tr(L"Xenon Browser"),MB_OK|MB_ICONERROR);return 1;
     }
     limits.max_connected_workers=count;
   }
   std::filesystem::path root;
   if(command->HasSwitch("user-data-dir"))root=std::filesystem::absolute(command->GetSwitchValue("user-data-dir").ToWString());
   else{PWSTR local{};if(FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&local)))return 1;root=std::filesystem::path(local)/"Xenon Browser";CoTaskMemFree(local);}
+  // Serialize startup through the introduction and CEF's profile acquisition.
+  // A second launch cannot open CEF against a half-finished first-run choice.
+  struct StartupGate {
+    HANDLE handle{};bool acquired{};
+    explicit StartupGate(const std::filesystem::path& path){
+      auto identity=std::filesystem::weakly_canonical(path).wstring();CharLowerBuffW(identity.data(),static_cast<DWORD>(identity.size()));
+      const auto digest=local_security::sha256(ui::utf8(identity));const auto name=L"Local\\XenonStartup-"+std::wstring(digest.begin(),digest.end());
+      local_security::SecurityDescriptor policy;handle=CreateMutexW(&policy.attributes,FALSE,name.c_str());
+      if(!handle)throw std::runtime_error("Cannot protect browser startup");
+      const auto wait=WaitForSingleObject(handle,0);acquired=wait==WAIT_OBJECT_0||wait==WAIT_ABANDONED;
+      if(wait==WAIT_FAILED){CloseHandle(handle);handle=nullptr;throw std::runtime_error("Cannot acquire browser startup");}
+    }
+    void release(){if(handle){if(acquired)ReleaseMutex(handle);CloseHandle(handle);handle=nullptr;}}
+    ~StartupGate(){release();}
+  } startup_gate(root);
+  if(!startup_gate.acquired)return 0;
+  const bool first_run=ui::needs_introduction(root);
   std::filesystem::create_directories(root);local_security::restrict_path(root);
+  ui::load_theme(root);
+  bool open_documentation=false;
+  if(first_run){
+    const auto introduction=ui::show_introduction();
+    if(introduction==ui::IntroductionResult::cancelled)return 0;
+    // Apply the successfully persisted choice through the same loading path as
+    // subsequent launches, before either native chrome or CEF reads its locale.
+    ui::load_theme(root);
+    open_documentation=introduction==ui::IntroductionResult::documentation;
+  }
   CefSettings settings;settings.no_sandbox=false;settings.command_line_args_disabled=true;
+  CefString(&settings.locale)=ui::language_tag(ui::language);
   settings.persist_session_cookies=true;
   CefString(&settings.root_cache_path)=root.wstring();CefString(&settings.cache_path)=(root/"Default").wstring();
   settings.log_severity=LOGSEVERITY_DISABLE;
@@ -376,15 +404,16 @@ int run(HINSTANCE instance,void* sandbox_info){
   test_removal=command->HasSwitch("test-native-removal");
   test_autofill=command->HasSwitch("test-native-autofill");
 #endif
-  CefRefPtr<App> app=new App(root,limits,pipe_name,test_removal,test_autofill);
+  CefRefPtr<App> app=new App(root,limits,pipe_name,test_removal,test_autofill,open_documentation);
   if(!CefInitialize(args,settings,app,sandbox_info))return CefGetExitCode();
+  startup_gate.release();
   CefRunMessageLoop();auto installer=app->pending_update();app->stop();app=nullptr;CefShutdown();
   running_marker.release();
-  if(installer){try{installer->start();}catch(const std::exception&){MessageBoxW(nullptr,L"Xenon closed, but setup could not start. Open Xenon and try the update again.",L"Xenon update",MB_OK|MB_ICONERROR);return 1;}}
+  if(installer){try{installer->start();}catch(const std::exception&){MessageBoxW(nullptr,ui::tr(L"Xenon closed, but setup could not start. Open Xenon and try the update again."),ui::tr(L"Xenon update"),MB_OK|MB_ICONERROR);return 1;}}
   return 0;
 }
 }
 }
 CEF_BOOTSTRAP_EXPORT int RunWinMain(HINSTANCE instance,LPWSTR,int,void* sandbox_info,cef_version_info_t*) {
-  try{return xenon::run(instance,sandbox_info);}catch(const std::exception&){MessageBoxW(nullptr,L"Xenon could not start. Verify the installation and local data directory.",L"Xenon Browser",MB_OK|MB_ICONERROR);return 1;}
+  try{return xenon::run(instance,sandbox_info);}catch(const std::exception&){MessageBoxW(nullptr,xenon::ui::tr(L"Xenon could not start. Verify the installation and local data directory."),xenon::ui::tr(L"Xenon Browser"),MB_OK|MB_ICONERROR);return 1;}
 }

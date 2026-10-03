@@ -1,6 +1,8 @@
 #include "xenon/ui_theme.hpp"
+#include "xenon/introduction.hpp"
 #include <iostream>
 #include <stdexcept>
+#include <set>
 using namespace xenon;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
@@ -14,7 +16,7 @@ COLORREF button_pixel(HWND button){
   const auto pixel=reinterpret_cast<const unsigned*>(pixels)[18*48+24];const auto color=RGB((pixel>>16)&255,(pixel>>8)&255,pixel&255);
   SelectObject(dc,old);DeleteObject(bitmap);DeleteDC(dc);return color;
 }
-void reset_preferences(){ui::theme_mode=ui::ThemeMode::system;ui::sidebar_width=240;}
+void reset_preferences(){ui::theme_mode=ui::ThemeMode::system;ui::sidebar_width=240;ui::language=ui::preferred_language=ui::Language::english;}
 struct EditCommands {int submitted{},cancelled{};};
 LRESULT CALLBACK edit_fixture(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR data){
   auto& commands=*reinterpret_cast<EditCommands*>(data);
@@ -55,14 +57,45 @@ int main(){try{
   require(SendMessageW(list,LB_GETITEMHEIGHT,0,0)==ui::dip(list,28),"Theme mixed-case Win32 ListBox at its physical DPI");DestroyWindow(parent);
 
   const auto fixture_directory=std::filesystem::absolute("ui-theme-tests"),root=fixture_directory/local_security::random_hex(8);std::filesystem::create_directories(root);
+  require(ui::needs_introduction(root)&&ui::needs_introduction(root/"not-created"),"Fresh and empty profiles start with the introduction");
+  {std::ofstream temporary(root/"ui-settings.json.tmp");temporary<<"partial save";}
+  require(ui::needs_introduction(root),"A failed settings save does not suppress a fresh-start retry");std::filesystem::remove(root/"ui-settings.json.tmp");
   {std::ofstream output(root/"ui-settings.json");output<<Json{{"theme","dark"}};}
   reset_preferences();ui::load_theme(root);require(ui::theme_mode==ui::ThemeMode::dark&&ui::sidebar_width==240,"Load legacy theme without changing default sidebar width");
+  require(!ui::needs_introduction(root)&&!ui::introduction_completed,"Existing installations skip the introduction without losing legacy preferences");
+  require(ui::language==ui::Language::english,"Legacy settings keep English");
+  require(ui::save_language(ui::Language::simplified_chinese),"Save Simplified Chinese");
+  require(ui::language==ui::Language::english&&ui::preferred_language==ui::Language::simplified_chinese,"Language changes wait for restart");
   ui::sidebar_width=340;require(ui::save_theme(ui::ThemeMode::light),"Save theme and sidebar atomically");reset_preferences();ui::load_theme(root);
   require(ui::theme_mode==ui::ThemeMode::light&&ui::sidebar_width==340,"Restore chosen width with saved theme");
+  require(ui::language==ui::Language::simplified_chinese,"Theme and sidebar saves preserve the language choice");
+  require(std::wstring(ui::tr(L"Xenon Controls"))==L"Xenon 控制中心"&&ui::tr8("New tab")=="新标签页","Translate native captions in Unicode");
+  require(std::string(ui::language_tag(ui::language))=="zh-CN","Chinese uses the matching CEF locale");
+  LOGFONTW chinese_font{};const auto face=ui::font(GetDesktopWindow());require(GetObjectW(face,sizeof(chinese_font),&chinese_font)!=0,"Inspect localized UI font");DeleteObject(face);
+  require(std::wstring(chinese_font.lfFaceName)==L"Microsoft YaHei UI","Choose a font that supports Chinese controls");
+  std::set<std::wstring_view> translated_keys;
+  for(const auto& entry:ui::translations){require(translated_keys.insert(entry.english).second,"Translation keys are unique");require(std::wstring_view(entry.chinese).size()!=0,"Translations cannot be empty");}
+  require(ui::workspace_label("native-default","Personal")=="个人"&&ui::workspace_label("custom","Personal")=="Personal","Translate built-in workspace labels without changing user names");
+  require(ui::tab_title("New tab","about:blank")=="新标签页"&&ui::tab_title("New tab","https://example.test")=="New tab","Translate blank-tab labels without translating website titles");
+  require(ui::tab_title("New tab","")=="新标签页","Translate the initial blank-tab label before its first URL callback");
+  require(ui::tab_title("about:blank","about:blank")=="新标签页"&&ui::tab_title("about:blank","https://example.test")=="about:blank","Translate CEF's blank URL title without changing website titles");
+  const auto* file_filter=ui::file_filter(true);const auto* pattern=file_filter+wcslen(file_filter)+1;
+  require(std::wstring(pattern)==L"*.csv"&&std::wstring(pattern+wcslen(pattern)+1)==L"所有文件","Localized file filters preserve embedded NUL separators");
+  {std::ofstream output(root/"ui-settings.json");output<<Json{{"theme","dark"},{"language","unsupported"}};}
+  reset_preferences();ui::load_theme(root);require(ui::language==ui::Language::english&&ui::theme_mode==ui::ThemeMode::dark,"Unknown language falls back to English");
+  {std::ofstream output(root/"ui-settings.json");output<<Json{{"theme","light"},{"language",42},{"sidebarWidth",310}};}
+  reset_preferences();ui::load_theme(root);require(ui::language==ui::Language::english&&ui::sidebar_width==310,"Invalid language type preserves other settings");
+  ui::settings_path=root/"missing"/"ui-settings.json";require(!ui::save_language(ui::Language::simplified_chinese)&&ui::preferred_language==ui::Language::english,"Failed language save preserves the previous choice");
+  require(!ui::complete_introduction(ui::Language::simplified_chinese)&&!ui::introduction_completed&&ui::preferred_language==ui::Language::english,"Failed introduction save cannot mark setup complete or change language");
+  ui::settings_path=root/"ui-settings.json";require(ui::save_language(ui::Language::english),"Save English selection");reset_preferences();ui::load_theme(root);require(ui::language==ui::Language::english,"Restore English after switching back");
+  require(ui::complete_introduction(ui::Language::simplified_chinese)&&ui::introduction_completed&&ui::language==ui::Language::english,"Completion saves the language for startup without changing a live process");
+  reset_preferences();ui::load_theme(root);require(ui::introduction_completed&&ui::language==ui::Language::simplified_chinese&&ui::sidebar_width==310&&ui::theme_mode==ui::ThemeMode::light,"Completion restores language and preserves other preferences");
+  require(ui::save_language(ui::Language::english)&&ui::save_theme(ui::ThemeMode::dark),"Later settings changes succeed");
+  reset_preferences();ui::load_theme(root);require(ui::introduction_completed,"Later theme and language changes preserve completed introduction");
   for(const auto width:{-1000,10000}){{std::ofstream output(root/"ui-settings.json");output<<Json{{"theme","system"},{"sidebarWidth",width}};}
     reset_preferences();ui::load_theme(root);require(ui::sidebar_width==(width<0?180:480),"Bound persisted sidebar widths");}
   {std::ofstream output(root/"ui-settings.json");output<<"{ invalid settings";}
   reset_preferences();ui::load_theme(root);require(ui::theme_mode==ui::ThemeMode::system&&ui::sidebar_width==240,"Malformed settings retain safe defaults");
   require(std::filesystem::canonical(root).parent_path()==fixture_directory,"Cleanup stays inside the generated fixture directory");std::filesystem::remove_all(root);
-  std::cout<<"Native UI tests passed: address command routing, keyboard focus, real Win32 class matching, hover paint/leave, DPI list height, legacy settings and sidebar persistence\n";return 0;
+  std::cout<<"Native UI tests passed: address commands, focus, hover, DPI, settings and language persistence, Unicode captions, Chinese font and unchanged user/site names\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

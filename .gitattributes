@@ -1,0 +1,2 @@
+# Illustrator source artwork must retain its original binary bytes.
+*.ai binary

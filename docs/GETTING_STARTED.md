@@ -1,6 +1,6 @@
 # Get started with Xenon
 
-This guide uses **0.1.0-alpha.14**, an unsigned Windows x64 alpha with the native shell, reorganized Controls and read-only defaults for new paired clients. See [release notes](RELEASE_NOTES.md).
+This guide uses **0.1.0-alpha.15**, an unsigned Windows x64 alpha with the native shell, reorganized Controls and read-only defaults for new paired clients. See [release notes](RELEASE_NOTES.md).
 
 You need Windows 10 or 11 with a desktop session. Browsing needs no model account. Agent use additionally needs an MCP host that can launch a local stdio server; image support is needed for visual tasks.
 
@@ -8,17 +8,17 @@ The release includes the browser, its matching Chromium/CEF runtime, the MCP ada
 
 ## 1. Install Xenon
 
-Download these two assets from the [alpha.14 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.14):
+Download these two assets from the [alpha.15 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.15):
 
-- `Xenon-0.1.0-alpha.14-windows-x64-setup-unsigned.exe`
-- `Xenon-0.1.0-alpha.14-windows-x64-setup-unsigned.exe.sha256`
+- `Xenon-0.1.0-alpha.15-windows-x64-setup-unsigned.exe`
+- `Xenon-0.1.0-alpha.15-windows-x64-setup-unsigned.exe.sha256`
 
 Use the release asset, rather than GitHub's automatically generated **Source code** archive. Source archives require a [build](BUILD.md).
 
 In PowerShell, change to the folder containing both downloaded files and verify the checksum:
 
 ```powershell
-$installer = '.\Xenon-0.1.0-alpha.14-windows-x64-setup-unsigned.exe'
+$installer = '.\Xenon-0.1.0-alpha.15-windows-x64-setup-unsigned.exe'
 $expected = (Get-Content -LiteralPath ($installer + '.sha256') -Raw).Trim().Split(' ')[0]
 $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
 if ($actual -ine $expected) { throw 'Checksum mismatch. Do not run this installer.' }
@@ -42,6 +42,10 @@ Once this release is installed, future releases can be downloaded through **Menu
 ## 2. Open the browser
 
 Open **Xenon Browser** from the Start menu, or run `Xenon.exe` in its installation folder. A fresh launch opens one blank tab in **Personal**. Use the address bar to visit a website. For a source build, run `build/app/Release/Xenon.exe`.
+
+With a new, empty browser-data folder, Xenon first asks you to choose **English** or **简体中文**. The selected language applies when the browser opens, without a restart. A short introduction covers navigation, sidebar tabs, workspaces and agent controls. Choose **Next** to continue, **Previous** to go back, or **Skip tour** to start browsing. **Start browsing** opens the blank Personal tab; the final **GitHub documentation** link opens this guide in Xenon instead. Closing the introduction cancels startup so you can return to setup next time.
+
+Existing browser profiles keep their normal startup. Open **Menu → Quick tour** to revisit the introduction, or **Menu → GitHub documentation** to open the guide in a new Personal tab. Later language changes use **Menu → Language / 语言** and apply after restarting Xenon.
 
 Press **Ctrl+Shift+X** while a Xenon browser window is active to open **Xenon Controls**, or use its toolbar button or webpage context-menu item. Its Clients, Workspaces and Passwords sections manage pairings, access, control ownership, saved accounts and file permissions.
 

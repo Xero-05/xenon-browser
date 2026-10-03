@@ -23,7 +23,7 @@ Copy-Item -LiteralPath (Join-Path $taskApp 'locales') -Destination $taskPackage 
 Copy-Item -LiteralPath (Join-Path $taskRoot 'third_party/node/node.exe') -Destination (Join-Path $taskPackage 'runtime')
 Copy-Item -LiteralPath (Join-Path $taskRoot 'third_party/node/LICENSE') -Destination (Join-Path $taskPackage 'runtime/NODE-LICENSE.txt')
 Get-ChildItem -LiteralPath (Join-Path $taskRoot 'adapter/dist/src') -Filter '*.js' -File | Copy-Item -Destination (Join-Path $taskPackage 'adapter/dist/src')
-foreach ($item in @('LICENSE','NOTICE','README.md','THIRD_PARTY_NOTICES.md','CONTRIBUTING.md','AGENTS.md','SECURITY.md','VERSION','package.json','package-lock.json','dependencies.lock.json')) { Copy-Item -LiteralPath (Join-Path $taskRoot $item) -Destination $taskPackage }
+foreach ($item in @('LICENSE','NOTICE','README.md','README.zh-CN.md','THIRD_PARTY_NOTICES.md','CONTRIBUTING.md','AGENTS.md','SECURITY.md','VERSION','package.json','package-lock.json','dependencies.lock.json')) { Copy-Item -LiteralPath (Join-Path $taskRoot $item) -Destination $taskPackage }
 Copy-Item -LiteralPath (Join-Path $taskRoot 'docs') -Destination $taskPackage -Recurse
 New-Item -ItemType Directory -Force -Path (Join-Path $taskPackage 'assets') | Out-Null
 Copy-Item -LiteralPath (Join-Path $taskRoot 'assets/branding') -Destination (Join-Path $taskPackage 'assets/branding') -Recurse

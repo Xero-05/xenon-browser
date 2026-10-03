@@ -828,7 +828,7 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
   }
   void OnDialogClosed(CefRefPtr<CefBrowser> b)override{if(auto o=owner_.lock())if(auto t=o->find(b)){t->dialog=nullptr;t->dialog_type.clear();t->dialog_message.clear();t->dialog_origin.clear();if(t->human_dialog){t->human_dialog=false;o->human_activity(t,t->human_gesture,false);}}}
   void OnBeforeContextMenu(CefRefPtr<CefBrowser>,CefRefPtr<CefFrame>,CefRefPtr<CefContextMenuParams>,CefRefPtr<CefMenuModel> menu)override {
-    menu->Remove(MENU_ID_VIEW_SOURCE);menu->AddSeparator();menu->AddItem(26501,"Xenon Controls");
+    menu->Remove(MENU_ID_VIEW_SOURCE);menu->AddSeparator();menu->AddItem(26501,ui::tr(L"Xenon Controls"));
   }
   bool OnContextMenuCommand(CefRefPtr<CefBrowser>,CefRefPtr<CefFrame>,CefRefPtr<CefContextMenuParams>,int command,EventFlags)override {
     if(command!=26501)return false;if(auto o=owner_.lock())if(o->controls_)o->controls_();return true;
@@ -859,13 +859,13 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
       if(mask&(CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE|CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE)){callback->Cancel();return true;}
       if(mask&CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE)description="Camera";
       if(mask&CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE)description+=description=="Camera"?" and microphone":": microphone";
-      owner->permission_(tab->id,origin.ToString(),description,[tab,epoch,mask,callback](bool allowed){if(allowed&&!tab->closed&&tab->epoch==epoch)callback->Continue(mask);else callback->Cancel();});return true;
+      owner->permission_(tab->id,origin.ToString(),ui::tr8(description.c_str()),[tab,epoch,mask,callback](bool allowed){if(allowed&&!tab->closed&&tab->epoch==epoch)callback->Continue(mask);else callback->Cancel();});return true;
     }callback->Cancel();return true;
   }
   bool OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser,uint64_t,const CefString& origin,uint32_t mask,CefRefPtr<CefPermissionPromptCallback> callback)override {
     std::string description;
     for(const auto& [bit,name]:std::vector<std::pair<uint32_t,const char*>>{{CEF_PERMISSION_TYPE_GEOLOCATION,"Location"},{CEF_PERMISSION_TYPE_NOTIFICATIONS,"Notifications"},{CEF_PERMISSION_TYPE_CAMERA_STREAM,"Camera"},{CEF_PERMISSION_TYPE_MIC_STREAM,"Microphone"},{CEF_PERMISSION_TYPE_CLIPBOARD,"Clipboard"},{CEF_PERMISSION_TYPE_STORAGE_ACCESS,"Storage access"}})
-      if(mask&bit){if(!description.empty())description+=", ";description+=name;mask&=~bit;}
+      if(mask&bit){if(!description.empty())description+=", ";description+=ui::tr8(name);mask&=~bit;}
     if(mask||description.empty()){callback->Continue(CEF_PERMISSION_RESULT_DENY);return true;}
     if(auto owner=owner_.lock())if(auto tab=owner->find(browser))if(owner->permission_){const auto epoch=tab->epoch;
       owner->permission_(tab->id,origin.ToString(),description,[tab,epoch,callback](bool allowed){callback->Continue(allowed&&!tab->closed&&tab->epoch==epoch?CEF_PERMISSION_RESULT_ACCEPT:CEF_PERMISSION_RESULT_DENY);});return true;

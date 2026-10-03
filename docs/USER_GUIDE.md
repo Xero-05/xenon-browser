@@ -1,8 +1,10 @@
 # Using Xenon
 
-Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.14** and its [native interface overhaul](RELEASE_NOTES.md). Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
+Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.15** and its [native interface overhaul](RELEASE_NOTES.md). Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
 
 ## Browser and Controls
+
+New installations begin with language selection and a quick introduction before the first browser tab opens. Choose English or Simplified Chinese, then follow the tour or skip it. The language takes effect immediately on that first launch. **Menu → Quick tour** reopens the browser introduction, and **Menu → GitHub documentation** opens the getting-started guide in a new Personal tab. Existing profiles do not show the introduction automatically.
 
 Use the rounded icon buttons in the left rail for back, forward and reload; hover over an icon for its label. Enter an address or search in the pill above the page. The **Controls** sliders icon, **New tab** plus and **Menu** dots sit at the bottom of the rail. Open Controls there, with **Ctrl+Shift+X**, or **Xenon Controls** in a webpage's context menu. Tabs appear in the left sidebar, grouped under workspace names. The selected tab joins the page outline. Collapsing a group keeps its tabs and agents running.
 

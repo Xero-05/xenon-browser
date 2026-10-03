@@ -8,9 +8,9 @@
 
 Xenon combines Chromium browsing with native controls for external agents to inspect pages, interact with websites, and hand off live tabs. You choose which MCP clients can connect, which workspaces they can use, and which saved accounts or local files they may access. Your MCP host supplies the model; Xenon has no built-in LLM and needs no model API key.
 
-**Current version: 0.1.0-alpha.14 · Windows 10/11 x64 · unsigned alpha.** Available as a per-user installer and a portable ZIP, with native update checks. See [release notes](docs/RELEASE_NOTES.md) and [validation scope](docs/TESTING.md).
+**Current version: 0.1.0-alpha.15 · Windows 10/11 x64 · unsigned alpha.** Available as a per-user installer and a portable ZIP, with native update checks. See [release notes](docs/RELEASE_NOTES.md) and [validation scope](docs/TESTING.md).
 
-[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.14) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent guide](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
+[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.15) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent guide](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
 
 ## Screenshots
 
@@ -38,7 +38,7 @@ The real native interface, captured in a disposable profile with synthetic test 
 | Capability | Current behavior |
 | --- | --- |
 | **Everyday browsing** | Native address/search bar, back/forward/reload, find, zoom, bookmarks, history, downloads, printing/PDF, and site permissions. Tabs have close buttons, middle-click closure, and keyboard shortcuts. |
-| **Native interface** | Tabs grouped by workspace, a resizable sidebar, saved System/Light/Dark themes, ownership status text and borders, and an agent cursor that does not move the Windows mouse. |
+| **Native interface** | English and Simplified Chinese, a language-first welcome tour, tabs grouped by workspace, a resizable sidebar, saved System/Light/Dark themes, ownership status text and borders, and an agent cursor that does not move the Windows mouse. |
 | **Isolated workspaces** | Persistent workspaces have separate cookies and local storage. Create, rename, configure, or deliberately share them with paired clients. Human-only private workspaces use memory-only profiles. |
 | **Parallel agents** | Multiple paired hosts or workers behind one host can work on different tabs concurrently. Each tab/control group has one writable owner; an agent automatically owns tabs it creates. |
 | **Live handoff** | Transfer a tab and its related popups to an authorized worker or the human. The ownership commit leaves the loaded page, form state, scroll position, and connections in place without issuing a browser command. |
@@ -54,7 +54,7 @@ The selected page uses **teal** for an available agent owner, **orange** for a h
 ## Start here
 
 1. Download the **unsigned Windows installer** and its `.sha256` file from the release. Verify the checksum and choose an empty, writable program folder on a local fixed drive. [Get started](docs/GETTING_STARTED.md#1-install-xenon) includes exact commands and installation details. The packaged version includes Node and the MCP adapter.
-2. Open **Xenon Browser** from the Start menu. A fresh launch opens a blank tab in **Personal**. Browse normally using the address bar.
+2. Open **Xenon Browser** from the Start menu. On a new installation, select **English** or **简体中文** and follow or skip the quick tour. Start browsing in a blank **Personal** tab, or open the tour's GitHub documentation link. Revisit it with **Menu → Quick tour**.
 3. Open **Xenon Controls** with **Ctrl+Shift+X**, the sliders button at the bottom of the sidebar, or the webpage context menu.
 4. Follow [pairing and host setup](docs/GETTING_STARTED.md#3-pair-your-mcp-host) to connect your local stdio MCP host. Keep the generated pairing file private. Use a separate pairing for each independently trusted host.
 5. Configure the client's permissions, then share an existing workspace or explicitly enable automatic workspace creation. For agent interaction, both the client policy and workspace access must allow it.

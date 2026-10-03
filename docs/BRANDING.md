@@ -14,6 +14,19 @@ address bar, menus and settings are replaced by functioning Xenon controls.
 About and Third-party Notices retain access to the bundled engine licenses and
 credits; third-party resource contents remain intact.
 
+Choose **Menu → Language / 语言 → English** or **简体中文** to change the
+browser's interface language. Save unfinished website work, exit Xenon normally,
+and open it again to apply the choice to both Xenon's native controls and CEF's
+built-in UI. English remains the default for existing installations.
+The preference is stored alongside the theme and sidebar width in
+ui-settings.json. Chinese controls use Microsoft YaHei UI. Translations cover
+the shell, Controls, configuration, saved-account prompts, file permissions,
+downloads, site-permission prompts and updates. Website content, user names,
+MCP results and bundled legal notices retain their original text; unfamiliar
+backend error details remain available after a translated failure message.
+Windows file pickers and system dialog buttons follow the installed Windows
+display language.
+
 CMake first copies the pinned CEF `bootstrap.exe` to the build output as `Xenon.exe`. The build-only `xenon_brand_bootstrap` helper then copies only icon and version resources from the Xenon DLL into that copy. It updates the version resource's `.dll` filename suffix to `.exe` and its fixed file type to an application. The original file under `third_party/cef/Release/` must remain untouched. The helper is not packaged, and this process does not sign the executable or replace the CEF sandbox startup code.
 
 Run the resource integrity check after building:

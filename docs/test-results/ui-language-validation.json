@@ -1,0 +1,57 @@
+{
+  "capturedAt": "2026-10-03T12:49:46.6446614Z",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "54b4259c1bdd594415fe40588151dd49eef1ace2e37dd0c51704e2272bad892f",
+  "applicationDllSha256AtEnd": "54b4259c1bdd594415fe40588151dd49eef1ace2e37dd0c51704e2272bad892f",
+  "build": {
+    "command": "./scripts/build.ps1 -Jobs 1",
+    "passed": true
+  },
+  "nativeTests": {
+    "focusedLanguageGroupPassed": true,
+    "otherNativeGroupsPassed": 10,
+    "runner": "Ordinary Windows user; the restricted runner denied required fixture ACL operations.",
+    "initialFailure": "The first ordinary-user UI test found a duplicate translation key caused by treating NUL-separated file filters as ordinary text. Dedicated file-filter helpers corrected it."
+  },
+  "brandingChecks": {
+    "passed": 5,
+    "command": "node tests/branding-resources.mjs"
+  },
+  "live": {
+    "command": "./tests/ui-language-integration.ps1",
+    "run": "ui-language-a151939c27594ace90b4e22149cbab63",
+    "passed": true,
+    "checks": [
+      "English preference switches to zh-CN on the next normal launch",
+      "Real shell HWNDs, blank-tab title and CEF locale use Simplified Chinese",
+      "Real Controls sections, ownership and saved-account buttons are translated",
+      "Workspace configuration and file-permission windows are translated",
+      "Native browser panels are translated",
+      "Switching back restores English after restart"
+    ],
+    "earlierRuns": [
+      {
+        "run": "ui-language-3d5bf57fd84a46ab8f8781533aeeb254",
+        "passed": false,
+        "reason": "Fixture lookup treated PowerShell's empty string as an exact caption filter."
+      },
+      {
+        "run": "ui-language-c0b22536192c49a087caa32cb3d43756",
+        "passed": false,
+        "reason": "Fixture assumed the restart notice's OK button had ID 1; the native dialog used ID 2."
+      },
+      {
+        "run": "ui-language-614b8df3fe884fc19fed21788c65abc8",
+        "passed": false,
+        "reason": "Fixture notice dismissal still assumed the wrong native button ID."
+      },
+      {
+        "run": "ui-language-08288592050943d393f98438db9f1dfd",
+        "passed": false,
+        "reason": "Initial shell title was empty before tab metadata arrived. The shell now uses the localized blank-tab fallback immediately."
+      }
+    ],
+    "coverage": "Native message driver against a generated empty profile and private pipe. Three normal launches; no real profiles, saved credentials or website submissions.",
+    "limits": "No physical menu navigation, visual layout, DPI or complete saved-account/permission prompt acceptance. Windows system dialogs follow the Windows display language."
+  }
+}

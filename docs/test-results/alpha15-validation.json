@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.15",
+  "capturedUtc": "2026-10-03T13:47:42.527Z",
+  "baseCommit": "d63dd8e4417377c1b6861a4c68950632bfc3a314",
+  "stage": "Unsigned release candidate; package/publication verified separately",
+  "passed": true,
+  "binaries": {
+    "executable": "03a6078f383afd402027909d4aaa5c72e2a289c024e0e16d68a3a4c45afb4893",
+    "productionDll": "dc2c2847553123b58f810ed27f6097e59c9bc31f278a511a2bf0a76f5c195e18",
+    "authTestDll": "e1b29965bbd4a9170678273727935c00452e662e3464b6d0e3ecf6c2ffde6a95",
+    "libcef": "e73aeafbd0c1f7169f3d0b2fb78f385cba7f00d7bf93b2cfbdcd82fe9980e6b6"
+  },
+  "dependencyPins": {
+    "cef": {
+      "version": "154.0.33+ga03e714+chromium-154.0.8037.94",
+      "archive": "cef_binary_154.0.33+ga03e714+chromium-154.0.8037.94_windows64_minimal.tar.bz2",
+      "sha1": "fced8a0428b7ef68d0df5e288281c673798d3071",
+      "sha256": "a211b8f10a99d1db49afd5b7d9fa7ab3222ebc6ea3026b31c3c9431e7d4a5ac2"
+    },
+    "sqlite": {
+      "version": "3.53.4",
+      "url": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip",
+      "sha256": "1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d"
+    },
+    "json": {
+      "version": "3.12.0",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp",
+      "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+    },
+    "node": {
+      "version": "24.16.0",
+      "sha256": "edaca9bd58ec8e92037dac4e877d52f6b8f430b81c18b57e264b4e2fb111cd56"
+    }
+  },
+  "cefMaintenance": {
+    "checkedUtc": "2026-10-03T13:44:45.944Z",
+    "index": "https://cef-builds.spotifycdn.com/index.json",
+    "pinnedCef": "154.0.33+ga03e714+chromium-154.0.8037.94",
+    "observedStableCef": "154.0.33+ga03e714+chromium-154.0.8037.94",
+    "observedStableChromium": "154.0.8037.94",
+    "scope": "Pinned CEF matches the observed complete Windows x64 stable index entry. Chromium maintenance caveats remain documented."
+  },
+  "automated": {
+    "fullReleaseBuild": true,
+    "nativeGroups": 11,
+    "adapterTypecheck": true,
+    "adapterAndFixedScriptChecks": 90,
+    "bootstrapChecks": 18,
+    "brandingChecks": 5,
+    "isolatedInstallerChecks": 47,
+    "diffWhitespaceCheck": true
+  },
+  "live": {
+    "serial": true,
+    "checks": 48,
+    "suites": [
+      {
+        "name": "introduction",
+        "run": "introduction-f5233f8cae574b3394ea8c49f01e8323",
+        "capturedAt": "2026-10-03T13:45:34.8596248Z",
+        "applicationDllSha256": "dc2c2847553123b58f810ed27f6097e59c9bc31f278a511a2bf0a76f5c195e18",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Fresh language selection, duplicate-launch gate and cancel/retry",
+            "passed": true
+          },
+          {
+            "name": "Translated tour, Previous/Next, saved completion and immediate CEF locale",
+            "passed": true
+          },
+          {
+            "name": "Restart preserves language and opens a blank tab without setup",
+            "passed": true
+          },
+          {
+            "name": "Menu tour reopens, preserves settings and opens the GitHub URL",
+            "passed": true
+          },
+          {
+            "name": "Skipping setup saves the selection and starts browsing",
+            "passed": true
+          },
+          {
+            "name": "First-run documentation link starts Xenon at the requested guide",
+            "passed": true
+          }
+        ],
+        "method": "Production browser driven by native window messages; generated profiles only"
+      },
+      {
+        "name": "ui-language",
+        "run": "ui-language-d35f4c43990d4a55bd831b896fe094af",
+        "capturedAt": "2026-10-03T13:45:38.7239254Z",
+        "applicationDllSha256": "dc2c2847553123b58f810ed27f6097e59c9bc31f278a511a2bf0a76f5c195e18",
+        "passed": true,
+        "checks": [
+          {
+            "name": "English preference switches to zh-CN on the next normal launch",
+            "passed": true
+          },
+          {
+            "name": "Real shell HWNDs, blank-tab title and CEF locale use Simplified Chinese",
+            "passed": true
+          },
+          {
+            "name": "Real Controls sections, ownership and saved-account buttons are translated",
+            "passed": true
+          },
+          {
+            "name": "Workspace configuration and file-permission windows are translated",
+            "passed": true
+          },
+          {
+            "name": "Native browser panels are translated",
+            "passed": true
+          },
+          {
+            "name": "Switching back restores English after restart",
+            "passed": true
+          }
+        ],
+        "method": "Production browser driven by native window messages; generated profiles only"
+      },
+      {
+        "name": "integration",
+        "run": "integration-1791035138922-309cced5",
+        "capturedAt": "2026-10-03T13:46:08.212Z",
+        "applicationDllSha256": "dc2c2847553123b58f810ed27f6097e59c9bc31f278a511a2bf0a76f5c195e18",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Four separate adapters, three live tabs each",
+            "passed": true
+          },
+          {
+            "name": "Workspace and result isolation",
+            "passed": true
+          },
+          {
+            "name": "A pending wait does not block other adapters",
+            "passed": true
+          },
+          {
+            "name": "Page-only screenshots through real MCP image output",
+            "passed": true
+          },
+          {
+            "name": "Replaced nodes reject stale references",
+            "passed": true
+          },
+          {
+            "name": "Overlay hit testing rejects obscured input",
+            "passed": true
+          },
+          {
+            "name": "Same-origin and cross-origin frames expose usable references",
+            "passed": true
+          },
+          {
+            "name": "Shadow DOM actionability and semantics",
+            "passed": true
+          },
+          {
+            "name": "Visual coordinates require a current screenshot",
+            "passed": true
+          },
+          {
+            "name": "JavaScript dialogs are handled without blocking other tabs",
+            "passed": true
+          },
+          {
+            "name": "Website JavaScript links and logout confirmations remain usable",
+            "passed": true
+          },
+          {
+            "name": "Download namespace reports opaque scoped metadata",
+            "passed": true
+          },
+          {
+            "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+            "passed": true
+          },
+          {
+            "name": "Related popups transfer as one ownership group",
+            "passed": true
+          },
+          {
+            "name": "Mid-drag handoff waits for release before changing ownership",
+            "passed": true
+          },
+          {
+            "name": "Four workers behind one adapter, three tabs each",
+            "passed": true
+          },
+          {
+            "name": "Disconnect/reconnect preserves page and never replays mutations",
+            "passed": true
+          }
+        ],
+        "method": "Production browser with real MCP clients and synthetic CEF fixtures"
+      },
+      {
+        "name": "visibility-integration",
+        "run": "visibility-integration-1791035169379-a88b3512",
+        "capturedAt": "2026-10-03T13:46:17.451Z",
+        "applicationDllSha256": "dc2c2847553123b58f810ed27f6097e59c9bc31f278a511a2bf0a76f5c195e18",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+            "passed": true
+          },
+          {
+            "name": "Visible button text remains actionable despite hostile accessibility labels",
+            "passed": true
+          },
+          {
+            "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+            "passed": true
+          },
+          {
+            "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+            "passed": true
+          },
+          {
+            "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+            "passed": true
+          },
+          {
+            "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+            "passed": true
+          },
+          {
+            "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+            "passed": true
+          },
+          {
+            "name": "Visible generated content is represented or explicitly marked incomplete",
+            "passed": true
+          },
+          {
+            "name": "Hidden-only text cannot satisfy observation queries or waits",
+            "passed": true
+          },
+          {
+            "name": "Visible page instructions remain untrusted content without instruction authority",
+            "passed": true
+          }
+        ],
+        "method": "Production browser with real MCP clients and synthetic CEF fixtures"
+      },
+      {
+        "name": "upload-entry-integration",
+        "run": "upload-entry-1791035177647-13254b65",
+        "capturedAt": "2026-10-03T13:46:29.014Z",
+        "applicationDllSha256": "dc2c2847553123b58f810ed27f6097e59c9bc31f278a511a2bf0a76f5c195e18",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Visible direct file input transfers only an approved opaque file",
+            "passed": true
+          },
+          {
+            "name": "Approved file follows trusted custom upload entry",
+            "passed": true
+          },
+          {
+            "name": "Approved file follows trusted cross-frame upload entry",
+            "passed": true
+          },
+          {
+            "name": "A visible button without a file chooser cannot receive a file",
+            "passed": true
+          },
+          {
+            "name": "Invalid and cross-workspace grants are denied before entry activation",
+            "passed": true
+          },
+          {
+            "name": "A changed visible upload entry rejects its stale reference before input",
+            "passed": true
+          },
+          {
+            "name": "A multiple-file chooser receives only the one approved file",
+            "passed": true
+          },
+          {
+            "name": "Disabled controls and directory pickers cannot transfer files",
+            "passed": true
+          },
+          {
+            "name": "A parent entry cannot delegate its file grant to a different frame",
+            "passed": true
+          }
+        ],
+        "method": "Production browser with real MCP clients and synthetic CEF fixtures"
+      }
+    ]
+  },
+  "visualReview": {
+    "productionDllSha256": "dc2c2847553123b58f810ed27f6097e59c9bc31f278a511a2bf0a76f5c195e18",
+    "run": "introduction-f5233f8cae574b3394ea8c49f01e8323",
+    "scope": "Inspected English language-selection and Simplified Chinese ready-page fixture captures at default DPI and System dark theme. Earlier complete tour visual review retains its original candidate hash in introduction-validation.json."
+  },
+  "retainedFailures": [
+    {
+      "record": "out/introduction-901a9af72ad7418dbdeb0bef6b7bb1a6/results.json",
+      "reason": "Windows PowerShell interpreted UTF-8 Chinese assertions without a BOM as ANSI. Both fixture scripts now have a UTF-8 BOM; the fresh final runs above passed unchanged browser binaries."
+    },
+    {
+      "reason": "Restricted runner denied Node test subprocess creation with spawn EPERM; ordinary-user run passed all 32 bootstrap/pointer checks."
+    }
+  ],
+  "limits": [
+    "Live UI checks use native messages; physical keyboard/mouse, multi-monitor/DPI, light-theme and high-contrast introduction acceptance remain manual",
+    "Protected authentication, autofill, crash persistence and lifecycle suites were not repeated on alpha.15; their earlier records remain bound to their original hashes",
+    "No production installer upgrade was installed over the user copy",
+    "Documentation checks establish the fixed navigation URL, not remote GitHub content availability",
+    "Unsigned hashes establish byte integrity, not publisher identity"
+  ],
+  "privacy": "Only disposable profiles, synthetic pages and isolated installer identities were used; no tokens, private state, raw browsing logs or screenshots are included"
+}

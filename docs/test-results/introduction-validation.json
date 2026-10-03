@@ -1,0 +1,30 @@
+{
+  "capturedAt": "2026-10-03T13:26:32.7661709Z",
+  "version": "0.1.0-alpha.14 source candidate",
+  "applicationDllSha256": "0e4d1f81c81d061047b1b8658e8a9bac86466c3ce2f8c8a9afc525e7c58e909a",
+  "passed": true,
+  "checks": [
+    { "command": "./scripts/build.ps1 -Jobs 1", "passed": true, "coverage": "Full production and authentication-fixture build; adapter TypeScript build" },
+    { "command": "ctest --test-dir build -C Release --output-on-failure", "passed": true, "tests": 11 },
+    { "command": "./tests/introduction-integration.ps1", "passed": true, "tests": 6, "run": "introduction-a52a895264834b8389e71ea5b2001a39" },
+    { "command": "./tests/ui-language-integration.ps1", "passed": true, "tests": 6, "run": "ui-language-6d6437e547ae4e7cadbad687cb159596" },
+    { "command": "node tests/branding-resources.mjs", "passed": true, "tests": 5 },
+    { "command": "git diff --check", "passed": true }
+  ],
+  "introductionCoverage": [
+    "Fresh-profile language selection before CEF, duplicate-startup serialization and cancel/retry",
+    "Simplified Chinese preview, Previous/Next navigation and first-launch native/renderer locale",
+    "Durable completion with a normal blank restart",
+    "Menu tour replay without preference changes; documentation opens a new Personal tab and preserves the original tab",
+    "Skip saves completion and starts browsing",
+    "First-run documentation link starts Xenon at the fixed getting-started guide URL"
+  ],
+  "visualReview": "Inspected fixture-only window captures of the language step and tour in English and Simplified Chinese at the runner's default DPI and System dark theme.",
+  "limitations": [
+    "Live UI coverage uses native window messages, not physical keyboard or mouse input.",
+    "Multi-monitor/DPI, high-contrast and light-theme introduction acceptance were not exercised.",
+    "Documentation checks establish the requested navigation URL, not availability of remote GitHub content.",
+    "The restricted runner denied owner-only ACL changes; native tests passed under the ordinary Windows user context without changing product ACL enforcement.",
+    "Historical unsuccessful development runs remain in out; this record describes the final DLL above."
+  ]
+}

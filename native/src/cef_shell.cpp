@@ -3,6 +3,7 @@
 #include "xenon/cef_engine.hpp"
 #include "xenon/browser_data.hpp"
 #include "xenon/ui_theme.hpp"
+#include "xenon/introduction.hpp"
 #include "xenon/pointer_motion.hpp"
 #include "xenon/pointer_overlay.hpp"
 #include "xenon/local_security.hpp"
@@ -25,7 +26,7 @@ constexpr UINT ShellChanged=WM_APP+90;
 enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,FindText,FindNext,FindPrevious,FindClose,
   MenuFind=2100,MenuZoomIn,MenuZoomOut,MenuZoomReset,MenuBookmark,MenuBookmarks,MenuHistory,MenuDownloads,MenuPrint,MenuPdf,
   MenuPermissions,MenuThemeSystem,MenuThemeLight,MenuThemeDark,MenuAbout,MenuNotices,MenuExit,MenuPrivate,MenuCloseTab,
-  MenuSidebarNarrower,MenuSidebarWider,MenuSidebarReset,MenuUpdates};
+  MenuSidebarNarrower,MenuSidebarWider,MenuSidebarReset,MenuUpdates,MenuQuickTour,MenuDocumentation,MenuLanguageEnglish=2200,MenuLanguageChinese};
 std::string str(const Json& value,const char* key){auto found=value.find(key);return found!=value.end()&&found->is_string()?found->get<std::string>():std::string{};}
 std::wstring short_title(const std::string& value,size_t maximum=55){auto text=ui::wide(value);if(text.size()>maximum)text=text.substr(0,maximum-1)+L"…";return text;}
 using Clock=std::chrono::steady_clock;
@@ -55,12 +56,12 @@ struct BrowserShell::Impl {
   void build(){font=ui::font(window);ui::icons(window);dark=ui::palette().dark;
     tooltips=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,WS_POPUP|TTS_ALWAYSTIP|TTS_NOPREFIX,0,0,0,0,window,nullptr,branding_module(),nullptr);
     SendMessageW(tooltips,TTM_SETDELAYTIME,TTDT_INITIAL,400);SendMessageW(tooltips,TTM_SETMAXTIPWIDTH,0,ui::dip(window,280));
-    for(const auto& [id,title]:std::vector<std::pair<int,const wchar_t*>>{{Back,L"Back"},{Forward,L"Forward"},{Reload,L"Reload"},{Go,L"Go to address"},{Controls,L"Controls"},{Menu,L"Menu"},{NewTab,L"New tab"},{FindPrevious,L"Previous match"},{FindNext,L"Next match"},{FindClose,L"Close find"}}){auto control=add(id,L"BUTTON",title,BS_OWNERDRAW|WS_TABSTOP);
+    for(const auto& [id,title]:std::vector<std::pair<int,const wchar_t*>>{{Back,ui::tr(L"Back")},{Forward,ui::tr(L"Forward")},{Reload,ui::tr(L"Reload")},{Go,ui::tr(L"Go to address")},{Controls,ui::tr(L"Controls")},{Menu,ui::tr(L"Menu")},{NewTab,ui::tr(L"New tab")},{FindPrevious,ui::tr(L"Previous match")},{FindNext,ui::tr(L"Next match")},{FindClose,ui::tr(L"Close find")}}){auto control=add(id,L"BUTTON",title,BS_OWNERDRAW|WS_TABSTOP);
       TOOLINFOW tip{sizeof(tip)};tip.uFlags=TTF_IDISHWND|TTF_SUBCLASS;tip.hwnd=window;tip.uId=reinterpret_cast<UINT_PTR>(control);tip.lpszText=const_cast<LPWSTR>(title);SendMessageW(tooltips,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&tip));}
     SetPropW(controls.at(Go),L"XenonCircle",reinterpret_cast<HANDLE>(1));for(int id:{Go,FindPrevious,FindNext,FindClose})SetPropW(controls.at(id),L"XenonSurface",reinterpret_cast<HANDLE>(1));
     address=add(Address,L"EDIT",L"",WS_TABSTOP|ES_AUTOHSCROLL);
     find_text=add(FindText,L"EDIT",L"",WS_TABSTOP|ES_AUTOHSCROLL|WS_BORDER);
-    tree=add(Tree,WC_TREEVIEWW,L"Workspace tabs",WS_TABSTOP|TVS_HASBUTTONS|TVS_LINESATROOT|TVS_SHOWSELALWAYS|TVS_FULLROWSELECT|TVS_NOHSCROLL);
+    tree=add(Tree,WC_TREEVIEWW,ui::tr(L"Workspace tabs"),WS_TABSTOP|TVS_HASBUTTONS|TVS_LINESATROOT|TVS_SHOWSELALWAYS|TVS_FULLROWSELECT|TVS_NOHSCROLL);
     SetWindowSubclass(tree,tree_proc,3,reinterpret_cast<DWORD_PTR>(this));TreeView_SetExtendedStyle(tree,TVS_EX_DOUBLEBUFFER,TVS_EX_DOUBLEBUFFER);TreeView_SetItemHeight(tree,ui::dip(window,38));theme();layout();SetTimer(window,1,16,nullptr);SetTimer(window,2,1000,nullptr);
   }
   void theme(){auto colors=ui::palette();dark=colors.dark;ui::frame(window);TreeView_SetBkColor(tree,colors.canvas);TreeView_SetTextColor(tree,colors.ink);TreeView_SetLineColor(tree,colors.border);
@@ -91,7 +92,7 @@ struct BrowserShell::Impl {
   RECT sidebar_grip() const {RECT bounds{};GetClientRect(window,&bounds);return {ui::dip(window,sidebar-8),bounds.bottom-ui::dip(window,87),ui::dip(window,sidebar-3),bounds.bottom-ui::dip(window,53)};}
   void invalidate_grip(){auto rect=sidebar_grip();InvalidateRect(window,&rect,FALSE);}
   void set_address(const std::string& value){if(ui::text(address)==value)return;setting_address=true;SetWindowTextW(address,ui::wide(value).c_str());setting_address=false;}
-  void save_sidebar(){if(!ui::save_settings())status=L"Sidebar resized for this run; saving failed.";InvalidateRect(window,nullptr,FALSE);}
+  void save_sidebar(){if(!ui::save_settings())status=ui::tr(L"Sidebar resized for this run; saving failed.");InvalidateRect(window,nullptr,FALSE);}
   void finish_sidebar(bool save){if(!resizing_sidebar)return;resizing_sidebar=false;RemovePropW(window,L"XenonSidebarDrag");if(GetCapture()==window)ReleaseCapture();if(save)save_sidebar();}
   void resize_sidebar(int width){RECT bounds{};GetClientRect(window,&bounds);const auto maximum=std::max(180,std::min(480,MulDiv(bounds.right,96,GetDpiForWindow(window))-400));const auto next=std::clamp(width,180,maximum);
     if(ui::sidebar_width!=next){ui::sidebar_width=next;layout();}}
@@ -99,7 +100,7 @@ struct BrowserShell::Impl {
   bool is_private() const {auto found=hosts.find(selected);return found!=hosts.end()&&found->second.metadata.value("private",false);}
   bool empty_workspace(const std::string& id) const {return std::none_of(hosts.begin(),hosts.end(),[&](const auto& entry){return entry.second.workspace==id;});}
   void open_workspace(const std::string& id){if(!workspace_names.contains(id)||!empty_workspace(id)||!opening_workspace.empty())return;
-    opening_workspace=id;broker.open_human_tab(id,"about:blank",[this](Json value){opening_workspace.clear();if(!value.value("ok",false)){status=ui::wide(str(value["error"],"message"));InvalidateRect(window,nullptr,FALSE);}});}
+    opening_workspace=id;broker.open_human_tab(id,"about:blank",[this](Json value){opening_workspace.clear();if(!value.value("ok",false)){status=ui::error_text(str(value["error"],"message"));InvalidateRect(window,nullptr,FALSE);}});}
   RECT close_rect(HTREEITEM item) const {RECT rect{};if(!TreeView_GetItemRect(tree,item,&rect,FALSE))return {};RECT bounds{};GetClientRect(tree,&bounds);rect.left=bounds.right-ui::dip(window,34);rect.right=bounds.right-ui::dip(window,6);rect.top+=ui::dip(window,5);rect.bottom-=ui::dip(window,5);return rect;}
   std::string close_at(POINT point) const {TVHITTESTINFO hit{};hit.pt=point;auto item=TreeView_HitTest(tree,&hit);if(!item)return {};TVITEMW value{};value.hItem=item;value.mask=TVIF_PARAM;TreeView_GetItem(tree,&value);
     if(value.lParam<=0||static_cast<size_t>(value.lParam)>tree_keys.size()||tree_keys[value.lParam-1].second)return {};auto rect=close_rect(item);return PtInRect(&rect,point)?tree_keys[value.lParam-1].first:std::string{};}
@@ -109,21 +110,21 @@ struct BrowserShell::Impl {
     engine.select_native_tab(id);if(focus&&found->second.browser)engine.native_command(id,"focus");sync_toolbar();InvalidateRect(window,nullptr,FALSE);InvalidateRect(tree,nullptr,FALSE);update_cursor();
   }
   COLORREF color(const std::string& id) const {const auto colors=ui::palette();auto found=states.find(id);if(found==states.end()||!found->second.value("agentAvailable",false))return colors.gray;return found->second.value("humanPaused",false)?colors.orange:colors.teal;}
-  std::wstring state_text(const std::string& id) const {auto found=states.find(id);if(found==states.end())return L"Opening";const auto& state=found->second;
-    auto owner=str(state,"ownerSessionId");std::wstring value=owner=="human"?L"You":owner.empty()?L"No agent":ui::wide(names.contains(owner)?names.at(owner):"Agent");
-    if(state.value("agentAvailable",false)&&state.value("humanPaused",false))value+=L" · Paused for you";else if(state.value("handoffPending",false))value+=L" · Handing off";
-    else if(owner!="human"&&!owner.empty())value+=state.value("agentAvailable",false)?L" · Agent control":L" · Unavailable";
-    if(state.value("protected",false))value+=L" · Protected authentication";return value;
+  std::wstring state_text(const std::string& id) const {auto found=states.find(id);if(found==states.end())return ui::tr(L"Opening");const auto& state=found->second;
+    auto owner=str(state,"ownerSessionId");std::wstring value=owner=="human"?ui::tr(L"You"):owner.empty()?ui::tr(L"No agent"):ui::wide(names.contains(owner)?names.at(owner):ui::tr8("Agent"));
+    if(state.value("agentAvailable",false)&&state.value("humanPaused",false))value+=ui::tr(L" · Paused for you");else if(state.value("handoffPending",false))value+=ui::tr(L" · Handing off");
+    else if(owner!="human"&&!owner.empty())value+=state.value("agentAvailable",false)?ui::tr(L" · Agent control"):ui::tr(L" · Unavailable");
+    if(state.value("protected",false))value+=ui::tr(L" · Protected authentication");return value;
   }
   void sync_toolbar(){auto found=hosts.find(selected);const auto metadata=found==hosts.end()?Json::object():found->second.metadata;
     if(GetFocus()!=address&&!address_dirty)set_address(str(metadata,"url"));
     const auto enable=[&](int id,bool enabled){if((IsWindowEnabled(controls.at(id))!=FALSE)!=enabled)EnableWindow(controls.at(id),enabled);};
     enable(Back,metadata.value("canGoBack",false));enable(Forward,metadata.value("canGoForward",false));enable(Reload,found!=hosts.end());
-    const auto reload_title=metadata.value("loading",false)?L"Stop":L"Reload";if(ui::text(controls.at(Reload))!=ui::utf8(reload_title)){SetWindowTextW(controls.at(Reload),reload_title);TOOLINFOW tip{sizeof(tip)};tip.hwnd=window;tip.uId=reinterpret_cast<UINT_PTR>(controls.at(Reload));tip.lpszText=const_cast<LPWSTR>(reload_title);SendMessageW(tooltips,TTM_UPDATETIPTEXTW,0,reinterpret_cast<LPARAM>(&tip));}
-    auto title=found==hosts.end()?L"Xenon Browser":short_title(str(metadata,"title"),100)+L" — Xenon";if(ui::text(window)!=ui::utf8(title))SetWindowTextW(window,title.c_str());
-    auto caption=L"Controls"+(pairing_count?L" ("+std::to_wstring(pairing_count)+L")":std::wstring{});if(ui::text(controls.at(Controls))!=ui::utf8(caption))SetWindowTextW(controls.at(Controls),caption.c_str());
+    const auto reload_title=metadata.value("loading",false)?ui::tr(L"Stop"):ui::tr(L"Reload");if(ui::text(controls.at(Reload))!=ui::utf8(reload_title)){SetWindowTextW(controls.at(Reload),reload_title);TOOLINFOW tip{sizeof(tip)};tip.hwnd=window;tip.uId=reinterpret_cast<UINT_PTR>(controls.at(Reload));tip.lpszText=const_cast<LPWSTR>(reload_title);SendMessageW(tooltips,TTM_UPDATETIPTEXTW,0,reinterpret_cast<LPARAM>(&tip));}
+    auto title=found==hosts.end()?ui::tr(L"Xenon Browser"):short_title(ui::tab_title(str(metadata,"title"),str(metadata,"url")),100)+L" — Xenon";if(ui::text(window)!=ui::utf8(title))SetWindowTextW(window,title.c_str());
+    auto caption=ui::tr(L"Controls")+(pairing_count?L" ("+std::to_wstring(pairing_count)+L")":std::wstring{});if(ui::text(controls.at(Controls))!=ui::utf8(caption))SetWindowTextW(controls.at(Controls),caption.c_str());
   }
-  ui::Icon button_icon(int id) const {switch(id){case Back:return ui::Icon::back;case Forward:return ui::Icon::forward;case Reload:return ui::text(controls.at(Reload))=="Stop"?ui::Icon::stop:ui::Icon::reload;case Go:return ui::Icon::go;case Controls:return ui::Icon::controls;case Menu:return ui::Icon::menu;case NewTab:return ui::Icon::plus;case FindPrevious:return ui::Icon::up;case FindNext:return ui::Icon::down;case FindClose:return ui::Icon::close;default:return ui::Icon::none;}}
+  ui::Icon button_icon(int id) const {switch(id){case Back:return ui::Icon::back;case Forward:return ui::Icon::forward;case Reload:return ui::text(controls.at(Reload))==ui::tr8("Stop")?ui::Icon::stop:ui::Icon::reload;case Go:return ui::Icon::go;case Controls:return ui::Icon::controls;case Menu:return ui::Icon::menu;case NewTab:return ui::Icon::plus;case FindPrevious:return ui::Icon::up;case FindNext:return ui::Icon::down;case FindClose:return ui::Icon::close;default:return ui::Icon::none;}}
   bool selected_row(RECT& rect) const {auto item=TreeView_GetSelection(tree);if(!item)return false;TVITEMW value{};value.mask=TVIF_PARAM;value.hItem=item;TreeView_GetItem(tree,&value);
     if(value.lParam<=0||static_cast<size_t>(value.lParam)>tree_keys.size()||tree_keys[value.lParam-1].second||tree_keys[value.lParam-1].first!=selected)return false;
     if(!TreeView_GetItemRect(tree,item,&rect,FALSE))return false;RECT bounds{};GetClientRect(tree,&bounds);return rect.top>=0&&rect.bottom<=bounds.bottom;
@@ -133,19 +134,19 @@ struct BrowserShell::Impl {
     const bool hover=reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec)==hovered_row;
     if(group){if(hover){auto background=rect;InflateRect(&background,-ui::dip(window,2),-ui::dip(window,3));ui::rounded(draw.nmcd.hdc,background,ui::hover_background(),ui::hover_background(),ui::dip(window,6));}TVITEMW value{};value.hItem=reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec);value.mask=TVIF_STATE;value.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&value);RECT arrow=label;arrow.left=ui::dip(window,2);arrow.right=ui::dip(window,24);ui::icon(draw.nmcd.hdc,arrow,value.state&TVIS_EXPANDED?ui::Icon::down:ui::Icon::chevron_right,hover&&colors.contrast?ui::selection_ink():colors.muted,window);
       if(empty_workspace(id)){label.right-=ui::dip(window,24);auto add=close_rect(reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec));ui::icon(draw.nmcd.hdc,add,ui::Icon::plus,colors.muted,window);}
-      ui::text(draw.nmcd.hdc,label,ui::wide(workspace_names.contains(id)?workspace_names.at(id):"Workspace"),font,hover&&colors.contrast?ui::selection_ink():colors.muted);return;}
+      ui::text(draw.nmcd.hdc,label,ui::wide(workspace_names.contains(id)?workspace_names.at(id):ui::tr8("Workspace")),font,hover&&colors.contrast?ui::selection_ink():colors.muted);return;}
     const bool active=id==selected;rect.left=ui::dip(window,12);InflateRect(&rect,0,-ui::dip(window,3));rect.right-=active?0:ui::dip(window,6);auto shape=rect;if(active)shape.right+=ui::dip(window,16);
     const auto state=states.find(id);const bool outlined=active||(state!=states.end()&&state->second.value("agentAvailable",false)&&!state->second.value("humanPaused",false));
     const auto background=active?colors.surface:hover?ui::hover_background():colors.canvas;
     ui::rounded(draw.nmcd.hdc,shape,background,outlined?color(id):background,ui::dip(window,8),ui::dip(window,active?2:1));
     auto close=close_rect(reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec));POINT pointer{};GetCursorPos(&pointer);ScreenToClient(tree,&pointer);if(hover&&PtInRect(&close,pointer))ui::rounded(draw.nmcd.hdc,close,ui::hover_background(),ui::hover_background(),ui::dip(window,5));
     ui::icon(draw.nmcd.hdc,close,ui::Icon::close,hover&&!active&&colors.contrast?ui::selection_ink():colors.muted,window);
-    auto found=hosts.find(id);const auto title=found==hosts.end()?std::string{}:str(found->second.metadata,"title");label.left=ui::dip(window,26);label.right=close.left-ui::dip(window,3);ui::text(draw.nmcd.hdc,label,ui::wide(title.empty()?"New tab":title),font,hover&&!active&&colors.contrast?ui::selection_ink():colors.ink);
+    auto found=hosts.find(id);const auto title=found==hosts.end()?ui::tr8("New tab"):ui::tab_title(str(found->second.metadata,"title"),str(found->second.metadata,"url"));label.left=ui::dip(window,26);label.right=close.left-ui::dip(window,3);ui::text(draw.nmcd.hdc,label,ui::wide(title),font,hover&&!active&&colors.contrast?ui::selection_ink():colors.ink);
     if((draw.nmcd.uItemState&CDIS_FOCUS)&&GetFocus()==tree){auto focus=rect;InflateRect(&focus,-ui::dip(window,5),-ui::dip(window,3));ui::focus_mark(draw.nmcd.hdc,focus,tree);}
   }
   void paint(HDC dc){RECT rect{};GetClientRect(window,&rect);const auto colors=ui::palette();ui::fill(dc,rect,colors.canvas);
     ui::rounded(dc,panel_bounds,colors.surface,color(selected),ui::dip(window,10),ui::dip(window,2));ui::rounded(dc,address_bounds,colors.canvas,colors.canvas,ui::dip(window,17));
-    RECT brand{ui::dip(window,24),ui::dip(window,64),ui::dip(window,sidebar-16),ui::dip(window,88)};ui::text(dc,brand,L"Xenon / Workspaces",font,colors.muted);
+    RECT brand{ui::dip(window,24),ui::dip(window,64),ui::dip(window,sidebar-16),ui::dip(window,88)};ui::text(dc,brand,ui::tr(L"Xenon / Workspaces"),font,colors.muted);
     RECT status_rect{ui::dip(window,sidebar+18),ui::dip(window,66),rect.right-ui::dip(window,26),ui::dip(window,90)};ui::text(dc,status_rect,status.empty()?state_text(selected):status,font,colors.muted);
     RECT row{};if(selected_row(row)){MapWindowPoints(tree,window,reinterpret_cast<POINT*>(&row),2);row.top+=ui::dip(window,3);row.bottom-=ui::dip(window,3);RECT rail{};GetWindowRect(tree,&rail);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&rail),2);RECT bridge{rail.right,row.top,panel_bounds.left+ui::dip(window,2),row.bottom};ui::fill(dc,bridge,colors.surface);
       const auto thickness=ui::dip(window,2);ui::fill(dc,{bridge.left,bridge.top,bridge.right,bridge.top+thickness},color(selected));ui::fill(dc,{bridge.left,bridge.bottom-thickness,bridge.right,bridge.bottom},color(selected));}
@@ -157,12 +158,12 @@ struct BrowserShell::Impl {
       if(entry.lParam>0&&static_cast<size_t>(entry.lParam)<=tree_keys.size()&&((entry.state&TVIS_EXPANDED)||!TreeView_GetChild(tree,item)))expanded.insert(tree_keys[entry.lParam-1].first);}
     std::set<std::string> known;for(const auto& [id,group]:tree_keys)if(group)known.insert(id);
     const bool first=tree_keys.empty();rebuilding=true;hovered_row=nullptr;hovered_close.clear();SendMessageW(tree,WM_SETREDRAW,FALSE,0);TreeView_DeleteAllItems(tree);tree_keys.clear();std::map<std::string,HTREEITEM> groups;HTREEITEM current=nullptr;
-    auto add_group=[&](const std::string& id){if(groups.contains(id))return;auto label=ui::wide(workspace_names.contains(id)?workspace_names.at(id):"Workspace");tree_keys.emplace_back(id,true);TVINSERTSTRUCTW entry{};entry.hParent=TVI_ROOT;entry.hInsertAfter=TVI_LAST;entry.item.mask=TVIF_TEXT|TVIF_PARAM;entry.item.pszText=label.data();entry.item.lParam=tree_keys.size();groups[id]=TreeView_InsertItem(tree,&entry);};
+    auto add_group=[&](const std::string& id){if(groups.contains(id))return;auto label=ui::wide(workspace_names.contains(id)?workspace_names.at(id):ui::tr8("Workspace"));tree_keys.emplace_back(id,true);TVINSERTSTRUCTW entry{};entry.hParent=TVI_ROOT;entry.hInsertAfter=TVI_LAST;entry.item.mask=TVIF_TEXT|TVIF_PARAM;entry.item.pszText=label.data();entry.item.lParam=tree_keys.size();groups[id]=TreeView_InsertItem(tree,&entry);};
     if(workspace_names.contains("native-default"))add_group("native-default");for(const auto& [id,name]:workspace_names)add_group(id);
     for(const auto& id:order)if(auto found=hosts.find(id);found!=hosts.end()){
-      auto& host=found->second;if(!groups.contains(host.workspace)){const auto label=ui::wide(workspace_names.contains(host.workspace)?workspace_names[host.workspace]:"Workspace");
+      auto& host=found->second;if(!groups.contains(host.workspace)){const auto label=ui::wide(workspace_names.contains(host.workspace)?workspace_names[host.workspace]:ui::tr8("Workspace"));
         tree_keys.emplace_back(host.workspace,true);TVINSERTSTRUCTW entry{};entry.hParent=TVI_ROOT;entry.hInsertAfter=TVI_LAST;entry.item.mask=TVIF_TEXT|TVIF_PARAM;entry.item.pszText=const_cast<LPWSTR>(label.c_str());entry.item.lParam=tree_keys.size();groups[host.workspace]=TreeView_InsertItem(tree,&entry);}
-      auto label=short_title(str(host.metadata,"title").empty()?"New tab":str(host.metadata,"title"),37);tree_keys.emplace_back(id,false);
+      auto label=short_title(ui::tab_title(str(host.metadata,"title"),str(host.metadata,"url")),37);tree_keys.emplace_back(id,false);
       TVINSERTSTRUCTW entry{};entry.hParent=groups[host.workspace];entry.hInsertAfter=TVI_LAST;entry.item.mask=TVIF_TEXT|TVIF_PARAM;entry.item.pszText=label.data();entry.item.lParam=tree_keys.size();auto item=TreeView_InsertItem(tree,&entry);if(id==selected)current=item;
     }
     for(const auto& [id,group]:groups)if(first||!known.contains(id)||expanded.contains(id))TreeView_Expand(tree,group,TVE_EXPAND);
@@ -179,13 +180,13 @@ struct BrowserShell::Impl {
     for(const auto& workspace:broker.removed_workspaces())data.forget(workspace);
     if(Clock::now()>=next_state){next_state=Clock::now()+std::chrono::milliseconds(75);auto snapshot=broker.state();std::map<std::string,Json> next;names.clear();workspace_names.clear();
       for(const auto& worker:snapshot["workers"])names[str(worker,"agentSessionId")]=str(worker,"name");
-      for(const auto& workspace:snapshot["workspaces"])workspace_names[str(workspace,"workspaceId")]=str(workspace,"displayName");
+      for(const auto& workspace:snapshot["workspaces"]){const auto id=str(workspace,"workspaceId");workspace_names[id]=ui::workspace_label(id,str(workspace,"displayName"),workspace.value("private",false));}
       for(auto tab:snapshot["tabs"]){const auto tab_id=str(tab,"tabId");next[tab_id]=std::move(tab);}
       if(next!=states){states=std::move(next);InvalidateRect(window,nullptr,FALSE);InvalidateRect(tree,nullptr,FALSE);}
       pairing_count=snapshot["pairings"].size();
     }
     for(const auto& row:engine.native_tabs())if(auto found=hosts.find(str(row,"tabId"));found!=hosts.end()){
-      auto& host=found->second;host.metadata=row;const auto state=states.contains(host.id)?states.at(host.id):Json::object();const bool agent=state.value("agentAvailable",false),paused=state.value("humanPaused",false);
+      auto& host=found->second;host.metadata=row;host.metadata["title"]=ui::tab_title(str(row,"title"),str(row,"url"));const auto state=states.contains(host.id)?states.at(host.id):Json::object();const bool agent=state.value("agentAvailable",false),paused=state.value("humanPaused",false);
       const PointerPoint actual{row.value("pointerX",0.0),row.value("pointerY",0.0)};
       if(agent&&!host.initialized){host.display=parked(host);host.initialized=true;}
       const auto human_revision=row.value("humanPointerRevision",uint64_t{}),sync_revision=row.value("pointerSyncRevision",uint64_t{}),agent_revision=row.value("agentPointerRevision",uint64_t{});
@@ -197,26 +198,29 @@ struct BrowserShell::Impl {
         default:break;
       }
       host.agent=agent;host.paused=paused;
-      if(!row.value("loading",true)&&!row.value("protected",false)&&row.value("privacyReady",false)&&str(row,"url")!=host.recorded_url){host.recorded_url=str(row,"url");try{data.visit(host.workspace,row.value("private",false),false,host.recorded_url,str(row,"title"));}catch(...){status=L"Browser history could not be saved.";}}
+      if(!row.value("loading",true)&&!row.value("protected",false)&&row.value("privacyReady",false)&&str(row,"url")!=host.recorded_url){host.recorded_url=str(row,"url");try{data.visit(host.workspace,row.value("private",false),false,host.recorded_url,str(row,"title"));}catch(...){status=ui::tr(L"Browser history could not be saved.");}}
     }
     rebuild_tree();sync_toolbar();update_cursor();
-    if(Clock::now()>=next_flush){next_flush=Clock::now()+std::chrono::seconds(3);if(!data.flush())status=L"Browser metadata could not be saved. Existing data is preserved.";}
+    if(Clock::now()>=next_flush){next_flush=Clock::now()+std::chrono::seconds(3);if(!data.flush())status=ui::tr(L"Browser metadata could not be saved. Existing data is preserved.");}
     std::erase_if(panels,[](const auto& panel){return !panel->window;});
   }
   std::string navigate_value(){const auto input=ui::text(address);if(input=="about:blank"||input.rfind("http://",0)==0||input.rfind("https://",0)==0)return input;
     if(input.find(' ')==std::string::npos&&input.find('.')!=std::string::npos&&input.find(':')==std::string::npos)return "https://"+input;
     return "https://www.google.com/search?q="+CefURIEncode(input,true).ToString();
   }
-  void navigate(){const auto value=navigate_value();address_dirty=false;engine.native_command(selected,"navigate",value,[this](Json result){if(!result.value("ok",false)){status=L"This address could not be opened.";InvalidateRect(window,nullptr,FALSE);}});engine.native_command(selected,"focus");}
+  void navigate(){const auto value=navigate_value();address_dirty=false;engine.native_command(selected,"navigate",value,[this](Json result){if(!result.value("ok",false)){status=ui::tr(L"This address could not be opened.");InvalidateRect(window,nullptr,FALSE);}});engine.native_command(selected,"focus");}
   void show_find(){find_visible=true;layout();SetFocus(find_text);SendMessageW(find_text,EM_SETSEL,0,-1);}
   void menu(){auto popup=CreatePopupMenu();auto item=[&](int id,const wchar_t* caption){AppendMenuW(popup,MF_STRING,id,caption);};
-    item(MenuFind,L"Find on page\tCtrl+F");item(MenuZoomIn,L"Zoom in\tCtrl++");item(MenuZoomOut,L"Zoom out\tCtrl+-");item(MenuZoomReset,L"Reset zoom\tCtrl+0");AppendMenuW(popup,MF_SEPARATOR,0,nullptr);
-    item(MenuBookmark,L"Bookmark this page\tCtrl+D");item(MenuBookmarks,L"Bookmarks");item(MenuHistory,L"History");item(MenuDownloads,L"Downloads");AppendMenuW(popup,MF_SEPARATOR,0,nullptr);
-    item(MenuPrint,L"Print\tCtrl+P");item(MenuPdf,L"Save as PDF…");item(MenuPermissions,L"Site permissions");item(MenuPrivate,L"New private workspace");item(MenuCloseTab,L"Close tab\tCtrl+W");AppendMenuW(popup,MF_SEPARATOR,0,nullptr);
-    item(MenuThemeSystem,L"Theme: System");item(MenuThemeLight,L"Theme: Light");item(MenuThemeDark,L"Theme: Dark");
+    item(MenuFind,ui::tr(L"Find on page\tCtrl+F"));item(MenuZoomIn,ui::tr(L"Zoom in\tCtrl++"));item(MenuZoomOut,ui::tr(L"Zoom out\tCtrl+-"));item(MenuZoomReset,ui::tr(L"Reset zoom\tCtrl+0"));AppendMenuW(popup,MF_SEPARATOR,0,nullptr);
+    item(MenuBookmark,ui::tr(L"Bookmark this page\tCtrl+D"));item(MenuBookmarks,ui::tr(L"Bookmarks"));item(MenuHistory,ui::tr(L"History"));item(MenuDownloads,ui::tr(L"Downloads"));AppendMenuW(popup,MF_SEPARATOR,0,nullptr);
+    item(MenuPrint,ui::tr(L"Print\tCtrl+P"));item(MenuPdf,ui::tr(L"Save as PDF…"));item(MenuPermissions,ui::tr(L"Site permissions"));item(MenuPrivate,ui::tr(L"New private workspace"));item(MenuCloseTab,ui::tr(L"Close tab\tCtrl+W"));AppendMenuW(popup,MF_SEPARATOR,0,nullptr);
+    item(MenuThemeSystem,ui::tr(L"Theme: System"));item(MenuThemeLight,ui::tr(L"Theme: Light"));item(MenuThemeDark,ui::tr(L"Theme: Dark"));
     CheckMenuItem(popup,ui::theme_mode==ui::ThemeMode::system?MenuThemeSystem:ui::theme_mode==ui::ThemeMode::light?MenuThemeLight:MenuThemeDark,MF_BYCOMMAND|MF_CHECKED);
-    auto sidebar_menu=CreatePopupMenu();AppendMenuW(sidebar_menu,MF_STRING,MenuSidebarNarrower,L"Narrower");AppendMenuW(sidebar_menu,MF_STRING,MenuSidebarWider,L"Wider");AppendMenuW(sidebar_menu,MF_STRING,MenuSidebarReset,L"Reset width");AppendMenuW(popup,MF_POPUP,reinterpret_cast<UINT_PTR>(sidebar_menu),L"Sidebar width");
-    AppendMenuW(popup,MF_SEPARATOR,0,nullptr);item(MenuUpdates,L"Check for updates");item(MenuAbout,L"About Xenon");item(MenuNotices,L"Third-party notices");item(MenuExit,L"Exit Xenon");
+    auto languages=CreatePopupMenu();AppendMenuW(languages,MF_STRING,MenuLanguageEnglish,L"English");AppendMenuW(languages,MF_STRING,MenuLanguageChinese,L"简体中文");
+    CheckMenuRadioItem(languages,MenuLanguageEnglish,MenuLanguageChinese,ui::preferred_language==ui::Language::simplified_chinese?MenuLanguageChinese:MenuLanguageEnglish,MF_BYCOMMAND);
+    AppendMenuW(popup,MF_POPUP,reinterpret_cast<UINT_PTR>(languages),L"Language / 语言");
+    auto sidebar_menu=CreatePopupMenu();AppendMenuW(sidebar_menu,MF_STRING,MenuSidebarNarrower,ui::tr(L"Narrower"));AppendMenuW(sidebar_menu,MF_STRING,MenuSidebarWider,ui::tr(L"Wider"));AppendMenuW(sidebar_menu,MF_STRING,MenuSidebarReset,ui::tr(L"Reset width"));AppendMenuW(popup,MF_POPUP,reinterpret_cast<UINT_PTR>(sidebar_menu),ui::tr(L"Sidebar width"));
+    AppendMenuW(popup,MF_SEPARATOR,0,nullptr);item(MenuQuickTour,ui::tr(L"Quick tour"));item(MenuDocumentation,ui::tr(L"GitHub documentation"));item(MenuUpdates,ui::tr(L"Check for updates"));item(MenuAbout,ui::tr(L"About Xenon"));item(MenuNotices,ui::tr(L"Third-party notices"));item(MenuExit,ui::tr(L"Exit Xenon"));
     RECT rect{};GetWindowRect(controls.at(Menu),&rect);const auto id=TrackPopupMenu(popup,TPM_RETURNCMD|TPM_RIGHTALIGN,rect.right,rect.bottom,0,window,nullptr);DestroyMenu(popup);if(id)command(id);
   }
   static LRESULT CALLBACK edit_proc(HWND control,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR owner){auto self=reinterpret_cast<Impl*>(owner);
@@ -292,27 +296,35 @@ struct BrowserShell::Impl {
 void BrowserShell::Impl::command(int id){try{
   if(id==Back||id==Forward||id==Reload)engine.native_command(selected,id==Back?"back":id==Forward?"forward":hosts.contains(selected)&&hosts.at(selected).metadata.value("loading",false)?"stop":"reload");
   else if(id==Go)navigate();else if(id==Controls)engine.show_controls();else if(id==Menu)menu();
-  else if(id==NewTab)broker.open_human_tab(workspace(),"about:blank",[this](Json value){if(!value.value("ok",false))status=ui::wide(str(value["error"],"message"));});
+  else if(id==NewTab)broker.open_human_tab(workspace(),"about:blank",[this](Json value){if(!value.value("ok",false))status=ui::error_text(str(value["error"],"message"));});
   else if(id==MenuPrivate)broker.open_human_workspace("about:blank",[](Json){},true);
   else if(id==MenuCloseTab)engine.native_command(selected,"close");
   else if(id==MenuUpdates)engine.show_updates();
+  else if(id==MenuDocumentation||(id==MenuQuickTour&&ui::show_introduction(window,false)==ui::IntroductionResult::documentation)){
+    broker.open_human_tab("native-default",ui::utf8(ui::documentation_url),[this](Json value){if(!value.value("ok",false)){status=ui::tr(L"This address could not be opened.");InvalidateRect(window,nullptr,FALSE);}});
+  }
   else if(id==MenuFind)show_find();else if(id==FindClose){find_visible=false;engine.native_command(selected,"find-close");layout();engine.native_command(selected,"focus");}
   else if(id==FindNext||id==FindPrevious)engine.native_command(selected,id==FindNext?"find-next":"find-previous",ui::text(find_text));
   else if(id==MenuZoomIn||id==MenuZoomOut||id==MenuZoomReset){double zoom=hosts.contains(selected)?hosts.at(selected).metadata.value("zoom",1.0):1;zoom=id==MenuZoomReset?1:id==MenuZoomIn?zoom*1.2:zoom/1.2;engine.native_command(selected,"zoom",std::to_string(zoom));}
-  else if(id==MenuBookmark){auto found=hosts.find(selected);if(found!=hosts.end()&&!found->second.metadata.value("protected",false))status=data.bookmark(workspace(),is_private(),str(found->second.metadata,"url"),str(found->second.metadata,"title"))?L"Bookmark saved.":L"Bookmark could not be saved.";}
+  else if(id==MenuBookmark){auto found=hosts.find(selected);if(found!=hosts.end()&&!found->second.metadata.value("protected",false))status=data.bookmark(workspace(),is_private(),str(found->second.metadata,"url"),str(found->second.metadata,"title"))?ui::tr(L"Bookmark saved."):ui::tr(L"Bookmark could not be saved.");}
   else if(id==MenuBookmarks||id==MenuHistory||id==MenuDownloads||id==MenuPermissions||id==MenuAbout||id==MenuNotices)panel(id==MenuBookmarks?"bookmarks":id==MenuHistory?"history":id==MenuDownloads?"downloads":id==MenuPermissions?"site":id==MenuNotices?"notices":"about");
   else if(id==MenuPrint)engine.native_command(selected,"print");
-  else if(id==MenuPdf){wchar_t path[32768]=L"Xenon page.pdf";OPENFILENAMEW picker{};picker.lStructSize=sizeof(picker);picker.hwndOwner=window;picker.lpstrFile=path;picker.nMaxFile=32768;picker.lpstrFilter=L"PDF document\0*.pdf\0";picker.lpstrDefExt=L"pdf";picker.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
-    if(GetSaveFileNameW(&picker))engine.native_command(selected,"pdf",ui::utf8(path),[this](Json value){status=value.value("ok",false)?L"PDF saved.":L"PDF could not be saved.";InvalidateRect(window,nullptr,FALSE);});}
-  else if(id==MenuThemeSystem||id==MenuThemeLight||id==MenuThemeDark){if(!ui::save_theme(id==MenuThemeDark?ui::ThemeMode::dark:id==MenuThemeLight?ui::ThemeMode::light:ui::ThemeMode::system))status=L"Theme changed for this run; saving failed.";theme();}
+  else if(id==MenuPdf){wchar_t path[32768]=L"Xenon page.pdf";OPENFILENAMEW picker{};picker.lStructSize=sizeof(picker);picker.hwndOwner=window;picker.lpstrFile=path;picker.nMaxFile=32768;picker.lpstrFilter=ui::pdf_filter();picker.lpstrDefExt=L"pdf";picker.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
+    if(GetSaveFileNameW(&picker))engine.native_command(selected,"pdf",ui::utf8(path),[this](Json value){status=value.value("ok",false)?ui::tr(L"PDF saved."):ui::tr(L"PDF could not be saved.");InvalidateRect(window,nullptr,FALSE);});}
+  else if(id==MenuThemeSystem||id==MenuThemeLight||id==MenuThemeDark){if(!ui::save_theme(id==MenuThemeDark?ui::ThemeMode::dark:id==MenuThemeLight?ui::ThemeMode::light:ui::ThemeMode::system))status=ui::tr(L"Theme changed for this run; saving failed.");theme();}
   else if(id==MenuSidebarNarrower||id==MenuSidebarWider||id==MenuSidebarReset){resize_sidebar(id==MenuSidebarReset?240:sidebar+(id==MenuSidebarWider?32:-32));save_sidebar();}
+  else if(id==MenuLanguageEnglish||id==MenuLanguageChinese){
+    if(!ui::save_language(id==MenuLanguageChinese?ui::Language::simplified_chinese:ui::Language::english))status=ui::tr(L"The language preference could not be saved. Try again.");
+    else {status=ui::preferred_language==ui::language?ui::tr(L"Language preference saved."):ui::tr(L"Restart Xenon to apply the selected language. Save unfinished website work before exiting.");
+      if(ui::preferred_language!=ui::language)MessageBoxW(window,status.c_str(),L"Language / 语言",MB_OK|MB_ICONINFORMATION);}
+  }
   else if(id==MenuExit)SendMessageW(window,WM_CLOSE,0,0);
   InvalidateRect(window,nullptr,FALSE);
-}catch(...){status=L"The browser action could not be completed. Existing data is preserved.";InvalidateRect(window,nullptr,FALSE);}}
+}catch(...){status=ui::tr(L"The browser action could not be completed. Existing data is preserved.");InvalidateRect(window,nullptr,FALSE);}}
 void BrowserShell::Impl::panel(const std::string& kind,const std::string& description,std::function<void(bool)> answer,const std::string& source_tab){
   if(kind=="permission"&&std::count_if(panels.begin(),panels.end(),[](const auto& panel){return panel->kind=="permission"&&panel->window;})>=8){if(answer)answer(false);return;}
   auto panel=std::make_unique<Panel>();panel->owner=this;panel->kind=kind;panel->workspace=workspace();panel->private_mode=is_private();panel->tab=source_tab.empty()?selected:source_tab;panel->answer=std::move(answer);auto raw=panel.get();panels.push_back(std::move(panel));
-  const auto title=ui::wide(kind=="permission"?"Website permission request":kind=="bookmarks"?"Xenon Bookmarks":kind=="history"?"Xenon History":kind=="downloads"?"Xenon Downloads":kind=="site"?"Xenon Site Permissions":kind=="notices"?"Xenon Third-party Notices":"About Xenon");
+  const auto title=ui::wide(kind=="permission"?ui::tr8("Website permission request"):kind=="bookmarks"?ui::tr8("Xenon Bookmarks"):kind=="history"?ui::tr8("Xenon History"):kind=="downloads"?ui::tr8("Xenon Downloads"):kind=="site"?ui::tr8("Xenon Site Permissions"):kind=="notices"?ui::tr8("Xenon Third-party Notices"):ui::tr8("About Xenon"));
   CreateWindowExW(0,L"XenonBrowserPanel",title.c_str(),WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,780,480,window,nullptr,branding_module(),raw);
   if(!description.empty())SetWindowTextW(raw->message,ui::wide(description).c_str());ShowWindow(raw->window,kind=="permission"?SW_SHOWNOACTIVATE:SW_SHOW);
 }
@@ -320,22 +332,22 @@ LRESULT CALLBACK BrowserShell::Impl::panel_proc(HWND h,UINT message,WPARAM wp,LP
   if(message==WM_NCCREATE){panel=static_cast<Panel*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);panel->window=h;SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(panel));}if(!panel)return DefWindowProcW(h,message,wp,lp);auto owner=panel->owner;
   LRESULT result{};if(ui::list_draw(message,wp,lp,h,result)||ui::ctl_color(message,wp,lp,result))return result;
   if(message==WM_CREATE){panel->font=ui::font(h);ui::icons(h);auto make=[&](int id,const wchar_t* type,const wchar_t* text,DWORD style){auto control=CreateWindowExW(0,type,text,WS_CHILD|WS_VISIBLE|style,0,0,10,10,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),branding_module(),nullptr);SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(panel->font),TRUE);ui::control_theme(control);return control;};
-    panel->message=make(10,L"STATIC",L"",SS_LEFT);make(1,L"BUTTON",panel->kind=="permission"?L"Allow":panel->kind=="site"?L"Reset site permissions":L"Open selected",BS_OWNERDRAW|WS_TABSTOP);
-    make(2,L"BUTTON",panel->kind=="permission"?L"Deny":panel->kind=="bookmarks"?L"Remove bookmark":L"Close",BS_OWNERDRAW|WS_TABSTOP);
+    panel->message=make(10,L"STATIC",L"",SS_LEFT);make(1,L"BUTTON",panel->kind=="permission"?ui::tr(L"Allow"):panel->kind=="site"?ui::tr(L"Reset site permissions"):ui::tr(L"Open selected"),BS_OWNERDRAW|WS_TABSTOP);
+    make(2,L"BUTTON",panel->kind=="permission"?ui::tr(L"Deny"):panel->kind=="bookmarks"?ui::tr(L"Remove bookmark"):ui::tr(L"Close"),BS_OWNERDRAW|WS_TABSTOP);
     const bool listing=panel->kind=="bookmarks"||panel->kind=="history"||panel->kind=="downloads";
     if(listing){panel->list=make(11,WC_LISTVIEWW,L"",LVS_REPORT|LVS_SINGLESEL|WS_TABSTOP|WS_BORDER);ListView_SetExtendedListViewStyle(panel->list,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER);
       auto colors=ui::palette();ListView_SetBkColor(panel->list,colors.canvas);ListView_SetTextBkColor(panel->list,colors.canvas);ListView_SetTextColor(panel->list,colors.ink);
-      LVCOLUMNW column{};column.mask=LVCF_TEXT|LVCF_WIDTH;column.cx=220;column.pszText=const_cast<LPWSTR>(panel->kind=="downloads"?L"Name":L"Title");ListView_InsertColumn(panel->list,0,&column);column.cx=460;column.pszText=const_cast<LPWSTR>(panel->kind=="downloads"?L"Status / bytes":L"URL");ListView_InsertColumn(panel->list,1,&column);
+      LVCOLUMNW column{};column.mask=LVCF_TEXT|LVCF_WIDTH;column.cx=220;column.pszText=const_cast<LPWSTR>(panel->kind=="downloads"?ui::tr(L"Name"):ui::tr(L"Title"));ListView_InsertColumn(panel->list,0,&column);column.cx=460;column.pszText=const_cast<LPWSTR>(panel->kind=="downloads"?ui::tr(L"Status / bytes"):L"URL");ListView_InsertColumn(panel->list,1,&column);
       if(panel->kind=="downloads"){for(const auto& tab:owner->engine.native_tabs())if(str(tab,"workspaceId")==panel->workspace){owner->engine.execute("files.downloads",{{"workspaceId",panel->workspace}},[panel](Json value){if(value.value("ok",false))panel->rows=value["result"]["downloads"];});break;}ShowWindow(GetDlgItem(h,1),SW_HIDE);}
       else panel->rows=owner->data.list(panel->workspace,panel->private_mode)[panel->kind];
       int index=0;for(const auto& row:panel->rows){auto title=ui::wide(str(row,panel->kind=="downloads"?"name":"title"));LVITEMW item{};item.mask=LVIF_TEXT;item.iItem=index;item.pszText=title.data();ListView_InsertItem(panel->list,&item);
-        auto detail=panel->kind=="downloads"?std::wstring(row.value("complete",false)?L"Complete":row.value("canceled",false)?L"Canceled":L"Downloading")+L" · "+std::to_wstring(row.value("receivedBytes",uint64_t{}))+L" bytes":ui::wide(str(row,"url"));ListView_SetItemText(panel->list,index++,1,detail.data());}
-      SetWindowTextW(panel->message,ui::wide("Workspace: "+(owner->workspace_names.contains(panel->workspace)?owner->workspace_names[panel->workspace]:panel->workspace)).c_str());
-    }else if(panel->kind=="about"){SetWindowTextW(panel->message,ui::wide(std::string("Xenon Browser\n")+std::string(kVersion)+"\n\nA local browser for people and MCP agents.\nCEF supplies the sandboxed web engine.\n\nThird-party licenses and notices are available from the Menu.").c_str());ShowWindow(GetDlgItem(h,1),SW_HIDE);}
+        auto detail=panel->kind=="downloads"?std::wstring(row.value("complete",false)?ui::tr(L"Complete"):row.value("canceled",false)?ui::tr(L"Canceled"):ui::tr(L"Downloading"))+L" · "+std::to_wstring(row.value("receivedBytes",uint64_t{}))+ui::tr(L" bytes"):ui::wide(str(row,"url"));ListView_SetItemText(panel->list,index++,1,detail.data());}
+      SetWindowTextW(panel->message,ui::wide(ui::tr8("Workspace: ")+(owner->workspace_names.contains(panel->workspace)?owner->workspace_names[panel->workspace]:panel->workspace)).c_str());
+    }else if(panel->kind=="about"){SetWindowTextW(panel->message,ui::wide(std::string(ui::tr8("Xenon Browser\n"))+std::string(kVersion)+ui::tr8("\n\nA local browser for people and MCP agents.\nCEF supplies the sandboxed web engine.\n\nThird-party licenses and notices are available from the Menu.")).c_str());ShowWindow(GetDlgItem(h,1),SW_HIDE);}
     else if(panel->kind=="notices"){wchar_t module[32768]{};GetModuleFileNameW(nullptr,module,32768);const auto directory=std::filesystem::path(module).parent_path();std::string notice;for(const auto& name:{"THIRD_PARTY_NOTICES.md","CEF-LICENSE.txt","NOTICE"}){auto file=directory/name;if(!std::filesystem::exists(file))file=std::filesystem::path(name);if(std::filesystem::exists(file)&&std::filesystem::file_size(file)<1024*1024){std::ifstream input(file);notice.append(std::istreambuf_iterator<char>(input),{});notice+="\n\n";}}
       if(notice.empty())notice="Xenon: Apache License 2.0.\nCEF and Chromium: see CEF-LICENSE.txt and Chromium-CREDITS.html beside Xenon.exe.\nSQLite: public domain. nlohmann/json: MIT.\nMCP SDK: MIT.";
-      DestroyWindow(panel->message);panel->message=make(10,L"EDIT",ui::wide(notice).c_str(),ES_MULTILINE|ES_READONLY|WS_VSCROLL|WS_TABSTOP);SetWindowTextW(GetDlgItem(h,1),L"Open engine credits");EnableWindow(GetDlgItem(h,1),std::filesystem::is_regular_file(directory/L"Chromium-CREDITS.html"));}
-    else if(panel->kind=="site"){auto found=owner->hosts.find(panel->tab);const auto url=found==owner->hosts.end()?"":str(found->second.metadata,"url");SetWindowTextW(panel->message,ui::wide("Site: "+url+"\n\nCamera, microphone, location and notification requests use native approval prompts.\nReset clears remembered permissions for this HTTPS origin.\nBrowser and workspace permissions are configured in Controls.").c_str());}
+      DestroyWindow(panel->message);panel->message=make(10,L"EDIT",ui::wide(notice).c_str(),ES_MULTILINE|ES_READONLY|WS_VSCROLL|WS_TABSTOP);SetWindowTextW(GetDlgItem(h,1),ui::tr(L"Open engine credits"));EnableWindow(GetDlgItem(h,1),std::filesystem::is_regular_file(directory/L"Chromium-CREDITS.html"));}
+    else if(panel->kind=="site"){auto found=owner->hosts.find(panel->tab);const auto url=found==owner->hosts.end()?"":str(found->second.metadata,"url");SetWindowTextW(panel->message,ui::wide(ui::tr8("Site: ")+url+ui::tr8("\n\nCamera, microphone, location and notification requests use native approval prompts.\nReset clears remembered permissions for this HTTPS origin.\nBrowser and workspace permissions are configured in Controls.")).c_str());}
     return 0;
   }
   if(message==WM_SIZE){RECT rect{};GetClientRect(h,&rect);auto d=[&](int value){return ui::dip(h,value);};MoveWindow(panel->message,d(16),d(14),rect.right-d(32),panel->list?d(35):rect.bottom-d(80),TRUE);if(panel->list)MoveWindow(panel->list,d(16),d(56),rect.right-d(32),rect.bottom-d(120),TRUE);MoveWindow(GetDlgItem(h,1),d(16),rect.bottom-d(48),d(200),d(30),TRUE);MoveWindow(GetDlgItem(h,2),rect.right-d(176),rect.bottom-d(48),d(160),d(30),TRUE);return 0;}
@@ -346,7 +358,7 @@ LRESULT CALLBACK BrowserShell::Impl::panel_proc(HWND h,UINT message,WPARAM wp,LP
     if(panel->kind=="permission"){panel->answered=true;if(panel->answer)panel->answer(id==1);DestroyWindow(h);return 0;}
     if(id==2&&panel->kind!="bookmarks"){DestroyWindow(h);return 0;}
     if(panel->kind=="notices"&&id==1){wchar_t module[32768]{};GetModuleFileNameW(nullptr,module,32768);const auto credits=std::filesystem::path(module).parent_path()/L"Chromium-CREDITS.html";if(std::filesystem::is_regular_file(credits))ShellExecuteW(h,L"open",credits.c_str(),nullptr,nullptr,SW_SHOWNORMAL);return 0;}
-    if(panel->kind=="site"&&id==1){owner->engine.native_command(panel->tab,"site-reset",{},[panel](Json value){if(panel->window)SetWindowTextW(panel->message,value.value("ok",false)?L"Remembered site permissions reset.":L"Site permissions could not be reset.");});return 0;}
+    if(panel->kind=="site"&&id==1){owner->engine.native_command(panel->tab,"site-reset",{},[panel](Json value){if(panel->window)SetWindowTextW(panel->message,value.value("ok",false)?ui::tr(L"Remembered site permissions reset."):ui::tr(L"Site permissions could not be reset."));});return 0;}
     const int index=panel->list?ListView_GetNextItem(panel->list,-1,LVNI_SELECTED):-1;
     if(index>=0&&static_cast<size_t>(index)<panel->rows.size()){const auto row=panel->rows[index];if(id==1){owner->engine.native_command(owner->selected,"navigate",str(row,"url"));DestroyWindow(h);}
       else if(panel->kind=="bookmarks"&&owner->data.remove_bookmark(panel->workspace,panel->private_mode,str(row,"url"))){panel->rows.erase(panel->rows.begin()+index);ListView_DeleteItem(panel->list,index);}}
@@ -361,16 +373,16 @@ LRESULT CALLBACK BrowserShell::Impl::panel_proc(HWND h,UINT message,WPARAM wp,LP
 BrowserShell::BrowserShell(Broker& broker,CefEngine& engine,const std::filesystem::path& root):impl_(std::make_unique<Impl>(broker,engine,root)){
   INITCOMMONCONTROLSEX common{sizeof(common),ICC_TREEVIEW_CLASSES|ICC_LISTVIEW_CLASSES};InitCommonControlsEx(&common);
   for(const auto& [name,proc]:std::vector<std::pair<const wchar_t*,WNDPROC>>{{L"XenonBrowserShell",Impl::proc},{L"XenonTabHost",Impl::host_proc},{L"XenonAgentCursor",Impl::cursor_proc},{L"XenonBrowserPanel",Impl::panel_proc}}){WNDCLASSW type{};type.style=wcscmp(name,L"XenonBrowserShell")==0?CS_DBLCLKS:0;type.lpfnWndProc=proc;type.hInstance=branding_module();type.lpszClassName=name;type.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&type);}
-  CreateWindowExW(0,L"XenonBrowserShell",L"Xenon Browser",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1200,800,nullptr,nullptr,branding_module(),impl_.get());
+  CreateWindowExW(0,L"XenonBrowserShell",ui::tr(L"Xenon Browser"),WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,1200,800,nullptr,nullptr,branding_module(),impl_.get());
   if(!impl_->window||!IsWindow(impl_->window))throw std::runtime_error("Cannot create native browser shell");
-  impl_->cursor=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,L"XenonAgentCursor",L"Agent pointer",WS_POPUP,0,0,25,30,impl_->window,nullptr,branding_module(),impl_.get());SetLayeredWindowAttributes(impl_->cursor,RGB(255,0,255),255,LWA_COLORKEY);
+  impl_->cursor=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,L"XenonAgentCursor",ui::tr(L"Agent pointer"),WS_POPUP,0,0,25,30,impl_->window,nullptr,branding_module(),impl_.get());SetLayeredWindowAttributes(impl_->cursor,RGB(255,0,255),255,LWA_COLORKEY);
   SetWindowSubclass(impl_->address,Impl::edit_proc,1,reinterpret_cast<DWORD_PTR>(impl_.get()));SetWindowSubclass(impl_->find_text,Impl::edit_proc,2,reinterpret_cast<DWORD_PTR>(impl_.get()));
 }
 BrowserShell::~BrowserShell(){impl_->data.flush();for(auto& panel:impl_->panels)if(panel->window)DestroyWindow(panel->window);if(impl_->cursor)DestroyWindow(impl_->cursor);if(impl_->window)DestroyWindow(impl_->window);if(impl_->font)DeleteObject(impl_->font);}
 void BrowserShell::show(){ShowWindow(impl_->window,SW_SHOWNORMAL);SetWindowPos(impl_->window,nullptr,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_SHOWWINDOW);SetForegroundWindow(impl_->window);}
 void BrowserShell::request_exit(){PostMessageW(impl_->window,WM_CLOSE,0,0);}
 HWND BrowserShell::create_host(const std::string& workspace,const std::string& id,bool human){if(auto found=impl_->hosts.find(id);found!=impl_->hosts.end())return found->second.window;
-  Impl::Host host;host.id=id;host.workspace=workspace;host.human=human;host.window=CreateWindowExW(0,L"XenonTabHost",L"Web page",WS_CHILD|WS_VISIBLE|WS_CLIPCHILDREN|WS_CLIPSIBLINGS,0,0,100,100,impl_->window,nullptr,branding_module(),nullptr);
+  Impl::Host host;host.id=id;host.workspace=workspace;host.human=human;host.window=CreateWindowExW(0,L"XenonTabHost",ui::tr(L"Web page"),WS_CHILD|WS_VISIBLE|WS_CLIPCHILDREN|WS_CLIPSIBLINGS,0,0,100,100,impl_->window,nullptr,branding_module(),nullptr);
   if(!host.window)return nullptr;impl_->hosts.emplace(id,std::move(host));impl_->order.push_back(id);impl_->layout();
   SetWindowPos(impl_->hosts.at(id).window,HWND_BOTTOM,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
   if(human||impl_->selected.empty())impl_->choose(id,false);return impl_->hosts.at(id).window;
@@ -405,7 +417,7 @@ bool BrowserShell::pretranslate(MSG& message){
   for(const auto& [id,control]:impl_->controls)if(message.hwnd==control)return IsDialogMessageW(impl_->window,&message)!=FALSE;
   return false;
 }
-void BrowserShell::permission(const std::string& tab,const std::string& origin,const std::string& description,std::function<void(bool)> answer){impl_->panel("permission","Website: "+origin+"\n\nRequested access: "+description+"\n\nAllow only if you intended to give this website access.",std::move(answer),tab);}
+void BrowserShell::permission(const std::string& tab,const std::string& origin,const std::string& description,std::function<void(bool)> answer){impl_->panel("permission",ui::tr8("Website: ")+origin+ui::tr8("\n\nRequested access: ")+description+ui::tr8("\n\nAllow only if you intended to give this website access."),std::move(answer),tab);}
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
 void BrowserShell::fixture_snapshot(const std::filesystem::path& destination){impl_->fixture_snapshot(destination);}
 void BrowserShell::Impl::fixture_snapshot(const std::filesystem::path& destination){

@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.1.0-alpha.15
+
+New installations start with **English / 简体中文** selection and a short native tour of browsing, tabs, workspaces and agent controls. The chosen language applies before the first browser tab opens. The tour supports Previous, Next and Skip, remembers completion, and links to the GitHub getting-started guide. **Menu → Quick tour** reopens it; **Menu → GitHub documentation** opens a new Personal tab.
+
+The native shell, Controls, configuration, saved-account prompts, file permissions and update UI now support Simplified Chinese. Later language changes use **Menu → Language / 语言** and apply after restart. Website content and user-provided names retain their original text. Blank-tab labels use the selected language throughout creation and navigation.
+
+This release also includes the rendered-observation fix for decorative box shadows, expanded English and Chinese READMEs, and the original logo artwork. The observation filter preserves hidden-content exclusion and stale-target checks; see the [candidate evidence](test-results/greenhouse-observation-fix.json).
+
+The Windows x64 installer and portable ZIP remain unsigned prerelease artifacts. Runtime dependencies are unchanged. See [installation](GETTING_STARTED.md) and the [alpha.15 validation scope](TESTING.md#alpha15-release-validation).
+
 ## 0.1.0-alpha.14
 
 Tabs now have visible **X** buttons and middle-click closure, alongside **Ctrl+W** and sidebar **Delete**. Closing the last tab preserves its workspace. Empty saved workspaces remain in the sidebar after restart; selecting one opens a blank human-owned tab without automatically reloading old pages.
