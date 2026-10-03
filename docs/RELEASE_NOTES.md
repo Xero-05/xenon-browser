@@ -1,5 +1,11 @@
 # Release notes
 
+## 0.1.0-alpha.16
+
+Ordinary `brightness(0.6)` hover styling now preserves rendered control references, including Greenhouse Resume/CV and Cover Letter **Attach** buttons. Previously each hover failed as stale and removed unrelated visible controls; both now retain their references and the page's 33 observed nodes. Supported brightness darkening uses conservative text contrast bounds, while unsupported effects and darkened frame embeddings remain withheld. Hidden-content exclusion and post-pointer-move target validation remain enforced.
+
+The Windows x64 installer and portable ZIP remain unsigned prerelease artifacts. Runtime dependencies are unchanged. The [original reproduction and candidate checks](test-results/greenhouse-hover-fix.json) retain their alpha.15 binary hashes; [alpha.16 validation](TESTING.md#alpha16-release-validation) records checks on the rebuilt release. Synthetic uploads verify the approved-file path; a real employer upload remains unverified.
+
 ## 0.1.0-alpha.15
 
 New installations start with **English / 简体中文** selection and a short native tour of browsing, tabs, workspaces and agent controls. The chosen language applies before the first browser tab opens. The tour supports Previous, Next and Skip, remembers completion, and links to the GitHub getting-started guide. **Menu → Quick tour** reopens it; **Menu → GitHub documentation** opens a new Personal tab.

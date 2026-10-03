@@ -2,6 +2,12 @@
 
 Xenon is a Windows x64 development alpha. The attached test records distinguish exercised behavior from inherited Chromium features and remaining manual coverage. They are not an independent security audit or a production reliability certification.
 
+## Alpha.16 release validation
+
+Alpha.16 packages the brightness-hover reference fix. The [release validation record](test-results/alpha16-validation.json) binds the full Release build, native and adapter checks, hidden-content and hover regressions, synthetic file transfer and isolated installer lifecycle checks to the rebuilt alpha.16 binaries. The public Greenhouse check uses normal MCP observation, screenshots, scrolling and two successive Attach hovers in a disposable profile; it preserves all 33 observed nodes and both Attach references.
+
+Real employer uploads, physical UI acceptance and the full theme/DPI/permission matrix remain unverified. Earlier tour, authentication, autofill and lifecycle evidence retains its original binary hashes. Package smoke and publication evidence are recorded separately after assembly; unsigned hashes establish byte integrity, not publisher identity.
+
 ## Alpha.15 release validation
 
 Alpha.15 includes the first-run tour, Simplified Chinese native interface and decorative-shadow observation fix. The [release validation record](test-results/alpha15-validation.json) binds a full Release build, 11 native groups, 90 adapter/fixed-script checks, 18 bootstrap checks, five branding checks, 47 isolated installer checks and 48 serial live checks to the alpha.15 binaries. The live suites cover introduction and language persistence, immediate renderer locale, duplicate startup and cancellation, Menu replay and documentation navigation, MCP isolation and handoff, rendered visibility and synthetic uploads.

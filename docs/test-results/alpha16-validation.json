@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.16",
+  "capturedUtc": "2026-10-03T15:23:18.260Z",
+  "baseCommit": "01464a7ac933115c5e6618fdfe44114f7ebdb7f1",
+  "stage": "Unsigned release candidate; package and publication verified separately",
+  "passed": true,
+  "binaries": {
+    "executable": "38374359c9623d57e0118300722e783a2e14f7733eb4b8d3e015d4de9ac34e5a",
+    "productionDll": "30ed558b631021cb7d63d313de7e03a3e400af9d7079d323e06e4276eb83714f",
+    "authTestDll": "c6cebe5fe7e0f7b635706cb35b84b2398f2c2955d03c8d339f318a744f1212a3",
+    "libcef": "e73aeafbd0c1f7169f3d0b2fb78f385cba7f00d7bf93b2cfbdcd82fe9980e6b6"
+  },
+  "sourceSha256": {
+    "VERSION": "d5d967a5776ba1a0b1ccaf06c6ea56764c9e102eb9cabd1f1fb379aff6c6f7aa",
+    "package.json": "ab2ce8cdd77e2f77d615a68c50652dbf71134604231abef51b2d40cd09a63df8",
+    "package-lock.json": "49af7bc1d1573af97ac1c7b4f4e5e11f92f10b546ddd5940a8343ac98b56ed8f",
+    "adapter/src/server.ts": "d0fed0a12ecd9d046f1226d22c7245304eb4dd42abf1f987ba1c7c6415e7454f",
+    "native/src/visible_evidence.cpp": "34f32e1729fe9566bde6fa2225d65e4e85c866b9fe1663aa34ea20da3074117c",
+    "tests/native/visible_evidence_tests.cpp": "1483bdf2d44647b942e69bf05882b2a6cded0fed8b034c03eb99dacf4dcca2d2",
+    "tests/fixtures/visibility-fixture.mjs": "dd319ca9c2ef6fe7f403c4d60cb7f0bee717cb755a04582faaa198bfc4410703",
+    "tests/visibility-integration.mjs": "05f704c4411fa972733284ff79ffa5b6b027d7468e030436389ba3be199b7b85",
+    "tests/upload-entry-integration.mjs": "51d7c1dd971b2031484f4fbbfd56849148e42ebba6b016a6b8313d0e07f92f0c"
+  },
+  "dependencyPins": {
+    "cef": {
+      "version": "154.0.33+ga03e714+chromium-154.0.8037.94",
+      "archive": "cef_binary_154.0.33+ga03e714+chromium-154.0.8037.94_windows64_minimal.tar.bz2",
+      "sha1": "fced8a0428b7ef68d0df5e288281c673798d3071",
+      "sha256": "a211b8f10a99d1db49afd5b7d9fa7ab3222ebc6ea3026b31c3c9431e7d4a5ac2"
+    },
+    "sqlite": {
+      "version": "3.53.4",
+      "url": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip",
+      "sha256": "1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d"
+    },
+    "json": {
+      "version": "3.12.0",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp",
+      "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+    },
+    "node": {
+      "version": "24.16.0",
+      "sha256": "edaca9bd58ec8e92037dac4e877d52f6b8f430b81c18b57e264b4e2fb111cd56"
+    }
+  },
+  "cefMaintenance": {
+    "checkedUtc": "2026-10-03T15:18:47.713Z",
+    "index": "https://cef-builds.spotifycdn.com/index.json",
+    "pinnedCef": "154.0.33+ga03e714+chromium-154.0.8037.94",
+    "observedStableCef": "154.0.33+ga03e714+chromium-154.0.8037.94",
+    "observedStableChromium": "154.0.8037.94",
+    "scope": "Pinned CEF matches the observed complete Windows x64 stable index entry. Chromium maintenance caveats remain documented.",
+    "chromeSecurityReference": "https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop.html",
+    "observedWindowsChromeStable": "154.0.8037.97/.98",
+    "securityScope": "The pinned complete Windows x64 CEF distribution matches the stable CEF index but is behind the cited Chrome security release. This release does not claim all current Chrome security fixes."
+  },
+  "automated": {
+    "fullReleaseBuild": true,
+    "nativeGroups": 11,
+    "adapterTypecheck": true,
+    "adapterAndFixedScriptChecks": 90,
+    "bootstrapChecks": 18,
+    "brandingChecks": 5,
+    "isolatedInstallerChecks": 47,
+    "diffWhitespaceCheck": true
+  },
+  "live": {
+    "serial": true,
+    "checks": 21,
+    "suites": [
+      {
+        "name": "visibility-integration",
+        "run": "visibility-integration-1791040875879-3d1845f6",
+        "capturedAt": "2026-10-03T15:21:25.290Z",
+        "applicationDllSha256": "30ed558b631021cb7d63d313de7e03a3e400af9d7079d323e06e4276eb83714f",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+            "passed": true
+          },
+          {
+            "name": "Brightness hover keeps both rendered controls and their references usable",
+            "passed": true
+          },
+          {
+            "name": "Visible button text remains actionable despite hostile accessibility labels",
+            "passed": true
+          },
+          {
+            "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+            "passed": true
+          },
+          {
+            "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+            "passed": true
+          },
+          {
+            "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+            "passed": true
+          },
+          {
+            "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+            "passed": true
+          },
+          {
+            "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+            "passed": true
+          },
+          {
+            "name": "Visible generated content is represented or explicitly marked incomplete",
+            "passed": true
+          },
+          {
+            "name": "Hidden-only text cannot satisfy observation queries or waits",
+            "passed": true
+          },
+          {
+            "name": "Visible page instructions remain untrusted content without instruction authority",
+            "passed": true
+          }
+        ],
+        "method": "Production browser and real MCP adapter; synthetic disposable profile and website"
+      },
+      {
+        "name": "upload-entry-integration",
+        "run": "upload-entry-1791040885488-7d4a4830",
+        "capturedAt": "2026-10-03T15:21:37.742Z",
+        "applicationDllSha256": "30ed558b631021cb7d63d313de7e03a3e400af9d7079d323e06e4276eb83714f",
+        "passed": true,
+        "checks": [
+          {
+            "name": "Visible direct file input transfers only an approved opaque file",
+            "passed": true
+          },
+          {
+            "name": "Approved file follows trusted custom upload entry",
+            "passed": true
+          },
+          {
+            "name": "Approved file follows trusted cross-frame upload entry",
+            "passed": true
+          },
+          {
+            "name": "A brightness-styled hover preserves the approved upload entry",
+            "passed": true
+          },
+          {
+            "name": "A visible button without a file chooser cannot receive a file",
+            "passed": true
+          },
+          {
+            "name": "Invalid and cross-workspace grants are denied before entry activation",
+            "passed": true
+          },
+          {
+            "name": "A changed visible upload entry rejects its stale reference before input",
+            "passed": true
+          },
+          {
+            "name": "A multiple-file chooser receives only the one approved file",
+            "passed": true
+          },
+          {
+            "name": "Disabled controls and directory pickers cannot transfer files",
+            "passed": true
+          },
+          {
+            "name": "A parent entry cannot delegate its file grant to a different frame",
+            "passed": true
+          }
+        ],
+        "method": "Production browser and real MCP adapter; synthetic disposable profile and website"
+      }
+    ],
+    "publicGreenhouse": {
+      "capturedAt": "2026-10-03T15:21:52.693Z",
+      "applicationDllSha256": "30ed558b631021cb7d63d313de7e03a3e400af9d7079d323e06e4276eb83714f",
+      "passed": true,
+      "hoverOperations": 2,
+      "sameDocumentThroughout": true,
+      "url": "https://job-boards.greenhouse.io/abcellera/jobs/8006394003",
+      "hoverResults": [
+        {
+          "label": "resume-hover",
+          "isError": false
+        },
+        {
+          "label": "cover-hover",
+          "isError": false
+        }
+      ],
+      "observations": [
+        {
+          "label": "initial",
+          "nodes": 36,
+          "attachRefs": 0,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 290,
+            "unprovenTextGeometry": 58,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 0,
+            "width": 913
+          }
+        },
+        {
+          "label": "before-hover",
+          "nodes": 33,
+          "attachRefs": 2,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 300,
+            "unprovenTextGeometry": 59,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 410,
+            "width": 913
+          }
+        },
+        {
+          "label": "resume-hover",
+          "nodes": 33,
+          "attachRefs": 2,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 300,
+            "unprovenTextGeometry": 59,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 410,
+            "width": 913
+          }
+        },
+        {
+          "label": "cover-hover",
+          "nodes": 33,
+          "attachRefs": 2,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 300,
+            "unprovenTextGeometry": 59,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 410,
+            "width": 913
+          }
+        },
+        {
+          "label": "pointer-away",
+          "nodes": 33,
+          "attachRefs": 2,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 300,
+            "unprovenTextGeometry": 59,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 410,
+            "width": 913
+          }
+        }
+      ],
+      "method": "Normal MCP adapter: observation, screenshots, scroll 410 CSS pixels, fresh-reference Attach hovers and pointer-away hover; no fields filled or files sent"
+    }
+  },
+  "retainedEvidence": {
+    "candidate": "docs/test-results/greenhouse-hover-fix.json",
+    "scope": "Original alpha.15 failure reproduction, initial candidate hashes and preliminary failed fixture records are preserved separately."
+  },
+  "limits": [
+    "Public Greenhouse check sent no applicant data or files and did not submit an application or interact with CAPTCHA; a real employer upload remains unverified",
+    "No production upgrade was installed over the user copy; installer lifecycle tests use synthetic payloads and separate test identities",
+    "Physical UI, complete theme/DPI/permission checks and tour/authentication/autofill/lifecycle live suites were not repeated on alpha.16; previous records retain their original binary hashes",
+    "Unsigned hashes establish byte integrity, not publisher identity"
+  ],
+  "privacy": "Only sanitized counts, outcomes and binary/source hashes are tracked; no pairing tokens, profiles, raw calls, browsing logs or screenshots"
+}
