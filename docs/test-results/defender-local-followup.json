@@ -1,0 +1,105 @@
+{
+  "capturedAt": "2026-10-03T08:24:55.397Z",
+  "basedOnCommit": "2ddb228b2ac02dc37e3b090b70c7b4c24c7fb49b",
+  "scope": "Local-only diagnostic scans and isolated Windows UI checks; no production malware-clearance verdict",
+  "overallAcceptance": "incomplete: production launcher detection remains unresolved",
+  "previousRecord": "navigation-fixes.json",
+  "defender": {
+    "platformVersion": "4.18.26080.4",
+    "signatureVersion": "1.459.530.0",
+    "signatureUpdatedAt": "2026-10-02T18:17:23-07:00",
+    "antivirusEnabledBeforeAndAfter": true,
+    "realTimeProtectionEnabledBeforeAndAfter": true,
+    "scanArguments": ["-Scan", "-ScanType", "3", "-File", "<artifact>", "-DisableRemediation"],
+    "scanMode": "Custom diagnostic scan; includes archive contents, ignores exclusions, applies no scan remediation; real-time protection remains active",
+    "scans": [
+      {
+        "artifact": "Published alpha.12 Windows ZIP",
+        "sha256": "3b2e69c403bfb0616ff6e4def210177342712297adbd278cbb7400656ff91fde",
+        "exitCode": 2,
+        "threatCount": 1,
+        "detectedMember": "Xenon.exe",
+        "detectedMemberSha256": "d84b27c99384dc5461776094c808ba284aade61177f769988c2f4d76dee3d26b",
+        "detection": "Trojan:Win32/Bearfoos.A!ml"
+      },
+      {
+        "artifact": "Original pinned CEF bootstrap.exe",
+        "sha256": "42151bee2597ea056289c59026b49c27f84110332a80f9abc4b0f0fbf7c380ac",
+        "exitCode": 0,
+        "result": "No threats reported"
+      },
+      {
+        "artifact": "Current production Xenon.dll",
+        "sha256": "2725db76ad1534c6c6adb88dceddef36f2f1ed0473556358fd35561f9fa64f3c",
+        "exitCode": 0,
+        "result": "No threats reported"
+      },
+      {
+        "artifact": "Existing unshipped XenonAuthTest.exe",
+        "sha256": "0480930585cfd7a10d747d120da5316d3900218451cee9d3c9568ac3f680be1c",
+        "exitCode": 0,
+        "result": "No threats reported"
+      },
+      {
+        "artifact": "Current unshipped XenonAuthTest.dll",
+        "sha256": "eb175352d6cceca48a9153c7b63120eeef11cfafa24032705e91dd9ed6791401",
+        "exitCode": 0,
+        "result": "No threats reported"
+      }
+    ],
+    "retainedDiagnosticFailures": [
+      "Initial original-bootstrap scan with a non-native path returned 0x80508023; native Windows path retry succeeded",
+      "Exclusion query returned 0x80070005 access denied; no independent exclusion-list verification claimed",
+      "Restricted-runner end-of-test Defender status query was denied; ordinary interactive-user retry confirmed enabled protection"
+    ],
+    "settingsChanged": false,
+    "exclusionsAdded": false,
+    "detectedFilesRestored": false,
+    "detectedExecutableWrittenFromArchive": false,
+    "sampleOrReportSubmitted": false,
+    "falsePositiveVerdict": false
+  },
+  "uiCheck": {
+    "method": "Computer Use Windows input injection and screenshots; loopback HTTP server requests and native fixture state provide supporting observations",
+    "target": "Existing separately built, unshipped XenonAuthTest",
+    "exeSha256BeforeAndAfter": "0480930585cfd7a10d747d120da5316d3900218451cee9d3c9568ac3f680be1c",
+    "dllSha256BeforeAndAfter": "eb175352d6cceca48a9153c7b63120eeef11cfafa24032705e91dd9ed6791401",
+    "productionDllSha256": "2725db76ad1534c6c6adb88dceddef36f2f1ed0473556358fd35561f9fa64f3c",
+    "disposableMarkedProfile": true,
+    "loopbackOnly": true,
+    "theme": "dark",
+    "dpi": 96,
+    "requestedFixturePaths": ["/enter-after", "/go-after"],
+    "otherRequests": "Two favicon requests; no additional document requests after the UI changes",
+    "observations": [
+      "Enter loaded /enter-after; the rendered heading/path and server request agreed",
+      "Go loaded /go-after without replacing the typed address; rendered content and server request agreed",
+      "Ctrl+L selected the address field; Ctrl+F opened Find; Enter highlighted the fixture sentence; Escape closed Find",
+      "Ctrl+T opened a second human-owned blank tab",
+      "A non-page sidebar drag ending over the background tab produced subtle gray feedback while keeping the blank tab selected",
+      "Workspace collapse used a right chevron; expansion used a down chevron and kept both tab hosts",
+      "Mouse selection displayed the connected selected tab and no dashed focus box",
+      "Sidebar resizing from 240 to 290 logical pixels retained synthetic form text and the current document",
+      "Captured selected-page frame corners were intact after resizing",
+      "Controls Workspaces showed the tab-table headers and gray selections without dashed focus boxes",
+      "Closing Controls preserved the selected page and synthetic form text",
+      "Native browser exit completed; saved settings retained Dark mode and sidebar width 290"
+    ],
+    "fixtureProcessExitCode": 0,
+    "computerUseReset": true,
+    "realProfilesOrAccountsUsed": false,
+    "productionBrowserLaunched": false
+  },
+  "newProductionLiveSuitesRun": false,
+  "newReleasePackaged": false,
+  "releaseAssetsChanged": false,
+  "limits": [
+    "No-threat scan results and resource/code provenance do not establish malware clearance or the cause of the production detection",
+    "AuthTest is compile-time gated fixture software and cannot ship or substitute for production browsing",
+    "Windows UI input injection is not physical mouse/keyboard-device coverage",
+    "Still captures do not prove continuous divider hover or dragging is flicker-free",
+    "Background-tab feedback was observed during a non-page drag; ordinary hover-only pause rules were not tested in this run",
+    "No new Light/System, high-contrast, multiple-DPI/monitor, ownership/handoff, full menu/dialog or arbitrary website acceptance coverage",
+    "The earlier failed production branding record remains historical and unchanged"
+  ]
+}

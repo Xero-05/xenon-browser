@@ -4,7 +4,7 @@
 
 Address and Find command keys now reach their native handlers before Windows dialog translation. Toolbar refresh preserves an address draft when focus moves to Go. Frame painting is buffered, divider hover invalidates only its grip, background tab hover uses gray, and collapsed workspace groups use a chevron. Dashed focus boxes are replaced by a small keyboard-only mark in browser tabs and Controls.
 
-Both native targets compiled, 11 native groups and 84 adapter/script tests passed, and adapter typechecking passed. Production branding verification failed because Defender quarantined the bootstrap. New physical browser checks and live suites have not run. The [fix validation record](test-results/navigation-fixes.json) preserves these limits and the initial test-fixture compile failure.
+Both native targets compiled, 11 native groups and 84 adapter/script tests passed, and adapter typechecking passed. Production branding verification failed because Defender quarantined the bootstrap. The [initial fix validation record](test-results/navigation-fixes.json) preserves that failure and the initial test-fixture compile failure. A later local-only check used the existing unshipped AuthTest target against a disposable loopback page: Enter/Go, Find, gray feedback, chevrons, neutral selection and sidebar resizing with retained form text were verified through Windows UI input in Dark mode at 96 DPI. The [follow-up record](test-results/defender-local-followup.json) identifies the exact binaries and remaining limits. Production verification and release packaging remain on hold; no detection has been declared a false positive.
 
 ## 0.1.0-alpha.12
 
