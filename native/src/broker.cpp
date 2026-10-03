@@ -51,7 +51,7 @@ Json removed_workspace_result(const Json& value) {
 }
 
 struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
-  struct Client { std::string name, token_hash; };
+  struct Client { std::string name, token_hash; ClientPolicy policy; uint64_t policy_epoch{1}; };
   struct AccountGrant { std::string client, workspace, account, origin; };
   struct Pairing { std::string name, connection; Reply reply; };
   struct Workspace {
@@ -60,6 +60,8 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     size_t pending_creates{};
     std::string removal_error;
     std::vector<Reply> removal_waiters;
+    std::string display_name, creator;
+    std::map<std::string,WorkspaceAccess> access;
   };
   struct Worker {
     std::string client, connection, workspace, name;
@@ -111,6 +113,15 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   uint64_t snapshot_revision{}, written_revision{};
   uint64_t inactive_order{};
   const Limits limits;
+  std::function<void()> ui_state_callback;
+  struct UiChange {
+    Impl* self;
+    ~UiChange() { try { self->notify_ui(); } catch(...) {} }
+  };
+  void notify_ui() {
+    std::function<void()> callback;{std::lock_guard lock(mutex);callback=ui_state_callback;}
+    if(callback)callback();
+  }
   static constexpr size_t disconnected_cache = 256, max_retained_workers = 1024, max_tabs = 64, max_queue = 16, max_worker_pending = 32, max_journal = 4096;
 
   Impl(BrowserEngine& target, std::filesystem::path directory, Limits configured) : engine(target), root(std::move(directory)), limits(configured) {
@@ -121,22 +132,30 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     if (std::filesystem::exists(path)) {
       local_security::restrict_path(path);
       std::ifstream file(path); Json saved; file >> saved;
-      if (saved.value("version", 0) != 1) throw std::runtime_error("Unsupported broker state version");
+      const auto state_version=saved.value("version",0);
+      if (state_version != 1 && state_version != 2) throw std::runtime_error("Unsupported broker state version");
       for (auto& entry : saved.value("clients", Json::array())) {
         auto id = field(entry, "id"), hash = field(entry, "tokenHash");
-        if (!id.empty() && hash.size() == 64) clients.emplace(id, Client{field(entry, "name"), hash});
+        if (!id.empty() && hash.size() == 64) {
+          auto policy=state_version==1?ClientPolicy::legacy(limits.max_connected_workers):ClientPolicy::read(entry.value("policy",Json::object()));
+          if(!policy.valid())throw std::runtime_error("Invalid saved client policy");
+          clients.emplace(id, Client{field(entry, "name"), hash,policy});
+        }
       }
       for (auto& entry : saved.value("removedWorkspaces", Json::array()))
         if (entry.is_string() && !entry.get<std::string>().empty() && entry != "native-default") removed_workspaces.insert(entry.get<std::string>());
       for (auto& entry : saved.value("workspaces", Json::array())) {
         auto id = field(entry, "id"); if (id.empty() || removed_workspaces.contains(id)) continue;
         Workspace workspace;
+        workspace.display_name=field(entry,"displayName");workspace.creator=field(entry,"createdByClientId");
+        if(workspace.display_name.empty())workspace.display_name=id=="native-default"?"Personal":"Workspace";
         for (auto& client : entry.value("clients", Json::array())) if (client.is_string() && clients.contains(client.get<std::string>())) workspace.clients.insert(client.get<std::string>());
+        for(const auto& client:workspace.clients)workspace.access[client]=state_version==1?WorkspaceAccess::legacy():WorkspaceAccess::read(entry.value("access",Json::object()).value(client,Json::object()));
         workspaces.emplace(id, std::move(workspace));
       }
       for (auto& entry : saved.value("accountGrants", Json::array())) {
         AccountGrant grant{field(entry, "clientId"), field(entry, "workspaceId"), field(entry, "accountId"), field(entry, "origin")};
-        if (clients.contains(grant.client) && granted(grant.client, grant.workspace) && !grant.account.empty() && exact_https_origin(grant.origin)) account_grants.push_back(std::move(grant));
+        if (clients.contains(grant.client) && (grant.workspace.empty()||granted(grant.client, grant.workspace)) && !grant.account.empty() && exact_https_origin(grant.origin)) account_grants.push_back(std::move(grant));
       }
       for (auto& entry : saved.value("operations", Json::array())) {
         auto id = field(entry, "operationId"), client = field(entry, "clientId");
@@ -174,12 +193,15 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     } });
   }
   Json snapshot_locked() {
-    Json saved{{"version", 1}, {"clients", Json::array()}, {"workspaces", Json::array()}, {"accountGrants", Json::array()}, {"operations", Json::array()}};
+    Json saved{{"version", 2}, {"clients", Json::array()}, {"workspaces", Json::array()}, {"accountGrants", Json::array()}, {"operations", Json::array()}};
     saved["revision"] = ++snapshot_revision;
     saved["removedWorkspaces"] = removed_workspaces;
-    for (auto& [id, value] : clients) saved["clients"].push_back({{"id", id}, {"name", value.name}, {"tokenHash", value.token_hash}});
-    for (auto& [id, value] : workspaces) if (!value.private_mode && !removed_workspaces.contains(id)) saved["workspaces"].push_back({{"id", id}, {"clients", value.clients}});
-    for (auto& grant : account_grants) if (workspaces.contains(grant.workspace) && !removed_workspaces.contains(grant.workspace) && !workspaces.at(grant.workspace).private_mode) saved["accountGrants"].push_back({{"clientId", grant.client}, {"workspaceId", grant.workspace}, {"accountId", grant.account}, {"origin", grant.origin}});
+    for (auto& [id, value] : clients) saved["clients"].push_back({{"id", id}, {"name", value.name}, {"tokenHash", value.token_hash},{"policy",value.policy.json()}});
+    for (auto& [id, value] : workspaces) if (!value.private_mode && !removed_workspaces.contains(id)) {
+      Json access=Json::object();for(const auto& [client,grant]:value.access)access[client]=grant.json();
+      saved["workspaces"].push_back({{"id", id}, {"clients", value.clients},{"displayName",value.display_name},{"createdByClientId",value.creator},{"access",access}});
+    }
+    for (auto& grant : account_grants) if (grant.workspace.empty()||(workspaces.contains(grant.workspace) && !removed_workspaces.contains(grant.workspace) && !workspaces.at(grant.workspace).private_mode)) saved["accountGrants"].push_back({{"clientId", grant.client}, {"workspaceId", grant.workspace}, {"accountId", grant.account}, {"origin", grant.origin}});
     // Deliberately persist no arguments, signatures, observations or page output.
     // A durable pending_dispatch marker means a crash cannot trigger a replay.
     for (auto& [id, value] : operations) saved["operations"].push_back({{"operationId", id}, {"clientId", value.client}, {"tabId", value.tab}, {"workspaceId", value.workspace}, {"state", value.state}, {"dispatched", value.dispatched}});
@@ -205,6 +227,52 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   void persist_locked() { persist_value(snapshot_locked()); }
   bool granted(const std::string& client, const std::string& workspace) const {
     auto it = workspaces.find(workspace); return it != workspaces.end() && !removed_workspaces.contains(workspace) && it->second.clients.contains(client);
+  }
+  WorkspaceAccess workspace_access(const std::string& client,const std::string& workspace) const {
+    if(!granted(client,workspace))return {};
+    const auto& grants=workspaces.at(workspace).access;auto found=grants.find(client);
+    return found==grants.end()?WorkspaceAccess{}:found->second;
+  }
+  Capabilities effective(const std::string& client,const std::string& workspace) const {
+    auto found=clients.find(client);if(found==clients.end())return {};
+    return found->second.policy.capabilities.intersect(workspace_access(client,workspace).capabilities);
+  }
+  bool allowed(const std::string& client,const std::string& workspace,const std::string& method) const {
+    if(!clients.contains(client)||!granted(client,workspace))return false;
+    const auto caps=effective(client,workspace);
+    if((write_commands.contains(method)||method=="tabs.create"||method=="control.acquire"||method=="control.handoff")&&!caps.interaction)return false;
+    if((method=="files.upload"||method=="files.folders"||method=="files.list")&&!caps.uploads)return false;
+    if(method=="files.downloads"&&!caps.downloads)return false;
+    if((method=="auth.login"||method=="auth.accounts")&&!caps.saved_accounts)return false;
+    return true;
+  }
+  std::string account_origin(const std::string& client,const std::string& workspace,const std::string& account) const {
+    if(!effective(client,workspace).saved_accounts)return {};
+    const auto access=workspace_access(client,workspace);
+    if(access.restrict_accounts&&!access.account_ids.contains(account))return {};
+    for(const auto& grant:account_grants)if(grant.client==client&&grant.account==account&&
+      (grant.workspace==workspace||(grant.workspace.empty()&&access.inherit_accounts)))return grant.origin;
+    return {};
+  }
+  size_t client_workers(const std::string& client) const {
+    return static_cast<size_t>(std::count_if(workers.begin(),workers.end(),[&](const auto& entry){return entry.second.client==client&&entry.second.connected&&!entry.second.retiring;}));
+  }
+  size_t client_workspaces(const std::string& client) const {
+    return static_cast<size_t>(std::count_if(workspaces.begin(),workspaces.end(),[&](const auto& entry){return entry.second.creator==client&&!removed_workspaces.contains(entry.first);}));
+  }
+  void invalidate_policy_locked(const std::string& client,std::vector<Delivery>& output) {
+    if(auto found=clients.find(client);found!=clients.end())++found->second.policy_epoch;
+    for(auto& [id,tab]:tabs){
+      ++tab.state_epoch;
+      for(const auto& [session,worker]:workers)if(worker.client==client)tab.observations.erase(session);
+      for(auto item=tab.queue.begin();item!=tab.queue.end();) {
+        auto worker=workers.find(item->session);
+        if(worker!=workers.end()&&worker->second.client==client){finish_locked(item->operation,failure("PERMISSION_CHANGED","Native permissions changed before dispatch"),output,"cancelled");item=tab.queue.erase(item);}else ++item;
+      }
+    }
+    std::set<std::string> groups;
+    for(auto& [id,tab]:tabs)if(auto worker=workers.find(tab.owner);worker!=workers.end()&&worker->second.client==client&&!effective(client,tab.workspace).interaction&&groups.insert(tab.group).second)
+      begin_transfer_locked(tab,"",output,"PERMISSION_CHANGED");
   }
   size_t connected_workers_locked() const {
     return static_cast<size_t>(std::count_if(workers.begin(),workers.end(),[](const auto& entry){return entry.second.connected && !entry.second.retiring;}));
@@ -310,14 +378,14 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       });
     }
   }
-  void execute_safe(const std::string& command,const Json& params,Reply reply) {
+  void execute_safe(const std::string& command,const Json& params,Reply reply,std::function<bool()> permit={}) {
     auto completed=std::make_shared<std::atomic<bool>>(false);
     auto once=[completed,reply=std::move(reply)](Json value)mutable {
       if(completed->exchange(true))return;
       if(!value.is_object() || (value.contains("ok") && !value["ok"].is_boolean()))value=failure("ENGINE_PROTOCOL","Engine returned an invalid response");
       reply(std::move(value));
     };
-    try{engine.execute(command,params,once);}catch(...){once(failure("OUTCOME_UNKNOWN","Engine request ended unexpectedly; inspect existing state before retrying"));}
+    try{if(permit)engine.execute_guarded(command,params,std::move(permit),once);else engine.execute(command,params,once);}catch(...){once(failure("OUTCOME_UNKNOWN","Engine request ended unexpectedly; inspect existing state before retrying"));}
   }
   void deactivate_worker_locked(const std::string& id,bool retire,std::vector<Delivery>& output) {
     auto found=workers.find(id);if(found==workers.end())return;
@@ -328,7 +396,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       std::string recipient;
       if(retire && tab.owner==id && tab.pending_owner && *tab.pending_owner!=id) {
         const auto next=workers.find(*tab.pending_owner);
-        if(*tab.pending_owner=="human" || (next!=workers.end() && next->second.connected && !next->second.retiring && granted(next->second.client,tab.workspace)))recipient=*tab.pending_owner;
+        if(*tab.pending_owner=="human" || (next!=workers.end() && next->second.connected && !next->second.retiring && granted(next->second.client,tab.workspace)&&effective(next->second.client,tab.workspace).interaction))recipient=*tab.pending_owner;
       }
       begin_transfer_locked(tab,recipient,output,retire?"SESSION_RETIRED":"CLIENT_DISCONNECTED");break;
     }
@@ -339,8 +407,11 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   }
   Json tab_json(const std::string& id, const Tab& tab, const std::string& session = {}) const {
     const auto& observing_session = session.empty() ? tab.owner : session;
+    const auto owner=workers.find(tab.owner);
+    const bool available=!stopping&&owner!=workers.end()&&owner->second.connected&&!owner->second.retiring&&
+      granted(owner->second.client,tab.workspace)&&effective(owner->second.client,tab.workspace).interaction;
     Json result{{"tabId", id}, {"workspaceId", tab.workspace}, {"controlGroupId", tab.group}, {"ownerSessionId", tab.owner}, {"ownershipGeneration", tab.generation}, {"handoffPending", tab.pending_owner.has_value()}, {"inputBusy", !tab.active.empty() || !tab.dialog_active.empty() || tab.human_busy}, {"protected", tab.protected_auth},
-      {"humanActivityEpoch", tab.human_epoch}, {"humanPaused", tab.human_busy}, {"humanPauseUntil", tab.human_pause_until ? Json(*tab.human_pause_until) : Json(nullptr)},
+      {"agentAvailable",available},{"humanActivityEpoch", tab.human_epoch}, {"humanPaused", tab.human_busy}, {"humanPauseUntil", tab.human_pause_until ? Json(*tab.human_pause_until) : Json(nullptr)},
       {"requiresFreshObservation", tab.human_epoch != 0 && !fresh_after_human_locked(tab, observing_session)},
       {"activityMessage", tab.human_busy ? "Human page activity paused agent input; ownership is unchanged. Wait for the pause to end, then observe again." : tab.human_epoch ? "Human page activity occurred; use a fresh observation before continuing." : "No human page activity has been recorded for this tab."}};
     if (tab.pending_owner) result["pendingOwnerSessionId"] = *tab.pending_owner;
@@ -395,10 +466,11 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     if (!id.empty()) tab.observations[session] = {id, expected_generation, tab.human_epoch};
   }
   void complete_read(const std::string& client, const std::string& workspace, const std::string& tab_id,
-                     const std::string& session, const std::string& connection, uint64_t attachment, uint64_t generation, uint64_t state_epoch, const std::string& method, Reply reply, Json value) {
+                     const std::string& session, const std::string& connection, uint64_t attachment, uint64_t policy_epoch, uint64_t generation, uint64_t state_epoch, const std::string& method, Reply reply, Json value) {
     {
       std::lock_guard lock(mutex); auto it = tabs.find(tab_id);
       if (!clients.contains(client) || !granted(client, workspace)) value = failure("ACCESS_REVOKED", "Workspace access was revoked while the observation was pending");
+      else if(clients.at(client).policy_epoch!=policy_epoch||!allowed(client,workspace,method))value=failure("PERMISSION_CHANGED","Native permissions changed while the result was pending");
       else if(!worker_active_locked(session,client,connection,attachment))value=stale_worker_locked(session);
       else if (it == tabs.end() || it->second.workspace != workspace) value = failure("TAB_CLOSED", "Tab closed while observing");
       else if (it->second.protected_auth && (method == "page.observe" || method == "page.screenshot" || method == "page.wait")) value = failure("SENSITIVE_AUTH_IN_PROGRESS", "Detailed observations are paused during protected authentication");
@@ -456,6 +528,13 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
           self->transfer_if_ready_locked(it->second);
         }
         if (self->removed_workspaces.contains(field(command.params, "workspaceId"))) value = removed_workspace_result(value);
+        else if(auto worker=self->workers.find(command.session);value.value("ok",false)&&
+          (worker==self->workers.end()||
+           !self->clients.contains(worker->second.client)||!self->granted(worker->second.client,field(command.params,"workspaceId"))||
+           self->clients.at(worker->second.client).policy_epoch!=command.params.value("trustedPolicyEpoch",uint64_t{}))) {
+          auto withheld=failure("PERMISSION_CHANGED","Permissions changed during this operation; page results are withheld. Inspect its recorded dispatch status before continuing.");
+          value=std::move(withheld);
+        }
         self->finish_locked(command.operation, std::move(value), replies);
         self->finish_callback_locked(command.session);
       }
@@ -503,6 +582,9 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         if (tab == self->tabs.end() || operation == self->operations.end() || worker == self->workers.end()) return false;
         if (self->stopping || !operation->second.result.is_null() || !self->clients.contains(worker->second.client) || !self->granted(worker->second.client, tab->second.workspace) || !worker->second.connected || worker->second.attachment!=command.attachment || (tab->second.frozen&&!operation->second.dispatched) || tab->second.human_busy || tab->second.human_epoch!=command.human_epoch || tab->second.owner != command.session || tab->second.generation != command.generation) return false;
         if (tab->second.active != command.operation && tab->second.dialog_active != command.operation) return false;
+        if(self->clients.at(worker->second.client).policy_epoch!=command.params.value("trustedPolicyEpoch",uint64_t{})||
+          !self->allowed(worker->second.client,tab->second.workspace,command.method))return false;
+        if(command.method=="auth.login"&&self->account_origin(worker->second.client,tab->second.workspace,field(command.params,"accountId"))!=field(command.params,"grantedOrigin"))return false;
         // Multi-step engine actions recheck authority before each side effect.
         // Only the first successful check begins a new observation epoch.
         if (!operation->second.dispatched) {
@@ -517,6 +599,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   }
   void on_event(const Json& event) {
     if (!event.is_object()) return;
+    UiChange notification{this};
     std::vector<Delivery> output;
     std::string wake;
     {
@@ -574,6 +657,7 @@ Broker::~Broker() { stop_all(); impl_->engine.set_event_sink({}); impl_->shutdow
 
 void Broker::dispatch(const std::string& connection, const Json& request, Reply reply) {
   auto self = impl_;
+  Impl::UiChange notification{self.get()};
   if (!request.is_object() || !request.contains("method") || !request["method"].is_string() || (request.contains("params") && !request["params"].is_object())) { reply(failure("INVALID_REQUEST", "Expected method and object params")); return; }
   const auto method = field(request, "method"); auto params = request.value("params", Json::object());
   std::unique_lock lock(self->mutex);
@@ -586,7 +670,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     if (self->connections.contains(connection) && self->connections.at(connection) != client) { respond(failure("CONNECTION_BOUND", "Open a separate connection for a different paired client")); return; }
     self->connections[connection] = client;
     auto limits=self->worker_limits_locked();limits["workers"]=self->limits.max_connected_workers;limits["tabs"]=Impl::max_tabs;limits["queuedPerTab"]=Impl::max_queue;
-    respond(success({{"clientId", client}, {"protocolVersion", 1}, {"limits", std::move(limits)}})); return;
+    respond(success({{"clientId", client}, {"protocolVersion", 1}, {"limits", std::move(limits)},{"clientPolicy",it->second.policy.json()}})); return;
   }
   if (method == "pair.request") {
     if (self->connections.contains(connection)) { respond(failure("CONNECTION_BOUND", "This connection is already authenticated")); return; }
@@ -609,10 +693,12 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   }
   if (method == "workers.list") {
     Json result = Json::array(); for (auto& [id, worker] : self->workers) if (worker.client == client) {auto row=self->worker_json(id,worker);row.erase("clientId");result.push_back(std::move(row));}
-    respond(success({{"workers", result},{"limits",self->worker_limits_locked()},{"connectedWorkerCount",self->connected_workers_locked()}})); return;
+    respond(success({{"workers", result},{"limits",self->worker_limits_locked()},{"connectedWorkerCount",self->connected_workers_locked()},
+      {"clientPolicy",self->clients.at(client).policy.json()},{"clientConnectedWorkerCount",self->client_workers(client)},{"clientAutomaticWorkspaceCount",self->client_workspaces(client)}})); return;
   }
   if (method == "workspaces.list") {
-    Json result = Json::array(); for (auto& [id, workspace] : self->workspaces) if (self->granted(client, id)) result.push_back({{"workspaceId", id}, {"ready", workspace.ready}});
+    Json result = Json::array(); for (auto& [id, workspace] : self->workspaces) if (self->granted(client, id)) result.push_back({{"workspaceId", id}, {"ready", workspace.ready},
+      {"displayName",workspace.display_name},{"effectivePermissions",self->effective(client,id).json()}});
     respond(success({{"workspaces", result}})); return;
   }
   if (method == "workspaces.share" || method == "workspaces.remove" || method == "workspace.remove") { respond(failure("HUMAN_REQUIRED", "Manage workspaces in the native browser")); return; }
@@ -622,6 +708,9 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     if(worker->second.retiring){respond(failure("SESSION_RETIRED","This worker is retiring and cannot resume"));return;}
     if (worker->second.connected && worker->second.connection != connection) { respond(failure("SESSION_CONNECTED", "Worker is attached to another live connection")); return; }
     if(!worker->second.connected && self->connected_workers_locked()>=self->limits.max_connected_workers){respond(failure("CAPACITY_EXCEEDED","Concurrent connected-worker limit reached; retire or disconnect a worker before resuming another"));return;}
+    const auto& policy=self->clients.at(client).policy;
+    if(!worker->second.connected&&policy.max_workers&&self->client_workers(client)>=policy.max_workers){respond(failure("CLIENT_LIMIT_EXCEEDED","This client's concurrent worker quota is full"));return;}
+    if(!self->granted(client,worker->second.workspace)){respond(failure("WORKSPACE_DENIED","The worker's workspace access was revoked"));return;}
     if(!worker->second.connected)++worker->second.attachment;
     worker->second.connection = connection; worker->second.connected = true;
     respond(success({{"agentSessionId", id}, {"workspaceId", worker->second.workspace}, {"state","connected"},{"requiresAcquire", true}})); return;
@@ -636,22 +725,32 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   }
   if (method == "workers.create") {
     self->cleanup_workers_locked();
+    const auto& policy=self->clients.at(client).policy;
+    if(policy.max_workers&&self->client_workers(client)>=policy.max_workers){respond(failure("CLIENT_LIMIT_EXCEEDED","This client's concurrent worker quota is full"));return;}
     if(self->connected_workers_locked()>=self->limits.max_connected_workers){respond(failure("CAPACITY_EXCEEDED","Concurrent connected-worker limit reached; retire or disconnect a worker before creating another"));return;}
     while(self->workers.size()>=Impl::max_retained_workers && self->evict_oldest_disconnected_locked()){}
     if(self->workers.size()>=Impl::max_retained_workers){respond(failure("WORKER_DRAIN_PRESSURE","Worker metadata is temporarily full of connected or draining sessions; wait for accepted operations to finish"));return;}
     auto name = field(params, "name"); if (name.size() > 120) { respond(failure("INVALID_NAME", "Worker name is too long")); return; }
     auto workspace = field(params, "workspaceId"); bool created = workspace.empty();
-    if (created) { workspace = identifier("ws_"); self->workspaces.emplace(workspace, Impl::Workspace{{client}, false}); }
+    if (created) {
+      if(!policy.automatic_workspaces){respond(failure("WORKSPACE_CREATION_DENIED","Choose a natively shared workspace or enable automatic workspaces in Clients"));return;}
+      if(policy.max_automatic_workspaces&&self->client_workspaces(client)>=policy.max_automatic_workspaces){respond(failure("CLIENT_LIMIT_EXCEEDED","This client's automatic workspace quota is full"));return;}
+      workspace = identifier("ws_");Impl::Workspace value{{client},false};value.creator=client;
+      value.display_name=name.empty()?"Workspace":name;value.access[client]=WorkspaceAccess::automatic(policy);
+      self->workspaces.emplace(workspace,std::move(value));
+    }
     else if (!self->granted(client, workspace)) { respond(failure("WORKSPACE_DENIED", "Workspace access has not been granted")); return; }
     auto session = identifier("agent_"); self->workers.emplace(session, Impl::Worker{client, connection, workspace, name});
     try { if(created)self->persist_locked(); } catch (...) { self->workers.erase(session); if (created) self->workspaces.erase(workspace); respond(failure("PERSIST_FAILED", "Cannot persist workspace grants")); return; }
     auto& created_worker=self->workers.at(session);++created_worker.callbacks;const auto attachment=created_worker.attachment;
     ++self->workspaces.at(workspace).pending_creates;
+    const auto policy_epoch=self->clients.at(client).policy_epoch;
     lock.unlock();
-    self->execute_safe("workspace.ensure", {{"workspaceId", workspace}}, [self, workspace, session, client, connection, attachment, reply](Json value) {
+    self->execute_safe("workspace.ensure", {{"workspaceId", workspace}}, [self, workspace, session, client, connection, attachment, policy_epoch, reply](Json value) {
       { std::lock_guard guard(self->mutex);
         if(value.value("ok",false) && self->workspaces.contains(workspace) && !self->removed_workspaces.contains(workspace))self->workspaces.at(workspace).ready=true;
         if(!self->worker_active_locked(session,client,connection,attachment))value=self->stale_worker_locked(session);
+        else if(!self->granted(client,workspace)||self->clients.at(client).policy_epoch!=policy_epoch)value=failure("PERMISSION_CHANGED","Permissions changed while the worker was being initialized");
         else if(value.value("ok",false))value=success({{"agentSessionId",session},{"workspaceId",workspace},{"state","connected"}});
         else {auto& worker=self->workers.at(session);worker.connected=false;worker.retiring=true;}
         self->finish_callback_locked(session);
@@ -671,15 +770,23 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   auto workspace_id = field(params, "workspaceId");
   if (workspace_id.empty() || !self->granted(client, workspace_id)) { respond(failure("WORKSPACE_DENIED", "Workspace access has not been granted")); return; }
   if (!self->workspaces.at(workspace_id).ready) { respond(failure("WORKSPACE_NOT_READY", "Workspace is not initialized")); return; }
+  if(!self->allowed(client,workspace_id,method)){respond(failure("PERMISSION_DENIED","This action is disabled by client or workspace permissions"));return;}
   const auto attachment=worker->second.attachment;
+  const auto policy_epoch=self->clients.at(client).policy_epoch;
+  params["trustedPolicyEpoch"]=policy_epoch;
+  const auto access=self->workspace_access(client,workspace_id);
+  params["fileScopes"]=Json::array({workspace_id});
+  if(access.inherit_files)params["fileScopes"].push_back(client_file_scope(client));
+  params["restrictFileIds"]=access.restrict_files;params["allowedFileIds"]=access.file_ids;
   if (method == "auth.accounts") {
     const auto account_tab = field(params, "tabId"); auto account_tab_it = self->tabs.find(account_tab);
     if (account_tab_it == self->tabs.end() || account_tab_it->second.workspace != workspace_id) { respond(failure("TAB_DENIED", "Unknown tab in this workspace")); return; }
     params["clientId"] = client;++worker->second.callbacks; lock.unlock();
-    self->execute_safe(method, params, [self, client, workspace_id, account_tab, session_id, connection, attachment, reply](Json value) {
+    self->execute_safe(method, params, [self, client, workspace_id, account_tab, session_id, connection, attachment, policy_epoch, reply](Json value) {
       {
         std::lock_guard guard(self->mutex); auto tab = self->tabs.find(account_tab);
         if (!self->clients.contains(client) || !self->granted(client, workspace_id)) value = failure("ACCESS_REVOKED", "Workspace access was revoked while the account list was pending");
+        else if(self->clients.at(client).policy_epoch!=policy_epoch||!self->allowed(client,workspace_id,"auth.accounts"))value=failure("PERMISSION_CHANGED","Account permissions changed while listing accounts");
         else if(!self->worker_active_locked(session_id,client,connection,attachment))value=self->stale_worker_locked(session_id);
         else if (tab == self->tabs.end() || tab->second.workspace != workspace_id) value = failure("TAB_CLOSED", "Tab closed while listing accounts");
         else if (value.value("ok", false)) {
@@ -687,9 +794,9 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
         if (value.contains("result") && value["result"].is_object()) for (auto& account : value["result"].value("accounts", Json::array())) {
           if (!account.is_object()) continue;
           const auto id = field(account, "accountId"), origin = field(account, "origin");
-          for (auto& grant : self->account_grants) if (grant.client == client && grant.workspace == workspace_id && grant.account == id && grant.origin == origin) {
+          if(self->account_origin(client,workspace_id,id)==origin) {
             // Only this documented metadata crosses the credential boundary.
-            filtered.push_back({{"accountId", id}, {"origin", origin}, {"label", field(account, "label")}}); break;
+            filtered.push_back({{"accountId", id}, {"origin", origin}, {"label", field(account, "label")}});
           }
         }
         value = success({{"accounts", std::move(filtered)}});
@@ -701,8 +808,9 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   }
   if (method == "files.downloads" || method == "files.folders" || method == "files.list") {
     params["clientId"] = client;++worker->second.callbacks; lock.unlock();
-    self->execute_safe(method, params, [self, client, workspace_id, session_id, connection, attachment, reply](Json value) {
+    self->execute_safe(method, params, [self, client, workspace_id, session_id, connection, attachment, policy_epoch, method, reply](Json value) {
       { std::lock_guard guard(self->mutex); if (!self->clients.contains(client) || !self->granted(client, workspace_id)) value = failure("ACCESS_REVOKED", "Workspace access was revoked while file metadata was pending");
+        else if(self->clients.at(client).policy_epoch!=policy_epoch||!self->allowed(client,workspace_id,method))value=failure("PERMISSION_CHANGED","File permissions changed while listing resources");
         else if(!self->worker_active_locked(session_id,client,connection,attachment))value=self->stale_worker_locked(session_id);
         self->finish_callback_locked(session_id);
       }
@@ -718,17 +826,19 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     auto url = params.value("url", std::string("about:blank")); if (!safe_web_url(url)) { respond(failure("URL_DENIED", "Only ordinary HTTP and HTTPS pages are allowed")); return; }
     auto id = identifier("tab_"); Impl::Tab tab; tab.workspace = workspace_id; tab.owner = session_id; tab.group = id; self->tabs.emplace(id, std::move(tab));
     ++worker->second.callbacks; ++self->workspaces.at(workspace_id).pending_creates;
-    lock.unlock(); self->execute_safe("tabs.create", {{"workspaceId", workspace_id}, {"tabId", id}, {"url", url}}, [self, id, client, workspace_id, connection, attachment, session_id, reply](Json value) {
+    auto permit=[self,client,workspace_id,connection,attachment,session_id,policy_epoch]{std::lock_guard guard(self->mutex);return !self->stopping&&self->worker_active_locked(session_id,client,connection,attachment)&&self->clients.at(client).policy_epoch==policy_epoch&&self->allowed(client,workspace_id,"tabs.create");};
+    lock.unlock(); self->execute_safe("tabs.create", {{"workspaceId", workspace_id}, {"tabId", id}, {"url", url}}, [self, id, client, workspace_id, connection, attachment, session_id, policy_epoch, reply](Json value) {
       { std::lock_guard guard(self->mutex); auto found = self->tabs.find(id);
         if(!value.value("ok",false))self->tabs.erase(id);
         else if(!self->granted(client,workspace_id))value=failure("ACCESS_REVOKED","Workspace access was revoked while the tab was being created");
         else if(!self->worker_active_locked(session_id,client,connection,attachment))value=self->stale_worker_locked(session_id);
+        else if(self->clients.at(client).policy_epoch!=policy_epoch||!self->allowed(client,workspace_id,"tabs.create"))value=failure("PERMISSION_CHANGED","Permissions changed while the tab was being created");
         else value=found==self->tabs.end()?failure("TAB_CLOSED","Tab closed while being created"):success(self->tab_json(id,found->second,session_id));
         self->finish_callback_locked(session_id);
         self->finish_create_locked(workspace_id);
       }
-      reply(std::move(value));
-    }); return;
+      self->notify_ui();reply(std::move(value));
+    },std::move(permit)); return;
   }
   auto tab_id = field(params, "tabId"); auto found = self->tabs.find(tab_id);
   if (found == self->tabs.end() || found->second.workspace != workspace_id) { respond(failure("TAB_DENIED", "Unknown tab in this workspace")); return; }
@@ -745,7 +855,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
       if (tab.owner != session_id) { respond(failure("NOT_OWNER", "Only the current owner can hand off control")); return; }
       if (method == "control.handoff") {
         recipient = field(params, "toSessionId"); auto target = self->workers.find(recipient);
-        if (target == self->workers.end() || !target->second.connected || !self->granted(target->second.client, workspace_id)) { respond(failure("HANDOFF_DENIED", "Recipient needs a connected session and workspace grant")); return; }
+        if (target == self->workers.end() || !target->second.connected || target->second.retiring || !self->granted(target->second.client, workspace_id)||!self->effective(target->second.client,workspace_id).interaction) { respond(failure("HANDOFF_DENIED", "Recipient needs a connected session and interactive workspace grant")); return; }
       }
     }
     if (tab.pending_owner) { respond(failure("HANDOFF_PENDING", "A handoff is already pending")); return; }
@@ -757,13 +867,13 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     if (tab.human_busy) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input is active; wait for the pause to end before observing")); return; }
     if (!tab.active.empty() || !tab.dialog_active.empty() || tab.frozen) { respond(failure("TAB_BUSY", "Tab is executing input or changing owner")); return; }
     params["clientId"] = client; auto generation = tab.generation, epoch = tab.state_epoch;++worker->second.callbacks; lock.unlock();
-    self->execute_safe(method, params, [self, client, workspace_id, tab_id, session_id, connection, attachment, generation, epoch, method, reply](Json value) { self->complete_read(client, workspace_id, tab_id, session_id, connection, attachment, generation, epoch, method, reply, std::move(value)); }); return;
+    self->execute_safe(method, params, [self, client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply](Json value) { self->complete_read(client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply, std::move(value)); }); return;
   }
   if (read_commands.contains(method)) {
     if (tab.human_busy) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input is active; wait for the pause to end before observing")); return; }
     if (!tab.active.empty() || !tab.dialog_active.empty() || tab.frozen) { respond(failure("TAB_BUSY", "Tab is executing input or changing owner")); return; }
     params["clientId"] = client; auto generation = tab.generation, epoch = tab.state_epoch;++worker->second.callbacks; lock.unlock();
-    self->execute_safe(method, params, [self, client, workspace_id, tab_id, session_id, connection, attachment, generation, epoch, method, reply](Json value) { self->complete_read(client, workspace_id, tab_id, session_id, connection, attachment, generation, epoch, method, reply, std::move(value)); }); return;
+    self->execute_safe(method, params, [self, client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply](Json value) { self->complete_read(client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply, std::move(value)); }); return;
   }
   if (!write_commands.contains(method)) { respond(failure("METHOD_UNSUPPORTED", "This browser capability is not implemented")); return; }
   auto operation_id = field(params, "operationId"); if (operation_id.empty()) operation_id = identifier("op_");
@@ -782,7 +892,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   if (method == "auth.login" && self->locked) { respond(failure("VAULT_LOCKED", "Unlock the vault in the native browser")); return; }
   if (method == "auth.login") {
     const auto account = field(params, "accountId"); std::string origin;
-    for (auto& grant : self->account_grants) if (grant.client == client && grant.workspace == workspace_id && grant.account == account) { origin = grant.origin; break; }
+    origin=self->account_origin(client,workspace_id,account);
     if (origin.empty()) { respond(failure("ACCOUNT_DENIED", "Grant this account to the client and workspace in the native browser")); return; }
     params["grantedOrigin"] = origin;
   }
@@ -822,13 +932,19 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
 Json Broker::state() const {
   auto self = impl_; std::lock_guard lock(self->mutex);
   Json result{{"clients", Json::array()}, {"pendingRevocations", Json::array()}, {"pairings", Json::array()}, {"workers", Json::array()}, {"workspaces", Json::array()}, {"tabs", Json::array()}, {"accountGrants", Json::array()}, {"stopped", self->stopping}};
-  for (auto& [id, client] : self->clients) result["clients"].push_back({{"clientId", id}, {"name", client.name}});
+  for (auto& [id, client] : self->clients) {
+    bool connected=std::any_of(self->connections.begin(),self->connections.end(),[&](const auto& entry){return entry.second==id;});
+    result["clients"].push_back({{"clientId", id}, {"name", client.name},{"connected",connected},{"policy",client.policy.json()},
+      {"connectedWorkers",self->client_workers(id)},{"automaticWorkspaces",self->client_workspaces(id)}});
+  }
   for (auto& [id, name] : self->pending_revocations) result["pendingRevocations"].push_back({{"clientId", id}, {"name", name}});
   for (auto& [id, pair] : self->pairings) result["pairings"].push_back({{"requestId", id}, {"name", pair.name}});
   for (auto& [id, worker] : self->workers) result["workers"].push_back(self->worker_json(id,worker));
   result["limits"]=self->worker_limits_locked();result["connectedWorkerCount"]=self->connected_workers_locked();
   for (auto& [id, workspace] : self->workspaces) {
     Json row{{"workspaceId", id}, {"clientIds", workspace.clients}, {"ready", workspace.ready}, {"private", workspace.private_mode}, {"removing", workspace.removing}};
+    row["displayName"]=workspace.display_name;row["createdByClientId"]=workspace.creator;row["access"]=Json::object();
+    for(const auto& [client,access]:workspace.access){row["access"][client]=access.json();row["access"][client]["effectivePermissions"]=self->effective(client,id).json();}
     if (workspace.removing) row["removalStatus"] = workspace.removal_retry ? "retry" : workspace.removal_active ? "closing" : "draining";
     if (!workspace.removal_error.empty()) row["removalError"] = workspace.removal_error;
     result["workspaces"].push_back(std::move(row));
@@ -838,6 +954,7 @@ Json Broker::state() const {
   return result;
 }
 bool Broker::approve_pairing(const std::string& id) {
+  Impl::UiChange notification{impl_.get()};
   auto self = impl_; Reply reply; Json result;
   { std::lock_guard lock(self->mutex); auto pair = self->pairings.find(id); if (pair == self->pairings.end()) return false;
     auto client = identifier("client_"), token = local_security::random_hex(32);
@@ -848,14 +965,72 @@ bool Broker::approve_pairing(const std::string& id) {
   } if (reply) reply(std::move(result)); return true;
 }
 bool Broker::deny_pairing(const std::string& id) {
+  Impl::UiChange notification{impl_.get()};
   Reply reply; { std::lock_guard lock(impl_->mutex); auto found = impl_->pairings.find(id); if (found == impl_->pairings.end()) return false; reply = std::move(found->second.reply); impl_->pairings.erase(found); }
   if (reply) reply(failure("PAIRING_DENIED", "Pairing was declined in the browser")); return true;
 }
 bool Broker::share_workspace(const std::string& workspace, const std::string& client) {
+  Impl::UiChange notification{impl_.get()};
   std::lock_guard lock(impl_->mutex); auto found = impl_->workspaces.find(workspace); if (found == impl_->workspaces.end() || impl_->removed_workspaces.contains(workspace) || found->second.private_mode || !impl_->clients.contains(client)) return false;
   bool inserted = found->second.clients.insert(client).second;
-  try { impl_->persist_locked(); } catch (...) { if (inserted) found->second.clients.erase(client); return false; } return true;
+  if(inserted)found->second.access[client]=WorkspaceAccess{};
+  try { impl_->persist_locked(); } catch (...) { if (inserted){found->second.clients.erase(client);found->second.access.erase(client);} return false; } return true;
 }
+bool Broker::configure_client(const std::string& client,const ClientPolicy& policy) {
+  if(!policy.valid())return false;
+  Impl::UiChange notification{impl_.get()};std::vector<Delivery> output;
+  {std::lock_guard lock(impl_->mutex);auto found=impl_->clients.find(client);if(found==impl_->clients.end())return false;
+    const auto old=found->second.policy;found->second.policy=policy;
+    try{impl_->persist_locked();}catch(...){found->second.policy=old;return false;}
+    impl_->invalidate_policy_locked(client,output);
+  }deliver(std::move(output));return true;
+}
+bool Broker::configure_workspace_client(const std::string& workspace,const std::string& client,std::optional<WorkspaceAccess> access) {
+  Impl::UiChange notification{impl_.get()};std::vector<Delivery> output;
+  {std::lock_guard lock(impl_->mutex);auto found=impl_->workspaces.find(workspace);
+    if(found==impl_->workspaces.end()||found->second.private_mode||impl_->removed_workspaces.contains(workspace)||!impl_->clients.contains(client))return false;
+    const auto old=found->second.access;const auto old_clients=found->second.clients;const auto old_accounts=impl_->account_grants;
+    if(access){found->second.clients.insert(client);found->second.access[client]=*access;}
+    else {found->second.clients.erase(client);found->second.access.erase(client);}
+    if(!access)std::erase_if(impl_->account_grants,[&](const auto& grant){return grant.client==client&&grant.workspace==workspace;});
+    try{impl_->persist_locked();}catch(...){found->second.access=old;found->second.clients=old_clients;impl_->account_grants=old_accounts;return false;}
+    impl_->invalidate_policy_locked(client,output);impl_->persist_async();
+  }deliver(std::move(output));return true;
+}
+bool Broker::rename_workspace(const std::string& workspace,const std::string& name) {
+  if(!valid_workspace_name(name))return false;
+  Impl::UiChange notification{impl_.get()};std::lock_guard lock(impl_->mutex);auto found=impl_->workspaces.find(workspace);
+  if(found==impl_->workspaces.end()||impl_->removed_workspaces.contains(workspace))return false;
+  auto old=found->second.display_name;found->second.display_name=name;
+  try{impl_->persist_locked();}catch(...){found->second.display_name=old;return false;}return true;
+}
+bool Broker::grant_client_account(const std::string& client,const std::string& account,const std::string& origin) {
+  if(account.empty()||account.size()>160||!exact_https_origin(origin))return false;
+  Impl::UiChange notification{impl_.get()};std::lock_guard lock(impl_->mutex);if(!impl_->clients.contains(client))return false;
+  for(const auto& grant:impl_->account_grants)if(grant.client==client&&grant.workspace.empty()&&grant.account==account&&grant.origin==origin)return true;
+  impl_->account_grants.push_back({client,"",account,origin});
+  try{impl_->persist_locked();}catch(...){impl_->account_grants.pop_back();return false;}return true;
+}
+bool Broker::revoke_account(const std::string& client,const std::string& workspace,const std::string& account) {
+  Impl::UiChange notification{impl_.get()};std::vector<Delivery> output;bool saved=true;
+  {std::lock_guard lock(impl_->mutex);std::erase_if(impl_->account_grants,[&](const auto& grant){return grant.client==client&&grant.workspace==workspace&&grant.account==account;});
+    impl_->invalidate_policy_locked(client,output);try{impl_->persist_locked();}catch(...){saved=false;}}
+  deliver(std::move(output));return saved;
+}
+void Broker::resource_changed(const std::string& client) {
+  Impl::UiChange notification{impl_.get()};std::vector<Delivery> output;
+  {std::lock_guard lock(impl_->mutex);if(client.empty()){for(const auto& [id,value]:impl_->clients)impl_->invalidate_policy_locked(id,output);}else impl_->invalidate_policy_locked(client,output);}
+  deliver(std::move(output));
+}
+bool Broker::allow_download(const std::string& id) const {
+  std::lock_guard lock(impl_->mutex);auto tab=impl_->tabs.find(id);
+  if(tab==impl_->tabs.end()||impl_->removed_workspaces.contains(tab->second.workspace)||tab->second.protected_auth)return false;
+  if(tab->second.owner=="human")return true;
+  auto worker=impl_->workers.find(tab->second.owner);
+  return !impl_->stopping&&worker!=impl_->workers.end()&&worker->second.connected&&!worker->second.retiring&&
+    impl_->effective(worker->second.client,tab->second.workspace).downloads;
+}
+void Broker::set_ui_state_callback(std::function<void()> callback) {std::lock_guard lock(impl_->mutex);impl_->ui_state_callback=std::move(callback);}
 bool Broker::grant_account(const std::string& client, const std::string& workspace, const std::string& account, const std::string& origin) {
   if (account.empty() || account.size() > 160 || !exact_https_origin(origin)) return false;
   std::lock_guard lock(impl_->mutex); if (!impl_->granted(client, workspace)) return false;
@@ -864,6 +1039,7 @@ bool Broker::grant_account(const std::string& client, const std::string& workspa
   try { impl_->persist_locked(); } catch (...) { impl_->account_grants.pop_back(); return false; } return true;
 }
 Broker::RevocationStatus Broker::revoke_client(const std::string& client) {
+  Impl::UiChange notification{impl_.get()};
   std::vector<std::string> connections;
   auto status = RevocationStatus::pending;
   { std::lock_guard lock(impl_->mutex);
@@ -873,7 +1049,7 @@ Broker::RevocationStatus Broker::revoke_client(const std::string& client) {
       impl_->pending_revocations[client] = found->second.name;
       impl_->clients.erase(found);
     }
-    for (auto& [id, workspace] : impl_->workspaces) workspace.clients.erase(client);
+    for (auto& [id, workspace] : impl_->workspaces){workspace.clients.erase(client);workspace.access.erase(client);}
     std::erase_if(impl_->account_grants, [&](auto& grant) { return grant.client == client; });
     for (auto& [id, owner] : impl_->connections) if (owner == client) connections.push_back(id);
     try {
@@ -888,6 +1064,7 @@ std::vector<std::string> Broker::removed_workspaces() const {
   return {impl_->removed_workspaces.begin(), impl_->removed_workspaces.end()};
 }
 void Broker::remove_workspace(const std::string& id, Reply reply) {
+  Impl::UiChange notification{impl_.get()};
   auto self = impl_; std::vector<Delivery> output;
   {
     std::lock_guard lock(self->mutex);
@@ -933,17 +1110,20 @@ void Broker::remove_workspace(const std::string& id, Reply reply) {
   deliver(std::move(output));
 }
 void Broker::human_acquire(const std::string& id) {
+  Impl::UiChange notification{impl_.get()};
   std::vector<Delivery> output; { std::lock_guard lock(impl_->mutex); auto found = impl_->tabs.find(id); if (found == impl_->tabs.end()) return;
     if (impl_->removed_workspaces.contains(found->second.workspace)) return;
     impl_->begin_transfer_locked(found->second, "human", output, "HUMAN_CONTROL");
   } deliver(std::move(output));
 }
 void Broker::human_release(const std::string& id, const std::string& session) {
+  Impl::UiChange notification{impl_.get()};
   std::vector<Delivery> output; { std::lock_guard lock(impl_->mutex); auto found = impl_->tabs.find(id); auto target = impl_->workers.find(session);
-  if (found == impl_->tabs.end() || found->second.owner != "human" || target == impl_->workers.end() || !target->second.connected || !impl_->granted(target->second.client, found->second.workspace)) return;
+  if (found == impl_->tabs.end() || found->second.owner != "human" || target == impl_->workers.end() || !target->second.connected || target->second.retiring || !impl_->granted(target->second.client, found->second.workspace)||!impl_->effective(target->second.client,found->second.workspace).interaction) return;
   impl_->begin_transfer_locked(found->second, session, output, "OWNERSHIP_CHANGED"); } deliver(std::move(output));
 }
 void Broker::disconnect(const std::string& connection) {
+  Impl::UiChange notification{impl_.get()};
   std::vector<Delivery> output; { std::lock_guard lock(impl_->mutex); impl_->connections.erase(connection);
     for (auto it = impl_->pairings.begin(); it != impl_->pairings.end();) { if (it->second.connection == connection) it = impl_->pairings.erase(it); else ++it; }
     std::vector<std::string> sessions;for(const auto& [id,worker]:impl_->workers)if(worker.connection==connection && worker.connected)sessions.push_back(id);
@@ -952,6 +1132,7 @@ void Broker::disconnect(const std::string& connection) {
   } deliver(std::move(output));
 }
 void Broker::stop_all() {
+  Impl::UiChange notification{impl_.get()};
   std::vector<Delivery> output; { std::lock_guard lock(impl_->mutex); impl_->stopping = true;
     std::set<std::string> groups;
     for (auto& [id, tab] : impl_->tabs) if (groups.insert(tab.group).second) impl_->begin_transfer_locked(tab, "human", output, "STOPPED");
@@ -962,10 +1143,31 @@ void Broker::stop_all() {
     }
   } deliver(std::move(output));
 }
-void Broker::open_human_workspace(const std::string& url, Reply reply, bool private_mode) { open_human_workspace_impl(url, std::move(reply), private_mode, false); }
+void Broker::open_human_workspace(const std::string& url, Reply reply, bool private_mode, const std::string& name) { open_human_workspace_impl(url, std::move(reply), private_mode, false,name); }
 void Broker::open_initial_human_workspace(const std::string& url, Reply reply) { open_human_workspace_impl(url, std::move(reply), false, true); }
-void Broker::open_human_workspace_impl(const std::string& url, Reply reply, bool private_mode, bool initial) {
+void Broker::open_human_tab(const std::string& workspace,const std::string& url,Reply reply) {
+  if(!safe_web_url(url)){reply(failure("URL_DENIED","Only ordinary web pages are allowed"));return;}
+  auto self=impl_;Impl::UiChange notification{self.get()};const auto id=identifier("tab_");
+  bool unavailable=false;
+  {std::lock_guard lock(self->mutex);auto found=self->workspaces.find(workspace);
+    unavailable=found==self->workspaces.end()||self->removed_workspaces.contains(workspace)||self->tabs.size()>=Impl::max_tabs;
+    if(!unavailable){Impl::Tab tab;tab.workspace=workspace;tab.owner="human";tab.group=id;self->tabs.emplace(id,std::move(tab));++found->second.pending_creates;}
+  }
+  if(unavailable){reply(failure("WORKSPACE_UNAVAILABLE","Select an available workspace with room for a new tab"));return;}
+  self->execute_safe("workspace.ensure",{{"workspaceId",workspace}},[self,workspace,id,url,reply](Json ready){
+    {std::lock_guard lock(self->mutex);if(self->removed_workspaces.contains(workspace))ready=failure("WORKSPACE_REMOVED","Workspace was removed");
+      if(!ready.value("ok",false)){self->tabs.erase(id);self->finish_create_locked(workspace);}else self->workspaces.at(workspace).ready=true;}
+    if(!ready.value("ok",false)){reply(std::move(ready));return;}
+    self->execute_safe("tabs.create",{{"workspaceId",workspace},{"tabId",id},{"url",url},{"nativeHuman",true}},[self,workspace,id,reply](Json value){
+      {std::lock_guard lock(self->mutex);if(!value.value("ok",false))self->tabs.erase(id);self->finish_create_locked(workspace);}
+      self->notify_ui();reply(std::move(value));
+    });
+  });
+}
+void Broker::open_human_workspace_impl(const std::string& url, Reply reply, bool private_mode, bool initial, const std::string& name) {
+  Impl::UiChange notification{impl_.get()};
   if (!safe_web_url(url)) { reply(failure("URL_DENIED", "Only ordinary web pages are allowed")); return; }
+  if(!name.empty()&&!valid_workspace_name(name)){reply(failure("INVALID_NAME","Workspace names must contain at most 80 characters and no control characters"));return;}
   auto self = impl_; auto workspace = initial ? std::string("native-default") : identifier("ws_"), id = identifier("tab_");
   Json rejected;
   {
@@ -973,6 +1175,8 @@ void Broker::open_human_workspace_impl(const std::string& url, Reply reply, bool
     if (self->stopping || self->removed_workspaces.contains(workspace)) rejected = failure("WORKSPACE_UNAVAILABLE", "Workspace cannot be opened");
     else {
       const auto [entry, inserted] = self->workspaces.try_emplace(workspace, Impl::Workspace{{}, false, private_mode});
+      if(entry->second.display_name.empty())entry->second.display_name=initial?"Personal":private_mode?"Private workspace":"Workspace "+std::to_string(self->workspaces.size());
+      if(!name.empty())entry->second.display_name=name;
       Impl::Tab tab; tab.workspace = workspace; tab.owner = "human"; tab.group = id; self->tabs.emplace(id, std::move(tab));
       try { self->persist_locked(); ++entry->second.pending_creates; }
       catch (...) { self->tabs.erase(id); if (inserted) self->workspaces.erase(entry); rejected = failure("PERSISTENCE_FAILED", "Workspace could not be saved"); }
@@ -988,14 +1192,14 @@ void Broker::open_human_workspace_impl(const std::string& url, Reply reply, bool
       else self->workspaces.at(workspace).ready = true;
     }
     if (!result.value("ok", false)) { reply(std::move(result)); return; }
-    self->execute_safe("tabs.create", {{"workspaceId", workspace}, {"tabId", id}, {"url", url}, {"private", private_mode}}, [self, workspace, id, reply](Json value) {
+    self->execute_safe("tabs.create", {{"workspaceId", workspace}, {"tabId", id}, {"url", url}, {"private", private_mode},{"nativeHuman",true}}, [self, workspace, id, reply](Json value) {
       {
         std::lock_guard lock(self->mutex);
         if (!value.value("ok", false)) self->tabs.erase(id);
         if (self->stopping || self->removed_workspaces.contains(workspace)) value = failure("WORKSPACE_REMOVED", "Workspace was removed or closed while the tab was being created");
         self->finish_create_locked(workspace);
       }
-      reply(std::move(value));
+      self->notify_ui();reply(std::move(value));
     });
   });
 }

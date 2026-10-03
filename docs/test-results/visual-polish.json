@@ -1,0 +1,213 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-03T03:32:15.133Z",
+  "scope": "Local source-build visual refinements; no release package published",
+  "binaries": {
+    "production": {
+      "executable": "build/app/Release/Xenon.exe",
+      "executableSha256": "6362e84f5e704205b38f0c2f655a5e2c86ac3d99329a0f07415713230d40faaa",
+      "applicationDllSha256": "1d483e50aed2dded83280b11205a4605596f732945bcae600c19fde57972afa6"
+    },
+    "testFixture": {
+      "applicationDllSha256": "fa925c65c818226d46920a75beb1e9b48d3741a01f356a23f0507b117d501388",
+      "unshipped": true
+    }
+  },
+  "changes": [
+    "Conditional toolbar caption/enabled-state updates remove continuous Controls redraws",
+    "Double-buffered rounded buttons and case-insensitive built-in Win32 class matching enable visible gray hover enter/leave",
+    "Antialiased reload glyph and rectangular page inset preserve rounded frame corners",
+    "Draggable bounded sidebar with keyboard menu alternatives and atomic theme/width persistence",
+    "Charcoal dark palette with neutral gray selection and stronger hover contrast"
+  ],
+  "build": "Full Release native build with sandboxed production and separate AuthTest targets; serial builds",
+  "checks": {
+    "nativeGroups": 11,
+    "adapterAndProductionScriptTests": 84,
+    "adapterTypecheck": "passed",
+    "branding": 5,
+    "diffWhitespace": "passed",
+    "focusedNativeUiRerun": "passed after fixture cleanup-bound verification"
+  },
+  "nativeUiRegression": {
+    "mode": "Hidden real Win32 HWNDs with simulated UI messages and offscreen painting; no physical pointer input",
+    "covered": [
+      "Mixed-case Button class subclass attachment",
+      "Distinct Light/Dark hover painting and mouse leave",
+      "Mixed-case ListBox height at window DPI",
+      "Legacy theme settings",
+      "Atomic width/theme save and restart",
+      "Persisted width bounds and malformed settings"
+    ]
+  },
+  "live": {
+    "run": "integration-1790997990160-c9f9a013",
+    "capturedAt": "2026-10-03T03:26:58.313Z",
+    "applicationDllSha256": "1d483e50aed2dded83280b11205a4605596f732945bcae600c19fde57972afa6",
+    "mode": "Automated production CEF + real MCP clients",
+    "passed": 17,
+    "checks": [
+      {
+        "name": "Four separate adapters, three live tabs each",
+        "passed": true
+      },
+      {
+        "name": "Workspace and result isolation",
+        "passed": true
+      },
+      {
+        "name": "A pending wait does not block other adapters",
+        "passed": true
+      },
+      {
+        "name": "Page-only screenshots through real MCP image output",
+        "passed": true
+      },
+      {
+        "name": "Replaced nodes reject stale references",
+        "passed": true
+      },
+      {
+        "name": "Overlay hit testing rejects obscured input",
+        "passed": true
+      },
+      {
+        "name": "Same-origin and cross-origin frames expose usable references",
+        "passed": true
+      },
+      {
+        "name": "Shadow DOM actionability and semantics",
+        "passed": true
+      },
+      {
+        "name": "Visual coordinates require a current screenshot",
+        "passed": true
+      },
+      {
+        "name": "JavaScript dialogs are handled without blocking other tabs",
+        "passed": true
+      },
+      {
+        "name": "Website JavaScript links and logout confirmations remain usable",
+        "passed": true,
+        "detail": {
+          "scriptLinkExecuted": true,
+          "confirmationAcceptedAndDismissed": true
+        }
+      },
+      {
+        "name": "Download namespace reports opaque scoped metadata",
+        "passed": true
+      },
+      {
+        "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+        "passed": true,
+        "detail": {
+          "documentPreserved": true,
+          "websiteEventsAdded": 0
+        }
+      },
+      {
+        "name": "Related popups transfer as one ownership group",
+        "passed": true
+      },
+      {
+        "name": "Mid-drag handoff waits for release before changing ownership",
+        "passed": true
+      },
+      {
+        "name": "Four workers behind one adapter, three tabs each",
+        "passed": true
+      },
+      {
+        "name": "Disconnect/reconnect preserves page and never replays mutations",
+        "passed": true
+      }
+    ]
+  },
+  "finalUi": {
+    "mode": "Computer Use against a marked synthetic AuthTest profile; actual native UI automation, separate from unit-message simulation",
+    "applicationDllSha256": "fa925c65c818226d46920a75beb1e9b48d3741a01f356a23f0507b117d501388",
+    "dpi": 96,
+    "perMonitorV2": true,
+    "antialiasedVectors": true,
+    "observed": [
+      "Dark charcoal shell and rounded vector reload icon",
+      "Complete gray selected-page bottom corners",
+      "Saved 340-DIP sidebar restored on restart",
+      "Controls icon visibly lightens on hover and shows its tooltip",
+      "Theme and Sidebar width actions visible in native menu"
+    ],
+    "controlsHover": {
+      "active": true,
+      "hoverPaints": 2,
+      "totalPaints": 4
+    },
+    "sidebarWidth": 340,
+    "footerClearancePhysicalPixels": 12,
+    "palette": {
+      "canvas": [
+        33,
+        33,
+        33
+      ],
+      "hover": [
+        80,
+        80,
+        80
+      ],
+      "selection": [
+        65,
+        65,
+        65
+      ],
+      "surface": [
+        48,
+        48,
+        48
+      ]
+    },
+    "cleanup": "The guarded final native close was interrupted by human input. Computer-use session was reset, and only the verified synthetic profile process tree was cleaned up."
+  },
+  "preliminaryUi": {
+    "mode": "Earlier AuthTest builds of this checkout; exact preliminary AuthTest hashes were not captured, so these observations are not final-binary acceptance",
+    "observed": [
+      "240-to-340 DIP sidebar drag",
+      "Connected teal agent tab/page frame",
+      "Synthetic draft and agent ownership retained during resize",
+      "Controls rounded navigation and neutral gray list selection"
+    ]
+  },
+  "references": {
+    "codex": {
+      "source": "Read-only installed static CSS, Codex 26.928.3736.0",
+      "gray200": "#212121",
+      "gray300": "#303030",
+      "note": "Static tokens, not a claim about every custom user theme"
+    },
+    "chrome": {
+      "source": "https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/ui/color/chrome_color_mixer.cc",
+      "defaultDarkToolbar": "#35363a"
+    }
+  },
+  "retainedFailure": {
+    "run": "integration-1790996696407-3f4a4ba7",
+    "applicationDllSha256": "10978703309aa1c8c7158241fa2ccf57cd71781599492041bb6df82d6735b66a",
+    "passed": 16,
+    "failed": [
+      {
+        "name": "Mid-drag handoff waits for release before changing ownership",
+        "error": "The expression evaluated to a falsy value:\n\n  assert((await observe(separate[1],sharedTab)).nodes.some(n=>n.name==='Drag completed'))\n"
+      }
+    ],
+    "diagnosis": "The frame footer reduced the viewport by 10 pixels. Both drag endpoints were visible, but the result label was below it. The harness now finds the actual result with fresh recipient evidence and bounded normal scrolling after commit; the Drag completed assertion remains.",
+    "localEvidence": "out/sidebar-hover-live-first-failure.json"
+  },
+  "limitations": [
+    "Physical Light/System, Windows high contrast, multiple DPI/monitor and assistive-technology matrix was not completed on this final binary",
+    "The complete physical button/menu, permission and credential-dialog matrix remains manual acceptance work",
+    "The earlier 75-check overhaul record is historical evidence on its own hashes; these refinements reran the 17-check production integration suite",
+    "Computer Use session reset is recorded; no claim is made that the Codex UI permission toggle was disabled"
+  ],
+  "priorEvidence": "visual-overhaul.json"
+}

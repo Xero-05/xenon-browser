@@ -34,7 +34,7 @@ The CMake generator is `Visual Studio 17 2022`, architecture x64, Release config
 
 The application is in `build/app/Release/`. Native tests are registered with CTest; TypeScript and SDK tests use `npm test`. `./scripts/build.ps1 -CoreOnly -Test` builds the broker/vault/file tests without CEF. Reconfigure without `-CoreOnly` to restore the full browser build.
 
-The default concurrent worker limit is 16 across all paired clients. Set a different limit when starting the browser, for example:
+The default browser-wide concurrent worker limit is 16 across all paired clients. New clients also default to four concurrent workers and four automatic workspaces; native Controls configures these client quotas and the permission to create workspaces. Both limits apply. Migrated clients retain their previous capabilities and global worker limit until configured. Set a different browser-wide limit when starting the browser, for example:
 
 ```powershell
 .\Xenon.exe --max-concurrent-workers=32
@@ -42,7 +42,7 @@ The default concurrent worker limit is 16 across all paired clients. Set a diffe
 
 The supported range is 1–256. This is a native startup setting, unavailable to MCP clients; it takes effect on the next browser launch. It limits connected workers, not the number created over the browser's lifetime. Retirement and disconnection free connected capacity without closing tabs or deleting profiles. Resuming a disconnected worker requires an available slot. Higher values are resource budgets, not tested performance guarantees; the separate 64-tab limit still applies. Hosts should reuse workers or pass an existing granted `workspaceId` when creating replacements to avoid creating unnecessary persistent profiles.
 
-Parallel work uses a fixed startup policy: `disable-backgrounding-occluded-windows` keeps covered Chrome windows rendering and `disable-background-timer-throttling` keeps background page timers running. These internal settings follow [Chrome tooling guidance](https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md); they never change during a handoff. They can increase CPU/GPU use and power consumption compared with an ordinary browser's background throttling. External Chromium command-line settings remain disabled.
+Parallel work uses a fixed startup policy: `disable-backgrounding-occluded-windows` keeps covered Alloy page hosts rendering and `disable-background-timer-throttling` keeps background page timers running. These internal settings follow [Chrome tooling guidance](https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md); they never change during a handoff. They can increase CPU/GPU use and power consumption compared with an ordinary browser's background throttling. External Chromium command-line settings remain disabled.
 
 Tests that set Windows owner-only ACLs must run with the ordinary interactive user's Windows permissions. A restricted execution sandbox may reject `WRITE_DAC`; do not weaken product ACLs to make such a runner pass. Administrator privileges are not a normal runtime requirement.
 

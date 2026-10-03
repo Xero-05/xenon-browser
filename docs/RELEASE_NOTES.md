@@ -1,5 +1,18 @@
 # Release notes
 
+## Unreleased
+
+The development source replaces the visible Chromium shell with a native Xenon interface while retaining the pinned sandbox bootstrap, isolated workspace profiles and broker boundaries. These changes are not included in the published alpha.11 installer; [build the source](BUILD.md) to try them.
+
+- Grouped vertical tabs, connected selected-tab outlines, rounded icon buttons, hover labels and gray feedback, and saved System/Light/Dark themes. The sidebar supports dragging, keyboard width controls and reset. Dark mode uses charcoal surfaces; Controls lists use neutral gray selections.
+- Teal selected-page borders indicate an available agent owner, orange indicates its human-input pause, and gray indicates human or unavailable ownership. Background paused/unowned tabs have no outline. Background page hosts keep rendering, and agent-created tabs do not steal human selection or focus.
+- Controls separates Clients, Workspaces and Passwords. Pairing requests have Approve/Deny actions. Named workspace creation opens a blank human-owned tab; separate configuration windows manage renaming, allowed clients, permissions and resources. Selecting a workspace filters a labelled tabs table.
+- New paired clients start read-only, with automatic workspace creation disabled and quotas of four workers and four automatic workspaces. Workspace grants narrow the client policy. Automatic workspaces inherit permitted files/folders and exact-HTTPS-origin accounts live; revocation removes inherited access. Native checks cover dispatch, callbacks, late results and indirect downloads. Versioned atomic state migration preserves existing identities, profiles and grants; legacy clients retain their previous capabilities and historical workspaces are exempt from creator quotas.
+- Compact native menus provide navigation, find, zoom, bookmarks, history, downloads, printing/PDF, site permissions and third-party notices. Per-workspace encrypted bookmarks/history migrate non-destructively; private records remain memory-only and new protected-authentication visits are omitted.
+- A persistent native agent cursor uses bounded smooth movement and revalidated element interiors. Screenshot coordinates stay exact. Human input cancels continuation, authority is checked throughout movement, and held input is balanced safely. Handoff and visual cursor pause/resume add no website input or move the Windows mouse.
+
+The final refinement build passed 11 native test groups, adapter typechecking, 84 adapter/script tests, five branding checks and 17 production live checks. The preceding overhaul passed 75 live checks across 10 suites on its separately recorded binaries. [Validation records](TESTING.md#visual-and-controls-overhaul) retain hashes and failed-run history rather than combining these runs into one final-binary claim. Physical checks of the final Dark shell covered hover, icons, frame corners and saved width at 96 DPI; final Light/System, high contrast, multiple DPI/monitors and the complete physical menu/dialog matrix remain unverified. No new installer or release package has been published for this overhaul.
+
 ## 0.1.0-alpha.11
 
 The Windows installer now offers a **program folder chooser** on a fresh installation. Choose an empty, writable folder on a local fixed drive, or keep the default `%LOCALAPPDATA%\Programs\Xenon Browser`. Download the unsigned installer and its SHA-256 file from the [alpha.11 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.11). Portable ZIPs remain available.

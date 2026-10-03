@@ -24,6 +24,14 @@ class CefEngine final : public BrowserEngine {
   void set_controls_callback(std::function<void()> callback);
   void set_dialog_callback(std::function<void(const std::string&)> callback);
   void set_private_workspace_callback(std::function<void()> callback);
+  void set_host_callbacks(std::function<HWND(const std::string&,const std::string&,bool)> create,
+                          std::function<void(const std::string&,HWND)> created,
+                          std::function<void(const std::string&)> closed);
+  void set_download_callback(std::function<bool(const std::string&)> allowed);
+  void set_permission_callback(std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> callback);
+  void native_pointer(HWND page,POINT screen,bool substantive=false);
+  void select_native_tab(const std::string& tab_id);
+  void native_command(const std::string& tab_id,const std::string& command,const std::string& value={},Reply reply={});
   void set_save_prompt_callback(std::function<void(const std::string&, CefWindowHandle)> callback);
   // Native human UI only. These capabilities are never exposed by execute/MCP.
   void set_autofill_prompt_callback(std::function<void(const Json&, CefWindowHandle)> callback);

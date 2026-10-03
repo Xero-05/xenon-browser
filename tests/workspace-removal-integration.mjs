@@ -7,7 +7,7 @@ import net from 'node:net';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -195,7 +195,9 @@ try {
       // This file is consumed only by the marked AuthTest build. There is no
       // production switch, renderer binding, pipe operation or MCP endpoint.
       await sleep(300);
-      await writeFile(resolve(profile, 'native-removal-request.json'), JSON.stringify({ workspaceId: removedId }));
+      const temporary = resolve(profile, 'native-removal-request.tmp');
+      await writeFile(temporary, JSON.stringify({ workspaceId: removedId }));
+      await rename(temporary, resolve(profile, 'native-removal-request.json'));
     }
     await until(async () => !(await tool('workspaces')).workspaces.some(item => item.workspaceId === removedId), 180000, 'Human native workspace removal');
     stopPendingReads = true; await pendingReadLoop;

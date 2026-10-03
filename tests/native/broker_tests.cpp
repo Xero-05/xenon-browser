@@ -140,7 +140,11 @@ Json pair(Broker& broker, const std::string& connection, const std::string& name
   require(pending.size() == 1, "Pairing appears in native state");
   require(broker.approve_pairing(pending[0]["requestId"]), "Native pairing approval succeeds");
   require(output.value("ok", false), "Pairing returns credentials only after approval");
+  require(broker.configure_client(output["result"]["clientId"],ClientPolicy::legacy(256)),"Synthetic fixture explicitly enables agent capabilities");
   return output["result"];
+}
+bool share_fixture(Broker& broker,const std::string& workspace,const std::string& client) {
+  return broker.share_workspace(workspace,client)&&broker.configure_workspace_client(workspace,client,WorkspaceAccess::legacy());
 }
 struct Worker {
   std::string connection, session, workspace;
@@ -166,6 +170,63 @@ Json create_only(Broker& broker,const std::string& connection,const std::string&
 }
 Json worker_row(Broker& broker,const std::string& id) {
   const auto state=broker.state();for(const auto& row:state["workers"])if(row["agentSessionId"]==id)return row;return Json{};
+}
+void client_policy_boundaries(const std::filesystem::path& directory){
+  FakeEngine engine;Broker broker(engine,directory);
+  Json paired;broker.dispatch("new-client",{{"method","pair.request"},{"params",{{"name","Read-only fixture"}}}},[&](Json value){paired=value;});
+  require(broker.approve_pairing(broker.state()["pairings"][0]["requestId"]),"New client is paired natively");
+  const auto client=paired["result"]["clientId"].get<std::string>();
+  const auto policy=broker.state()["clients"][0]["policy"];
+  require(!policy["interaction"].get<bool>()&&!policy["automaticWorkspaces"].get<bool>()&&policy["maxWorkers"]==4&&policy["maxAutomaticWorkspaces"]==4,"New client defaults to read-only with four-worker/four-workspace quotas");
+  require(code(create_only(broker,"new-client"))=="WORKSPACE_CREATION_DENIED","Automatic workspaces require explicit native permission");
+  Json human;broker.open_human_workspace("about:blank",[&](Json value){human=value;},false,"Named on creation");
+  const auto workspace=human["result"]["workspaceId"].get<std::string>();
+  require(broker.state()["workspaces"][0]["displayName"]=="Named on creation","Workspace name is durable at creation");
+  require(broker.rename_workspace(workspace,"Research workspace"),"Human may rename a workspace");
+  require(!broker.rename_workspace(workspace,"\ninvalid"),"Control characters are rejected in names");
+  require(broker.share_workspace(workspace,client),"Human shares workspace read-only");
+  auto reader=create_only(broker,"new-client",workspace);require(reader.value("ok",false),"Read-only worker can attach to shared workspace");
+  Json base={{"workspaceId",workspace},{"agentSessionId",reader["result"]["agentSessionId"]},{"tabId",human["result"]["tabId"]}};
+  require(code(call(broker,"new-client","tabs.create",base))=="PERMISSION_DENIED","Read-only client cannot create tabs");
+  require(code(call(broker,"new-client","control.acquire",base))=="PERMISSION_DENIED","Read-only client cannot acquire writable control");
+  ClientPolicy enabled{Capabilities::full(),true,2,1};require(broker.configure_client(client,enabled),"Client ceiling is configured natively");
+  require(code(call(broker,"new-client","tabs.create",base))=="PERMISSION_DENIED","Client policy alone does not widen read-only workspace access");
+  require(broker.configure_workspace_client(workspace,client,WorkspaceAccess::automatic(enabled)),"Workspace permissions explicitly intersect the client ceiling");
+  auto second=create_only(broker,"new-client");require(second.value("ok",false),"Enabled client creates one automatic workspace");
+  require(code(create_only(broker,"new-client"))=="CLIENT_LIMIT_EXCEEDED","Client worker quota counts all its connections");
+  require(call(broker,"new-client","workers.retire",{{"agentSessionId",second["result"]["agentSessionId"]}}).value("ok",false),"Retirement releases worker capacity");
+  require(code(create_only(broker,"new-client"))=="CLIENT_LIMIT_EXCEEDED","Automatic workspace quota counts persisted creators, including disconnected workspaces");
+  require(broker.grant_client_account(client,"allowed-account","https://example.test"),"Native client account grant succeeds");
+  auto accounts=call(broker,"new-client","auth.accounts",base);
+  require(accounts.value("ok",false)&&accounts["result"]["accounts"].size()==1,"Automatic inheritance makes only permitted exact-origin account metadata available");
+  WorkspaceAccess restricted=WorkspaceAccess::automatic(enabled);restricted.restrict_accounts=true;
+  require(broker.configure_workspace_client(workspace,client,restricted),"Empty resource restriction is accepted");
+  require(call(broker,"new-client","auth.accounts",base)["result"]["accounts"].empty(),"Empty account selection grants no inherited accounts");
+  restricted.account_ids.insert("allowed-account");require(broker.configure_workspace_client(workspace,client,restricted),"Selected account restriction is saved");
+  engine.delay_metadata=true;Json late;broker.dispatch("new-client",{{"method","auth.accounts"},{"params",base}},[&](Json value){late=value;});
+  require(broker.revoke_account(client,"","allowed-account"),"Revocation of client resource is saved");
+  auto finish=std::move(engine.held_metadata.at("auth.accounts"));engine.held_metadata.clear();finish(success({{"accounts",Json::array({{{"accountId","allowed-account"},{"origin","https://example.test"},{"label","Synthetic"}}})}}));
+  require(code(late)=="PERMISSION_CHANGED","Late account metadata is withheld after inherited resource revocation");
+  engine.delay_metadata=false;
+  require(call(broker,"new-client","auth.accounts",base)["result"]["accounts"].empty(),"Revoked inherited account disappears everywhere");
+  auto workerTab=worker(broker,"new-client","writer",workspace); // Reader is the other active worker.
+  require(broker.allow_download(workerTab.tab["tabId"]),"Agent-owned downloads require enabled effective permission");
+  enabled.capabilities.downloads=false;require(broker.configure_client(client,enabled),"Download ceiling can be narrowed");
+  require(!broker.allow_download(workerTab.tab["tabId"]),"Actual CEF download gate follows client ceiling");
+  require(broker.allow_download(human["result"]["tabId"]),"Human-owned browsing retains native downloads");
+  auto listed=call(broker,"new-client","workspaces.list");bool named=false;for(const auto& row:listed["result"]["workspaces"])if(row["workspaceId"]==workspace)named=row["displayName"]=="Research workspace"&&!row["effectivePermissions"]["downloads"].get<bool>();require(named,"Authorized workspace listing exposes names and intersected permissions");
+  require(broker.state()["workspaces"].size()==2,"Manual workspace does not consume the automatic quota");
+}
+void legacy_policy_migration(const std::filesystem::path& directory){
+  std::filesystem::create_directories(directory);const auto token=local_security::random_hex(32);
+  {std::ofstream file(directory/"broker-state.json");file<<Json{{"version",1},{"clients",Json::array({{{"id","legacy"},{"name","Legacy fixture"},{"tokenHash",local_security::sha256(token)}}})},{"workspaces",Json::array({{{"id","historical"},{"clients",Json::array({"legacy"})}}})}};}
+  {FakeEngine engine;Broker broker(engine,directory,Broker::Limits{8});
+    require(call(broker,"legacy-wire","hello",{{"clientId","legacy"},{"token",token}}).value("ok",false),"Existing pairing token survives migration");
+    const auto policy=broker.state()["clients"][0]["policy"];require(policy["interaction"].get<bool>()&&policy["maxWorkers"]==8&&policy["maxAutomaticWorkspaces"]==0,"Legacy client retains capabilities and global worker limit");
+    require(broker.state()["clients"][0]["automaticWorkspaces"]==0,"Historical workspace is exempt without creator metadata");
+    require(broker.rename_workspace("historical","Retained research"),"Name change writes versioned state atomically");
+  }
+  {FakeEngine engine;Broker broker(engine,directory);require(broker.state()["workspaces"][0]["displayName"]=="Retained research","Workspace name survives restart");require(broker.state()["workspaces"][0]["workspaceId"]=="historical","Migration preserves opaque IDs");}
 }
 void worker_capacity_and_churn(const std::filesystem::path& directory) {
   for(size_t invalid:{size_t{0},size_t{257}}){FakeEngine e;bool rejected=false;try{Broker b(e,directory/"invalid",Broker::Limits{invalid});}catch(const std::invalid_argument&){rejected=true;}require(rejected,"Worker configuration accepts only 1..256");}
@@ -292,7 +353,7 @@ void security_and_handoff(const std::filesystem::path& directory) {
   require(code(call(broker, "bob", "page.observe", shared)) == "WORKSPACE_DENIED", "Workspace access defaults to deny");
   auto handoff = first.base(); handoff["toSessionId"] = second.session; handoff["expectedGeneration"] = first.tab["ownershipGeneration"];
   require(code(call(broker, "alice", "control.handoff", handoff)) == "HANDOFF_DENIED", "Handoff never grants workspace permission itself");
-  require(broker.share_workspace(first.workspace, bob["clientId"]), "Human grants workspace access");
+  require(share_fixture(broker,first.workspace, bob["clientId"]), "Human grants workspace access");
   auto parameters = action_params(broker, first, "first-input"); Json first_reply, queued_reply;
   auto account_scope = first.base();
   require(call(broker, "alice", "auth.accounts", account_scope)["result"]["accounts"].empty(), "Pairing does not grant vault accounts");
@@ -402,7 +463,7 @@ void revoked_metadata(const std::filesystem::path& directory) {
 void popup_group_and_dialog(const std::filesystem::path& directory) {
   FakeEngine engine; Broker broker(engine, directory); pair(broker, "group", "Group owner"); auto other = pair(broker, "other", "Recipient");
   auto source = worker(broker, "group", "source"), recipient = worker(broker, "other", "recipient");
-  require(broker.share_workspace(source.workspace, other["clientId"]), "Popup recipient is granted source workspace");
+  require(share_fixture(broker,source.workspace, other["clientId"]), "Popup recipient is granted source workspace");
   engine.event("tab.created", {{"tabId", "popup-existing"}, {"workspaceId", source.workspace}, {"openerTabId", source.tab["tabId"]}});
   Worker popup = source; popup.tab = {{"tabId", "popup-existing"}};
   auto parent_params = action_params(broker, source, "group-parent"), popup_params = action_params(broker, popup, "group-popup");
@@ -453,7 +514,7 @@ void human_activity_pause(const std::filesystem::path& directory) {
   FakeEngine engine; Broker broker(engine,directory); const auto principal=pair(broker,"activity","Activity owner");
   const auto other_principal=pair(broker,"other-activity","Other client");
   auto a=worker(broker,"activity","Main"),independent=worker(broker,"activity","Independent"),other=worker(broker,"other-activity","Other");
-  require(broker.share_workspace(a.workspace,other_principal["clientId"]),"Another client may observe the shared workspace without owning this tab");
+  require(share_fixture(broker,a.workspace,other_principal["clientId"]),"Another client may observe the shared workspace without owning this tab");
   auto peer=worker(broker,"other-activity","Shared peer",a.workspace);
   const auto initial=call(broker,a.connection,"control.status",a.base())["result"];
   require(initial["ownerSessionId"]==a.session && initial["humanActivityEpoch"]==0 && !initial["humanPaused"].get<bool>(),"Creating a tab automatically grants its worker ownership without a human pause");
@@ -575,7 +636,7 @@ void human_workspace_persistence(const std::filesystem::path& directory) {
     broker.open_initial_human_workspace("about:blank", [&](Json result) { value = std::move(result); }); require(value.value("ok", false), "Initial human workspace opens");
     broker.open_initial_human_workspace("about:blank", [&](Json result) { value = std::move(result); }); require(broker.state()["workspaces"].size() == 1, "Initial human workspace uses stable profile identity");
     broker.open_human_workspace("about:blank", [&](Json result) { value = std::move(result); }, true); require(value["result"]["private"], "Native private flag reaches engine"); private_id = value["result"]["workspaceId"];
-    auto principal = pair(broker, "private", "Agent"); require(!broker.share_workspace(private_id, principal["clientId"]), "Private human workspace cannot gain persistent agent grants");
+    auto principal = pair(broker, "private", "Agent"); require(!share_fixture(broker,private_id, principal["clientId"]), "Private human workspace cannot gain persistent agent grants");
   }
   { FakeEngine engine; Broker broker(engine, directory); auto state = broker.state(); require(state["workspaces"].size() == 1 && state["workspaces"][0]["workspaceId"] == "native-default", "Private workspaces are excluded from persistent broker metadata"); }
 }
@@ -591,7 +652,7 @@ void workspace_removal_boundary(const std::filesystem::path& directory) {
   FakeEngine engine; Broker broker(engine,directory);
   const auto first=pair(broker,"remove-a","First"),second=pair(broker,"remove-b","Second");
   auto a=worker(broker,"remove-a","Removing"),b=worker(broker,"remove-b","Keep");
-  require(broker.share_workspace(a.workspace,second["clientId"]),"Second principal has a workspace grant before removal");
+  require(share_fixture(broker,a.workspace,second["clientId"]),"Second principal has a workspace grant before removal");
   require(broker.grant_account(first["clientId"],a.workspace,"account-a","https://example.test"),"Removed workspace has an account grant");
   require(broker.grant_account(second["clientId"],b.workspace,"account-b","https://example.test"),"Other workspace has a retained account grant");
   auto old=action_params(broker,a,"remove-closed-dialog");old["action"]="inspect";Json old_result;
@@ -619,7 +680,7 @@ void workspace_removal_boundary(const std::filesystem::path& directory) {
   require(engine.call_count()==engine_before && engine.removal_count()==0,"Removal does not close or inject input while a gesture is active");
   require(queued["dispatchStatus"]=="not_dispatched","Queued mutation is never replayed during removal");
   require(workspace_row(broker,a.workspace)["removalStatus"]=="draining","Native UI can display the input drain");
-  require(!broker.share_workspace(a.workspace,first["clientId"]) && !broker.grant_account(first["clientId"],a.workspace,"new","https://example.test"),"Removed workspace cannot be re-granted");
+  require(!share_fixture(broker,a.workspace,first["clientId"]) && !broker.grant_account(first["clientId"],a.workspace,"new","https://example.test"),"Removed workspace cannot be re-granted");
   require(code(create_only(broker,b.connection,a.workspace))=="WORKSPACE_DENIED","Another live worker cannot reopen a removed workspace");
   require(call(broker,a.connection,"workspaces.list")["result"]["workspaces"].empty(),"Removed workspace immediately disappears from MCP grants");
   const auto old_status=call(broker,a.connection,"operations.get",{{"operationId","remove-closed-dialog"}});
@@ -756,7 +817,7 @@ void workspace_removal_persistence(const std::filesystem::path& directory) {
     FakeEngine engine;Broker broker(engine,directory);require(call(broker,"restart","hello",principal).value("ok",false),"Unrelated paired identity survives removal");
     require(broker.removed_workspaces()==std::vector<std::string>{workspace},"Deletion tombstone survives interrupted restart");
     require(broker.state()["workspaces"].empty() && broker.state()["accountGrants"].empty(),"Restart never recreates removed workspace grants");
-    require(code(create_only(broker,"restart",workspace))=="WORKSPACE_DENIED" && !broker.share_workspace(workspace,principal["clientId"]),"Saved removed ID cannot be reopened or granted");
+    require(code(create_only(broker,"restart",workspace))=="WORKSPACE_DENIED" && !share_fixture(broker,workspace,principal["clientId"]),"Saved removed ID cannot be reopened or granted");
     require(engine.call_count()==0,"Loading a deletion marker does not recreate any browser state");
   }
 }
@@ -852,6 +913,7 @@ void pipe_transport(const std::filesystem::path& directory) {
   auto state = broker.state(); require(state["pairings"].size() == 1, "Pipe pairing is pending in native UI");
   require(broker.approve_pairing(state["pairings"][0]["requestId"]), "Native UI approves pipe client");
   auto paired = client.receive(); require(paired["id"] == 2 && paired.value("ok", false), "Pair response returns asynchronously with original request id");
+  require(broker.configure_client(paired["result"]["clientId"],ClientPolicy::legacy(256)),"Pipe fixture enables automatic workspace creation natively");
   auto created = client.request(3, "workers.create", {{"name", "Pipe worker"}}); require(created.value("ok", false), "Authenticated pipe request reaches broker");
   PipeClient other(server.name());
   require(code(other.request(4, "workers.list")) == "UNAUTHORIZED", "Authentication does not leak between pipe instances");
@@ -870,6 +932,8 @@ int main() {
     human_dialog_notices();
     const auto root = std::filesystem::absolute(std::filesystem::path("build") / "broker-test-data" / local_security::random_hex(8));
     worker_capacity_and_churn(root / "worker-churn");
+    client_policy_boundaries(root / "client-policy");
+    legacy_policy_migration(root / "policy-migration");
     worker_retirement_boundaries(root / "worker-retirement");
     worker_late_callbacks(root / "worker-callbacks");
     security_and_handoff(root / "handoff");

@@ -1,20 +1,24 @@
 # Using Xenon
 
-Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.11**. Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
+Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes the latest development source and its [unreleased overhaul](RELEASE_NOTES.md#unreleased). The published alpha.11 installer retains the earlier interface; use the [alpha.11 user guide](https://github.com/Xero-05/xenon-browser/blob/v0.1.0-alpha.11/docs/USER_GUIDE.md) for that package. Start with [building](BUILD.md) and [pairing](GETTING_STARTED.md) to try the new shell.
 
 ## Browser and Controls
 
-Use the native browser toolbar for addresses, tabs, back/forward and ordinary browsing. Open **Xenon Controls** with **Ctrl+Shift+X** from a browser window, or **Xenon Controls and Accounts** in a webpage's context menu.
+Use the rounded icon buttons in the left rail for back, forward and reload; hover over an icon for its label. Enter an address or search in the pill above the page. The **Controls** sliders icon, **New tab** plus and **Menu** dots sit at the bottom of the rail. Open Controls there, with **Ctrl+Shift+X**, or **Xenon Controls** in a webpage's context menu. Tabs appear in the left sidebar, grouped under workspace names. The selected tab joins the page outline. Collapsing a group keeps its tabs and agents running.
 
-Controls is a separate native window. Website pages and MCP clients cannot click its permission or credential buttons. Closing it hides it; the browser keeps running.
+Drag the sidebar's right edge to change its width, or use **Menu → Sidebar width** for keyboard access to Narrower, Wider and Reset width. Its range is 180–480 logical pixels, further bounded by space for the page. Double-clicking the edge restores the default. Xenon saves the width alongside your theme preference. Dark mode uses charcoal surfaces with visible gray hover feedback; Light mode uses white surfaces. **System** follows Windows.
 
-The Chrome runtime supplies bookmarks, history, find, zoom, printing/PDF, media and site permissions. Some inherited menus still say **Chromium**, and these features have not all received exhaustive Xenon testing. There is no cloud sync, built-in model or promise of arbitrary extension/DRM compatibility. Use Xenon's vault for passwords: Chromium's separate password manager is disabled or redirected to Controls.
+Controls is a separate native window with sections in a left sidebar, rounded buttons and neutral gray list selections. Website pages and MCP clients cannot click its permission or credential buttons. Closing it hides it; the browser keeps running.
+
+Controls has **Clients**, **Workspaces** and **Passwords** sections. Pairing requests have separate Approve/Deny actions. Approved clients remain paired across launches and start read-only with automatic creation disabled, four concurrent workers and four automatic workspaces. Client configuration sets the overall ceiling; workspace configuration can narrow it. Legacy pairings retain their existing capabilities until configured. Lowering a quota blocks additional admission while allowing existing work to finish.
+
+The Xenon menu supplies bookmarks, history, find, zoom, printing/PDF, downloads, site permissions and third-party notices. Choose **Theme: System**, **Theme: Light** or **Theme: Dark**; System is the default. Native bookmarks and history migrate existing workspace records without modifying their original files. Private metadata stays in memory, and new protected-authentication visits are excluded from history. There is no cloud sync or built-in model. Use Xenon's vault for passwords.
 
 ## Workspaces and website sessions
 
-A workspace has its own cookies and local storage. **Personal** is the initial human workspace. **New workspace** opens a blank tab in a separate persistent workspace. An agent's new worker also gets a separate workspace unless it requests one its client already has permission to use.
+A workspace has its own cookies and local storage. **Personal** is the initial human workspace. **Create workspace** in the Workspaces section requests a name and opens a blank human-owned tab. Double-click a workspace or choose **Configure** to rename it and manage client permissions/resources in a separate window. Selecting a workspace in Controls filters its tabs table. An agent can create an automatic workspace only when its client has native permission; otherwise it must request a shared workspace.
 
-Sharing a workspace lets that paired client access its pages and existing website logins. It does not copy those sessions into another workspace. To share, select the workspace and client in Controls, then click **Share workspace**. Reuse its workspace ID when asking an agent to continue work later.
+Sharing a workspace lets that paired client access its pages and existing website logins. It does not copy those sessions into another workspace. To share, select the workspace and client in Controls, then click **Share read-only**. Configure that workspace and the client to permit interaction or other capabilities. Reuse its workspace ID when asking an agent to continue work later.
 
 Different workers can control different tabs in one workspace. Separate workspaces isolate browser state, but two sessions signed into the same remote account can still change the same online data.
 
@@ -28,13 +32,15 @@ A fresh application launch opens a blank tab. Persistent workspaces retain cooki
 
 ### Remove a workspace
 
-Select a workspace and click **Remove workspace**. Review the native confirmation. Personal cannot be removed this way.
+Select a workspace and click **Remove**. Review the native confirmation. Personal cannot be removed this way.
 
 Removal stops new access, lets accepted finite input reach its safe release boundary, closes the workspace's tabs, cancels active downloads and revokes client, account and file permissions for that workspace. Saved accounts in the shared vault, completed downloads and original upload files remain.
 
 The removed workspace stays unavailable across restarts. Its browser profile is scheduled for bounded cleanup on later launches; locked or refused files may remain pending. This is not secure erasure or remote-account logout. Retiring an agent worker or closing a tab does not remove its workspace.
 
 ## Ownership, human activity and handoff
+
+The selected tab and page use teal borders for an available agent owner, orange for its temporary pause for human page input, and gray for human ownership or no available agent. Background tabs only show a teal border while their agent owner is available and unpaused; paused or unowned background tabs have no border. Status text and protection labels accompany the colors. The native agent cursor stays visible while the selected page is agent-owned, parks during human input, and resumes without sending extra website input or moving the Windows mouse.
 
 Ownership gives a worker permission to interact with a tab. The worker automatically owns tabs it creates. Workspace permission also allows reads of permitted pages, so ownership is not a privacy barrier between clients deliberately sharing that workspace.
 
@@ -56,7 +62,7 @@ Handoff waits for accepted finite input to finish. Its ownership commit sends no
 
 For a website alert/confirm/prompt opened by your interaction, Controls can show the exact tab's dialog. Read the message, enter prompt text if needed, then choose **Accept dialog** or **Dismiss**. Browser security and permission prompts remain human tasks.
 
-The default limit is 16 concurrently connected workers across all clients, plus a separate 64-tab limit. Retiring or disconnecting workers frees connected capacity. A native startup option can set 1–256 connected workers; this is a resource limit, not a tested performance claim. See [worker lifecycle](MCP.md#worker-capacity-and-retirement).
+The browser defaults to 16 concurrently connected workers across all clients, plus a separate 64-tab limit. New clients also have a quota of four concurrent workers and four automatically created workspaces, configurable in Controls. Legacy clients retain their existing capabilities and migrated global worker limit until configured. Both global and client limits apply. Retiring or disconnecting workers frees connected capacity; removing an automatic workspace frees its workspace quota. A native startup option can set the global worker limit to 1–256; these are resource limits, not tested performance claims. See [worker lifecycle](MCP.md#worker-capacity-and-retirement).
 
 ## Saved accounts
 
@@ -83,11 +89,11 @@ The encrypted pending offer stays bound to the original login origin through HTT
 On a supported login page:
 
 1. Click a username or password field and let input settle. Xenon can offer a native account picker for that exact HTTPS origin, at most once per document.
-2. Alternatively, open Controls, select the login tab and click **Fill saved account…**.
+2. Alternatively, select the login tab in Controls' Workspaces section, then choose **Passwords** and **Fill selected login tab**.
 3. Check the origin and account label, select the account and click **Fill**.
 4. Continue on the website yourself. Native human fill does not submit the form.
 
-Ordinary two-field forms need one editable username and an empty password. Separate username/password steps need explicit `username`/`current-password` autocomplete hints. After filling only the username, continue on the website and use **Fill saved account…** again at the password step.
+Ordinary two-field forms need one editable username and an empty password. Separate username/password steps need explicit `username`/`current-password` autocomplete hints. After filling only the username, continue on the website and use **Fill selected login tab** again at the password step.
 
 Xenon refuses ambiguous or covered fields, changed forms, conflicting usernames, nonempty passwords, read-only inputs and unsupported controls. It preserves existing human values. Offers expire after two minutes and can become stale when the page or your input changes; request a fresh offer.
 
@@ -95,7 +101,7 @@ Human fill needs no agent account grant and creates none. It pauses agent effect
 
 ### Let an agent use an account
 
-Pair the client and share the intended workspace first. In Controls, select the **saved account**, **client** and **workspace**, then click **Allow selected client to use account**. Verify the exact HTTPS origin; subdomains and different ports are different origins.
+Pair the client and share the intended workspace first. Choose the client and workspace in their sections, then select the saved account in **Passwords** and choose **Grant in workspace**, or **Grant to client** for an inheritable client-level resource. Enable saved-account use in both policies. Verify the exact HTTPS origin; subdomains and different ports are different origins.
 
 The agent receives an opaque account ID, origin and label through `xenon_accounts`. It requests protected sign-in with `xenon_login`; the vault does not return the username or password through MCP. The agent path can fill and submit supported same-origin POST forms, including a bounded username-first flow. Saving, pairing, workspace sharing and human autofill do not themselves add account grants.
 
@@ -109,7 +115,7 @@ The credential implementation has synthetic script, native and HTTPS fixture tes
 
 ## Files and downloads
 
-Select a workspace in Controls, then **File permissions…** and **Grant file** or **Grant folder**. Grants persist; **Revoke selected** removes the selected grant. Prefer one file when a whole folder would grant more access than the task needs: eligible files added to an approved folder later can also become available.
+Select a workspace in Controls, then **Files** and **Grant file** or **Grant folder**. Client-level resources are available from **Clients → File resources** or the client configuration window; workspace configuration can inherit and restrict those selections. Enable uploads in both policies. Grants persist; **Revoke selected** removes the selected grant. Prefer one file when a whole folder would grant more access than the task needs: eligible files added to an approved folder later can also become available.
 
 Agents receive bounded metadata and opaque file handles. They can select an approved file through an observed visible file input or upload button that opens a chooser in the same frame, including a hidden input behind that button. Directory uploads, File System Access API pickers and cross-frame chooser delegation are unsupported. A selected file is not proof of a completed server-side upload.
 

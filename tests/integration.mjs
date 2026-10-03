@@ -219,7 +219,8 @@ try {
     const evidence = await findVisible(separate[3], caseTab, observation => observation.nodes.some(n => n.role === 'button' && n.name === 'Open dialog' && n.ref), 'dialog trigger');
     const button = evidence.nodes.find(n=>n.role==='button' && n.name==='Open dialog'); assert(button);
     const pending = raw(separate[3], 'interact', { ...mutation(caseTab), observationId: evidence.observationId, action: 'click', elementRef: button.ref });
-    await sleep(250);
+    // Native cursor synchronization and bounded movement precede mouse-down.
+    await sleep(800);
     await observe(separateTabs[0].client, separateTabs[0]);
     // The original input can have an uncertain outcome while script is paused.
     // Dismiss the known fixture dialog, never repeat the click.
@@ -235,7 +236,7 @@ try {
       const evidence = await findVisible(separate[3], caseTab, observation => observation.nodes.some(node => node.role === 'button' && node.name === 'Confirm synthetic logout' && node.ref), 'confirmation trigger');
       const button = evidence.nodes.find(node => node.role === 'button' && node.name === 'Confirm synthetic logout' && node.ref);
       const pending = raw(separate[3], 'interact', { ...mutation(caseTab), observationId: evidence.observationId, action: 'click', elementRef: button.ref });
-      await sleep(250);
+      await sleep(800);
       await observe(separateTabs[0].client, separateTabs[0]);
       await tool(separate[3], 'dialog', { ...mutation(caseTab), accept });
       const click = await pending;
@@ -313,7 +314,11 @@ try {
     const gesture=await pending;assert(!gesture.isError,JSON.stringify(gesture.structuredContent));
     const committed=await until(async()=>{const s=await tool(separate[1],'control_status',{...scope(sharedTab),agentSessionId:sharedB.agentSessionId});return s.ownerSessionId===sharedB.agentSessionId?s:false;});
     Object.assign(sharedTab,sharedB,committed);
-    assert((await observe(separate[1],sharedTab)).nodes.some(n=>n.name==='Drag completed'));
+    // Endpoint visibility does not imply that the following result label fits
+    // in the viewport. Use the recipient's fresh evidence and normal scrolling
+    // after ownership has committed; still assert the actual website outcome.
+    const result=await findVisible(separate[1],sharedTab,observation=>observation.nodes.some(n=>n.name==='Drag completed'||n.name==='Drag released'),'drag result');
+    assert(result.nodes.some(n=>n.name==='Drag completed'));
   });
   await check('Four workers behind one adapter, three tabs each', async () => {
     const multiplexed = await Promise.all(Array.from({ length: 4 }, async (_, i) => {
@@ -328,7 +333,7 @@ try {
     assert.equal(multiplexed.flat().length, 12);
   });
   await check('Disconnect/reconnect preserves page and never replays mutations', async () => {
-    const prior = await observe(separate[1], sharedTab); await separate[1].close(); await sleep(250);
+    const prior = await observe(separate[1], sharedTab); await separate[1].close(); await sleep(800);
     const reconnected = await connect(1);
     await tool(reconnected, 'worker_resume', { agentSessionId: sharedB.agentSessionId });
     const current = await tool(reconnected, 'control_status', scope(sharedTab));

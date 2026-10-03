@@ -75,15 +75,28 @@ class NativeAutofillFixture : public std::enable_shared_from_this<NativeAutofill
   }
   void finish(uint64_t id, Json value) {
     try {
-      const auto path = root_ / "native-autofill-result.json", temporary = root_ / "native-autofill-result.tmp";
+      const auto temporary = root_ / "native-autofill-result.tmp";
       auto output = safe_reply(value); output["id"] = id;
       if (value.contains("fixtureOfferId") && handle(value.at("fixtureOfferId"))) output["fixtureOfferId"] = value.at("fixtureOfferId");
       if (value.contains("guardPendingAtCancel") && value.at("guardPendingAtCancel").is_boolean()) output["guardPendingAtCancel"] = value.at("guardPendingAtCancel");
       { std::ofstream file(temporary, std::ios::binary | std::ios::trunc); file << output.dump(); file.flush(); if (!file) throw std::runtime_error("Fixture result write failed"); }
       local_security::restrict_path(temporary);
-      if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) throw std::runtime_error("Fixture result commit failed");
+      // The harness can briefly hold the previous result open while polling.
+      // Retry only the already-written diagnostic, never the native operation.
+      pending_commit_tries_ = 20;
+      commit_result();
     } catch (const std::exception&) { /* The harness reports a bounded timeout. */ }
     start();
+  }
+  void commit_result() {
+    if (!pending_commit_tries_) return;
+    const auto path = root_ / "native-autofill-result.json", temporary = root_ / "native-autofill-result.tmp";
+    if (MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) pending_commit_tries_ = 0;
+    else {
+      const auto error = GetLastError();
+      if (error == ERROR_SHARING_VIOLATION || error == ERROR_ACCESS_DENIED) --pending_commit_tries_;
+      else pending_commit_tries_ = 0;
+    }
   }
   bool known_tab(const std::string& id) {
     const auto state = broker_.state();
@@ -92,6 +105,7 @@ class NativeAutofillFixture : public std::enable_shared_from_this<NativeAutofill
     return false;
   }
   void poll() {
+    if (pending_commit_tries_) { commit_result(); start(); return; }
     uint64_t id = 0;
     try {
       const auto path = root_ / "native-autofill-request.json";
@@ -166,6 +180,7 @@ class NativeAutofillFixture : public std::enable_shared_from_this<NativeAutofill
   std::filesystem::path root_;
   Broker& broker_; CefEngine& engine_; Vault& vault_;
   uint64_t last_id_{};
+  unsigned pending_commit_tries_{};
   std::map<std::string, std::string> offers_;
 };
 }

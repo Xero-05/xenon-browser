@@ -8,9 +8,10 @@ Xenon is a Windows x64 alpha built with C++20, CEF's sandboxed Chrome runtime, a
 
 | Area | Main files |
 | --- | --- |
-| Authorization, ownership, queues, worker lifecycle and operation journal | `native/src/broker.cpp`, `native/include/xenon/broker.hpp`, `contracts.hpp` |
-| CEF integration, page observations, guarded input and protected login | `native/src/cef_engine.cpp`, `native/include/xenon/cef_engine.hpp` |
-| Windows startup, input routing and native controls | `native/src/main_win.cpp`, `native/src/native_ui.cpp`, `native/include/xenon/native_input_policy.hpp` |
+| Authorization, ownership, queues, worker lifecycle and operation journal | `native/src/broker.cpp`, `native/include/xenon/broker.hpp`, `contracts.hpp`, `permissions.hpp` |
+| CEF integration, page observations, guarded input and protected login | `native/src/cef_engine.cpp`, `native/include/xenon/cef_engine.hpp`, `pointer_motion.hpp`, `pointer_target.hpp`, `pointer_overlay.hpp` |
+| Windows startup, native shell, input routing and controls | `native/src/main_win.cpp`, `cef_shell.cpp`, `native_ui.cpp`, `native/include/xenon/browser_shell.hpp`, `ui_theme.hpp`, `native_input_policy.hpp` |
+| Native bookmarks/history and non-destructive legacy migration | `native/src/browser_data.cpp`, `native/include/xenon/browser_data.hpp` |
 | Vault, CSV import, file capabilities and profile cleanup | `native/src/vault.cpp`, `file_policy.cpp`, `workspace_storage.cpp`, matching headers and `native/include/xenon/local_security.hpp` |
 | Rendered-evidence filter and fixed isolated-world credential scripts | `native/src/visible_evidence.cpp`, `native/include/xenon/login_monitor.hpp`, `human_autofill.hpp` |
 | MCP schemas, stdio CLI, named-pipe transport and activity resource | `adapter/src/server.ts`, `cli.ts`, `ipc.ts`, `human-activity.ts` |

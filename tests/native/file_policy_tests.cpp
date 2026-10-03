@@ -181,6 +181,10 @@ int main() {
     require(folder_contents.dump().find(scratch.root.string()) == std::string::npos, "Folder listing leaked absolute directory");
     require(files.list_files("workspace-a", folder_id, 1).at("result").at("truncated"), "Bounded folder listing did not report truncation");
     const auto folder_file_id = folder_contents.at("result").at("files").at(0).at("fileId").get<std::string>();
+    require(files.selected_grant("workspace-a", folder_file_id, {folder_id}), "Selected folder must include its derived opaque file handles");
+    require(files.selected_grant("workspace-a", folder_file_id, {folder_file_id}), "A workspace can narrow inherited folders to an individual file");
+    require(!files.selected_grant("workspace-a", folder_file_id, {}), "Empty inherited resource selection grants no file");
+    require(!files.selected_grant("workspace-b", folder_file_id, {folder_id}), "Resource selections cannot cross grant scopes");
     {
       FilePolicy reopened(scratch.root / "downloads", {state});
       require(reopened.list_folders("workspace-a").at("result").at("folders").size() == 1, "Folder grant did not persist");
@@ -188,6 +192,7 @@ int main() {
     }
     require(files.revoke_grant("workspace-a", folder_id).at("result").at("revoked"), "Native folder revocation failed");
     require(!files.resolve_upload("workspace-a", folder_file_id), "Folder revocation left a derived file capability");
+    require(!files.selected_grant("workspace-a", folder_file_id, {folder_id, folder_file_id}), "Revoked inherited resources cannot be recovered by a retained selection");
     require(!files.list_files("workspace-a", folder_id).at("ok"), "Revoked folder could still be listed");
     {
       FilePolicy reopened(scratch.root / "downloads", {state});

@@ -1,5 +1,5 @@
 // Production CEF + MCP with a generated profile and two process launches.
-// At READY FOR NATIVE EXIT, use a fixture Chrome window's menu > Exit.
+// At READY FOR NATIVE EXIT, use the fixture Xenon window's menu > Exit Xenon.
 // Do not close individual tabs: this regression keeps the complete session open.
 // No existing browser profile, raw CDP, credential or real website is accessed.
 import assert from 'node:assert/strict';
@@ -265,7 +265,7 @@ try {
   });
   await check('Native whole-application Exit closes the first process successfully', async () => {
     const ready = { run, pid: browser.pid, fixtureWindowTitles: [`${fixtureTitle} before-exit-a`, `${fixtureTitle} before-exit-b`],
-      controlWindowTitle: 'Xenon Controls', action: 'Use one listed fixture browser window menu > Exit; do not close individual tabs or another browser.', openTabs: 3 };
+      browserWindowTitle: 'about:blank — Xenon', controlWindowTitle: 'Xenon Controls', action: 'Use this test process native window menu > Exit Xenon. Agent-created fixture pages stay in background tabs; do not close individual tabs or another browser.', openTabs: 3 };
     await writeFile(resolve(profile, 'ready-for-native-exit.json'), JSON.stringify(ready, null, 2));
     console.log(`READY FOR NATIVE EXIT ${JSON.stringify(ready)}`);
     const target = browser;

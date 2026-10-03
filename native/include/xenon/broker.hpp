@@ -1,6 +1,7 @@
 #pragma once
 
 #include "xenon/contracts.hpp"
+#include "xenon/permissions.hpp"
 #include <filesystem>
 #include <cstddef>
 #include <memory>
@@ -26,6 +27,15 @@ class Broker {
   bool approve_pairing(const std::string& request_id);
   bool deny_pairing(const std::string& request_id);
   bool share_workspace(const std::string& workspace_id, const std::string& client_id);
+  bool configure_client(const std::string& client_id, const ClientPolicy& policy);
+  bool configure_workspace_client(const std::string& workspace_id, const std::string& client_id,
+                                  std::optional<WorkspaceAccess> access);
+  bool rename_workspace(const std::string& workspace_id, const std::string& display_name);
+  bool grant_client_account(const std::string& client_id, const std::string& account_id, const std::string& origin);
+  bool revoke_account(const std::string& client_id, const std::string& workspace_id, const std::string& account_id);
+  void resource_changed(const std::string& client_id);
+  bool allow_download(const std::string& tab_id) const;
+  void set_ui_state_callback(std::function<void()> callback);
   bool grant_account(const std::string& client_id, const std::string& workspace_id,
                      const std::string& account_id, const std::string& origin);
   RevocationStatus revoke_client(const std::string& client_id);
@@ -35,12 +45,13 @@ class Broker {
   std::vector<std::string> removed_workspaces() const;
   void human_acquire(const std::string& tab_id);
   void human_release(const std::string& tab_id, const std::string& to_session);
-  void open_human_workspace(const std::string& url, Reply reply, bool private_mode = false);
+  void open_human_workspace(const std::string& url, Reply reply, bool private_mode = false, const std::string& name = {});
   void open_initial_human_workspace(const std::string& url, Reply reply);
+  void open_human_tab(const std::string& workspace_id, const std::string& url, Reply reply);
   void stop_all();
 
  private:
-  void open_human_workspace_impl(const std::string& url, Reply reply, bool private_mode, bool initial);
+  void open_human_workspace_impl(const std::string& url, Reply reply, bool private_mode, bool initial, const std::string& name = {});
   struct Impl;
   std::shared_ptr<Impl> impl_;
 };

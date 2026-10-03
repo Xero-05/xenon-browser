@@ -424,6 +424,11 @@ std::optional<UploadFile> FilePolicy::resolve_upload(const std::string& scope, c
     return result;
   } catch (...) { return std::nullopt; }
 }
+bool FilePolicy::selected_grant(const std::string& scope,const std::string& file_id,const std::set<std::string>& selected) const {
+  std::lock_guard lock(impl_->mutex);auto found=impl_->grants.find(file_id);
+  return found!=impl_->grants.end()&&found->second.scope==scope&&
+    (selected.contains(file_id)||(!found->second.folder.empty()&&selected.contains(found->second.folder)));
+}
 void FilePolicy::revoke_scope(const std::string& scope) {
   std::lock_guard lock(impl_->mutex);
   std::erase_if(impl_->grants, [&](const auto& grant) { return grant.second.scope == scope; });

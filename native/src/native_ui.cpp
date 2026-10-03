@@ -7,6 +7,8 @@
 #include "xenon/branding.hpp"
 #include "xenon/updater.hpp"
 #include "xenon/version.hpp"
+#include "xenon/ui_theme.hpp"
+#include <commctrl.h>
 #include <windows.h>
 #include <commdlg.h>
 #include <wtsapi32.h>
@@ -31,7 +33,7 @@ std::string utf8(const std::wstring& s){if(s.empty())return {};int n=WideCharToM
 std::string str(const Json& j,const char* key){auto i=j.find(key);return i!=j.end()&&i->is_string()?i->get<std::string>():"";}
 std::string compact(const std::string& text,size_t limit){if(text.size()<=limit)return text;while(limit&&(static_cast<unsigned char>(text[limit])&0xc0)==0x80)--limit;return text.substr(0,limit)+"…";}
 enum Id { Pairings=101,Approve,Deny,Clients,Workspaces,Share,Tabs,Take,Workers,Give,Stop,ResumeAuth,
-          Origin,Username,Password,Label,Save,Import,Accounts,DeleteAccount,Grant,NewWorkspace,UploadGrant,Status,Revoke,PrivateWorkspace,RestoreSession,DialogAccept,DialogDismiss,DialogText,RemoveWorkspace,FillSavedAccount,CheckUpdates };
+          Origin,Username,Password,Label,Save,Import,Accounts,DeleteAccount,Grant,NewWorkspace,UploadGrant,Status,Revoke,PrivateWorkspace,RestoreSession,DialogAccept,DialogDismiss,DialogText,RemoveWorkspace,FillSavedAccount,CheckUpdates,PageClients,PageWorkspaces,PagePasswords,ConfigureClient,ConfigureWorkspace,ClientFiles,ClientAccountGrant,AccountRevoke,DialogMessage,SectionTitle,Brand };
 constexpr UINT LoginNotice=WM_APP+41;
 constexpr UINT DialogNotice=WM_APP+42;
 constexpr UINT RemovalNotice=WM_APP+43;
@@ -49,6 +51,12 @@ struct NativeUi::Impl {
   HWND window{};HFONT font{},heading_font{},brand_font{},small_font{};
   HBRUSH canvas_brush=CreateSolidBrush(Canvas),surface_brush=CreateSolidBrush(Surface),navy_brush=CreateSolidBrush(Navy);
   std::map<int,HWND> controls;std::map<int,std::vector<Json>> rows;
+  struct PromptLayout {SIZE original{};HFONT face{};std::vector<std::pair<HWND,RECT>> children;};
+  std::map<HWND,PromptLayout> prompt_layouts;
+  void remember_prompt(HWND target){PromptLayout layout;RECT parent{};GetClientRect(target,&parent);layout.original={parent.right,parent.bottom};layout.face=ui::font(target);
+    for(auto child=GetWindow(target,GW_CHILD);child;child=GetWindow(child,GW_HWNDNEXT)){RECT rect{};GetWindowRect(child,&rect);MapWindowPoints(nullptr,target,reinterpret_cast<POINT*>(&rect),2);layout.children.emplace_back(child,rect);SendMessageW(child,WM_SETFONT,reinterpret_cast<WPARAM>(layout.face),TRUE);ui::control_theme(child);}prompt_layouts[target]=std::move(layout);}
+  void resize_prompt(HWND target){auto found=prompt_layouts.find(target);if(found==prompt_layouts.end())return;RECT parent{};GetClientRect(target,&parent);const auto& layout=found->second;
+    for(const auto& [child,r]:layout.children)MoveWindow(child,MulDiv(r.left,parent.right,layout.original.cx),MulDiv(r.top,parent.bottom,layout.original.cy),MulDiv(r.right-r.left,parent.right,layout.original.cx),MulDiv(r.bottom-r.top,parent.bottom,layout.original.cy),TRUE);}
   HWND file_window{},file_list{};std::string file_scope;std::vector<Json> file_rows;
   struct LoginNoticeEntry {std::string id;HWND owner{};};
   std::deque<LoginNoticeEntry> login_notices;
@@ -73,6 +81,127 @@ struct NativeUi::Impl {
     uint64_t downloaded{},total{},revision{};
   };
   std::shared_ptr<UpdateState> update_state=std::make_shared<UpdateState>();
+  int page{},building_page{-1};
+  std::optional<ui::Palette> applied_palette;
+  struct Placement {HWND control{};RECT bounds{};int page{-1};};
+  std::vector<Placement> placements;
+  struct Configuration {Impl* owner{};HWND window{},resources{},clients{};HFONT face{};bool workspace{},creating{};std::string id,client;Json client_rows=Json::array(),resource_rows=Json::array();};
+  std::vector<std::unique_ptr<Configuration>> configurations;
+  static HWND config_control(Configuration& config,int id){return GetDlgItem(config.window,id);}
+  static bool checked(Configuration& config,int id){return SendMessageW(config_control(config,id),BM_GETCHECK,0,0)==BST_CHECKED;}
+  static void check(Configuration& config,int id,bool value){SendMessageW(config_control(config,id),BM_SETCHECK,value?BST_CHECKED:BST_UNCHECKED,0);}
+  void config_resources(Configuration& config){
+    config.resource_rows=Json::array();ListView_DeleteAllItems(config.resources);
+    const auto scope=config.workspace?config.id:client_file_scope(config.client);
+    std::vector<std::string> scopes{scope};if(config.workspace&&!config.client.empty())scopes.push_back(client_file_scope(config.client));
+    std::set<std::string> added;
+    for(const auto& resource_scope:scopes)for(const auto& [command,key,id]:std::vector<std::tuple<bool,const char*,const char*>>{{true,"folders","folderId"},{false,"files","fileId"}}){
+      auto result=command?files.list_folders(resource_scope):files.list_files(resource_scope);
+      if(result.value("ok",false))for(auto item:result["result"][key])if(added.insert(str(item,id)).second){item["resourceId"]=str(item,id);item["kind"]=command?"Folder":"File";item["scope"]=resource_scope;config.resource_rows.push_back(std::move(item));}
+    }
+    const auto state=broker.state();const auto accounts=vault.list_accounts();
+    if(accounts.value("ok",false))for(auto account:accounts["result"]["accounts"]){bool granted=false;
+      for(const auto& grant:state["accountGrants"])if(str(grant,"clientId")==config.client&&str(grant,"accountId")==str(account,"accountId")&&(!config.workspace||str(grant,"workspaceId").empty()||str(grant,"workspaceId")==config.id))granted=true;
+      if(config.workspace&&!granted)continue;account["resourceId"]=str(account,"accountId");account["name"]=str(account,"label")+" · "+str(account,"origin");account["kind"]="Account";account["granted"]=granted;config.resource_rows.push_back(std::move(account));
+    }
+    WorkspaceAccess access;for(const auto& workspace:state["workspaces"])if(str(workspace,"workspaceId")==config.id)if(workspace["access"].contains(config.client))access=WorkspaceAccess::read(workspace["access"][config.client]);
+    int index=0;for(const auto& item:config.resource_rows){auto title=wide(str(item,"name"));LVITEMW row{};row.mask=LVIF_TEXT;row.iItem=index;row.pszText=title.data();ListView_InsertItem(config.resources,&row);auto kind=wide(str(item,"kind"));ListView_SetItemText(config.resources,index,1,kind.data());
+      const auto id=str(item,"resourceId");const bool account=str(item,"kind")=="Account";
+      ListView_SetCheckState(config.resources,index,config.workspace?(account?(!access.restrict_accounts||access.account_ids.contains(id)):(!access.restrict_files||access.file_ids.contains(id))):item.value("granted",false));++index;
+    }
+  }
+  void load_configuration(Configuration& config){
+    const auto state=broker.state();Json policy=Json::object();bool allowed=false;
+    for(int id=20;id<=28;++id)EnableWindow(config_control(config,id),!config.workspace||!config.client.empty());
+    if(config.workspace){for(const auto& workspace:state["workspaces"])if(str(workspace,"workspaceId")==config.id){
+      if(GetFocus()!=config_control(config,10))SetWindowTextW(config_control(config,10),wide(str(workspace,"displayName")).c_str());
+      if(workspace["access"].contains(config.client)){policy=workspace["access"][config.client];allowed=true;}
+    }}else for(const auto& client:state["clients"])if(str(client,"clientId")==config.client)policy=client["policy"];
+    check(config,20,policy.value("interaction",false));check(config,21,policy.value("uploads",false));check(config,22,policy.value("downloads",false));check(config,23,policy.value("savedAccounts",false));
+    check(config,24,config.workspace?allowed:policy.value("automaticWorkspaces",false));check(config,25,policy.value("inheritFiles",false));check(config,26,policy.value("inheritAccounts",false));
+    check(config,27,policy.value("restrictFiles",false));check(config,28,policy.value("restrictAccounts",false));
+    SetWindowTextW(config_control(config,30),std::to_wstring(policy.value("maxWorkers",4)).c_str());SetWindowTextW(config_control(config,31),std::to_wstring(policy.value("maxAutomaticWorkspaces",4)).c_str());config_resources(config);
+  }
+  void save_configuration(Configuration& config){
+    try{
+      const auto name=ui::text(config_control(config,10));
+      if(config.creating){if(!valid_workspace_name(name))throw std::runtime_error("Enter a workspace name with at most 80 characters and no control characters.");
+        broker.open_human_workspace("about:blank",[this](Json value){result(value);refresh();},false,name);DestroyWindow(config.window);return;}
+      Capabilities capabilities{checked(config,20),checked(config,21),checked(config,22),checked(config,23)};
+      bool saved=false;
+      if(config.workspace){saved=broker.rename_workspace(config.id,name);if(!config.client.empty()){
+          if(!checked(config,24))saved=broker.configure_workspace_client(config.id,config.client,std::nullopt)&&saved;
+          else {WorkspaceAccess access;access.capabilities=capabilities;access.inherit_files=checked(config,25);access.inherit_accounts=checked(config,26);access.restrict_files=checked(config,27);access.restrict_accounts=checked(config,28);
+            for(size_t n=0;n<config.resource_rows.size();++n)if(ListView_GetCheckState(config.resources,n)){auto item=config.resource_rows[n];(str(item,"kind")=="Account"?access.account_ids:access.file_ids).insert(str(item,"resourceId"));}
+            saved=broker.configure_workspace_client(config.id,config.client,access)&&saved;}
+        }}else {const auto workers=ui::text(config_control(config,30)),workspaces=ui::text(config_control(config,31));
+          if(workers.empty()||workspaces.empty()||!std::all_of(workers.begin(),workers.end(),::isdigit)||!std::all_of(workspaces.begin(),workspaces.end(),::isdigit))throw std::runtime_error("Enter numeric quotas.");
+          ClientPolicy policy{capabilities,checked(config,24),std::stoul(workers),std::stoul(workspaces)};saved=broker.configure_client(config.client,policy);
+          for(size_t n=0;n<config.resource_rows.size();++n){const auto& item=config.resource_rows[n];if(str(item,"kind")!="Account")continue;const auto account=str(item,"accountId");
+            if(ListView_GetCheckState(config.resources,n))saved=broker.grant_client_account(config.client,account,str(item,"origin"))&&saved;
+            else saved=broker.revoke_account(config.client,"",account)&&saved;
+          }
+        }
+      SetWindowTextW(config_control(config,40),saved?L"Saved. Effective permissions also depend on the client's overall policy.":L"Could not save all changes. Review permissions and retry.");refresh();
+    }catch(const std::exception& error){SetWindowTextW(config_control(config,40),wide(error.what()).c_str());}
+  }
+  static LRESULT CALLBACK config_proc(HWND window,UINT message,WPARAM wp,LPARAM lp){
+    try { return dispatch_configuration(window,message,wp,lp); }
+    catch(...) { return message==WM_NCCREATE?FALSE:message==WM_CREATE?-1:0; }
+  }
+  static LRESULT dispatch_configuration(HWND window,UINT message,WPARAM wp,LPARAM lp){
+    auto config=reinterpret_cast<Configuration*>(GetWindowLongPtrW(window,GWLP_USERDATA));
+    if(message==WM_NCCREATE){config=static_cast<Configuration*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);config->window=window;SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(config));}
+    if(!config)return DefWindowProcW(window,message,wp,lp);auto owner=config->owner;LRESULT themed{};if(owner->theme_message(window,message,wp,lp,themed))return themed;
+    if(message==WM_COMMAND){const int id=LOWORD(wp);
+      if(id==1)owner->save_configuration(*config);
+      else if(id==2)DestroyWindow(window);
+      else if(id==11&&HIWORD(wp)==LBN_SELCHANGE){const auto index=SendMessageW(config->clients,LB_GETCURSEL,0,0);config->client=index>=0&&static_cast<size_t>(index)<config->client_rows.size()?str(config->client_rows[index],"clientId"):"";owner->load_configuration(*config);}
+      else if(id==3||id==4){try{auto path=id==3?owner->pick(false):owner->pick_folder();if(!path.empty()){auto scope=config->workspace?config->id:client_file_scope(config->client);owner->result(id==3?owner->files.grant_upload(scope,path):owner->files.grant_folder(scope,path));owner->broker.resource_changed(config->workspace?"":config->client);owner->config_resources(*config);}}catch(...){SetWindowTextW(config_control(*config,40),L"This resource could not be granted.");}}
+      else if(id==5){const auto index=ListView_GetNextItem(config->resources,-1,LVNI_SELECTED);if(index>=0&&static_cast<size_t>(index)<config->resource_rows.size()){const auto item=config->resource_rows[index];if(str(item,"kind")=="Account")owner->broker.revoke_account(config->client,config->workspace?config->id:"",str(item,"accountId"));else owner->files.revoke_grant(str(item,"scope"),str(item,"resourceId"));owner->broker.resource_changed(config->workspace?"":config->client);owner->config_resources(*config);}}
+      return 0;
+    }
+    if(message==WM_SIZE){RECT rect{};GetClientRect(window,&rect);const int d=GetDpiForWindow(window),width=MulDiv(rect.right,96,d),height=MulDiv(rect.bottom,96,d);auto move=[&](int id,int x,int y,int w,int h){MoveWindow(config_control(*config,id),ui::dip(window,x),ui::dip(window,y),ui::dip(window,w),ui::dip(window,h),TRUE);};
+      move(10,20,44,width-40,30);if(config->creating){move(40,20,100,width-40,height-170);move(1,20,height-52,160,32);move(2,width-140,height-52,120,32);return 0;}
+      move(11,20,112,220,height-190);move(12,20,86,220,22);
+      const int x=config->workspace?260:20,w=width-x-20;
+      if(!config->workspace){ShowWindow(config_control(*config,11),SW_HIDE);ShowWindow(config_control(*config,12),SW_HIDE);}
+      for(int n=0;n<4;++n)move(20+n,x,98+n*30,w,26);
+      move(24,x,226,w,26);move(25,x,260,w/2,26);move(26,x+w/2,260,w/2,26);move(27,x,292,w/2,26);move(28,x+w/2,292,w/2,26);
+      move(32,x,265,145,24);move(30,x+150,261,70,28);move(33,x+240,265,180,24);move(31,x+425,261,70,28);
+      move(34,x,328,w,25);move(13,x,357,w,std::max(80,height-505));move(3,x,height-140,130,30);move(4,x+138,height-140,130,30);move(5,x+276,height-140,150,30);
+      move(40,x,height-100,w,40);move(1,x,height-52,160,32);move(2,width-140,height-52,120,32);return 0;
+    }
+    if(message==WM_GETMINMAXINFO){auto value=reinterpret_cast<MINMAXINFO*>(lp);value->ptMinTrackSize={ui::dip(window,config->creating?440:840),ui::dip(window,config->creating?250:660)};return 0;}
+    if(message==WM_DPICHANGED){auto rect=reinterpret_cast<RECT*>(lp);auto prior=config->face;config->face=ui::font(window);
+      for(auto child=GetWindow(window,GW_CHILD);child;child=GetWindow(child,GW_HWNDNEXT)){SendMessageW(child,WM_SETFONT,reinterpret_cast<WPARAM>(config->face),TRUE);ui::control_theme(child);}
+      DeleteObject(prior);SetWindowPos(window,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER|SWP_NOACTIVATE);return 0;}
+    if(message==WM_CLOSE){DestroyWindow(window);return 0;}if(message==WM_NCDESTROY){config->window=nullptr;DeleteObject(config->face);config->face=nullptr;return DefWindowProcW(window,message,wp,lp);}
+    return DefWindowProcW(window,message,wp,lp);
+  }
+  void show_configuration(bool workspace,bool creating=false){
+    const auto chosen=selected(workspace?Workspaces:Clients);const auto id=str(chosen,workspace?"workspaceId":"clientId");if(!creating&&id.empty()){status(L"Select an item to configure.");return;}
+    for(auto& existing:configurations)if(existing->window&&existing->id==id&&existing->workspace==workspace&&existing->creating==creating){ShowWindow(existing->window,SW_SHOWNORMAL);SetForegroundWindow(existing->window);return;}
+    auto config=std::make_unique<Configuration>();config->owner=this;config->id=id;config->workspace=workspace;config->creating=creating;config->client=workspace?str(selected(Clients),"clientId"):id;
+    WNDCLASSW wc{};wc.lpfnWndProc=config_proc;wc.hInstance=branding_module();wc.lpszClassName=L"XenonConfiguration";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
+    auto handle=CreateWindowExW(WS_EX_CONTROLPARENT,wc.lpszClassName,creating?L"Create workspace":workspace?L"Configure workspace":L"Configure client",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,ui::dip(window,creating?600:900),ui::dip(window,creating?290:740),nullptr,nullptr,wc.hInstance,config.get());if(!handle)return;config->face=ui::font(handle);ui::icons(handle);
+    auto make=[&](int id,const wchar_t* kind,const wchar_t* name,DWORD style=0){auto c=CreateWindowExW(0,kind,name,WS_CHILD|WS_VISIBLE|ui::styles(kind,style),0,0,10,10,handle,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(config->face),TRUE);ui::control_theme(c);return c;};
+    make(9,L"STATIC",creating||workspace?L"Workspace name":L"Client",0);MoveWindow(config_control(*config,9),ui::dip(handle,20),ui::dip(handle,16),ui::dip(handle,760),ui::dip(handle,24),TRUE);
+    make(10,L"EDIT",creating?L"Workspace":wide(str(chosen,workspace?"displayName":"name")).c_str(),WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL|(workspace?0:ES_READONLY));
+    make(40,L"STATIC",creating?L"A blank tab will open with human ownership.":L"Changes take effect when you choose Save. Unchecked capabilities are read-only.");make(1,L"BUTTON",creating?L"Create workspace":L"Save",BS_OWNERDRAW|WS_TABSTOP);make(2,L"BUTTON",L"Close",BS_OWNERDRAW|WS_TABSTOP);
+    if(!creating){config->clients=make(11,L"LISTBOX",L"",WS_BORDER|WS_VSCROLL|WS_TABSTOP|LBS_NOTIFY);make(12,L"STATIC",L"Paired clients");
+      const wchar_t* caps[]{L"Interact with pages and create tabs",L"Upload approved files",L"Download files",L"Use permitted saved accounts"};for(int n=0;n<4;++n)make(20+n,L"BUTTON",caps[n],BS_AUTOCHECKBOX|WS_TABSTOP);
+      make(24,L"BUTTON",workspace?L"Allow this client in this workspace":L"Allow automatic workspace creation",BS_AUTOCHECKBOX|WS_TABSTOP);
+      make(25,L"BUTTON",L"Inherit client files",BS_AUTOCHECKBOX|WS_TABSTOP);make(26,L"BUTTON",L"Inherit client accounts",BS_AUTOCHECKBOX|WS_TABSTOP);make(27,L"BUTTON",L"Restrict files to checked items",BS_AUTOCHECKBOX|WS_TABSTOP);make(28,L"BUTTON",L"Restrict accounts to checked items",BS_AUTOCHECKBOX|WS_TABSTOP);
+      make(32,L"STATIC",L"Concurrent workers");make(30,L"EDIT",L"4",WS_BORDER|WS_TABSTOP|ES_NUMBER);make(33,L"STATIC",L"Automatic workspaces");make(31,L"EDIT",L"4",WS_BORDER|WS_TABSTOP|ES_NUMBER);
+      for(int n:{25,26,27,28})ShowWindow(config_control(*config,n),workspace?SW_SHOW:SW_HIDE);for(int n:{30,31,32,33})ShowWindow(config_control(*config,n),workspace?SW_HIDE:SW_SHOW);
+      make(34,L"STATIC",workspace?L"Available resources · checked items form restrictions when enabled":L"Resources · check saved accounts to grant them to this client");
+      config->resources=make(13,WC_LISTVIEWW,L"",LVS_REPORT|LVS_SINGLESEL|WS_TABSTOP|WS_BORDER);ListView_SetExtendedListViewStyle(config->resources,LVS_EX_CHECKBOXES|LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER);LVCOLUMNW column{};column.mask=LVCF_TEXT|LVCF_WIDTH;column.cx=ui::dip(handle,430);column.pszText=const_cast<LPWSTR>(L"Name / HTTPS origin");ListView_InsertColumn(config->resources,0,&column);column.cx=ui::dip(handle,90);column.pszText=const_cast<LPWSTR>(L"Type");ListView_InsertColumn(config->resources,1,&column);
+      make(3,L"BUTTON",L"Grant file",BS_OWNERDRAW|WS_TABSTOP);make(4,L"BUTTON",L"Grant folder",BS_OWNERDRAW|WS_TABSTOP);make(5,L"BUTTON",L"Revoke selected",BS_OWNERDRAW|WS_TABSTOP);
+      config->client_rows=broker.state()["clients"];int match=0,index=0;for(const auto& client:config->client_rows){auto name=wide(str(client,"name"));SendMessageW(config->clients,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));if(str(client,"clientId")==config->client)match=index;++index;}SendMessageW(config->clients,LB_SETCURSEL,match,0);if(config->client.empty()&&!config->client_rows.empty())config->client=str(config->client_rows[match],"clientId");load_configuration(*config);
+    }
+    SendMessageW(handle,WM_SIZE,0,0);ShowWindow(handle,SW_SHOWNORMAL);SetForegroundWindow(handle);configurations.push_back(std::move(config));
+  }
   HWND update_window{},update_latest{},update_message{},update_progress{};
   HWND update_check{},update_download{},update_install{},update_cancel{};
   uint64_t update_shown_revision=~uint64_t{};int update_percent=-1;
@@ -89,75 +218,27 @@ struct NativeUi::Impl {
     SetPropW(control,ButtonToneProperty,reinterpret_cast<HANDLE>(static_cast<INT_PTR>(tone)));
   }
   void window_icon(HWND target){
+    ui::frame(target);
     SendMessageW(target,WM_SETICON,ICON_SMALL,reinterpret_cast<LPARAM>(branding_icon(GetSystemMetrics(SM_CXSMICON))));
     SendMessageW(target,WM_SETICON,ICON_BIG,reinterpret_cast<LPARAM>(branding_icon(GetSystemMetrics(SM_CXICON))));
   }
-  void paint_surface(HWND target,HDC dc){
-    RECT client{};GetClientRect(target,&client);
-    const bool contrast=high_contrast();
-    FillRect(dc,&client,contrast?GetSysColorBrush(COLOR_WINDOW):canvas_brush);
-    auto card=[&](RECT bounds){
-      const auto pen=CreatePen(PS_SOLID,1,contrast?GetSysColor(COLOR_WINDOWFRAME):Border);
-      const auto previous_pen=SelectObject(dc,pen);
-      const auto previous_brush=SelectObject(dc,contrast?GetSysColorBrush(COLOR_WINDOW):surface_brush);
-      RoundRect(dc,bounds.left,bounds.top,bounds.right,bounds.bottom,12,12);
-      SelectObject(dc,previous_brush);SelectObject(dc,previous_pen);DeleteObject(pen);
-    };
-    if(target==window){
-      card({10,50,958,186});card({10,194,958,337});card({10,345,958,507});card({10,515,958,728});
-      RECT header{0,0,client.right,42};FillRect(dc,&header,contrast?GetSysColorBrush(COLOR_WINDOW):navy_brush);
-      if(auto icon=branding_icon(28))DrawIconEx(dc,18,7,icon,28,28,0,nullptr,DI_NORMAL);
-    }else{
-      // Prompts have a branded, noninteractive header above native controls.
-      RECT header{0,0,client.right,54};FillRect(dc,&header,contrast?GetSysColorBrush(COLOR_WINDOW):navy_brush);
-      if(auto icon=branding_icon(28))DrawIconEx(dc,20,13,icon,28,28,0,nullptr,DI_NORMAL);
-      const auto edge=target==file_window?client.bottom-60:client.bottom-76;
-      card({12,66,client.right-12,edge});
-      if(target==update_window&&update_percent>=0){
-        RECT track{26,236,client.right-26,244};FillRect(dc,&track,contrast?GetSysColorBrush(COLOR_BTNFACE):canvas_brush);
-        track.right=track.left+(track.right-track.left)*std::clamp(update_percent,0,100)/100;
-        auto fill=CreateSolidBrush(contrast?GetSysColor(COLOR_HIGHLIGHT):Teal);FillRect(dc,&track,fill);DeleteObject(fill);
-      }
-    }
-  }
-  void draw_button(const DRAWITEMSTRUCT& item){
-    const auto saved_dc=SaveDC(item.hDC);
-    const bool contrast=high_contrast(),disabled=(item.itemState&ODS_DISABLED)!=0,pressed=(item.itemState&ODS_SELECTED)!=0;
-    const auto tone=static_cast<ButtonTone>(reinterpret_cast<INT_PTR>(GetPropW(item.hwndItem,ButtonToneProperty)));
-    COLORREF background=Surface,foreground=Ink,outline=Border;
-    if(tone==ButtonTone::primary){background=pressed?RGB(4,89,96):Teal;foreground=Surface;outline=background;}
-    else if(tone==ButtonTone::caution){background=pressed?RGB(248,225,224):RGB(255,248,247);foreground=RGB(143,51,49);outline=RGB(226,196,193);}
-    else if(pressed)background=RGB(223,238,240);
-    if(disabled){background=RGB(232,239,241);foreground=RGB(129,146,152);outline=RGB(218,229,232);}
-    if(contrast){background=GetSysColor(pressed?COLOR_HIGHLIGHT:COLOR_BTNFACE);foreground=GetSysColor(disabled?COLOR_GRAYTEXT:pressed?COLOR_HIGHLIGHTTEXT:COLOR_BTNTEXT);outline=GetSysColor(COLOR_WINDOWFRAME);}
-    FillRect(item.hDC,&item.rcItem,contrast?GetSysColorBrush(COLOR_WINDOW):GetParent(item.hwndItem)==window?(GetDlgCtrlID(item.hwndItem)==CheckUpdates?navy_brush:surface_brush):canvas_brush);
-    auto brush=CreateSolidBrush(background);auto pen=CreatePen(PS_SOLID,1,outline);
-    const auto old_brush=SelectObject(item.hDC,brush),old_pen=SelectObject(item.hDC,pen);
-    const auto& bounds=item.rcItem;RoundRect(item.hDC,bounds.left,bounds.top,bounds.right,bounds.bottom,7,7);
-    SelectObject(item.hDC,old_pen);SelectObject(item.hDC,old_brush);DeleteObject(pen);DeleteObject(brush);
-    wchar_t caption[256]{};GetWindowTextW(item.hwndItem,caption,static_cast<int>(std::size(caption)));
-    auto text_bounds=bounds;InflateRect(&text_bounds,-6,-1);if(pressed)OffsetRect(&text_bounds,0,1);
-    SetBkMode(item.hDC,TRANSPARENT);SetTextColor(item.hDC,foreground);
-    auto old_font=SelectObject(item.hDC,font);DrawTextW(item.hDC,caption,-1,&text_bounds,DT_CENTER|DT_VCENTER|DT_SINGLELINE|((item.itemState&ODS_NOACCEL)?DT_HIDEPREFIX:0));SelectObject(item.hDC,old_font);
-    if((item.itemState&ODS_FOCUS)&&!(item.itemState&ODS_NOFOCUSRECT)){auto focus=bounds;InflateRect(&focus,-4,-4);DrawFocusRect(item.hDC,&focus);}
-    if(saved_dc)RestoreDC(item.hDC,saved_dc);
-  }
+  RECT content_bounds() const {RECT bounds{};GetClientRect(window,&bounds);return {ui::dip(window,208),ui::dip(window,20),bounds.right-ui::dip(window,20),bounds.bottom-ui::dip(window,20)};}
+  void paint_surface(HWND target,HDC dc){RECT bounds{};GetClientRect(target,&bounds);const auto colors=ui::palette();ui::fill(dc,bounds,colors.canvas);
+    if(target==window&&font){auto panel=content_bounds();ui::rounded(dc,panel,colors.canvas,colors.gray,ui::dip(window,10));RECT nav{};GetWindowRect(controls.at(PageClients+page),&nav);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&nav),2);
+      RECT bridge{nav.right,nav.top+1,panel.left+ui::dip(window,1),nav.bottom-1};ui::fill(dc,bridge,GetPropW(controls.at(PageClients+page),L"XenonHover")?ui::hover_background():colors.canvas);ui::fill(dc,{bridge.left,bridge.top,bridge.right,bridge.top+ui::dip(window,1)},colors.gray);ui::fill(dc,{bridge.left,bridge.bottom-ui::dip(window,1),bridge.right,bridge.bottom},colors.gray);}
+    if(target==update_window&&update_percent>=0){RECT track{26,236,bounds.right-26,244};ui::fill(dc,track,ui::palette().border);track.right=track.left+(track.right-track.left)*std::clamp(update_percent,0,100)/100;ui::fill(dc,track,ui::palette().ink);}}
+  void draw_button(const DRAWITEMSTRUCT& item){auto face=reinterpret_cast<HFONT>(SendMessageW(item.hwndItem,WM_GETFONT,0,0));const bool active=GetParent(item.hwndItem)==window&&static_cast<int>(item.CtlID)==PageClients+page;
+    if(!active){ui::button(item,face?face:font);return;}auto rect=item.rcItem;const auto colors=ui::palette();ui::fill(item.hDC,rect,colors.canvas);InflateRect(&rect,-1,-1);auto shape=rect;shape.right+=ui::dip(window,16);const bool hover=ui::hovered(item);ui::rounded(item.hDC,shape,hover?ui::hover_background():colors.canvas,colors.gray,ui::dip(window,8));wchar_t caption[128]{};GetWindowTextW(item.hwndItem,caption,128);rect.left+=ui::dip(window,16);ui::text(item.hDC,rect,caption,heading_font,hover&&colors.contrast?ui::selection_ink():colors.ink);if(item.itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);DrawFocusRect(item.hDC,&rect);}}
   bool theme_message(HWND target,UINT message,WPARAM wp,LPARAM lp,LRESULT& result){
+    if(message==WM_NCDESTROY){if(auto found=prompt_layouts.find(target);found!=prompt_layouts.end()){DeleteObject(found->second.face);prompt_layouts.erase(found);}return false;}
+    if(target!=window&&message==WM_SIZE&&prompt_layouts.contains(target)){resize_prompt(target);result=0;return true;}
+    if(target!=window&&message==WM_DPICHANGED&&prompt_layouts.contains(target)){auto rect=reinterpret_cast<RECT*>(lp);SetWindowPos(target,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER|SWP_NOACTIVATE);auto& layout=prompt_layouts.at(target);auto prior=layout.face;layout.face=ui::font(target);for(const auto& [child,bounds]:layout.children)SendMessageW(child,WM_SETFONT,reinterpret_cast<WPARAM>(layout.face),TRUE);DeleteObject(prior);resize_prompt(target);result=0;return true;}
+    if(target!=window&&message==WM_GETMINMAXINFO){auto found=prompt_layouts.find(target);if(found!=prompt_layouts.end()){auto value=reinterpret_cast<MINMAXINFO*>(lp);value->ptMinTrackSize={found->second.original.cx+16,found->second.original.cy+40};result=0;return true;}}
+    if(ui::list_draw(message,wp,lp,target,result))return true;
     if(message==WM_ERASEBKGND){result=1;return true;}
     if(message==WM_PAINT){PAINTSTRUCT paint{};auto dc=BeginPaint(target,&paint);paint_surface(target,dc);EndPaint(target,&paint);result=0;return true;}
     if(message==WM_DRAWITEM){const auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item&&item->CtlType==ODT_BUTTON){draw_button(*item);result=TRUE;return true;}}
-    if(message==WM_CTLCOLORSTATIC||message==WM_CTLCOLOREDIT||message==WM_CTLCOLORLISTBOX){
-      auto dc=reinterpret_cast<HDC>(wp);auto control=reinterpret_cast<HWND>(lp);
-      if(high_contrast()){SetTextColor(dc,GetSysColor(IsWindowEnabled(control)?COLOR_WINDOWTEXT:COLOR_GRAYTEXT));SetBkColor(dc,GetSysColor(COLOR_WINDOW));result=reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_WINDOW));return true;}
-      const auto tone=static_cast<TextTone>(reinterpret_cast<INT_PTR>(GetPropW(control,TextToneProperty)));
-      auto background=Surface,foreground=Ink;auto brush=surface_brush;
-      if(tone==TextTone::brand||tone==TextTone::brand_muted){background=Navy;foreground=tone==TextTone::brand?Surface:PaleTeal;brush=navy_brush;}
-      else if(tone==TextTone::status){background=Canvas;foreground=Muted;brush=canvas_brush;}
-      else if(tone==TextTone::muted)foreground=Muted;
-      else if(tone==TextTone::heading)foreground=Teal;
-      SetTextColor(dc,foreground);SetBkColor(dc,background);result=reinterpret_cast<LRESULT>(brush);return true;
-    }
-    return false;
+    return ui::ctl_color(message,wp,lp,result);
   }
   static bool update_busy(UpdatePhase phase){return phase==UpdatePhase::checking||phase==UpdatePhase::downloading||phase==UpdatePhase::launching;}
   static void pin_update_module(){
@@ -298,7 +379,7 @@ struct NativeUi::Impl {
   void show_updates(){
     if(!update_window){
       WNDCLASSW wc{};wc.lpfnWndProc=update_proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonUpdates";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
-      constexpr DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_CLIPCHILDREN;
+      constexpr DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MAXIMIZEBOX|WS_CLIPCHILDREN;
       RECT bounds{0,0,640,450};AdjustWindowRectEx(&bounds,style,FALSE,0);
       RECT owner{};GetWindowRect(window,&owner);MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromWindow(window,MONITOR_DEFAULTTONEAREST),&monitor);
       const int width=bounds.right-bounds.left,height=bounds.bottom-bounds.top;
@@ -308,7 +389,7 @@ struct NativeUi::Impl {
       if(!update_window){status(L"The updates window could not open.");return;}
       window_icon(update_window);
       auto add_update=[&](int id,const wchar_t* type,const wchar_t* caption,int x,int y,int width,int height,DWORD extra=0){
-        auto control=CreateWindowExW(0,type,caption,WS_CHILD|WS_VISIBLE|extra,x,y,width,height,update_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);
+        auto control=CreateWindowExW(0,type,caption,WS_CHILD|WS_VISIBLE|ui::styles(type,extra),x,y,width,height,update_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);
         SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);if(std::wstring(type)==L"BUTTON")button_style(control,id==3?ButtonTone::primary:ButtonTone::normal);return control;
       };
       text_style(add_update(0,L"STATIC",L"Xenon  /  Updates",60,16,252,27),TextTone::brand,heading_font);
@@ -375,7 +456,8 @@ struct NativeUi::Impl {
     if(manual_autofill_tabs.contains(tab)){status(L"The selected login tab is still being checked…");return;}
     if(autofill_window&&autofill_pending){status(L"A saved-account fill is already in progress.");return;}
     if(autofill_window&&str(autofill_offer,"tabId")==tab&&engine.autofill_offer_valid(str(autofill_offer,"offerId"))){
-      SetWindowPos(autofill_window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);return;
+      remember_prompt(autofill_window);
+    SetWindowPos(autofill_window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);return;
     }
     if(autofill_window)close_autofill(true);
     manual_autofill_tabs.insert(tab);
@@ -426,7 +508,7 @@ struct NativeUi::Impl {
     if(!autofill_window){engine.dismiss_autofill(str(offer,"offerId"));autofill_offer=Json::object();return;}
     window_icon(autofill_window);
     auto add=[&](int id,const wchar_t* type,const wchar_t* title,int x,int y,int w,int h,DWORD extra=0){
-      auto control=CreateWindowExW(0,type,title,WS_CHILD|WS_VISIBLE|extra,x,y,w,h,autofill_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);if(std::wstring(type)==L"BUTTON")button_style(control,id==1?ButtonTone::primary:ButtonTone::normal);return control;
+      auto control=CreateWindowExW(0,type,title,WS_CHILD|WS_VISIBLE|ui::styles(type,extra),x,y,w,h,autofill_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);ui::control_theme(control);if(std::wstring(type)==L"BUTTON")button_style(control,id==1?ButtonTone::primary:ButtonTone::normal);return control;
     };
     text_style(add(0,L"STATIC",L"Xenon  /  Saved accounts",60,16,394,27),TextTone::brand,heading_font);
     text_style(add(0,L"STATIC",L"Choose an account for this login website",26,80,428,24),TextTone::heading,heading_font);
@@ -501,11 +583,11 @@ struct NativeUi::Impl {
     try{
       const auto notice=dialog_notices.take(broker.state(),engine.native_dialogs(),physical_input_held());
       if(!notice)return;
-      refresh();
+      const auto state=broker.state();std::string workspace;for(const auto& tab:state["tabs"])if(str(tab,"tabId")==notice->tab_id)workspace=str(tab,"workspaceId");for(size_t n=0;n<rows[Workspaces].size();++n)if(str(rows[Workspaces][n],"workspaceId")==workspace)SendMessageW(controls.at(Workspaces),LB_SETCURSEL,n,0);
+      page=1;layout_main();refresh();
       auto& tabs=rows[Tabs];
       for(size_t i=0;i<tabs.size();++i)if(str(tabs[i],"tabId")==notice->tab_id){
-        SendMessageW(controls.at(Tabs),LB_SETCURSEL,static_cast<WPARAM>(i),0);
-        SendMessageW(controls.at(Tabs),LB_SETTOPINDEX,static_cast<WPARAM>(i),0);
+        ListView_SetItemState(controls.at(Tabs),i,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);ListView_EnsureVisible(controls.at(Tabs),i,FALSE);
         SetWindowTextW(controls.at(DialogText),L"");
         const auto origin=notice->origin.empty()?"unknown origin":notice->origin;
         status(wide((notice->protected_auth?"Protected authentication. ":"")+std::string("Website ")+notice->type+" from "+origin+" in the selected tab. Review its message above, then Accept dialog or Dismiss. Prompt response goes to the website."));
@@ -552,7 +634,7 @@ struct NativeUi::Impl {
   }
   void show_login_prompt(const PendingCredential& candidate,HWND owner){
     WNDCLASSW wc{};wc.lpfnWndProc=login_proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonSavePassword";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
-    constexpr DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_CLIPCHILDREN;
+    constexpr DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MAXIMIZEBOX|WS_CLIPCHILDREN;
     constexpr DWORD extended=WS_EX_TOOLWINDOW;
     RECT bounds{0,0,480,362};AdjustWindowRectEx(&bounds,style,FALSE,extended);
     const int width=bounds.right-bounds.left,height=bounds.bottom-bounds.top;
@@ -564,7 +646,7 @@ struct NativeUi::Impl {
     if(!login_window){vault.dismiss_login(login_candidate);login_candidate.clear();return;}
     window_icon(login_window);
     auto add=[&](int id,const wchar_t* type,const wchar_t* title,int x,int y,int w,int h,DWORD extra=0){
-      auto c=CreateWindowExW(0,type,title,WS_CHILD|WS_VISIBLE|extra,x,y,w,h,login_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);if(std::wstring(type)==L"BUTTON")button_style(c,id==1?ButtonTone::primary:ButtonTone::normal);return c;
+      auto c=CreateWindowExW(0,type,title,WS_CHILD|WS_VISIBLE|ui::styles(type,extra),x,y,w,h,login_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);ui::control_theme(c);if(std::wstring(type)==L"BUTTON")button_style(c,id==1?ButtonTone::primary:ButtonTone::normal);return c;
     };
     text_style(add(0,L"STATIC",L"Xenon  /  Saved accounts",60,16,394,27),TextTone::brand,heading_font);
     text_style(add(0,L"STATIC",candidate.update?L"Update with the password you just submitted?":L"Save the password you just submitted?",26,80,428,42),TextTone::heading,heading_font);
@@ -577,6 +659,7 @@ struct NativeUi::Impl {
     login_status=add(0,L"STATIC",L"",26,300,190,54);text_style(login_status,TextTone::status,small_font);
     // Appearance changes neither browser focus nor agent ownership. Clicking a
     // native button later is an explicit human action.
+    remember_prompt(login_window);
     SetWindowPos(login_window,HWND_TOP,x,y,width,height,SWP_NOACTIVATE|SWP_NOOWNERZORDER|SWP_SHOWWINDOW);
     ShowWindow(login_window,SW_SHOWNOACTIVATE);
   }
@@ -600,19 +683,20 @@ struct NativeUi::Impl {
     }catch(...){clear_login_prompts();}
   }
   HWND add(int id,const wchar_t* type,const wchar_t* title,int x,int y,int w,int h,DWORD style=0){
-    HWND c=CreateWindowExW(0,type,title,WS_CHILD|WS_VISIBLE|style,x,y,w,h,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);
-    SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);controls[id]=c;return c;
+    HWND c=CreateWindowExW(0,type,title,WS_CHILD|WS_VISIBLE|ui::styles(type,style),x,y,w,h,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);
+    SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);controls[id]=c;placements.push_back({c,{x,y,x+w,y+h},building_page});ui::control_theme(c);return c;
   }
   HWND label(const wchar_t* text,int x,int y,int w,TextTone tone=TextTone::normal){auto c=add(0,L"STATIC",text,x,y,w,20);text_style(c,tone,tone==TextTone::heading?heading_font:tone==TextTone::muted?small_font:font);return c;}
   void button(int id,const wchar_t* text,int x,int y,int w=125,ButtonTone tone=ButtonTone::normal){button_style(add(id,L"BUTTON",text,x,y,w,28,WS_TABSTOP|BS_PUSHBUTTON),tone);}
   std::string text(int id){auto c=controls.at(id);int n=GetWindowTextLengthW(c);std::wstring s(n+1,L'\0');GetWindowTextW(c,s.data(),n+1);s.resize(n);auto value=utf8(s);SecureZeroMemory(s.data(),s.size()*sizeof(wchar_t));return value;}
-  Json selected(int id){int n=static_cast<int>(SendMessageW(controls.at(id),LB_GETCURSEL,0,0));if(n<0||static_cast<size_t>(n)>=rows[id].size())return Json::object();return rows[id][n];}
+  Json selected(int id){int n=id==Tabs?ListView_GetNextItem(controls.at(id),-1,LVNI_SELECTED):static_cast<int>(SendMessageW(controls.at(id),LB_GETCURSEL,0,0));if(n<0||static_cast<size_t>(n)>=rows[id].size())return Json::object();return rows[id][n];}
   void status(const std::wstring& s){SetWindowTextW(controls.at(Status),s.c_str());}
   void result(const Json& r){if(r.value("ok",false))status(L"Done.");else status(wide(str(r.value("error",Json::object()),"message")));}
   void list(int id,const Json& values,const char* key,std::function<std::string(const Json&)> render){
     auto old=selected(id);auto old_id=str(old,key);auto c=controls.at(id);
     std::vector<Json> next;for(const auto& value:values)next.push_back(value);
     if(rows[id]==next)return;
+    if(id==Tabs){ListView_DeleteAllItems(c);rows[id]=std::move(next);int match=0;for(size_t n=0;n<rows[id].size();++n){const auto& row=rows[id][n];auto title=wide(str(row,"title"));LVITEMW item{};item.mask=LVIF_TEXT;item.iItem=static_cast<int>(n);item.pszText=title.data();ListView_InsertItem(c,&item);auto agent=wide(str(row,"ownerDisplay"));ListView_SetItemText(c,n,1,agent.data());auto state=wide(row.value("agentAvailable",false)&&row.value("humanPaused",false)?"Paused for human":row.value("protected",false)?"Protected authentication":row.contains("dialog")?"Website dialog":str(row,"ownerSessionId")=="human"?"Human control":str(row,"ownerSessionId").empty()?"No agent":row.value("agentAvailable",false)?"Agent control":"Agent unavailable");ListView_SetItemText(c,n,2,state.data());auto tab=wide(str(row,"tabId"));ListView_SetItemText(c,n,3,tab.data());if(str(row,key)==old_id)match=static_cast<int>(n);}ListView_SetItemState(c,match,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);return;}
     SendMessageW(c,WM_SETREDRAW,FALSE,0);SendMessageW(c,LB_RESETCONTENT,0,0);rows[id]=std::move(next);
     int match=-1;for(size_t i=0;i<rows[id].size();++i){auto s=wide(render(rows[id][i]));SendMessageW(c,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(s.c_str()));if(str(rows[id][i],key)==old_id)match=static_cast<int>(i);}
     if(match<0&&!rows[id].empty())match=0;SendMessageW(c,LB_SETCURSEL,match,0);SendMessageW(c,WM_SETREDRAW,TRUE,0);InvalidateRect(c,nullptr,TRUE);
@@ -623,20 +707,35 @@ struct NativeUi::Impl {
       std::map<std::string,std::string> worker_names,workspace_names;
       for(const auto& worker:s["workers"])worker_names[str(worker,"agentSessionId")]=str(worker,"name");
       for(auto& workspace:s["workspaces"]){
-        const auto id=str(workspace,"workspaceId");auto name=id=="native-default"?"Personal":workspace.value("private",false)?"Private workspace":"Workspace";
-        workspace["displayName"]=std::string(name)+(id=="native-default"?"":" · "+id.substr(0,10))+(workspace.value("removing",false)?" — "+workspace.value("removalStatus",std::string("removing")):"");workspace_names[id]=workspace["displayName"].get<std::string>();
+        const auto id=str(workspace,"workspaceId");workspace_names[id]=str(workspace,"displayName");
       }
       for(auto& tab:s["tabs"]){auto owner=str(tab,"ownerSessionId");tab["ownerDisplay"]=owner=="human"?"You":owner.empty()?"No owner":worker_names.contains(owner)?worker_names[owner]:"Agent "+owner.substr(0,8);if(tab.value("humanPaused",false))tab["ownerDisplay"]=tab["ownerDisplay"].get<std::string>()+" (paused for you)";tab["workspaceDisplay"]=workspace_names[str(tab,"workspaceId")];}
       for(const auto& cached:engine.native_tabs())for(auto& tab:s["tabs"])if(str(tab,"tabId")==str(cached,"tabId"))tab["title"]=cached["title"];
       list(Pairings,s["pairings"],"requestId",[](auto& j){return str(j,"name");});
       auto clients=s["clients"];
       for(auto pending:s.value("pendingRevocations",Json::array())){pending["revocationPending"]=true;clients.push_back(std::move(pending));}
-      list(Clients,clients,"clientId",[](auto& j){return (j.value("revocationPending",false)?"NOT SAVED — retry revocation: ":"")+str(j,"name")+"  "+str(j,"clientId");});
+      list(Clients,clients,"clientId",[](auto& j){return (j.value("revocationPending",false)?"NOT SAVED — retry revocation: ":"")+str(j,"name")+(j.value("connected",false)?" · Connected":" · Offline")+" · "+(j.value("policy",Json::object()).value("interaction",false)?"Interactive":"Read-only");});
       list(Workspaces,s["workspaces"],"workspaceId",[](auto& j){return str(j,"displayName");});
       for(const auto& dialog:engine.native_dialogs())for(auto& tab:s["tabs"])if(str(tab,"tabId")==str(dialog,"tabId"))tab["dialog"]=dialog;
-      list(Tabs,s["tabs"],"tabId",[](auto& j){return compact(str(j,"title"),60)+"  |  "+str(j,"workspaceDisplay")+"  |  "+str(j,"ownerDisplay")+"  |  "+str(j,"tabId").substr(0,10)+(j.value("protected",false)?"  |  Protected authentication":"")+(j.contains("dialog")?"  |  Website "+str(j["dialog"],"type")+": "+str(j["dialog"],"message"):"");});
-      list(Workers,s["workers"],"agentSessionId",[](auto& j){return str(j,"name")+"  ·  "+str(j,"agentSessionId").substr(0,10)+(str(j,"state")=="retiring"?" (retiring)":j.value("connected",false)?"":" (offline)");});
+      Json filtered=Json::array();const auto selected_workspace=str(selected(Workspaces),"workspaceId");for(const auto& tab:s["tabs"])if(str(tab,"workspaceId")==selected_workspace)filtered.push_back(tab);
+      list(Tabs,filtered,"tabId",[](auto& j){return compact(str(j,"title"),60)+"  |  "+str(j,"workspaceDisplay")+"  |  "+str(j,"ownerDisplay")+"  |  "+str(j,"tabId").substr(0,10)+(j.value("protected",false)?"  |  Protected authentication":"")+(j.contains("dialog")?"  |  Website "+str(j["dialog"],"type")+": "+str(j["dialog"],"message"):"");});
+      Json filtered_workers=Json::array();for(auto worker:s["workers"])if(str(worker,"workspaceId")==selected_workspace){
+        bool interactive=false;for(const auto& workspace:s["workspaces"])if(str(workspace,"workspaceId")==selected_workspace){const auto access=workspace["access"].value(str(worker,"clientId"),Json::object());interactive=access.value("effectivePermissions",Json::object()).value("interaction",false);}
+        worker["canControl"]=interactive&&worker.value("connected",false)&&str(worker,"state")!="retiring";filtered_workers.push_back(std::move(worker));}
+      list(Workers,filtered_workers,"agentSessionId",[](auto& j){return str(j,"name")+"  ·  "+str(j,"agentSessionId").substr(0,10)+(str(j,"state")=="retiring"?" (retiring)":j.value("connected",false)?"":" (offline)");});
       auto accounts=vault.list_accounts();if(accounts.value("ok",false))list(Accounts,accounts["result"]["accounts"],"accountId",[](auto& j){return str(j,"label")+"  |  "+str(j,"origin");});
+      const bool pairing=!str(selected(Pairings),"requestId").empty(),client=!str(selected(Clients),"clientId").empty(),workspace=!str(selected(Workspaces),"workspaceId").empty();
+      for(int id:{Approve,Deny})EnableWindow(controls.at(id),pairing);
+      for(int id:{ConfigureClient,ClientFiles,Revoke})EnableWindow(controls.at(id),client);
+      for(int id:{ConfigureWorkspace,UploadGrant})EnableWindow(controls.at(id),workspace);
+      EnableWindow(controls.at(Share),client&&workspace);EnableWindow(controls.at(RemoveWorkspace),workspace&&str(selected(Workspaces),"workspaceId")!="native-default");
+      const auto tab=selected(Tabs);const bool has_tab=!str(tab,"tabId").empty(),dialog=tab.contains("dialog");
+      EnableWindow(controls.at(Take),has_tab);EnableWindow(controls.at(Give),has_tab&&str(tab,"ownerSessionId")=="human"&&selected(Workers).value("canControl",false));
+      const auto dialog_info=tab.value("dialog",Json::object());const auto dialog_message=dialog?str(dialog_info,"type")+" from "+str(dialog_info,"origin")+"\r\n"+str(dialog_info,"message"):std::string("No website dialog waiting.");
+      if(text(DialogMessage)!=dialog_message)SetWindowTextW(controls.at(DialogMessage),wide(dialog_message).c_str());
+      EnableWindow(controls.at(ResumeAuth),has_tab&&tab.value("protected",false));for(int id:{DialogAccept,DialogDismiss,DialogText})EnableWindow(controls.at(id),dialog);
+      const bool account=!str(selected(Accounts),"accountId").empty();EnableWindow(controls.at(DeleteAccount),account);EnableWindow(controls.at(FillSavedAccount),has_tab);
+      EnableWindow(controls.at(ClientAccountGrant),account&&client);EnableWindow(controls.at(AccountRevoke),account&&client);EnableWindow(controls.at(Grant),account&&client&&workspace);
     }catch(const std::exception&){status(L"Some controls are unavailable while the vault is locked.");}
   }
   std::filesystem::path pick(bool csv){
@@ -665,7 +764,7 @@ struct NativeUi::Impl {
       else if(id==2){auto path=pick_folder();if(!path.empty())result(files.grant_folder(file_scope,path));}
       else if(id==3){int n=static_cast<int>(SendMessageW(file_list,LB_GETCURSEL,0,0));if(n>=0&&static_cast<size_t>(n)<file_rows.size()){const auto& entry=file_rows[n];files.revoke_grant(file_scope,str(entry,entry.contains("folderId")?"folderId":"fileId"));status(L"Selected file or folder grant revoked.");}}
       else if(id==4){ShowWindow(file_window,SW_HIDE);return;}
-      refresh_files();
+      broker.resource_changed(file_scope.starts_with("client:")?file_scope.substr(7):"");refresh_files();
     }catch(const std::exception&){status(L"The file permission could not be changed.");}
   }
   static LRESULT CALLBACK file_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){
@@ -677,22 +776,23 @@ struct NativeUi::Impl {
     if(message==WM_CLOSE){ShowWindow(h,SW_HIDE);return 0;}
     return DefWindowProcW(h,message,wp,lp);
   }
-  void show_files(){
-    auto workspace=selected(Workspaces);if(workspace.value("private",false)){status(L"Private workspaces are human-only and do not accept agent file grants.");return;}
-    file_scope=str(workspace,"workspaceId");if(file_scope.empty()){status(L"Select a workspace first.");return;}
+  void show_files(const std::string& client=""){
+    auto workspace=selected(Workspaces);if(client.empty()&&workspace.value("private",false)){status(L"Private workspaces are human-only and do not accept agent file grants.");return;}
+    file_scope=client.empty()?str(workspace,"workspaceId"):client_file_scope(client);if(file_scope.empty()){status(L"Select a workspace first.");return;}
     if(!file_window){
       WNDCLASSW wc{};wc.lpfnWndProc=file_proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonFilePermissions";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
-      constexpr DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_CLIPCHILDREN;
+      constexpr DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MAXIMIZEBOX|WS_CLIPCHILDREN;
       RECT bounds{0,0,860,420};AdjustWindowRectEx(&bounds,style,FALSE,0);
       file_window=CreateWindowExW(0,wc.lpszClassName,L"Xenon File Permissions",style,CW_USEDEFAULT,CW_USEDEFAULT,bounds.right-bounds.left,bounds.bottom-bounds.top,window,nullptr,wc.hInstance,this);
       window_icon(file_window);
-      auto make=[&](int id,const wchar_t* type,const wchar_t* name,int x,int y,int w,int h,DWORD style){auto child=CreateWindowExW(0,type,name,WS_CHILD|WS_VISIBLE|style,x,y,w,h,file_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);SendMessageW(child,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);if(std::wstring(type)==L"BUTTON")button_style(child,id==1?ButtonTone::primary:id==3?ButtonTone::caution:ButtonTone::normal);return child;};
+      auto make=[&](int id,const wchar_t* type,const wchar_t* name,int x,int y,int w,int h,DWORD style){auto child=CreateWindowExW(0,type,name,WS_CHILD|WS_VISIBLE|ui::styles(type,style),x,y,w,h,file_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);SendMessageW(child,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);ui::control_theme(child);if(std::wstring(type)==L"BUTTON")button_style(child,id==1?ButtonTone::primary:id==3?ButtonTone::caution:ButtonTone::normal);return child;};
       text_style(make(0,L"STATIC",L"Xenon  /  File permissions",60,16,770,27,0),TextTone::brand,heading_font);
-      text_style(make(0,L"STATIC",L"Only files and folders you approve here are available to this workspace's agents.",26,82,808,24,0),TextTone::muted);
+      text_style(make(0,L"STATIC",L"Approved resources remain subject to client and workspace permissions.",26,82,808,24,0),TextTone::muted);
       file_list=make(10,L"LISTBOX",L"",26,114,808,230,WS_BORDER|WS_VSCROLL|WS_HSCROLL|WS_TABSTOP);
       make(1,L"BUTTON",L"Grant file",26,376,150,30,WS_TABSTOP);make(2,L"BUTTON",L"Grant folder",188,376,150,30,WS_TABSTOP);
       make(3,L"BUTTON",L"Revoke selected",350,376,170,30,WS_TABSTOP);make(4,L"BUTTON",L"Close",684,376,150,30,WS_TABSTOP);
     }
+    if(!prompt_layouts.contains(file_window))remember_prompt(file_window);
     SetWindowTextW(file_window,wide("Xenon File Permissions — "+file_scope).c_str());refresh_files();ShowWindow(file_window,SW_SHOWNORMAL);SetForegroundWindow(file_window);
   }
   void poll_removal_results(){
@@ -729,11 +829,15 @@ struct NativeUi::Impl {
   }
   void command(int id){
     try {
-      if(id==Approve){if(broker.approve_pairing(str(selected(Pairings),"requestId")))status(L"Client paired. Choose a workspace and share it to grant access.");}
+      if(id==PageClients||id==PageWorkspaces||id==PagePasswords){page=id-PageClients;layout_main();}
+      else if(id==ConfigureClient)show_configuration(false);
+      else if(id==ConfigureWorkspace)show_configuration(true);
+      else if(id==ClientFiles)show_files(str(selected(Clients),"clientId"));
+      else if(id==Approve){if(broker.approve_pairing(str(selected(Pairings),"requestId")))status(L"Client paired with read-only permissions. Configure it and share a workspace to allow access.");}
       else if(id==Deny)broker.deny_pairing(str(selected(Pairings),"requestId"));
       else if(id==Revoke){
         const auto revoked=broker.revoke_client(str(selected(Clients),"clientId"));
-        if(revoked==Broker::RevocationStatus::durable)status(L"Client access revoked and saved. Its queued actions were canceled.");
+        if(revoked==Broker::RevocationStatus::durable){files.revoke_scope(client_file_scope(str(selected(Clients),"clientId")));status(L"Client access revoked and saved. Its queued actions were canceled.");}
         else if(revoked==Broker::RevocationStatus::pending)status(L"Client blocked for this run, but revocation could not be saved. Restarting can restore access. Select its NOT SAVED row and click Revoke / retry.");
         else status(L"Select a paired client or an unsaved revocation to retry.");
       }
@@ -782,9 +886,11 @@ struct NativeUi::Impl {
           }
         }
       }
-      else if(id==DeleteAccount){auto account=selected(Accounts);if(!account.empty()&&MessageBoxW(window,L"Remove this saved account from Xenon?",L"Remove account",MB_YESNO|MB_ICONQUESTION)==IDYES)result(vault.remove(str(account,"accountId")));}
+      else if(id==ClientAccountGrant){auto a=selected(Accounts);status(broker.grant_client_account(str(selected(Clients),"clientId"),str(a,"accountId"),str(a,"origin"))?L"Account granted to this client for its exact HTTPS origin.":L"Select a client and saved account.");}
+      else if(id==AccountRevoke){auto a=selected(Accounts);status(broker.revoke_account(str(selected(Clients),"clientId"),"",str(a,"accountId"))?L"Client account permission revoked.":L"Account access blocked; the change could not be saved.");}
+      else if(id==DeleteAccount){auto account=selected(Accounts);if(!account.empty()&&MessageBoxW(window,L"Remove this saved account from Xenon?",L"Remove account",MB_YESNO|MB_ICONQUESTION)==IDYES){result(vault.remove(str(account,"accountId")));broker.resource_changed("");}}
       else if(id==Grant){auto a=selected(Accounts);status(broker.grant_account(str(selected(Clients),"clientId"),str(selected(Workspaces),"workspaceId"),str(a,"accountId"),str(a,"origin"))?L"Selected account allowed for this client, workspace, and exact origin.":L"Select an account, a paired client, and a shared workspace.");}
-      else if(id==NewWorkspace){broker.open_human_workspace("about:blank",[this](Json r){result(r);});}
+      else if(id==NewWorkspace){show_configuration(true,true);}
       else if(id==RemoveWorkspace)remove_selected_workspace();
       else if(id==PrivateWorkspace){broker.open_human_workspace("about:blank",[this](Json r){result(r);},true);}
       else if(id==RestoreSession){
@@ -796,49 +902,60 @@ struct NativeUi::Impl {
       refresh();
     }catch(const std::exception&){status(L"The operation failed. No secret details were logged.");}
   }
+  void layout_main(){if(!font)return;const auto panel=content_bounds();auto d=[&](int value){return ui::dip(window,value);};const int left=panel.left+d(24),body_top=d(100),width=panel.right-left-d(24),height=panel.bottom-d(16)-body_top;
+    for(const auto& entry:placements){const auto r=entry.bounds;const int id=GetDlgCtrlID(entry.control);if(id==Brand)MoveWindow(entry.control,d(24),d(30),d(168),d(34),TRUE);
+      else if(id==SectionTitle)MoveWindow(entry.control,left,d(36),std::max(100,width-d(220)),d(36),TRUE);
+      else if(id==CheckUpdates)MoveWindow(entry.control,panel.right-d(190),d(38),d(166),d(30),TRUE);
+      else if(id>=PageClients&&id<=PagePasswords)MoveWindow(entry.control,d(20),d(102+(id-PageClients)*52),d(176),d(40),TRUE);
+      else MoveWindow(entry.control,left+MulDiv(r.left-24,width,912),body_top+MulDiv(r.top-116,height,553),MulDiv(r.right-r.left,width,912),MulDiv(r.bottom-r.top,height,553),TRUE);
+      ShowWindow(entry.control,entry.page<0||entry.page==page?SW_SHOW:SW_HIDE);if(id>=PageClients&&id<=PagePasswords)InvalidateRect(entry.control,nullptr,TRUE);}
+    SetWindowTextW(controls.at(SectionTitle),page==0?L"Clients":page==1?L"Workspaces":L"Passwords");InvalidateRect(window,nullptr,TRUE);}
+  void apply_theme(){ui::icons(window);for(const auto& entry:placements)ui::control_theme(entry.control);const auto colors=ui::palette();applied_palette=colors;auto table=controls.at(Tabs);ListView_SetBkColor(table,colors.canvas);ListView_SetTextBkColor(table,colors.canvas);ListView_SetTextColor(table,colors.ink);InvalidateRect(window,nullptr,TRUE);
+    for(const auto& [prompt,layout]:prompt_layouts){ui::icons(prompt);for(const auto& [child,bounds]:layout.children)ui::control_theme(child);InvalidateRect(prompt,nullptr,TRUE);}
+    for(auto& config:configurations)if(config->window){ui::icons(config->window);ListView_SetBkColor(config->resources,colors.canvas);ListView_SetTextBkColor(config->resources,colors.canvas);ListView_SetTextColor(config->resources,colors.ink);InvalidateRect(config->window,nullptr,TRUE);}}
   void build(){
-    auto face=[](int height,int weight){return CreateFontW(height,0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");};
-    font=face(-15,FW_NORMAL);heading_font=face(-16,FW_SEMIBOLD);brand_font=face(-23,FW_SEMIBOLD);small_font=face(-14,FW_NORMAL);
-    window_icon(window);
-    text_style(add(0,L"STATIC",L"Xenon",58,6,106,30),TextTone::brand,brand_font);
-    text_style(add(0,L"STATIC",L"Browser controls",179,13,310,22),TextTone::brand_muted,small_font);
-    text_style(add(0,L"STATIC",wide(std::string(kVersion)).c_str(),590,13,174,22,SS_RIGHT),TextTone::brand_muted,small_font);
-    button(CheckUpdates,L"Check for updates",783,7,161);
-    label(L"Pending pairing requests",24,58,340,TextTone::heading);label(L"Paired clients and unsaved revocations",389,58,554,TextTone::heading);
-    add(Pairings,L"LISTBOX",L"",24,82,347,59,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
-    add(Clients,L"LISTBOX",L"",389,82,554,59,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
-    button(Approve,L"Approve",24,149,125,ButtonTone::primary);button(Deny,L"Deny",161,149);button(Revoke,L"Revoke / retry",389,149,150);button(Stop,L"Stop all agents",793,149,150,ButtonTone::caution);
-    label(L"Workspaces",24,202,347,TextTone::heading);label(L"Connected agents",389,202,554,TextTone::heading);
-    add(Workspaces,L"LISTBOX",L"",24,226,347,63,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
-    add(Workers,L"LISTBOX",L"",389,226,554,63,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
-    button(Share,L"Share workspace",24,297,140);button(NewWorkspace,L"New workspace",172,297,135);button(RemoveWorkspace,L"Remove workspace",315,297,145);
-    button(UploadGrant,L"File permissions…",468,297,145);button(PrivateWorkspace,L"Private workspace",621,297,150);button(RestoreSession,L"Restore last session",779,297,165);
-    label(L"Live tabs and control ownership",24,353,919,TextTone::heading);
-    add(Tabs,L"LISTBOX",L"",24,377,919,86,WS_BORDER|WS_VSCROLL|WS_HSCROLL|LBS_NOTIFY|WS_TABSTOP);
-    button(Take,L"Take ownership",24,471,140);button(Give,L"Give to agent",176,471,135);button(ResumeAuth,L"Resume after login",323,471,178);
-    button(DialogAccept,L"Accept dialog",513,471,120);button(DialogDismiss,L"Dismiss",645,471,95);add(DialogText,L"EDIT",L"",752,473,191,25,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
-    label(L"Saved accounts",24,523,155,TextTone::heading);label(L"Shared encrypted vault · Agent permission is per client and workspace",185,525,758,TextTone::muted);
-    add(Accounts,L"LISTBOX",L"",24,547,550,72,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
-    button(Import,L"Import CSV",592,549,150);button(DeleteAccount,L"Remove account",754,549,189);button(Grant,L"Allow selected client to use account",592,587,351);
-    label(L"HTTPS origin",24,627,210,TextTone::muted);label(L"Username",248,627,210,TextTone::muted);label(L"Password",472,627,210,TextTone::muted);label(L"Account label",696,627,247,TextTone::muted);
-    add(Origin,L"EDIT",L"",24,649,210,25,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
-    add(Username,L"EDIT",L"",248,649,210,25,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
-    add(Password,L"EDIT",L"",472,649,210,25,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL|ES_PASSWORD);
-    add(Label,L"EDIT",L"",696,649,247,25,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
-    button(Save,L"Save account",24,686,145,ButtonTone::primary);
-    button(FillSavedAccount,L"Fill saved account…",181,686,220);label(L"Uses the selected login tab above.",416,691,527,TextTone::muted);
-    text_style(add(Status,L"STATIC",L"Right-click a webpage and choose Xenon Controls to return here. Handoff preserves the live page.",24,740,919,40),TextTone::status,small_font);
-    SetTimer(window,1,750,nullptr);WTSRegisterSessionNotification(window,NOTIFY_FOR_THIS_SESSION);refresh();
+    font=ui::font(window);heading_font=ui::font(window,16,FW_SEMIBOLD);brand_font=ui::font(window,24,FW_SEMIBOLD);small_font=ui::font(window,13);window_icon(window);building_page=-1;
+    text_style(add(Brand,L"STATIC",L"Xenon",24,17,168,34),TextTone::normal,brand_font);text_style(add(SectionTitle,L"STATIC",L"Clients",232,36,500,36),TextTone::normal,brand_font);button(CheckUpdates,L"Check for updates",770,20,166);
+    button(PageClients,L"Clients",24,68,150);button(PageWorkspaces,L"Workspaces",186,68,150);button(PagePasswords,L"Passwords",348,68,150);
+    for(int id:{PageClients,PageWorkspaces,PagePasswords})SetPropW(controls.at(id),L"XenonConnected",reinterpret_cast<HANDLE>(1));
+    building_page=0;
+    label(L"Pairing requests",24,118,500,TextTone::heading);label(L"Approve only clients you recognize.",24,146,870,TextTone::muted);
+    add(Pairings,L"LISTBOX",L"",24,177,912,110,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);button(Approve,L"Approve",24,301);button(Deny,L"Deny",161,301);
+    label(L"Paired clients · connection and access",24,350,900,TextTone::heading);add(Clients,L"LISTBOX",L"",24,381,912,160,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
+    button(ConfigureClient,L"Configure",24,557,130);button(ClientFiles,L"File resources",166,557,150);button(Revoke,L"Revoke / retry",328,557,150);button(Stop,L"Stop all agents",786,557,150);
+    building_page=1;
+    label(L"Workspaces",24,116,425,TextTone::heading);label(L"Connected agents in selected workspace",490,116,440,TextTone::heading);
+    add(Workspaces,L"LISTBOX",L"",24,145,445,110,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);add(Workers,L"LISTBOX",L"",490,145,446,110,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
+    button(NewWorkspace,L"Create workspace",24,267,155);button(ConfigureWorkspace,L"Configure",187,267,110);button(RemoveWorkspace,L"Remove",305,267,85);button(PrivateWorkspace,L"Private workspace",398,267,142);button(RestoreSession,L"Restore last session",548,267,164);button(UploadGrant,L"Files",720,267,70);button(Share,L"Share read-only",798,267,138);
+    label(L"Tabs in selected workspace",24,317,880,TextTone::heading);add(Tabs,WC_LISTVIEWW,L"",24,346,912,110,WS_BORDER|LVS_REPORT|LVS_SINGLESEL|WS_TABSTOP);auto table=controls.at(Tabs);ListView_SetExtendedListViewStyle(table,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER);int column=0;for(const auto& [title,width]:std::vector<std::pair<const wchar_t*,int>>{{L"Title",330},{L"Agent",165},{L"Status",175},{L"Tab ID",225}}){LVCOLUMNW value{};value.mask=LVCF_TEXT|LVCF_WIDTH;value.cx=ui::dip(window,width);value.pszText=const_cast<LPWSTR>(title);ListView_InsertColumn(table,column++,&value);}
+    add(DialogMessage,L"EDIT",L"No website dialog waiting.",24,466,912,67,WS_BORDER|ES_MULTILINE|ES_READONLY|WS_VSCROLL|WS_TABSTOP);
+    button(Take,L"Take ownership",24,545,145);button(Give,L"Give to agent",181,545,140);button(ResumeAuth,L"Resume after login",333,545,175);button(DialogAccept,L"Accept dialog",520,545,135);button(DialogDismiss,L"Dismiss",667,545,100);add(DialogText,L"EDIT",L"",779,545,157,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
+    building_page=2;
+    label(L"Saved accounts · shared encrypted vault",24,116,870,TextTone::heading);add(Accounts,L"LISTBOX",L"",24,149,912,148,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
+    button(Import,L"Import CSV",24,309,135);button(DeleteAccount,L"Remove account",171,309,160);button(FillSavedAccount,L"Fill selected login tab",343,309,210);
+    label(L"Selected client/workspace come from the other sections. Grants use exact HTTPS origins.",24,356,912,TextTone::muted);button(ClientAccountGrant,L"Grant to client",24,388,190);button(AccountRevoke,L"Revoke client grant",226,388,190);button(Grant,L"Grant in workspace",428,388,195);
+    label(L"HTTPS origin",24,439,430,TextTone::muted);label(L"Account label",490,439,446,TextTone::muted);add(Origin,L"EDIT",L"",24,464,445,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);add(Label,L"EDIT",L"",490,464,446,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
+    label(L"Username",24,507,445,TextTone::muted);label(L"Password",490,507,446,TextTone::muted);add(Username,L"EDIT",L"",24,532,445,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);add(Password,L"EDIT",L"",490,532,446,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL|ES_PASSWORD);button(Save,L"Save account",24,582,165);
+    building_page=-1;text_style(add(Status,L"STATIC",L"Choose a section to manage clients, workspaces or saved passwords.",24,635,912,34),TextTone::status,small_font);SetTimer(window,1,750,nullptr);WTSRegisterSessionNotification(window,NOTIFY_FOR_THIS_SESSION);refresh();apply_theme();layout_main();
   }
-  static LRESULT CALLBACK proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){
+  static LRESULT CALLBACK proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){try{return dispatch_proc(h,msg,wp,lp);}catch(...){return msg==WM_NCCREATE?FALSE:msg==WM_CREATE?-1:0;}}
+  static LRESULT CALLBACK dispatch_proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){
     auto self=reinterpret_cast<Impl*>(GetWindowLongPtrW(h,GWLP_USERDATA));
     if(msg==WM_NCCREATE){self=static_cast<Impl*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);self->window=h;SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}
     if(!self)return DefWindowProcW(h,msg,wp,lp);
     LRESULT painted{};if(self->theme_message(h,msg,wp,lp,painted))return painted;
     switch(msg){
       case WM_CREATE:self->build();return 0;
-      case WM_COMMAND:if(HIWORD(wp)==BN_CLICKED)self->command(LOWORD(wp));return 0;
-      case WM_TIMER:self->poll_login_prompts();self->poll_autofill();self->poll_dialog_notices();self->poll_removal_results();self->poll_updates();self->refresh();return 0;
+      case WM_COMMAND:if(HIWORD(wp)==LBN_DBLCLK&&LOWORD(wp)==Workspaces)self->show_configuration(true);else if(HIWORD(wp)==LBN_SELCHANGE)self->refresh();else if(HIWORD(wp)==BN_CLICKED)self->command(LOWORD(wp));return 0;
+      case WM_SIZE:self->layout_main();return 0;
+      case WM_SETTINGCHANGE:case WM_THEMECHANGED:self->apply_theme();return 0;
+      case WM_DPICHANGED:{auto rect=reinterpret_cast<RECT*>(lp);const HFONT previous[]{self->font,self->heading_font,self->brand_font,self->small_font};
+        self->font=ui::font(h);self->heading_font=ui::font(h,16,FW_SEMIBOLD);self->brand_font=ui::font(h,24,FW_SEMIBOLD);self->small_font=ui::font(h,13);
+        const HFONT current[]{self->font,self->heading_font,self->brand_font,self->small_font};
+        for(const auto& placement:self->placements){const auto face=reinterpret_cast<HFONT>(SendMessageW(placement.control,WM_GETFONT,0,0));for(int n=0;n<4;++n)if(face==previous[n]){SendMessageW(placement.control,WM_SETFONT,reinterpret_cast<WPARAM>(current[n]),TRUE);break;}}
+        for(auto face:previous)DeleteObject(face);for(const auto& placement:self->placements)ui::control_theme(placement.control);SetWindowPos(h,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOACTIVATE|SWP_NOZORDER);self->layout_main();return 0;}
+      case WM_GETMINMAXINFO:{auto value=reinterpret_cast<MINMAXINFO*>(lp);value->ptMinTrackSize={ui::dip(h,1160),ui::dip(h,750)};return 0;}
+      case WM_TIMER:if(!self->applied_palette||*self->applied_palette!=ui::palette())self->apply_theme();self->poll_login_prompts();self->poll_autofill();self->poll_dialog_notices();self->poll_removal_results();self->poll_updates();self->refresh();return 0;
       case LoginNotice:self->poll_login_prompts();return 0;
       case DialogNotice:self->poll_dialog_notices();return 0;
       case RemovalNotice:self->poll_removal_results();return 0;
@@ -851,8 +968,9 @@ struct NativeUi::Impl {
   }
 };
 NativeUi::NativeUi(Broker& b,CefEngine& e,Vault& v,FilePolicy& f):impl_(std::make_unique<Impl>(b,e,v,f)){
+  INITCOMMONCONTROLSEX common{sizeof(common),ICC_LISTVIEW_CLASSES};InitCommonControlsEx(&common);
   WNDCLASSW wc{};wc.lpfnWndProc=Impl::proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonControlCenter";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
-  CreateWindowExW(0,wc.lpszClassName,L"Xenon Controls",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,990,825,nullptr,nullptr,wc.hInstance,impl_.get());
+  CreateWindowExW(WS_EX_CONTROLPARENT,wc.lpszClassName,L"Xenon Controls",WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,ui::dip(GetDesktopWindow(),1220),ui::dip(GetDesktopWindow(),810),nullptr,nullptr,wc.hInstance,impl_.get());
   e.set_save_prompt_callback([self=impl_.get()](const std::string& candidate,CefWindowHandle source){self->notify_login(candidate,source);});
   e.set_autofill_prompt_callback([self=impl_.get()](const Json& offer,CefWindowHandle source){self->notify_autofill(offer,source);});
   e.set_dialog_callback([self=impl_.get()](const std::string& tab_id){self->notify_dialog(tab_id);});
@@ -861,10 +979,18 @@ NativeUi::~NativeUi(){
   impl_->engine.set_save_prompt_callback({});impl_->engine.set_autofill_prompt_callback({});impl_->engine.set_dialog_callback({});
   {std::lock_guard lock(impl_->autofill_results->mutex);impl_->autofill_results->alive=false;impl_->autofill_results->values.clear();}
   {std::lock_guard lock(impl_->update_state->mutex);impl_->update_state->alive=false;impl_->update_state->cancel=true;}
+  for(auto& config:impl_->configurations){if(config->window)DestroyWindow(config->window);if(config->face)DeleteObject(config->face);}
   impl_->close_updates();
   impl_->clear_login_prompts();impl_->clear_autofill();if(impl_->file_window)DestroyWindow(impl_->file_window);if(impl_->window)DestroyWindow(impl_->window);
   for(auto face:{impl_->font,impl_->heading_font,impl_->brand_font,impl_->small_font})if(face)DeleteObject(face);
   for(auto brush:{impl_->canvas_brush,impl_->surface_brush,impl_->navy_brush})if(brush)DeleteObject(brush);
 }
-void NativeUi::show(){impl_->refresh();ShowWindow(impl_->window,SW_SHOWNORMAL);SetForegroundWindow(impl_->window);}
+void NativeUi::show(){impl_->apply_theme();impl_->refresh();ShowWindow(impl_->window,SW_SHOWNORMAL);SetForegroundWindow(impl_->window);}
+bool NativeUi::pretranslate(MSG& message){
+  if(message.message<WM_KEYFIRST||message.message>WM_KEYLAST)return false;
+  const auto root=GetAncestor(message.hwnd,GA_ROOT);
+  bool belongs=root==impl_->window||root==impl_->file_window||root==impl_->login_window||root==impl_->autofill_window||root==impl_->update_window;
+  for(const auto& config:impl_->configurations)belongs=belongs||root==config->window;
+  return belongs&&IsDialogMessageW(root,&message)!=FALSE;
+}
 }

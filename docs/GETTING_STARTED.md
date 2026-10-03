@@ -1,6 +1,8 @@
 # Get started with Xenon
 
-This guide uses **0.1.0-alpha.11**, an unsigned Windows x64 alpha. You need Windows 10 or 11 with a desktop session. Browsing needs no model account. Agent use additionally needs an MCP host that can launch a local stdio server; image support is needed for visual tasks.
+The installation instructions use **0.1.0-alpha.11**, an unsigned Windows x64 alpha. Sections 2–5 describe the latest development source, including the new native shell, Controls and read-only client defaults; those changes are not in the published alpha.11 installer. [Build the source](BUILD.md) to use them, or consult the [alpha.11 guide](https://github.com/Xero-05/xenon-browser/blob/v0.1.0-alpha.11/docs/GETTING_STARTED.md) for that package's workflow. See [unreleased changes](RELEASE_NOTES.md#unreleased).
+
+You need Windows 10 or 11 with a desktop session. Browsing needs no model account. Agent use additionally needs an MCP host that can launch a local stdio server; image support is needed for visual tasks.
 
 The release includes the browser, its matching Chromium/CEF runtime, the MCP adapter and Node. You do not need to install Node separately to run the packaged version.
 
@@ -37,11 +39,11 @@ Once this release is installed, future releases can be downloaded through **Xeno
 
 ## 2. Open the browser
 
-Open **Xenon Browser** from the Start menu, or run `Xenon.exe` in its installation folder. A fresh launch opens one blank tab in **Personal**. Use the address bar to visit a website.
+Run `build/app/Release/Xenon.exe` after building the development source. Packaged versions open from the **Xenon Browser** Start menu entry or `Xenon.exe` in their installation folder. A fresh launch opens one blank tab in **Personal**. Use the address bar to visit a website.
 
-Press **Ctrl+Shift+X** while a Xenon browser window is active to open **Xenon Controls**. You can also right-click a webpage and select **Xenon Controls and Accounts**. This native window manages paired clients, workspaces, control ownership, saved accounts and file permissions.
+Press **Ctrl+Shift+X** while a Xenon browser window is active to open **Xenon Controls**, or use its toolbar button or webpage context-menu item. Its Clients, Workspaces and Passwords sections manage pairings, access, control ownership, saved accounts and file permissions.
 
-Closing Controls hides it; it does not exit the browser. Use the browser menu's **Exit** to close the application. Starting Xenon again while it is running returns to that existing session. A new application launch starts blank; cookies and local storage remain, so revisiting a website may still find you signed in.
+Closing Controls hides it; it does not exit the browser. Use **Menu → Exit Xenon** to close the application. Starting Xenon again while it is running returns to that existing session. A new application launch starts blank; cookies and local storage remain, so revisiting a website may still find you signed in.
 
 ## 3. Pair your MCP host
 
@@ -54,7 +56,9 @@ Set-Location "$env:LOCALAPPDATA\Programs\Xenon Browser"
 
 If you chose another installation folder, replace the `Set-Location` path with that folder. For a portable ZIP, use the extracted folder containing `Xenon.exe`. Run the same pairing command, then use that folder's `runtime` and `adapter` paths in your host configuration below.
 
-In Controls, select **My agent host** under **Pending pairing requests**, then click **Approve**. The terminal waits up to five minutes for this approval. When pairing succeeds, it saves a private configuration at the output path.
+For a source build, run `npm.cmd run build` in the repository, then `node .\adapter\dist\src\cli.js pair --name "My agent host" --output "$env:LOCALAPPDATA\Xenon-agent.json"`. Configure the host with the absolute paths to your Node 24 executable and this checkout's `adapter/dist/src/cli.js`.
+
+In Controls' **Clients** section, select **My agent host** under **Pairing requests**, then click **Approve**. The terminal waits up to five minutes for this approval. When pairing succeeds, it saves a private configuration at the output path. The saved client starts read-only, with automatic workspace creation disabled and quotas of four workers and four automatic workspaces.
 
 That file contains a pairing token. Keep it outside repositories, shared folders, messages and model prompts. The output file must not already exist. Pair separately, using another name and output path, for each independently trusted host.
 
@@ -84,6 +88,8 @@ The adapter talks to a private Windows named pipe. It is not an HTTP server, and
 
 ## 5. Try a small task
 
+For the new-workspace example below, select the paired client in **Clients → Configure**, enable page interaction and automatic workspace creation, then **Save**. These native permissions are deliberate opt-ins. Uploads, downloads and saved-account use can stay disabled for this example.
+
 Ask the connected agent:
 
 > Use Xenon to open https://example.com in a new workspace, inspect the visible page, and tell me its heading. Keep the tab open.
@@ -95,7 +101,7 @@ The expected tool sequence is:
 3. `xenon_observe` supplies current rendered evidence; subsequent actions use the returned handles.
 4. `xenon_worker_retire` retires a finished worker while preserving its tab and workspace.
 
-Controls shows the workspace, worker and tab. To reuse an existing human website session, select that workspace and paired client, then click **Share workspace**. Give the agent the resulting authorized workspace to use instead of creating a fresh one. Sharing includes the website sessions already present there.
+Controls shows the workspace, worker and tab. To reuse an existing human website session, select the paired client in Clients, then the workspace in Workspaces and choose **Share read-only**. Configure that workspace to permit interaction when needed; its effective access is still bounded by the client's policy. Give the agent the authorized workspace ID to use. Sharing includes the website sessions already present there.
 
 Try typing in an agent-owned page. The owner stays the same, but its actions pause while you interact and for about two seconds afterward. To keep control indefinitely, select the tab and click **Take ownership**; use **Give to agent** when ready.
 

@@ -1,5 +1,7 @@
 # MCP setup and use
 
+Native Controls configures client ceilings and workspace permissions. Newly paired clients start read-only with automatic workspace creation disabled; manually sharing a workspace initially grants read-only access. MCP cannot configure these policies or grant resources. Authorized `workspaces.list` responses include `displayName` and `effectivePermissions`; `workers.list` includes client policy and quota metadata. Effective capabilities intersect client and workspace policies. Automatic workspaces require native permission, record their creator for quota accounting, and inherit that client's permitted resources live. Legacy pairings preserve their prior capabilities until configured. Workspace names are display labels; tools continue to require opaque IDs.
+
 Xenon connects to external MCP clients over stdio. Each client starts the adapter, which authenticates to the running browser through a private Windows named pipe. No model API key is configured in Xenon. Clients need standard MCP tool support; image support is optional except for visual-only page tasks.
 
 ## Pair a client
@@ -10,7 +12,7 @@ Start `Xenon.exe` from the release directory. In PowerShell in that directory, r
 .\runtime\node.exe .\adapter\dist\src\cli.js pair --name "My agent host" --output "$env:LOCALAPPDATA\Xenon-agent.json"
 ```
 
-Open **Xenon Controls and Accounts** from the page context menu. Select the pending client and approve it. Pairing waits for that native approval and writes the configuration with the current Windows user's private ACL. The output path must not already exist. Do not place this configuration in a repository, tool prompt or shared directory: it contains the local pairing token. Pair separately for independently trusted hosts.
+Open **Xenon Controls** from the toolbar or page context menu. In **Clients**, select the pairing request and approve it. Pairing waits for that native approval and writes the configuration with the current Windows user's private ACL. The output path must not already exist. Do not place this configuration in a repository, tool prompt or shared directory: it contains the local pairing token. Pair separately for independently trusted hosts.
 
 For a source checkout after building, replace `runtime\node.exe` with `third_party\node\node.exe`. An installed compatible Node 24 runtime also works.
 
@@ -80,7 +82,7 @@ Screenshot metadata includes actual PNG `imageWidth`/`imageHeight`, the CSS view
 
 ## Worker capacity and retirement
 
-The default limit is 16 concurrently connected workers across all paired clients. It is not a lifetime limit on worker creation. The human can choose a limit from 1 through 256 at native browser startup, for example `Xenon.exe --max-concurrent-workers=32`. MCP callers cannot change this limit. Creating a worker or resuming a disconnected one requires an available slot; resuming a worker already attached to the same connection does not need another slot.
+The default browser-wide limit is 16 concurrently connected workers across all paired clients. New clients also default to four concurrent workers and four automatic workspaces. Native Controls configures client quotas; automatic creation additionally requires explicit permission. Both global and client limits apply across that client's connections. Legacy clients retain their previous capabilities and migrated global worker limit until configured. These are not lifetime creation limits. The human can choose a global limit from 1 through 256 at native browser startup, for example `Xenon.exe --max-concurrent-workers=32`. MCP callers cannot change these settings. Creating a worker or resuming a disconnected one requires an available slot; resuming a worker already attached to the same connection does not need another slot.
 
 `xenon_workers` returns each retained handle's `connected` flag and `state`: `connected`, `disconnected` or `retiring`. Its top-level `connectedWorkerCount` reports the current global count, while `limits.connectedWorkers` reports the configured maximum; `limits.disconnectedCache` and `limits.totalRetainedWorkers` report the retention bounds. Retire finished workers with `xenon_worker_retire({"agentSessionId":"..."})`. Its result contains the handle and `status: "retired"` or `"retiring"` while accepted finite input settles. Retirement immediately prevents further dispatch and releases the concurrent slot, cancels queued mutations, and never replays work. It is irreversible for that handle, but does not close or reload tabs, delete a workspace, clear website state or revoke existing workspace grants. Use a new worker with the saved granted `workspaceId` to continue later.
 

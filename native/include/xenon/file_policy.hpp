@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <set>
 #include <vector>
 
 namespace xenon {
@@ -37,6 +38,7 @@ class FilePolicy {
   Json list_files(const std::string& scope, const std::string& folder_id = {}, size_t limit = 100);
   Json revoke_grant(const std::string& scope, const std::string& grant_id);
   std::optional<UploadFile> resolve_upload(const std::string& scope, const std::string& file_id) const;
+  bool selected_grant(const std::string& scope, const std::string& file_id, const std::set<std::string>& selected) const;
   void revoke_scope(const std::string& scope);
   void deny_source(const std::filesystem::path& native_path);
   // This native-only destination is passed to CEF, never to an agent.

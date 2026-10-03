@@ -70,9 +70,9 @@ try{
   await tool('interact',{...scope,ownershipGeneration:tab.ownershipGeneration,operationId:randomUUID(),observationId:evidence.observationId,action:'fill',elementRef:draft.ref,text:'Unsubmitted draft'});
   evidence=await observe(scope);
   const beforeInput=await tool('control_status',scope);
-  console.log('READY FOR WINDOWS INPUT: In the Xenon Windows input fixture, click Draft and append the text " human edit". Waiting up to180seconds.');
+  console.log('READY FOR WINDOWS INPUT: Select the Xenon Windows input fixture in the workspace sidebar, then click Draft. Waiting up to 10 minutes for the native UI check.');
   await check('Windows page input pauses dispatch while retaining creator ownership',async()=>{
-    const state=await until(async()=>{const s=await tool('control_status',scope);return s.humanPaused?s:false},180000);
+    const state=await until(async()=>{const s=await tool('control_status',scope);return s.humanPaused?s:false},600000);
     assert.equal(state.ownerSessionId,worker.agentSessionId);
     assert.equal(state.ownershipGeneration,tab.ownershipGeneration);
     assert(state.humanActivityEpoch>beforeInput.humanActivityEpoch);
@@ -83,7 +83,7 @@ try{
   await check('Idle resumes authority only with fresh evidence and preserves the human draft',async()=>{
     const beforeKeys=await until(async()=>{const s=await tool('control_status',scope);return !s.humanPaused?s:false},30000);
     console.log('READY FOR KEYBOARD EDIT: The click pause ended. Append " human edit" to the focused Draft now.');
-    await until(()=>humanEdited,180000);
+    await until(()=>humanEdited,600000);
     const afterKeys=await tool('control_status',scope);
     assert(afterKeys.humanActivityEpoch>beforeKeys.humanActivityEpoch,'Native page keyboard input must report fresh activity separately from the click');
     assert.equal(afterKeys.humanPaused,true,'Keyboard input must establish its own pause');

@@ -1,0 +1,485 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-03T01:50:50.126Z",
+  "scope": "Local source checkout; no release published or installed over a user copy",
+  "binaries": {
+    "production": {
+      "executable": "build/app/Release/Xenon.exe",
+      "executableSha256": "6362e84f5e704205b38f0c2f655a5e2c86ac3d99329a0f07415713230d40faaa",
+      "applicationDllSha256": "0b2b427ee192134af4eb7882ed2028beefeaa869e5e7df9f04664e948d6c5ec1"
+    },
+    "testFixture": {
+      "applicationDllSha256": "c995eb33777c8ca6e90fef00550eb642a474cb67c8b2dc1dbe494864d90646f2",
+      "unshipped": true
+    }
+  },
+  "build": "Full Release native build completed serially, including sandboxed production and separate AuthTest targets",
+  "checks": {
+    "nativeGroups": 10,
+    "adapterAndProductionScriptTests": 84,
+    "adapterTypecheck": "passed",
+    "branding": 5,
+    "pointerTargetScriptTests": 14,
+    "pointerTargetTestsIncludedInAdapterTotal": true,
+    "diffWhitespace": "passed"
+  },
+  "liveChecks": 75,
+  "live": [
+    {
+      "suite": "visibility-integration",
+      "capturedAt": "2026-10-03T01:39:50.110Z",
+      "binary": "build/app/Release/Xenon.exe",
+      "applicationDllSha256": "0b2b427ee192134af4eb7882ed2028beefeaa869e5e7df9f04664e948d6c5ec1",
+      "passed": 9,
+      "mode": "Automated CEF + real MCP clients",
+      "checks": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "integration",
+      "capturedAt": "2026-10-03T01:40:29.344Z",
+      "binary": "build/app/Release/Xenon.exe",
+      "applicationDllSha256": "0b2b427ee192134af4eb7882ed2028beefeaa869e5e7df9f04664e948d6c5ec1",
+      "passed": 17,
+      "mode": "Automated CEF + real MCP clients",
+      "checks": [
+        {
+          "name": "Four separate adapters, three live tabs each",
+          "passed": true
+        },
+        {
+          "name": "Workspace and result isolation",
+          "passed": true
+        },
+        {
+          "name": "A pending wait does not block other adapters",
+          "passed": true
+        },
+        {
+          "name": "Page-only screenshots through real MCP image output",
+          "passed": true
+        },
+        {
+          "name": "Replaced nodes reject stale references",
+          "passed": true
+        },
+        {
+          "name": "Overlay hit testing rejects obscured input",
+          "passed": true
+        },
+        {
+          "name": "Same-origin and cross-origin frames expose usable references",
+          "passed": true
+        },
+        {
+          "name": "Shadow DOM actionability and semantics",
+          "passed": true
+        },
+        {
+          "name": "Visual coordinates require a current screenshot",
+          "passed": true
+        },
+        {
+          "name": "JavaScript dialogs are handled without blocking other tabs",
+          "passed": true
+        },
+        {
+          "name": "Website JavaScript links and logout confirmations remain usable",
+          "passed": true
+        },
+        {
+          "name": "Download namespace reports opaque scoped metadata",
+          "passed": true
+        },
+        {
+          "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+          "passed": true
+        },
+        {
+          "name": "Related popups transfer as one ownership group",
+          "passed": true
+        },
+        {
+          "name": "Mid-drag handoff waits for release before changing ownership",
+          "passed": true
+        },
+        {
+          "name": "Four workers behind one adapter, three tabs each",
+          "passed": true
+        },
+        {
+          "name": "Disconnect/reconnect preserves page and never replays mutations",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "upload-entry-integration",
+      "capturedAt": "2026-10-03T01:40:42.006Z",
+      "binary": "build/app/Release/Xenon.exe",
+      "applicationDllSha256": "0b2b427ee192134af4eb7882ed2028beefeaa869e5e7df9f04664e948d6c5ec1",
+      "passed": 9,
+      "mode": "Automated CEF + real MCP clients",
+      "checks": [
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "auth-integration",
+      "capturedAt": "2026-10-03T01:40:50.323Z",
+      "binary": "E:\\Xenon Browser\\build\\auth-fixture\\Release\\XenonAuthTest.exe",
+      "applicationDllSha256": "c995eb33777c8ca6e90fef00550eb642a474cb67c8b2dc1dbe494864d90646f2",
+      "passed": 10,
+      "mode": "Synthetic native test driver; no physical credential picker/removal approval",
+      "checks": [
+        {
+          "name": "Safe page screenshots remain available",
+          "passed": true
+        },
+        {
+          "name": "No raw eval, CDP, cookies or storage tools",
+          "passed": true
+        },
+        {
+          "name": "Synthetic password and OTP input events seal all observers through reveal and handoff",
+          "passed": true
+        },
+        {
+          "name": "Native folder grants persist and upload only approved opaque file handles",
+          "passed": true
+        },
+        {
+          "name": "Account rights remain per client across handoff",
+          "passed": true
+        },
+        {
+          "name": "Exact credential origin enforced",
+          "passed": true
+        },
+        {
+          "name": "GET and readonly forms reject credentials before input or submission",
+          "passed": true
+        },
+        {
+          "name": "Opaque saved login authenticates without a model-visible credential",
+          "passed": true
+        },
+        {
+          "name": "Four-agent handoff preserves quarantine and sends no website input",
+          "passed": true
+        },
+        {
+          "name": "Username-first forms reuse only the exact-origin account",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "human-autofill-integration",
+      "capturedAt": "2026-10-03T01:41:03.890Z",
+      "binary": "build/auth-fixture/Release/XenonAuthTest.exe",
+      "applicationDllSha256": "c995eb33777c8ca6e90fef00550eb642a474cb67c8b2dc1dbe494864d90646f2",
+      "passed": 9,
+      "mode": "Synthetic native test driver; no physical credential picker/removal approval",
+      "checks": [
+        {
+          "name": "Human autofill fills a CWL-shaped form without submission or agent account grants",
+          "passed": true
+        },
+        {
+          "name": "Autofilled credentials remain protected from all clients through ownership handoff",
+          "passed": true
+        },
+        {
+          "name": "Saved accounts cannot autofill a different HTTPS origin",
+          "passed": true
+        },
+        {
+          "name": "Navigation invalidates an already offered native account selection",
+          "passed": true
+        },
+        {
+          "name": "Replacing the bound form cannot redirect an existing autofill offer",
+          "passed": true
+        },
+        {
+          "name": "Dismissing a native offer prevents subsequent filling",
+          "passed": true
+        },
+        {
+          "name": "Username-first and password-only steps fill only the current phase without advancing",
+          "passed": true
+        },
+        {
+          "name": "Locking the native vault invalidates pending offers and prevents new autofill",
+          "passed": true
+        },
+        {
+          "name": "Lock and unlock cannot revive an accepted fill waiting for a finite action to drain",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "worker-lifecycle-integration",
+      "capturedAt": "2026-10-03T01:34:57.947Z",
+      "binary": "build/app/Release/Xenon.exe",
+      "applicationDllSha256": "0b2b427ee192134af4eb7882ed2028beefeaa869e5e7df9f04664e948d6c5ec1",
+      "passed": 4,
+      "mode": "Automated CEF + real MCP clients",
+      "checks": [
+        {
+          "name": "Modern and legacy clients cannot retire each other’s workers",
+          "passed": true
+        },
+        {
+          "name": "Twenty retired workers preserve one live drafted, selected and scrolled session",
+          "passed": true
+        },
+        {
+          "name": "Retirement cancels queued input and releases a started finite gesture honestly",
+          "passed": true
+        },
+        {
+          "name": "Configured global capacity spans clients and retirement frees a slot",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "workspace-removal-integration",
+      "capturedAt": "2026-10-03T01:39:00.823Z",
+      "binary": "build/auth-fixture/Release/XenonAuthTest.exe",
+      "applicationDllSha256": "c995eb33777c8ca6e90fef00550eb642a474cb67c8b2dc1dbe494864d90646f2",
+      "passed": 4,
+      "mode": "Synthetic native test driver; no physical credential picker/removal approval",
+      "checks": [
+        {
+          "name": "Two isolated workspaces have live data, popup, vault grant, approved file and download",
+          "passed": true
+        },
+        {
+          "name": "Native removal revokes access and pending reads while preserving unrelated live work",
+          "passed": true
+        },
+        {
+          "name": "Restart purges only the tombstoned profile and cannot recreate its grant",
+          "passed": true
+        },
+        {
+          "name": "Remaining workspace cookie and local storage survive while shared files remain",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "persistence-integration",
+      "capturedAt": "2026-10-03T01:39:42.176Z",
+      "binary": "build/app/Release/Xenon.exe",
+      "applicationDllSha256": "0b2b427ee192134af4eb7882ed2028beefeaa869e5e7df9f04664e948d6c5ec1",
+      "passed": 3,
+      "mode": "Automated CEF + real MCP clients",
+      "checks": [
+        {
+          "name": "Distinct workspaces isolate persistent cookies and local storage before restart",
+          "passed": true
+        },
+        {
+          "name": "Stored state survives a forced process stop and a second launch",
+          "passed": true
+        },
+        {
+          "name": "A new workspace after restart does not inherit either saved session",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "startup-integration",
+      "capturedAt": "2026-10-03T01:42:23.816Z",
+      "binary": "build/app/Release/Xenon.exe",
+      "applicationDllSha256": "0b2b427ee192134af4eb7882ed2028beefeaa869e5e7df9f04664e948d6c5ec1",
+      "passed": 7,
+      "mode": "Actual native menu Exit plus automated restart checks",
+      "checks": [
+        {
+          "name": "First launch opens exactly one human-owned blank tab",
+          "passed": true
+        },
+        {
+          "name": "Two fixture tabs remain open with persisted state before native Exit",
+          "passed": true
+        },
+        {
+          "name": "Native whole-application Exit closes the first process successfully",
+          "passed": true
+        },
+        {
+          "name": "Normal reopen starts blank without loading old tabs or replaying actions",
+          "passed": true
+        },
+        {
+          "name": "Explicit fixture reopen preserves cookies and local storage",
+          "passed": true
+        },
+        {
+          "name": "A fresh workspace does not inherit the native workspace session",
+          "passed": true
+        },
+        {
+          "name": "Closing a workspace only tab preserves its session while the browser stays open",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "native-input-smoke",
+      "capturedAt": "2026-10-03T01:44:36.264Z",
+      "binary": "build/app/Release/Xenon.exe",
+      "applicationDllSha256": "0b2b427ee192134af4eb7882ed2028beefeaa869e5e7df9f04664e948d6c5ec1",
+      "passed": 3,
+      "mode": "Actual Windows click, keyboard and native dialog response",
+      "checks": [
+        {
+          "name": "Windows page input pauses dispatch while retaining creator ownership",
+          "passed": true
+        },
+        {
+          "name": "Idle resumes authority only with fresh evidence and preserves the human draft",
+          "passed": true
+        },
+        {
+          "name": "Human dialog holds the pause until dismissal without taking ownership",
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "nativeUi": [
+    {
+      "applicationDllSha256": "0b2b427ee192134af4eb7882ed2028beefeaa869e5e7df9f04664e948d6c5ec1",
+      "method": "Windows Computer Use on disposable fixture windows",
+      "theme": "System (Windows currently Dark)",
+      "dpi": 96,
+      "observed": [
+        "Agent-created tabs retained the human blank-page selection",
+        "Gray human tab border and teal available-agent entries",
+        "Selected agent page had teal border, ownership label and persistent native cursor",
+        "Physical click changed both borders and status to orange and moved the cursor to the human point",
+        "Keyboard pause kept the cursor parked; idle resumed without changing the human draft",
+        "Controls showed the exact workspace/tab, table headers and complete confirm message",
+        "Native Dismiss preserved ownership and document; normal native menu Exit/restart passed"
+      ]
+    },
+    {
+      "applicationDllSha256": "9617839ccb4cfedab3e8a9c3c716b6df1c14d0238a3f8dda0d96c00d23531376",
+      "method": "Earlier visual inspection before the final movement callback lifetime fix",
+      "dpi": 96,
+      "observed": [
+        "System, explicit Light and explicit Dark shell themes",
+        "Light/Dark native Controls layouts and themed table headers",
+        "Clients, Workspaces and empty Passwords sections readable",
+        "Named creation opened a blank human-owned tab",
+        "Selecting a workspace filtered the table to a different tab ID",
+        "Separate workspace configuration window saved a renamed workspace",
+        "Client switches disabled when no paired client selected",
+        "Theme and renamed workspace survived a normal restart"
+      ]
+    }
+  ],
+  "resolvedFailures": [
+    {
+      "failure": "Animated drag retirement could leave a held button and unresolved operation",
+      "resolution": "Movement recursion holds weak self references; scheduled continuations retain callbacks until they finish. Existing live retirement regression now passes.",
+      "originalEvidence": "out/overhaul-workers-before-retirement-fix.json"
+    },
+    {
+      "failure": "Native autofill driver response file replacement raced harness reads",
+      "resolution": "AuthTest-only bounded retry of the already-written diagnostic; native fill is never repeated.",
+      "originalEvidence": "out/overhaul-autofill-final-timeout.json"
+    },
+    {
+      "failure": "Native removal driver could read an incomplete synthetic request file",
+      "resolution": "Harness atomically renames the completed request into place.",
+      "originalEvidence": "out/overhaul-removal-before-atomic-request.json"
+    }
+  ],
+  "remainingManualAcceptance": [
+    "Actual Windows high-contrast appearance and assistive technology",
+    "Physical multi-monitor and multiple-DPI scaling matrix",
+    "Full physical Save/Fill picker, CSV preview, file permission and available-update dialog workflows",
+    "Physical print/PDF and every menu action across the complete theme/DPI matrix"
+  ],
+  "privacy": "All live profiles, accounts, upload files and websites were synthetic. This record excludes profile paths, pairing tokens, credentials, raw browsing output and screenshots. Failed evidence remains separate in ignored local out files."
+}

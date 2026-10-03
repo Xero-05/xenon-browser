@@ -8,6 +8,8 @@
 #include "xenon/vault.hpp"
 #include "xenon/file_policy.hpp"
 #include "xenon/native_ui.hpp"
+#include "xenon/browser_shell.hpp"
+#include "xenon/ui_theme.hpp"
 #include "xenon/native_input_policy.hpp"
 #include "xenon/local_security.hpp"
 #include "xenon/workspace_storage.hpp"
@@ -100,7 +102,14 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       // OnContextInitialized runs only after CEF acquired this data root's
       // single-instance ownership, and before Xenon opens workspace contexts.
       cleanup_removed_profiles(root_,removed);
+      ui::load_theme(root_);
       native_=std::make_unique<NativeUi>(*broker_,*engine_,*vault_,*files_);
+      shell_=std::make_unique<BrowserShell>(*broker_,*engine_,root_);
+      engine_->set_host_callbacks([this](const std::string& workspace,const std::string& tab,bool human){return shell_->create_host(workspace,tab,human);},
+        [this](const std::string& tab,HWND browser){shell_->tab_created(tab,browser);},[this](const std::string& tab){shell_->tab_closed(tab);});
+      engine_->set_download_callback([this](const std::string& tab){return broker_->allow_download(tab);});
+      engine_->set_permission_callback([this](const std::string& tab,const std::string& origin,const std::string& description,std::function<void(bool)> answer){shell_->permission(tab,origin,description,std::move(answer));});
+      broker_->set_ui_state_callback([this]{if(shell_)shell_->refresh();});
       engine_->set_controls_callback([this]{native_->show();});
       engine_->set_private_workspace_callback([this]{broker_->open_human_workspace("about:blank",[](Json){},true);});
       server_=std::make_unique<PipeServer>(*broker_,pipe_name_);server_->start();
@@ -109,8 +118,9 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       POINT pointer{};if(GetCursorPos(&pointer))input_policy_.seed_pointer(pointer.x,pointer.y);
       hook_=SetWindowsHookExW(WH_GETMESSAGE,InputHook,nullptr,GetCurrentThreadId());
       broker_->open_initial_human_workspace("about:blank",[](Json){});
-      native_->show();
+      shell_->show();
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
+      shell_->fixture_snapshot(root_);
       if(test_removal_enabled_){
         removal_fixture_=std::make_shared<NativeRemovalFixture>(root_,*broker_);removal_fixture_->start();
       }
@@ -120,7 +130,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
   }
   CefRefPtr<CefClient> GetDefaultClient()override{return engine_?engine_->default_client():nullptr;}
   CefRefPtr<CefRequestContextHandler> GetDefaultRequestContextHandler()override{return engine_?engine_->default_context_handler():nullptr;}
-  bool OnAlreadyRunningAppRelaunch(CefRefPtr<CefCommandLine>,const CefString&)override{if(native_)native_->show();return true;}
+  bool OnAlreadyRunningAppRelaunch(CefRefPtr<CefCommandLine>,const CefString&)override{if(shell_)shell_->show();return true;}
   void stop(){
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
     removal_fixture_.reset();
@@ -129,36 +139,35 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     active_=nullptr;if(hook_){UnhookWindowsHookEx(hook_);hook_=nullptr;}
     if(input_timer_){KillTimer(nullptr,input_timer_);input_timer_=0;}
     if(engine_)engine_->set_native_key_callback({});
-    if(server_)server_->stop();server_.reset();native_.reset();broker_.reset();engine_.reset();files_.reset();vault_.reset();
+    if(broker_)broker_->set_ui_state_callback({});
+    if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_permission_callback({});}
+    if(server_)server_->stop();server_.reset();native_.reset();shell_.reset();broker_.reset();engine_.reset();files_.reset();vault_.reset();
   }
  private:
   static LRESULT CALLBACK InputHook(int code,WPARAM wp,LPARAM lp){
     if(code>=0&&wp==PM_REMOVE&&active_&&active_->engine_){
-      active_->native_message(*reinterpret_cast<MSG*>(lp));
+      auto& message=*reinterpret_cast<MSG*>(lp);
+      if((active_->native_&&active_->native_->pretranslate(message))||(active_->shell_&&active_->shell_->pretranslate(message))){message.message=WM_NULL;return CallNextHookEx(nullptr,code,wp,lp);}
+      active_->native_message(message);
     }
     return CallNextHookEx(nullptr,code,wp,lp);
   }
   static bool chrome_window(HWND window){
     wchar_t name[128]{};GetClassNameW(GetAncestor(window,GA_ROOT),name,128);
-    return wcsncmp(name,L"Chrome_WidgetWin_",17)==0;
+    return wcscmp(name,L"XenonBrowserShell")==0;
   }
+  static HWND tab_host(HWND window){for(unsigned depth=0;window&&depth<20;++depth,window=GetParent(window)){wchar_t name[128]{};GetClassNameW(window,name,128);if(wcscmp(name,L"XenonTabHost")==0)return window;}return nullptr;}
   static HWND legacy_page(HWND window){
     // Pinned Chromium154 LegacyRenderWidgetHostHWND forwards original queued
     // mouse/keyboard messages to its Aura parent. RenderWidgetHostViewAura keeps
     // its native rectangle equal to the WebContents bounds and hides/reparents
     // it when the renderer is hidden. No page script or accessibility read is
     // needed to distinguish it from the omnibox and native browser controls.
-    const auto root=GetAncestor(window,GA_ROOT);
-    if(!chrome_window(root))return nullptr;
-    for(unsigned depth=0;window&&window!=root&&depth<16;++depth,window=GetParent(window)){
-      wchar_t name[128]{};GetClassNameW(window,name,128);
-      if(wcscmp(name,L"Chrome_RenderWidgetHostHWND")==0&&IsWindowVisible(window))return window;
-    }
-    return nullptr;
+    return tab_host(window);
   }
   static HWND mouse_page(const MSG& message){
     const auto root=GetAncestor(message.hwnd,GA_ROOT);
-    if(!chrome_window(root))return nullptr;
+    if(!chrome_window(root)||GetPropW(root,L"XenonSidebarDrag"))return nullptr;
     if(auto page=legacy_page(message.hwnd)){
       RECT bounds{};
       if(GetWindowRect(page,&bounds)&&PtInRect(&bounds,message.pt))return page;
@@ -202,7 +211,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
   void native_key(HWND page,UINT message,WPARAM key){
     // CEF invokes this only for a native OS key event headed to the renderer.
     // Aura's top-level keyboard HWND alone cannot distinguish page and omnibox.
-    page=GetAncestor(page,GA_ROOT);
+    page=tab_host(page);
     if(!page)return;
     const auto target=reinterpret_cast<NativeInputPolicy::Window>(page);
     if(message==WM_KEYDOWN||message==WM_SYSKEYDOWN){
@@ -230,11 +239,13 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       // Hover stays passive on every surface. Only movement during a gesture
       // that began on a page extends that page's existing pause.
       emit_input(input_policy_.move(message.pt.x,message.pt.y));
+      if(auto page=mouse_page(message))engine_->native_pointer(page,message.pt,input_policy_.tracking());
       return;
     }
     const auto page_for_mouse=[&]{
       const auto page=mouse_page(message);
-      return reinterpret_cast<NativeInputPolicy::Window>(page?GetAncestor(page,GA_ROOT):nullptr);
+      if(page)engine_->native_pointer(page,message.pt,true);
+      return reinterpret_cast<NativeInputPolicy::Window>(page);
     };
     const auto press=[&](unsigned button){
       const auto page=page_for_mouse();
@@ -264,10 +275,10 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       case WM_IME_STARTCOMPOSITION:case WM_IME_COMPOSITION:{
         auto page=legacy_page(message.hwnd);
         if(!page){
-          const auto entry=keyboard_pages_.find(root);
+          const auto entry=keyboard_pages_.find(tab_host(GetFocus()));
           if(entry!=keyboard_pages_.end()&&GetAncestor(GetFocus(),GA_ROOT)==root)page=entry->second.page;
         }
-        const auto target=reinterpret_cast<NativeInputPolicy::Window>(page?GetAncestor(page,GA_ROOT):nullptr);
+        const auto target=reinterpret_cast<NativeInputPolicy::Window>(page);
         emit_input(message.message==WM_IME_STARTCOMPOSITION?input_policy_.composition_start(target):input_policy_.composition_update(target));
         break;
       }
@@ -293,6 +304,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
   UINT_PTR input_timer_{};
   std::unique_ptr<CefEngine> engine_;std::unique_ptr<Vault> vault_;std::unique_ptr<FilePolicy> files_;
   std::unique_ptr<Broker> broker_;std::unique_ptr<NativeUi> native_;std::unique_ptr<PipeServer> server_;
+  std::unique_ptr<BrowserShell> shell_;
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
   std::shared_ptr<NativeRemovalFixture> removal_fixture_;
   std::shared_ptr<NativeAutofillFixture> autofill_fixture_;
@@ -302,6 +314,9 @@ class App final : public CefApp,public CefBrowserProcessHandler {
 int run(HINSTANCE instance,void* sandbox_info){
   if(!sandbox_info){MessageBoxW(nullptr,L"Xenon requires the matching sandbox bootstrap executable.",L"Xenon Browser",MB_OK|MB_ICONERROR);return 1;}
   CefMainArgs args(instance);int child=CefExecuteProcess(args,nullptr,sandbox_info);if(child>=0)return child;
+  // Start native vector drawing only in the browser process. Shut it down
+  // after the UI closes, outside DLL loader callbacks.
+  ui::VectorRenderer vector_renderer;
   // Installation waits for normal browser shutdown. Creating this before
   // checking SetupMutex closes the start/upgrade race without killing a tab.
   struct RunningMarker {

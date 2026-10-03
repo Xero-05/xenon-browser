@@ -1,17 +1,18 @@
 # Browser branding
 
-Xenon keeps the matching CEF sandbox bootstrap and Chrome browser controls. Branding adds the Xenon application icon, version metadata, a teal Chrome theme accent and native window styling. Startup still opens one human-owned `about:blank` tab; it does not load a custom start page, reconnect old pages or replay actions.
+Xenon keeps the matching CEF sandbox bootstrap and embeds windowed Alloy page hosts in its native Windows shell. The shell supplies grouped vertical tabs, navigation, compact menus and ownership borders. Startup opens one human-owned `about:blank` tab; it does not reconnect old pages or replay actions.
 
 The artwork lives in `assets/branding/`. `xenon-mark.png` is the original mark; `xenon-icon.png` and the multi-size `xenon-icon.ico` are application assets. `native/resources/xenon.rc.in` embeds icon group **101** and the release's Windows version metadata in the application DLL. Native windows load shared icon handles from that DLL. Shared handles must not be destroyed by callers.
 
-CEF's `SetChromeColorScheme` applies the accent per request context while preserving its light or dark mode. Page titles remain intact; the native Chrome window title uses the ` — Xenon` suffix, or `Xenon Browser` for a generic empty title. This does not rename website tabs, change website content or expose browser chrome through MCP.
+CEF's `SetChromeColorScheme` follows the saved System, Light or Dark choice for each request context. The native shell uses monochrome surfaces, Segoe UI, neutral controls and teal/orange/gray ownership borders with readable status text. Rounded buttons, icons and outlines use antialiased native vectors at the window's DPI. Toolbar icons retain native accessibility names and show hover labels. The selected sidebar tab connects to the page outline; Controls uses the same connected section layout and gray list selections. The shell title uses the ` — Xenon` suffix while retaining the selected website's title. Ownership border and cursor changes do not modify website content or add website input.
 
-Native Controls uses a navy logo header, white section cards, teal headings and
-buttons, and Segoe UI typography. The native saved-account and file-permission
-windows share that styling. Controls retain their existing action identifiers and
-handlers. The packaged CEF chrome still supplies the tab strip, address bar,
-menus and settings; inherited labels such as **About Chromium** remain. This
-release does not fork or replace Chromium's entire browser UI.
+Controls is divided into Clients, Workspaces and Passwords. Workspace and client
+configuration opens in separate native windows. Saved-account, file, update and
+website-dialog surfaces share the native palette and DPI-aware typography, with
+Windows high-contrast colors when enabled. The visible Chromium tab strip,
+address bar, menus and settings are replaced by functioning Xenon controls.
+About and Third-party Notices retain access to the bundled engine licenses and
+credits; third-party resource contents remain intact.
 
 CMake first copies the pinned CEF `bootstrap.exe` to the build output as `Xenon.exe`. The build-only `xenon_brand_bootstrap` helper then copies only icon and version resources from the Xenon DLL into that copy. It updates the version resource's `.dll` filename suffix to `.exe` and its fixed file type to an application. The original file under `third_party/cef/Release/` must remain untouched. The helper is not packaged, and this process does not sign the executable or replace the CEF sandbox startup code.
 
