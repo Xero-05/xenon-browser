@@ -137,16 +137,21 @@ async function startFixture() {
     }
     if (url.pathname !== '/page' || !/^[a-z0-9-]{1,80}$/.test(caseId ?? '')) { response.writeHead(404).end(); return; }
     const phase = url.searchParams.get('phase') ?? 'credentials';
-    if (!['credentials', 'username', 'password'].includes(phase)) { response.writeHead(400).end(); return; }
-    const userField = '<label>CWL Login Name <input id="j_username" name="j_username" type="text"' + (phase === 'username' ? ' autocomplete="username"' : '') + '></label>';
+    if (!['credentials', 'username', 'password', 'unowned-username', 'unowned-password', 'explicit-username'].includes(phase)) { response.writeHead(400).end(); return; }
+    const unowned = phase.startsWith('unowned-'), usernameOnly = phase.endsWith('username') && phase !== 'explicit-username', passwordOnly = phase.endsWith('password');
+    const userField = '<label>CWL Login Name <input id="j_username" name="j_username" type="text"' + (usernameOnly || phase === 'explicit-username' ? ' autocomplete="username webauthn"' : '') + '></label>';
     const passwordField = '<label>Password <input id="j_password" name="j_password" type="password" autocomplete="current-password"></label>';
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.end('<!doctype html><meta charset="utf-8"><title>Xenon Human Autofill — ' + caseId + '</title>' +
       '<style>body{font:18px system-ui;color:#152235;background:white;margin:24px}label{display:block;margin:18px 0}input,button{font:inherit;color:#152235;background:white;padding:10px;margin:8px}</style>' +
-      '<h1>Human autofill fixture</h1><p>Only synthetic accounts are used here.</p><form id="login" method="post" action="/submit?case=' + caseId + '">' +
-      (phase !== 'password' ? userField : '') + (phase !== 'username' ? passwordField : '') + '<button type="submit">' + (phase === 'username' ? 'Continue' : 'Log in') + '</button></form>' +
+      '<h1>Human autofill fixture</h1><p>Only synthetic accounts are used here.</p>' +
+      (unowned ? '<div id="login">' : '<form id="login" method="post" action="/submit?case=' + caseId + '">') +
+      (!passwordOnly ? userField : '') + (!usernameOnly ? passwordField : '') +
+      (phase === 'unowned-username' ? '<input type="password" name="hiddenPassword" hidden tabindex="-1" aria-hidden="true">' : '') +
+      (phase === 'explicit-username' ? '<label>Unrelated text <input id="auxiliary" value="PUBLIC_OTHER_TEXT"></label>' : '') +
+      '<button type="' + (unowned ? 'button' : 'submit') + '">' + (usernameOnly ? 'Continue' : 'Log in') + '</button>' + (unowned ? '</div>' : '</form>') +
       '<script>const caseId=' + JSON.stringify(caseId) + ',expectedUser=' + JSON.stringify(username) + ',expectedPassword=' + JSON.stringify(password) + ';let inputs=0,changes=0,submissions=0,commandId=0,telemetrySequence=0;' +
-      'const report=()=>fetch("/telemetry?case="+caseId,{method:"POST",body:JSON.stringify({ready:true,inputs,changes,submissions,commandId,telemetrySequence:++telemetrySequence,timeOrigin:performance.timeOrigin,usernamePresent:!!document.querySelector("#j_username"),passwordPresent:!!document.querySelector("#j_password"),usernameAccepted:document.querySelector("#j_username")?.value===expectedUser,passwordAccepted:document.querySelector("#j_password")?.value===expectedPassword})});' +
+      'const report=()=>fetch("/telemetry?case="+caseId,{method:"POST",body:JSON.stringify({ready:true,inputs,changes,submissions,commandId,telemetrySequence:++telemetrySequence,timeOrigin:performance.timeOrigin,usernamePresent:!!document.querySelector("#j_username"),passwordPresent:!!document.querySelector("#j_password"),usernameAccepted:document.querySelector("#j_username")?.value===expectedUser,passwordAccepted:document.querySelector("#j_password")?.value===expectedPassword,unowned:!document.querySelector("#j_username,#j_password")?.form,decoyEmpty:!document.querySelector("[name=hiddenPassword]")?.value,auxiliaryUnchanged:document.querySelector("#auxiliary")?.value==="PUBLIC_OTHER_TEXT"})});' +
       'document.addEventListener("input",()=>{inputs++;report()});document.addEventListener("change",()=>{changes++;report()});document.addEventListener("submit",e=>{submissions++;e.preventDefault();report()});' +
       'setInterval(async()=>{const c=await(await fetch("/command?case="+caseId)).json();if(!c||c.id<=commandId)return;commandId=c.id;' +
       'if(c.action==="replace"){const f=document.querySelector("#login");f.replaceWith(f.cloneNode(true))}' +
@@ -179,6 +184,22 @@ try {
     clients.push(client); workers.push(await tool(index, 'worker_create', { name: 'Autofill observer ' + index, workspaceId }));
   }
   let filledTab, filledOffer;
+  await check('Automatic native picker appears during cooldown after held input releases', async () => {
+    const tab = await open('focus-timing');
+    const before = await tool(0, 'control_status', scope(tab));
+    const offered = await native('focus_offer', { tabId: tab.tabId });
+    assert(offered.ok, 'Focus offer failed: ' + JSON.stringify(offered));
+    assert.equal(offered.result.heldOfferSuppressed, true); assert.equal(offered.result.humanPaused, true);
+    assert.equal(offered.result.pickerShown, true); assert(offered.result.offerElapsedMs < 1500);
+    const paused = await tool(0, 'control_status', scope(tab));
+    assert.equal(paused.ownerSessionId, before.ownerSessionId); assert.equal(paused.ownershipGeneration, before.ownershipGeneration);
+    assert.equal(paused.humanPaused, true); empty('focus-timing');
+    // Explicit requests also work during cooldown and replace the automatic offer.
+    const explicit = await offer(tab); await native('dismiss', { offerId: explicit.offerId });
+    await until(async () => !(await tool(0, 'control_status', scope(tab))).humanPaused);
+    await tool(0, 'tab_close', mutation(tab));
+    return { offerElapsedMs: offered.result.offerElapsedMs, pickerShown: true, heldInputSuppressed: true, agentPausePreserved: true, physicalMouseHookTested: false };
+  });
   await check('Human autofill fills a CWL-shaped form without submission or agent account grants', async () => {
     filledTab = await open('cwl');
     const accounts = await tool(0, 'accounts', scope(filledTab)); assert.deepEqual(accounts.accounts, []);
@@ -240,6 +261,33 @@ try {
     state = states.get('username-first'); assert.equal(state.usernamePresent, false); assert.equal(state.inputs, 2); assert.equal(state.changes, 2); assert.equal(state.submissions, 0); assert.equal(state.networkSubmissions, 0);
     await expectSealed(tab); return { usernameOnlyFirst: true, passwordOnlySecond: true, nativeSelections: 2, submitted: false };
   });
+  await check('Google-shaped unowned login phases and explicit usernames in richer forms fill only bound credentials', async () => {
+    const details = [];
+    for (const phase of ['unowned-username', 'unowned-password', 'explicit-username']) {
+      const tab = await open(phase, phase);
+      if (phase === 'unowned-username') {
+        const automatic = await native('focus_offer', { tabId: tab.tabId }); assert(automatic.ok);
+        assert.equal(automatic.result.pickerShown, true); assert.equal(automatic.result.heldOfferSuppressed, true);
+        details.push({ phase, offerElapsedMs: automatic.result.offerElapsedMs, automaticPickerShown: true });
+      }
+      const offered = await offer(tab); await fill(offered);
+      const expectedEvents = phase === 'explicit-username' ? 2 : 1;
+      await until(() => { const state = states.get(phase); return state.inputs === expectedEvents && state.changes === expectedEvents &&
+        (phase === 'unowned-password' ? state.passwordAccepted : state.usernameAccepted); });
+      const state = states.get(phase); assert.equal(state.submissions, 0); assert.equal(state.networkSubmissions, 0);
+      if (phase.startsWith('unowned-')) assert.equal(state.unowned, true);
+      if (phase === 'unowned-username') { assert.equal(state.passwordPresent, false); assert.equal(state.decoyEmpty, true); }
+      if (phase === 'explicit-username') { assert.equal(state.passwordAccepted, true); assert.equal(state.auxiliaryUnchanged, true); }
+      await expectSealed(tab);
+      const stale = await native('fill', { offerId: offered.offerId, accountId: seed.accountId }); rejectedAs(stale, 'autofill_stale');
+    }
+    // Node identity applies to synthetic groups just as it does to real forms.
+    const tab = await open('unowned-replaced', 'unowned-username'), offered = await offer(tab);
+    await command('unowned-replaced', 'replace');
+    rejectedAs(await native('fill', { offerId: offered.offerId, accountId: seed.accountId }), 'autofill_form_changed');
+    empty('unowned-replaced');
+    return { phases: 3, submitted: false, hiddenDecoyUntouched: true, auxiliaryTextPreserved: true, unownedReplacementsDenied: true, realGoogleTested: false, details };
+  });
   let cancelTab;
   await check('Locking the native vault invalidates pending offers and prevents new autofill', async () => {
     cancelTab = await open('cancel-pending');
@@ -275,7 +323,7 @@ try {
   catch (error) { results.push({ name: 'Binary and native log verification', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: binaryRelative, profile, applicationDllSha256, applicationDllSha256AtEnd,
     nativeDriver: 'AuthTest-only marked profile; real native API, no MCP autofill endpoint', physicalPickerUiTested: false,
-    logCanaryScan, passed: results.length === 9 && results.every(result => result.passed), results };
+    logCanaryScan, passed: results.length === 11 && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true }); await writeFile(resolve(root, 'out/human-autofill-integration-results.json'), JSON.stringify(report, null, 2));
   if (lastNativeReply) await writeFile(resolve(profile, 'last-native-autofill-reply.json'), JSON.stringify(lastNativeReply, null, 2));
   await writeFile(resolve(profile, 'fixture-telemetry.json'), JSON.stringify(Object.fromEntries(states), null, 2));

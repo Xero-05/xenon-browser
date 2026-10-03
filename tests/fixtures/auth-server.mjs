@@ -26,7 +26,7 @@ function page(id, mode, stage = 'both', { method = 'post', readOnly = '' } = {})
 <p>Only public synthetic test accounts are accepted here.</p>
 <form id="login" method="${method}" action="${destination}?case=${encodeURIComponent(id)}&mode=${encodeURIComponent(mode)}">
 ${method === 'get' ? `<input type="hidden" name="case" value="${esc(id)}">` : ''}
-${usernameInput}${passwordInput}<button type="submit">${stage === 'username' ? 'Next' : 'Sign in'}</button></form>
+${usernameInput}${passwordInput}<button type="submit"${mode === 'named' ? ' name="_eventId_proceed" value=""' : ''}>${stage === 'username' ? 'Next' : 'Sign in'}</button></form>
 <p id="status"></p><button id="reveal" type="button">Reveal test password</button>
 <script>
 const id=${JSON.stringify(id)},mode=${JSON.stringify(mode)};
@@ -78,7 +78,11 @@ const server = https.createServer({ key, cert }, async (req, res) => {
     }
     if (url.pathname === '/submit' && req.method === 'POST') {
       const data = new URLSearchParams(await body(req)); current.attempts++;
-      current.authenticated = (data.get('username') === username || current.usernameAccepted) && data.get('password') === password;
+      current.submitterAccepted = data.has('_eventId_proceed');
+      current.authenticated = (data.get('username') === username || current.usernameAccepted) && data.get('password') === password && (mode !== 'named' || current.submitterAccepted);
+      // Model a Web Flow login: without the button event, stay on the login
+      // screen without claiming a credential error, MFA or CAPTCHA.
+      if (mode === 'named' && !current.submitterAccepted) { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(page(id, mode)); return; }
       if (current.authenticated) res.setHeader('Set-Cookie', `xenon_auth_test=${randomBytes(12).toString('hex')}; Secure; HttpOnly; SameSite=Strict; Path=/`);
       if (mode === 'hold') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ authenticated: current.authenticated })); return; }
       res.writeHead(303, { Location: `/result?case=${encodeURIComponent(id)}` }); res.end(); return;

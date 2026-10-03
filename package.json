@@ -1,6 +1,6 @@
 {
   "name": "xenon-browser",
-  "version": "0.1.0-alpha.16",
+  "version": "0.1.0-alpha.17",
   "private": true,
   "description": "A Chromium browser for parallel MCP agents with broker-only handoffs",
   "license": "Apache-2.0",
@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc -p adapter/tsconfig.json",
     "typecheck": "tsc -p adapter/tsconfig.json --noEmit",
-    "test": "npm run build && node --test adapter/dist/test/*.test.js tests/login-capture-tests.mjs tests/human-autofill-tests.mjs tests/pointer-target-tests.mjs tests/form-fill-tests.mjs",
+    "test": "npm run build && node --test adapter/dist/test/*.test.js tests/login-capture-tests.mjs tests/human-autofill-tests.mjs tests/protected-login-tests.mjs tests/pointer-target-tests.mjs tests/form-fill-tests.mjs",
     "mcp": "node adapter/dist/src/cli.js",
     "fixtures": "node tests/fixtures/server.mjs"
   },

@@ -23,7 +23,7 @@ const USER = 'SYNTHETIC_AUTOFILL_ACCOUNT@example.invalid';
 const PASSWORD = 'SYNTHETIC_AUTOFILL_PASSWORD_0a73';
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function fixture({ phase = 'credentials', autocomplete = true, subframe = false } = {}) {
+function fixture({ phase = 'credentials', autocomplete = true, subframe = false, unowned = false } = {}) {
   const inputs = [], forms = [], writes = [], events = [];
   let overlay = null, submitCount = 0, eventHook;
   const document = {
@@ -62,8 +62,9 @@ function fixture({ phase = 'credentials', autocomplete = true, subframe = false 
     requestSubmit() { ++submitCount; }
   }
   const form = new Form();
-  const user = phase === 'password' ? null : form.add(new Input({ autocomplete: autocomplete ? 'username' : '' }));
-  const password = phase === 'username' ? null : form.add(new Input({ type: 'password', autocomplete: autocomplete ? 'current-password' : '' }));
+  const add = input => unowned ? input : form.add(input);
+  const user = phase === 'password' ? null : add(new Input({ autocomplete: autocomplete ? 'username' : '' }));
+  const password = phase === 'username' ? null : add(new Input({ type: 'password', autocomplete: autocomplete ? 'current-password' : '' }));
   document.activeElement = user ?? password;
   const context = vm.createContext({ document, HTMLInputElement: Input, URL, innerWidth: 800, innerHeight: 600,
     location: { origin: ORIGIN, protocol: 'https:', href: ORIGIN + '/login' }, getComputedStyle: node => node.style,
@@ -153,9 +154,76 @@ test('OTP and new-password inputs are never treated as current login credentials
 
 test('multiple visible usernames or passwords fail closed', () => {
   for (const type of ['text', 'password']) {
-    const f = fixture(); const offer = f.offer(); f.form.add(new f.Input({ type }));
+    const f = fixture(); const offer = f.offer(); f.form.add(new f.Input({ type, autocomplete: type === 'text' ? 'username' : '' }));
     assert.equal(f.offer().eligible, false); deniedBeforeWrite(f, offer, 'ambiguous');
   }
+});
+
+test('a unique explicit username takes precedence over unrelated text fields', () => {
+  for (const phase of ['credentials', 'username']) for (const unowned of [false, true]) {
+    const f = fixture({ phase, unowned });
+    const auxiliary = new f.Input({ value: 'HUMAN_OTHER_TEXT' }); if (!unowned) f.form.add(auxiliary);
+    const offer = f.offer(true); assert.equal(offer.eligible, true); assert.equal(offer.user, f.user);
+    assert.equal(f.fill(offer).filled, true); assert.equal(auxiliary.value, 'HUMAN_OTHER_TEXT');
+    assert.equal(f.writes.filter(write => write.field === auxiliary).length, 0);
+  }
+  const ambiguous = fixture({ autocomplete: false }); ambiguous.form.add(new ambiguous.Input());
+  assert.equal(ambiguous.offer().eligible, false);
+});
+
+test('Google-shaped unowned username with webauthn and hidden password decoy fills only the username', () => {
+  const f = fixture({ phase: 'username', unowned: true }); f.user.autocomplete = 'username webauthn';
+  const decoy = new f.Input({ type: 'password' }); decoy.hidden = true;
+  const offer = f.offer(true); assert.equal(offer.eligible, true); assert.equal(offer.form, null); assert.equal(offer.phase, 'username');
+  assert.deepEqual(plain(f.fill(offer)), { filled: true, phase: 'username', submitted: false });
+  assert.equal(f.user.value, USER); assert.equal(decoy.value, ''); assert.equal(f.writes.length, 1); assert.equal(f.submits(), 0);
+});
+
+test('explicit unowned current-password and two-field phases fill without submission', () => {
+  for (const phase of ['password', 'credentials']) {
+    const f = fixture({ phase, unowned: true }); const offer = f.offer(true);
+    assert.equal(offer.eligible, true); assert.equal(offer.form, null); assert.equal(offer.phase, phase);
+    assert.deepEqual(plain(f.fill(offer)), { filled: true, phase, submitted: false });
+    assert.equal(f.password.value, PASSWORD); assert.equal(f.writes.length, phase === 'password' ? 1 : 2); assert.equal(f.submits(), 0);
+    deniedBeforeWrite(f, offer, 'stale_offer');
+  }
+});
+
+test('unowned controls require explicit login semantics and refuse OTP, signup and ambiguity', () => {
+  for (const phase of ['username', 'password', 'credentials']) assert.equal(fixture({ phase, unowned: true, autocomplete: false }).offer().eligible, false);
+  for (const field of ['user', 'password']) {
+    const f = fixture({ unowned: true }); f[field].autocomplete = ''; assert.equal(f.offer().eligible, false);
+  }
+  for (const autocomplete of ['one-time-code', 'new-password', 'username', 'current-password']) {
+    const f = fixture({ unowned: true }); const offer = f.offer();
+    new f.Input({ type: autocomplete === 'current-password' ? 'password' : 'text', autocomplete });
+    assert.equal(f.offer().eligible, false); deniedBeforeWrite(f, offer);
+  }
+});
+
+test('phone usernames and revealed current-password fields retain explicit semantics', () => {
+  for (const unowned of [false, true]) {
+    const f = fixture({ unowned }); f.user.type = 'tel'; f.password.type = 'text';
+    const offer = f.offer(true); assert.equal(offer.eligible, true); assert.equal(offer.user, f.user); assert.equal(offer.password, f.password);
+    assert.equal(f.fill(offer).filled, true); assert.equal(f.user.value, USER); assert.equal(f.password.value, PASSWORD);
+  }
+});
+
+test('unowned field replacement or changed form association invalidates an existing offer', () => {
+  for (const change of [f => { f.form.add(f.user); f.form.add(f.password); }, f => {
+    f.user.isConnected = false; new f.Input({ autocomplete: 'username' });
+  }, f => { f.password.ownerDocument = {}; }]) {
+    const f = fixture({ unowned: true }); const offer = f.offer(); change(f); deniedBeforeWrite(f, offer);
+  }
+  const owned = fixture(); const offer = owned.offer(); owned.user.form = null; owned.password.form = null;
+  deniedBeforeWrite(owned, offer, 'changed_form');
+});
+
+test('page handlers attaching unowned filled fields to a form prevent a success claim', () => {
+  const f = fixture({ unowned: true }); const offer = f.offer();
+  f.onEvent((field, event) => { if (field === f.password && event.type === 'change') f.form.add(f.password); });
+  assert.deepEqual(plain(f.fill(offer)), { filled: false, error: 'changed_after_fill', submitted: false });
+  assert.equal(f.submits(), 0);
 });
 
 test('hidden decoys are not selected and visible replacement ambiguity is rejected', () => {

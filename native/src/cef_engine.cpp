@@ -11,6 +11,7 @@
 #include "xenon/visible_evidence.hpp"
 #include "xenon/login_monitor.hpp"
 #include "xenon/human_autofill.hpp"
+#include "xenon/protected_login.hpp"
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
@@ -218,10 +219,17 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     const bool waiting=held||t->human_dialog||t->native_fill;
     const auto deadline=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()+2000;
     event("human.input",{{"tabId",t->id},{"busy",waiting},{"pauseUntil",waiting?Json(nullptr):Json(deadline)}});
+    // Showing a native account choice does not dispatch agent input. Wait for
+    // physical releases/focus to settle, independently of the agent cooldown.
+    const auto offer_epoch=t->epoch,offer_request=t->autofill_requested;
+    if(!waiting&&t->autofill_human_qualified)later(250,[self=shared_from_this(),t,seq,offer_epoch,offer_request]{
+      if(t->human_input==seq&&t->epoch==offer_epoch&&t->autofill_requested==offer_request&&!t->closed&&!t->human_gesture&&!t->human_dialog&&!t->native_fill&&t->autofill_human_qualified){
+        t->autofill_human_qualified=false;self->autofill_request(t,true,[](Json){});
+      }
+    });
     if(!waiting)later(2000,[self=shared_from_this(),t,seq]{
       if(t->human_input==seq&&!t->closed&&!t->human_gesture&&!t->human_dialog&&!t->native_fill){
         t->human_busy=false;self->event("human.idle",{{"tabId",t->id}});
-        if(t->autofill_human_qualified){t->autofill_human_qualified=false;self->autofill_request(t,true,[](Json){});}
       }
     });
   }
@@ -366,6 +374,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     auto t = tabs_.find(b->second); return t == tabs_.end() ? nullptr : t->second;
   }
   void invalidate(const std::shared_ptr<Tab>& t) {
+    t->autofill_human_qualified=false;
     ++t->autofill_requested;
     std::vector<std::string> offers;for(const auto& [id,offer]:autofill_offers_)if(offer->tab==t)offers.push_back(id);
     for(const auto& id:offers)autofill_discard(id);
@@ -1346,7 +1355,7 @@ void CefEngine::Impl::autofill_request(const std::shared_ptr<Tab>& t,bool automa
   ActionScope scope(*this,nullptr);
   const auto unavailable=[reply]{reply(failure("autofill_unavailable","No supported empty login form and saved HTTPS account are available. Focus the login field and try again."));};
   if(t->closed||!vault_||vault_->locked()||removed_workspaces_.contains(t->workspace)||t->auth_inflight||t->native_fill||t->human_dialog){unavailable();return;}
-  if(t->human_busy){
+  if(t->human_gesture){
     if(automatic||std::chrono::steady_clock::now()>=deadline){unavailable();return;}
     const auto request=t->autofill_requested,epoch=t->epoch;
     later(100,[self=shared_from_this(),t,reply,deadline,request,epoch,unavailable]{
@@ -1369,10 +1378,16 @@ void CefEngine::Impl::autofill_request(const std::shared_ptr<Tab>& t,bool automa
   for(const auto& id:expired)autofill_discard(id);
   if(autofill_offers_.size()>=64){unavailable();return;}
   const auto epoch=t->epoch,human=t->human_input,request=++t->autofill_requested;
-  auto current=[self=shared_from_this(),t,epoch,human,request,origin]{return !t->closed&&!t->human_busy&&!t->native_fill&&
+  auto current=[self=shared_from_this(),t,epoch,human,request,origin]{return !t->closed&&!t->human_gesture&&!t->human_dialog&&!t->auth_inflight&&!t->native_fill&&
     self->vault_&&!self->vault_->locked()&&!self->removed_workspaces_.contains(t->workspace)&&
     t->epoch==epoch&&t->human_input==human&&t->autofill_requested==request&&
     Vault::normalize_https_origin(t->browser->GetMainFrame()->GetURL().ToString())==origin;};
+  // This fixed inspector only retains nodes and eligibility; it does not fill
+  // or decrypt. Permit it during the agent cooldown, with every native binding
+  // rechecked across callbacks. Physical input still invalidates the request.
+  auto inspection=std::make_shared<ActionGuard>();inspection->epoch=epoch;inspection->human=human;
+  inspection->native_auth=true;inspection->permit=current;
+  ActionScope inspect_scope(*this,inspection);
   send(t,"Page.getFrameTree",Json::object(),[this,t,automatic,reply,unavailable,current,origin,accounts,epoch,human,root](Json tree){
     if(!current()||!cdp_ok(tree)||!tree.contains("frameTree")){unavailable();return;}
     send(t,"Page.createIsolatedWorld",{{"frameId",field(tree["frameTree"]["frame"],"id")},{"worldName","Xenon human autofill"},{"grantUniveralAccess",false}},
@@ -1472,9 +1487,8 @@ void CefEngine::Impl::login(const std::shared_ptr<Tab>& t,const Json& p,std::sha
         }
         // This closed function runs in an isolated world. Neither source nor
         // protocol results containing secrets are exposed to MCP clients.
-        constexpr const char* fn=R"JS(function(username,pass,expected,submit,usernameDone){if(location.origin!==expected)return {error:'origin_changed'};const visible=e=>e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0&&!e.disabled;const passwords=Array.from(document.querySelectorAll('input[type="password"]')).filter(visible);if(passwords.length>1)return {error:'ambiguous_password_form'};const usersOf=form=>Array.from(form.querySelectorAll('input')).filter(e=>visible(e)&&(e.autocomplete==='username'||e.type==='email'||e.type==='text'));let form,password,user;if(passwords.length===1){password=passwords[0];form=password.form;if(!form)return {error:'form_required'};const users=usersOf(form);if(users.length>1||(!usernameDone&&users.length!==1))return {error:'ambiguous_username_form'};user=users[0]}else{if(usernameDone)return {waiting:true};const users=Array.from(document.querySelectorAll('input')).filter(e=>visible(e)&&(e.autocomplete==='username'||e.type==='email'||e.type==='text'));if(users.length!==1||!users[0].form)return {error:'ambiguous_username_form'};user=users[0];form=user.form}if(new URL(form.action||location.href,location.href).origin!==expected)return {error:'cross_origin_form'};if(form.method.toLowerCase()!=='post')return {error:'unsupported_form_method'};if((user&&user.readOnly)||(password&&password.readOnly))return {error:'readonly_form'};const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;const put=(e,v)=>{set.call(e,v);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))};if(user)put(user,username);if(password)put(password,pass);if(submit)form.requestSubmit();return password?{filled:true,submitted:submit}:{usernameFilled:true,submitted:submit}})JS";
         Json args=Json::array({{{"value",secret->username()}},{{"value",secret->password()}},{{"value",origin}},{{"value",p.value("submit",true)}},{{"value",username_done}}});
-        send(t,"Runtime.callFunctionOn",{{"executionContextId",world["executionContextId"]},{"functionDeclaration",fn},{"arguments",std::move(args)},{"returnByValue",true}},
+        send(t,"Runtime.callFunctionOn",{{"executionContextId",world["executionContextId"]},{"functionDeclaration",protected_login_script},{"arguments",std::move(args)},{"returnByValue",true}},
           [this,t,p,secret,origin,reply,finish,deadline,epoch](Json r){
             const auto v=r.value("result",Json::object()).value("value",Json::object());
             if(cdp_ok(r)&&v.value("filled",false)){
@@ -1940,9 +1954,58 @@ void CefEngine::fill_saved_account(const std::string& id,const std::string& acco
 });}
 void CefEngine::dismiss_autofill(const std::string& id){on_ui([p=impl_,id]{p->autofill_discard(id);});}
 bool CefEngine::autofill_offer_valid(const std::string& id){const auto found=impl_->autofill_offers_.find(id);return found!=impl_->autofill_offers_.end()&&impl_->autofill_valid(found->second);}
+#if defined(XENON_TEST_FIXTURE_CERT_SHA256)
+void CefEngine::fixture_autofill_focus(const std::string& id,Reply reply){on_ui([p=impl_,id,reply]{
+  const auto found=p->tabs_.find(id);
+  if(found==p->tabs_.end()){reply(failure("FIXTURE_FAILED","Missing synthetic tab"));return;}
+  const auto t=found->second;
+  if(t->workspace!="auth_fixture_shared"||Vault::normalize_https_origin(t->browser->GetMainFrame()->GetURL().ToString())!=std::optional<std::string>("https://127.0.0.1:18766")){
+    reply(failure("FIXTURE_FAILED","Focus driver requires the synthetic origin"));return;
+  }
+  const auto root=GetAncestor(t->browser->GetHost()->GetWindowHandle(),GA_ROOT);
+  p->active_tab_=id;p->active_windows_[root]=id;ShowWindow(root,SW_SHOWNORMAL);SetForegroundWindow(root);
+  if(GetAncestor(GetForegroundWindow(),GA_ROOT)!=root){reply(failure("FIXTURE_FAILED","Synthetic window could not obtain foreground"));return;}
+  p->send(t,"Page.getFrameTree",Json::object(),[p,t,root,reply](Json tree){
+    if(!cdp_ok(tree)||!tree.contains("frameTree")){reply(failure("FIXTURE_FAILED","Missing fixture frame"));return;}
+    p->send(t,"Page.createIsolatedWorld",{{"frameId",field(tree["frameTree"]["frame"],"id")},{"worldName","Xenon human autofill"},{"grantUniveralAccess",false}},[p,t,root,reply](Json world){
+      if(!cdp_ok(world)||!world.contains("executionContextId")){reply(failure("FIXTURE_FAILED","Missing fixture world"));return;}
+      p->send(t,"Runtime.callFunctionOn",{{"executionContextId",world["executionContextId"]},
+        {"functionDeclaration","function(){const field=document.querySelector('input[type=text],input:not([type]),input[type=password]');if(!field)return false;field.focus();return document.activeElement===field}"},{"returnByValue",true}},[p,t,root,reply](Json focused){
+        if(!cdp_ok(focused)||!focused.value("result",Json::object()).value("value",false)){reply(failure("FIXTURE_FAILED","Fixture field was not focused"));return;}
+        // Simulated qualified input exercises production scheduling and the real
+        // native popup. It does not establish physical mouse-hook acceptance.
+        p->human_activity(t,true,true);
+        later(350,[p,t,root,reply]{
+          for(const auto& [id,offer]:p->autofill_offers_)if(offer->tab==t){reply(failure("FIXTURE_FAILED","An offer appeared while input was held"));return;}
+          p->human_activity(t,false,false);
+          const auto released=std::chrono::steady_clock::now();
+          auto poll=std::make_shared<std::function<void()>>();
+          *poll=[p,t,root,reply,released,poll]{
+            const auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-released).count();
+            Json metadata;
+            for(const auto& [id,offer]:p->autofill_offers_)if(offer->tab==t){metadata=offer->metadata;break;}
+            struct Popup {HWND owner;bool shown{};} popup{root};
+            EnumThreadWindows(GetCurrentThreadId(),[](HWND window,LPARAM data)->BOOL{
+              auto& popup=*reinterpret_cast<Popup*>(data);wchar_t name[128]{};GetClassNameW(window,name,128);
+              if(wcscmp(name,L"XenonFillSavedAccount")==0&&GetWindow(window,GW_OWNER)==popup.owner&&IsWindowVisible(window))popup.shown=true;
+              return TRUE;
+            },reinterpret_cast<LPARAM>(&popup));
+            if(!metadata.is_null()&&popup.shown){
+              *poll={};metadata["offerElapsedMs"]=elapsed;metadata["heldOfferSuppressed"]=true;metadata["humanPaused"]=t->human_busy;metadata["pickerShown"]=true;
+              reply(success(std::move(metadata)));return;
+            }
+            if(t->closed||elapsed>=1500){*poll={};reply(failure("FIXTURE_FAILED","Automatic native popup missed its bounded deadline"));return;}
+            later(25,[poll]{auto next=*poll;if(next)next();});
+          };auto next=*poll;next();
+        });
+      });
+    });
+  });
+});}
+#endif
 void CefEngine::cancel_login_prompts(){on_ui([p=impl_]{
   std::vector<std::string> offers;for(const auto& [id,offer]:p->autofill_offers_)offers.push_back(id);for(const auto& id:offers)p->autofill_discard(id);
-  for(auto& [id,t]:p->tabs_){++t->autofill_requested;p->clear_login_edit(t);p->discard_login(t);}
+  for(auto& [id,t]:p->tabs_){++t->autofill_requested;t->autofill_human_qualified=false;p->clear_login_edit(t);p->discard_login(t);}
 });}
 void CefEngine::show_controls(){on_ui([p=impl_]{if(p->controls_)p->controls_();});}
 void CefEngine::show_updates(){on_ui([p=impl_]{if(p->updates_)p->updates_();});}

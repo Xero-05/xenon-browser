@@ -1,0 +1,72 @@
+{
+  "capturedAt": "2026-10-03T17:13:31.893Z",
+  "scope": "Local autofill latency and protected login submitter regression; disposable synthetic HTTPS profiles only",
+  "productionDll": "build/app/Release/Xenon.dll",
+  "productionDllSha256": "5960f47b9b975ee172743db3869a5473f7510a89805c7a0c9fa28976ec8e8d81",
+  "fixtureDll": "build/auth-fixture/Release/XenonAuthTest.dll",
+  "fixtureDllSha256": "bc913a78a2ba56785fa5592b6b25f818d216e149b75aa5fcc439e6d8d1f2debf",
+  "checks": [
+    {
+      "command": "./scripts/build.ps1 -Test",
+      "passed": true,
+      "nativeTests": 11,
+      "adapterTests": 14,
+      "loginMonitorTests": 32,
+      "humanAutofillTests": 24,
+      "protectedLoginTests": 10,
+      "formFillTests": 6,
+      "brandingChecks": 5
+    },
+    {
+      "command": "npm.cmd run typecheck",
+      "passed": true
+    },
+    {
+      "command": "node tests/auth-integration.mjs",
+      "run": "auth-integration-1791047578425",
+      "passed": true,
+      "checks": 11,
+      "namedSubmitter": {
+        "submitterIncluded": true,
+        "authenticationVerifiedByFixture": true,
+        "attempts": 1,
+        "realCwlTested": false
+      },
+      "logCanaryScan": {
+        "passed": true,
+        "filesScanned": 107,
+        "bytesScanned": 53245,
+        "scope": "Entire synthetic-profile tree, *.log and LOG diagnostics; UTF-8 and UTF-16 canaries; unreadable directories fail verification"
+      }
+    },
+    {
+      "command": "node tests/human-autofill-integration.mjs",
+      "run": "human-autofill-1791047598269-e50d098a",
+      "passed": true,
+      "checks": 10,
+      "popupTiming": {
+        "offerElapsedMs": 277,
+        "pickerShown": true,
+        "heldInputSuppressed": true,
+        "agentPausePreserved": true,
+        "physicalMouseHookTested": false
+      },
+      "logCanaryScan": {
+        "passed": true,
+        "filesScanned": 107,
+        "bytesScanned": 55153
+      }
+    }
+  ],
+  "limitations": [
+    "Qualified input was simulated by the unshipped native test driver; the real popup was checked without clicking its account picker.",
+    "Physical mouse hooks, real CWL/PD Portal and Duo were not tested.",
+    "The installed running browser was not replaced or stopped."
+  ],
+  "earlierFailedRun": {
+    "run": "human-autofill-1791047097686-712e6bb0",
+    "behaviorChecksPassed": 10,
+    "failure": "The harness still required exactly nine checks after a tenth was added.",
+    "preservedReport": "out/autofill-timing-initial-report.json"
+  }
+}

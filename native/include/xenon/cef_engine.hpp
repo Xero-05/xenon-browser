@@ -41,6 +41,9 @@ class CefEngine final : public BrowserEngine {
   void fill_saved_account(const std::string& offer_id, const std::string& account_id, Reply);
   void dismiss_autofill(const std::string& offer_id);
   bool autofill_offer_valid(const std::string& offer_id);
+#if defined(XENON_TEST_FIXTURE_CERT_SHA256)
+  void fixture_autofill_focus(const std::string& tab_id, Reply);
+#endif
   void cancel_login_prompts();
   void set_vault(Vault* vault);
   void set_file_policy(FilePolicy* files);

@@ -25,14 +25,17 @@ const inspect=(expected,focusedOnly)=>{
   };
   const inputs=Array.from(document.querySelectorAll('input')).filter(e=>e.type!=='hidden'&&visible(e));
   const forbidden=e=>{const a=tokens(e);return a.includes('one-time-code')||a.includes('new-password')};
-  const userCandidate=e=>!forbidden(e)&&['text','email'].includes(e.type)&&!tokens(e).includes('current-password');
-  const passwords=inputs.filter(e=>e.type==='password');
+  const userCandidate=e=>!forbidden(e)&&['text','email','tel'].includes(e.type)&&!tokens(e).includes('current-password');
+  const passwords=inputs.filter(e=>e.type==='password'||e.type==='text'&&tokens(e).includes('current-password'));
+  // As in browser password parsers, unique explicit semantics take precedence
+  // over unrelated text fields. Never guess between two marked usernames.
+  const usersFor=scope=>{const candidates=inputs.filter(e=>e.form===scope&&userCandidate(e)),explicit=candidates.filter(e=>tokens(e).includes('username'));return explicit.length?explicit:candidates};
   let form,user=null,password=null,phase;
   if(passwords.length>1)return unavailable('ambiguous');
   if(passwords.length===1){
     password=passwords[0];form=password.form;
-    if(!form||forbidden(password))return unavailable('unsupported');
-    const users=inputs.filter(e=>e.form===form&&userCandidate(e));
+    if(forbidden(password))return unavailable('unsupported');
+    const users=usersFor(form);
     if(users.length>1)return unavailable('ambiguous');
     if(users.length===1){user=users[0];phase='credentials'}
     else{if(!tokens(password).includes('current-password'))return unavailable('unsupported');phase='password'}
@@ -40,18 +43,25 @@ const inspect=(expected,focusedOnly)=>{
     const users=inputs.filter(e=>userCandidate(e)&&tokens(e).includes('username'));
     if(users.length!==1)return unavailable('ambiguous');
     user=users[0];form=user.form;phase='username';
-    if(inputs.some(e=>e!==user&&e.form===form&&userCandidate(e)))return unavailable('ambiguous');
   }
-  if(!form||!form.isConnected||form.ownerDocument!==document)return unavailable('form');
   if(inputs.some(e=>e.form===form&&forbidden(e)))return unavailable('unsupported');
-  let action;try{action=new URL(form.action||location.href,location.href)}catch{return unavailable('form')}
-  if(action.protocol!=='https:'||action.origin!==expected||action.username||action.password||String(form.method).toLowerCase()!=='post')return unavailable('form');
-  if(form.target&&form.target.toLowerCase()!=='_self')return unavailable('form');
+  let action='',target='';
+  if(form){
+    if(!form.isConnected||form.ownerDocument!==document)return unavailable('form');
+    let url;try{url=new URL(form.action||location.href,location.href)}catch{return unavailable('form')}
+    if(url.protocol!=='https:'||url.origin!==expected||url.username||url.password||String(form.method).toLowerCase()!=='post')return unavailable('form');
+    if(form.target&&form.target.toLowerCase()!=='_self')return unavailable('form');
+    action=url.href;target=form.target||'';
+  }else{
+    // Unowned controls form one conservative synthetic group. Human fill is
+    // permitted only for explicit login semantics; it never clicks or submits.
+    if((user&&!tokens(user).includes('username'))||(password&&!tokens(password).includes('current-password')))return unavailable('unsupported');
+  }
   if((user&&!actionable(user))||(password&&!actionable(password)))return unavailable('not_actionable');
   if(focusedOnly&&!((user&&document.activeElement===user)||(password&&document.activeElement===password)))return unavailable('focus');
   if(password&&password.value!=='')return unavailable('password_not_empty');
   return {eligible:true,form,user,password,origin:expected,document,phase,usernameValue:user?user.value:'',passwordEmpty:true,
-    action:action.href,target:form.target||'',userType:user?user.type:'',userAutocomplete:user?user.autocomplete:'',
+    action,target,userType:user?user.type:'',userAutocomplete:user?user.autocomplete:'',
     passwordType:password?password.type:'',passwordAutocomplete:password?password.autocomplete:'',used:false};
 };
 )HUMANJS";
@@ -85,7 +95,7 @@ R"HUMANJS(
     if(this.password)setter.call(this.password,password);
     for(const field of [this.user,this.password])if(field){field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}))}
     const retained=(field,value)=>!field||(field.isConnected&&field.ownerDocument===this.document&&field.form===this.form&&field.value===value);
-    if(!this.form.isConnected||this.form.ownerDocument!==this.document||!retained(this.user,username)||!retained(this.password,password))return unavailable('changed_after_fill');
+    if((this.form&&(!this.form.isConnected||this.form.ownerDocument!==this.document))||!retained(this.user,username)||!retained(this.password,password))return unavailable('changed_after_fill');
     return {filled:true,phase:this.phase,submitted:false};
   }catch{return unavailable('form')}
 })HUMANJS";

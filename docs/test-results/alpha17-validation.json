@@ -1,0 +1,329 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.17",
+  "capturedUtc": "2026-10-03T21:13:54.885Z",
+  "passed": true,
+  "binaries": {
+    "productionExecutableSha256": "71a4294f0271af1b8e4d5ea2e608e488bd86f5f45b479a5d6a23eb16294c69e5",
+    "productionDllSha256": "37a7fdfdaafa29d79793dd2b7910381734b64d24dd621181ebb7b20690e361a2",
+    "fixtureDllSha256": "16db1d2a9337dd95e38cc2ea3cca33c8249a6a097878cdc441c62f97754c4f66"
+  },
+  "build": {
+    "command": "./scripts/build.ps1 -Test",
+    "passed": true,
+    "groups": [
+      {
+        "name": "native",
+        "passed": true,
+        "checks": 11
+      },
+      {
+        "name": "adapter",
+        "passed": true,
+        "checks": 14
+      },
+      {
+        "name": "login capture",
+        "passed": true,
+        "checks": 32
+      },
+      {
+        "name": "human autofill",
+        "passed": true,
+        "checks": 31
+      },
+      {
+        "name": "protected login",
+        "passed": true,
+        "checks": 10
+      },
+      {
+        "name": "form fill",
+        "passed": true,
+        "checks": 6
+      }
+    ],
+    "brandingChecks": 5
+  },
+  "typecheck": {
+    "command": "npm.cmd run typecheck",
+    "passed": true
+  },
+  "live": [
+    {
+      "run": "auth-integration-1791061935141",
+      "capturedAt": "2026-10-03T21:12:23.806Z",
+      "passed": true,
+      "applicationDllSha256": "16db1d2a9337dd95e38cc2ea3cca33c8249a6a097878cdc441c62f97754c4f66",
+      "applicationDllSha256AtEnd": "16db1d2a9337dd95e38cc2ea3cca33c8249a6a097878cdc441c62f97754c4f66",
+      "logCanaryScan": {
+        "passed": true,
+        "filesScanned": 107,
+        "bytesScanned": 53245,
+        "scope": "Entire synthetic-profile tree, *.log and LOG diagnostics; UTF-8 and UTF-16 canaries; unreadable directories fail verification"
+      },
+      "checks": [
+        {
+          "name": "Safe page screenshots remain available",
+          "passed": true,
+          "elapsedMs": 38
+        },
+        {
+          "name": "No raw eval, CDP, cookies or storage tools",
+          "passed": true,
+          "elapsedMs": 48
+        },
+        {
+          "name": "Synthetic password and OTP input events seal all observers through reveal and handoff",
+          "passed": true,
+          "elapsedMs": 1966,
+          "details": {
+            "inputPath": "synthetic DOM input event, not Windows manual input",
+            "passwordAndOtp": true,
+            "laterRevealProtected": true,
+            "handoffs": 8
+          }
+        },
+        {
+          "name": "Native folder grants persist and upload only approved opaque file handles",
+          "passed": true,
+          "elapsedMs": 297,
+          "details": {
+            "persistedNativeFolder": true,
+            "serverVerifiedUpload": true,
+            "rawPathRejected": true,
+            "disguisedPairingConfigExcluded": true
+          }
+        },
+        {
+          "name": "Account rights remain per client across handoff",
+          "passed": true,
+          "elapsedMs": 26
+        },
+        {
+          "name": "Exact credential origin enforced",
+          "passed": true,
+          "elapsedMs": 258
+        },
+        {
+          "name": "GET and readonly forms reject credentials before input or submission",
+          "passed": true,
+          "elapsedMs": 1938,
+          "details": {
+            "rejectedCases": 6,
+            "mcpSubmit": true,
+            "nativeFillOnly": true,
+            "injectedEvents": 0,
+            "submissions": 0,
+            "credentialQueries": 0
+          }
+        },
+        {
+          "name": "Named login submitter advances the POST flow exactly once",
+          "passed": true,
+          "elapsedMs": 381,
+          "details": {
+            "submitterIncluded": true,
+            "authenticationVerifiedByFixture": true,
+            "attempts": 1,
+            "realCwlTested": false
+          }
+        },
+        {
+          "name": "Opaque saved login authenticates without a model-visible credential",
+          "passed": true,
+          "elapsedMs": 388,
+          "details": {
+            "authenticationVerifiedByFixture": true,
+            "credentialBytesReturned": false
+          }
+        },
+        {
+          "name": "Four-agent handoff preserves quarantine and sends no website input",
+          "passed": true,
+          "elapsedMs": 23,
+          "details": {
+            "handoffs": 4,
+            "addedWebsiteEvents": 0,
+            "protectionPreserved": true
+          }
+        },
+        {
+          "name": "Username-first forms reuse only the exact-origin account",
+          "passed": true,
+          "elapsedMs": 505,
+          "details": {
+            "usernameStep": true,
+            "passwordStep": true,
+            "oneSubmission": true
+          }
+        }
+      ]
+    },
+    {
+      "run": "human-autofill-1791061917513-7218a5c8",
+      "capturedAt": "2026-10-03T21:12:14.959Z",
+      "passed": true,
+      "applicationDllSha256": "16db1d2a9337dd95e38cc2ea3cca33c8249a6a097878cdc441c62f97754c4f66",
+      "applicationDllSha256AtEnd": "16db1d2a9337dd95e38cc2ea3cca33c8249a6a097878cdc441c62f97754c4f66",
+      "logCanaryScan": {
+        "passed": true,
+        "filesScanned": 107,
+        "bytesScanned": 55145
+      },
+      "checks": [
+        {
+          "name": "Automatic native picker appears during cooldown after held input releases",
+          "passed": true,
+          "elapsedMs": 2798,
+          "details": {
+            "offerElapsedMs": 271,
+            "pickerShown": true,
+            "heldInputSuppressed": true,
+            "agentPausePreserved": true,
+            "physicalMouseHookTested": false
+          }
+        },
+        {
+          "name": "Human autofill fills a CWL-shaped form without submission or agent account grants",
+          "passed": true,
+          "elapsedMs": 804,
+          "details": {
+            "nativeFill": true,
+            "accountGrants": 0,
+            "ownerPreserved": true,
+            "generationPreserved": true,
+            "submitted": false
+          }
+        },
+        {
+          "name": "Autofilled credentials remain protected from all clients through ownership handoff",
+          "passed": true,
+          "elapsedMs": 1879,
+          "details": {
+            "observingClients": 2,
+            "modernAndLegacy": true,
+            "screenshotsWithheld": true,
+            "oneTimeOffer": true
+          }
+        },
+        {
+          "name": "Saved accounts cannot autofill a different HTTPS origin",
+          "passed": true,
+          "elapsedMs": 508,
+          "details": {
+            "exactOriginDenied": true,
+            "filled": false
+          }
+        },
+        {
+          "name": "Navigation invalidates an already offered native account selection",
+          "passed": true,
+          "elapsedMs": 714,
+          "details": {
+            "staleOfferDenied": true,
+            "newDocumentUntouched": true
+          }
+        },
+        {
+          "name": "Replacing the bound form cannot redirect an existing autofill offer",
+          "passed": true,
+          "elapsedMs": 730,
+          "details": {
+            "replacedNodesDenied": true,
+            "events": 0
+          }
+        },
+        {
+          "name": "Dismissing a native offer prevents subsequent filling",
+          "passed": true,
+          "elapsedMs": 928,
+          "details": {
+            "dismissedOfferDenied": true,
+            "events": 0
+          }
+        },
+        {
+          "name": "Username-first and password-only steps fill only the current phase without advancing",
+          "passed": true,
+          "elapsedMs": 720,
+          "details": {
+            "usernameOnlyFirst": true,
+            "passwordOnlySecond": true,
+            "nativeSelections": 2,
+            "submitted": false
+          }
+        },
+        {
+          "name": "Google-shaped unowned login phases and explicit usernames in richer forms fill only bound credentials",
+          "passed": true,
+          "elapsedMs": 2884,
+          "details": {
+            "phases": 3,
+            "submitted": false,
+            "hiddenDecoyUntouched": true,
+            "auxiliaryTextPreserved": true,
+            "unownedReplacementsDenied": true,
+            "realGoogleTested": false,
+            "details": [
+              {
+                "phase": "unowned-username",
+                "offerElapsedMs": 279,
+                "automaticPickerShown": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "Locking the native vault invalidates pending offers and prevents new autofill",
+          "passed": true,
+          "elapsedMs": 1382,
+          "details": {
+            "vaultLocked": true,
+            "priorOfferDenied": true,
+            "newOfferDenied": true,
+            "events": 0
+          }
+        },
+        {
+          "name": "Lock and unlock cannot revive an accepted fill waiting for a finite action to drain",
+          "passed": true,
+          "elapsedMs": 1453,
+          "details": {
+            "lockedAndUnlockedBeforeDrain": true,
+            "terminalStatus": "autofill_interrupted",
+            "credentialEvents": 0,
+            "staleOfferDenied": true,
+            "freshOfferAvailable": true
+          }
+        }
+      ]
+    }
+  ],
+  "installer": {
+    "passed": true,
+    "checks": 47,
+    "scope": "same Inno policy with isolated test-only identity, directory and mutex",
+    "productionUpgradeInstalled": false
+  },
+  "cefMaintenance": {
+    "checkedOn": "2026-10-03",
+    "latestWindows64Stable": "154.0.33+ga03e714+chromium-154.0.8037.94",
+    "pinnedChromium": "154.0.8037.94",
+    "chromeDesktopSecurityUpdate": "154.0.8037.97/.98",
+    "dependenciesChanged": false,
+    "sources": [
+      "https://cef-builds.spotifycdn.com/index.json",
+      "https://chromereleases.googleblog.com/search/label/Stable%20updates"
+    ],
+    "securityUpdateLagRetained": true
+  },
+  "limits": [
+    "Real Google, CWL/PD Portal and Duo authentication were not tested.",
+    "The unshipped driver simulated qualified input and checked the real native picker; physical hooks and account-picker clicks remain manual acceptance work.",
+    "Automatic Save/Update capture for username-first and formless JavaScript flows remains unsupported.",
+    "Broader unrelated acceptance suites retain their earlier binary-bound results.",
+    "Package and publication checks are recorded after assembly; the installed browser was not stopped or replaced."
+  ],
+  "privacy": "Only generated synthetic profiles and credentials; no private pairing configuration, vaults, raw page logs, screenshots or public-page tokens in this record."
+}

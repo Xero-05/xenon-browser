@@ -260,6 +260,17 @@ try {
     return { rejectedCases: 6, mcpSubmit: true, nativeFillOnly: true, injectedEvents: 0, submissions: 0, credentialQueries: 0 };
   });
   let protectedTab;
+  await check('Named login submitter advances the POST flow exactly once', async () => {
+    const tab = await create(0, '/login?case=named-submitter&mode=named');
+    const evidence = await pageReady(clients[0], tab, 'Authentication fixture ready');
+    const result = await raw(clients[0], 'login', { ...mutation(tab), observationId: evidence.observationId, accountId: seeded.accountId });
+    assert(!result.isError, JSON.stringify(result.structuredContent));
+    assert.equal(result.structuredContent.submitted, true);
+    await until(async () => (await telemetry('named-submitter')).authenticated);
+    await pageReady(clients[0], tab, 'Synthetic sign-in completed');
+    const state = await telemetry('named-submitter'); assert.equal(state.submitterAccepted, true); assert.equal(state.attempts, 1);
+    return { submitterIncluded: true, authenticationVerifiedByFixture: true, attempts: 1, realCwlTested: false };
+  });
   await check('Opaque saved login authenticates without a model-visible credential', async () => {
     protectedTab = await create(0, '/login?case=protected&mode=hold');
     const evidence = await pageReady(clients[0], protectedTab, 'Authentication fixture ready');

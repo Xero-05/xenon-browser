@@ -60,6 +60,8 @@ class NativeAutofillFixture : public std::enable_shared_from_this<NativeAutofill
     if (value.contains("origin") && fixture_origin(value.at("origin"))) result["origin"] = value.at("origin");
     if (value.contains("status") && value.at("status") == "filled") result["status"] = "filled";
     for (const auto key : {"submitted", "valid", "locked", "dismissed"}) if (value.contains(key) && value.at(key).is_boolean()) result[key] = value.at(key);
+    for (const auto key : {"heldOfferSuppressed", "humanPaused", "pickerShown"}) if (value.contains(key) && value.at(key).is_boolean()) result[key] = value.at(key);
+    if (value.contains("offerElapsedMs") && value.at("offerElapsedMs").is_number_integer()) result["offerElapsedMs"] = value.at("offerElapsedMs");
     if (value.contains("phase") && (value.at("phase") == "credentials" || value.at("phase") == "username" || value.at("phase") == "password")) result["phase"] = value.at("phase");
     if (value.contains("accounts") && value.at("accounts").is_array()) {
       result["accounts"] = Json::array();
@@ -155,16 +157,19 @@ class NativeAutofillFixture : public std::enable_shared_from_this<NativeAutofill
           self->vault_.set_locked(true); self->engine_.cancel_login_prompts(); self->broker_.stop_all(); self->vault_.set_locked(false);
         }); return;
       }
-      if (action == "request") {
+      if (action == "request" || action == "focus_offer") {
         const auto tab = request.at("tabId").get<std::string>();
         if (!known_tab(tab)) throw std::runtime_error("Unknown fixture tab");
-        engine_.request_autofill(tab, [weak, id, tab](Json reply) {
+        auto answer = [weak, id, tab](Json reply) {
           if (auto self = weak.lock()) {
             if (reply.value("ok", false) && reply.contains("result") && reply.at("result").contains("offerId") && handle(reply.at("result").at("offerId")))
               self->offers_[reply.at("result").at("offerId").get<std::string>()] = tab;
             self->finish(id, std::move(reply));
           }
-        }); return;
+        };
+        if (action == "focus_offer") engine_.fixture_autofill_focus(tab, std::move(answer));
+        else engine_.request_autofill(tab, std::move(answer));
+        return;
       }
       const auto offer = request.at("offerId").get<std::string>();
       if (!offers_.contains(offer)) throw std::runtime_error("Unknown fixture offer");

@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.1.0-alpha.17
+
+The native saved-account picker can appear about 250 ms after physical input releases and leaves an eligible login field focused. It no longer waits for the full two-second agent cooldown; that pause still applies to agent input. Held input, dialogs, navigation, new activity and vault lock continue to block or invalidate offers.
+
+Human-confirmed autofill now recognizes explicitly marked username/current-password inputs outside a form, including a Google-shaped `username webauthn` step with a hidden password decoy. A unique marked username takes precedence over unrelated text fields. Phone usernames and revealed passwords marked `current-password` are supported. Filling remains bound to the exact HTTPS origin and original fields, requires native account selection and never submits or grants agent account access.
+
+Protected agent sign-in now submits with the single visible native login button when present, preserving its name/value for flows such as CWL's `_eventId_proceed`. Ambiguous submitters and unsafe form/button overrides are refused. Bound fields and destinations are rechecked after page handlers, and browser validation can leave credentials filled with `submitted: false`. Requested submission remains distinct from successful authentication.
+
+The [Chromium/Firefox comparison](CREDENTIAL_DETECTION.md) documents remaining gaps. Real Google, CWL/PD Portal and Duo sign-in and physical account-picker selection remain unverified; automatic Save/Update capture for username-first and JavaScript-only flows remains unsupported. The Windows x64 installer and portable ZIP remain unsigned prerelease artifacts. Runtime dependencies are unchanged, with the existing documented CEF security-update lag. Earlier candidate evidence retains its original binary hashes; [release validation](TESTING.md#alpha17-release-validation) records the final version's checks.
+
 ## 0.1.0-alpha.16
 
 Ordinary `brightness(0.6)` hover styling now preserves rendered control references, including Greenhouse Resume/CV and Cover Letter **Attach** buttons. Previously each hover failed as stale and removed unrelated visible controls; both now retain their references and the page's 33 observed nodes. Supported brightness darkening uses conservative text contrast bounds, while unsupported effects and darkened frame embeddings remain withheld. Hidden-content exclusion and post-pointer-move target validation remain enforced.
