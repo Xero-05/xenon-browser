@@ -1,0 +1,57 @@
+{
+  "version": "0.1.0-alpha.12",
+  "capturedUtc": "2026-10-03T05:49:08.168Z",
+  "release": "https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.12",
+  "releaseId": 402350026,
+  "sourceCommit": "9411c88ee7911d49a1316fdaad86aa50f9925b37",
+  "tag": "v0.1.0-alpha.12",
+  "prerelease": true,
+  "windowsCi": {
+    "url": "https://github.com/Xero-05/xenon-browser/actions/runs/37100486709",
+    "conclusion": "success",
+    "commitSha": "9411c88ee7911d49a1316fdaad86aa50f9925b37"
+  },
+  "assets": [
+    {
+      "name": "Xenon-0.1.0-alpha.12-windows-x64-setup-unsigned.exe",
+      "bytes": 203163154,
+      "sha256": "9fa61cab16496991acd1679dec02df305a446a3c8531e96323a6d85508326ac3",
+      "githubUploadedDigestMatched": true
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.12-windows-x64-setup-unsigned.exe.sha256",
+      "bytes": 118,
+      "sha256": "416494bdd4d2d2dd3a2c0af030f321f7df74afedc59113c67153e3a150b1c205",
+      "githubUploadedDigestMatched": true
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.12-windows-x64-unsigned.zip",
+      "bytes": 233743578,
+      "sha256": "3b2e69c403bfb0616ff6e4def210177342712297adbd278cbb7400656ff91fde",
+      "githubUploadedDigestMatched": true
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.12-windows-x64-unsigned.zip.sha256",
+      "bytes": 112,
+      "sha256": "53091c6022ab2c6f5d06fc0e04593adc994e2ef6b0353460101445953bb65db9",
+      "githubUploadedDigestMatched": true
+    }
+  ],
+  "schemaVersion": 1,
+  "publishedUtc": "2026-10-03T05:46:27Z",
+  "nativePublicDownload": {
+    "passed": true,
+    "simulatedCurrentVersion": "0.1.0-alpha.11",
+    "selectedVersion": "0.1.0-alpha.12",
+    "installerBytes": 203163154,
+    "productionProfileUsed": false,
+    "installerLaunched": false,
+    "scope": "Production native release-discovery and HTTPS download code exercised through updater_tests.exe with disposable staging; normal TLS and size/SHA-256 verification",
+    "retainedFirstAttempt": {
+      "outcome": "No eligible release for download smoke immediately after publication",
+      "localEvidence": "out/alpha12-native-public-download-first-failure.log",
+      "retry": "Public release enumeration subsequently included alpha.12; a separate native retry passed"
+    }
+  },
+  "privacy": "No profile paths, credentials, tokens, raw browsing output or screenshots."
+}

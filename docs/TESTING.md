@@ -8,7 +8,11 @@ The matching CEF distribution was updated to `154.0.33+ga03e714` (Chromium `154.
 
 Release preparation passed 11 native groups, adapter typechecking, 84 adapter/script tests, five branding checks, 65 live checks across eight serial suites and 47 isolated installer checks. The [release validation record](test-results/alpha12-validation.json) binds the rebuilt production and unshipped AuthTest binaries to those suites. It distinguishes automated broker/CEF coverage from earlier physical UI observations and retains the initial UI-test failure. That fixture now reads a fixed 32-bit offscreen bitmap after `GdiFlush`, preserving exact Light/Dark hover and mouse-leave assertions; `GetPixel` disagreed with its actual bitmap bytes. Browser painting code was unchanged.
 
-The full physical theme, high-contrast, multiple-DPI/monitor, permission, credential-dialog and menu matrix remains unverified on the release binary. Earlier startup/input/dialog and visual observations retain their original hashes; the runtime update does not turn those records into new physical acceptance coverage. Package smoke and publication results are recorded after their respective steps.
+The extracted release ZIP passed all three package smoke checks, including its bundled Node/MCP connection and a verified page action. All 1,254 manifest file hashes and both archive/installer checksums verified. See the [package record](test-results/alpha12-package-smoke.json). Post-packaging records are retained in the repository rather than retroactively inserted into the tested archive.
+
+The [published alpha.12 prerelease](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.12) is bound to source commit `9411c88ee7911d49a1316fdaad86aa50f9925b37`, which passed Windows CI. All four uploaded asset digests match the verified local files. Native update code discovered alpha.12 from a simulated alpha.11 version and downloaded and verified the 203,163,154-byte installer in disposable staging without launching it. The first immediate post-publication check returned no eligible release; its result is retained separately from the successful retry. See the [publication record](test-results/alpha12-publication.json).
+
+The full physical theme, high-contrast, multiple-DPI/monitor, permission, credential-dialog and menu matrix remains unverified on the release binary. Earlier startup/input/dialog and visual observations retain their original hashes; the runtime update does not turn those records into new physical acceptance coverage.
 
 ## Visual and controls overhaul
 

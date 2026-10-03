@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.12",
+  "sourceCommit": "9411c88ee7911d49a1316fdaad86aa50f9925b37",
+  "capturedUtc": "2026-10-03T05:43:54.096Z",
+  "scope": "Actual extracted release ZIP with bundled Node and MCP adapter; generated disposable profile only; production installation untouched",
+  "manifestFilesVerified": 1254,
+  "artifacts": [
+    {
+      "name": "Xenon-0.1.0-alpha.12-windows-x64-unsigned.zip",
+      "bytes": 233743578,
+      "sha256": "3b2e69c403bfb0616ff6e4def210177342712297adbd278cbb7400656ff91fde"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.12-windows-x64-setup-unsigned.exe",
+      "bytes": 203163154,
+      "sha256": "9fa61cab16496991acd1679dec02df305a446a3c8531e96323a6d85508326ac3"
+    }
+  ],
+  "applicationDllSha256": "b669e9a0fa2ae868f429e95bcf4cdb030e80d73c944073f7036bce1da46cf089",
+  "executableSha256": "d84b27c99384dc5461776094c808ba284aade61177f769988c2f4d76dee3d26b",
+  "branding": {
+    "passed": true,
+    "originalBootstrapSha256": "42151bee2597ea056289c59026b49c27f84110332a80f9abc4b0f0fbf7c380ac",
+    "checks": [
+      {
+        "name": "Resource branding preserves CEF executable code, memory policy and all non-branding resources",
+        "passed": true
+      },
+      {
+        "name": "Branded executable icon group matches the approved Xenon icon",
+        "passed": true
+      },
+      {
+        "name": "Application DLL icon group matches the approved Xenon icon",
+        "passed": true
+      },
+      {
+        "name": "Executable version resource identifies Xenon",
+        "passed": true
+      },
+      {
+        "name": "Application DLL version resource identifies Xenon",
+        "passed": true
+      }
+    ]
+  },
+  "packageSmoke": {
+    "run": "package-smoke-1791006030437",
+    "capturedAt": "2026-10-03T05:40:33.942Z",
+    "passed": true,
+    "checks": [
+      {
+        "name": "Packaged branding changes only permitted CEF bootstrap resources",
+        "passed": true
+      },
+      {
+        "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+        "passed": true
+      },
+      {
+        "name": "Packaged browser observes and performs a verified page action",
+        "passed": true
+      }
+    ]
+  },
+  "privacy": "No profile paths, pairing tokens, credentials, raw page output or screenshots"
+}
