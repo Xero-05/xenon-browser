@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.16",
+  "publishedUtc": "2026-10-03T15:30:26Z",
+  "sourceCommit": "4e3197c84315a18383f88093e86a66fbf76c67c8",
+  "url": "https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.16",
+  "draft": false,
+  "prerelease": true,
+  "windowsCi": {
+    "headSha": "4e3197c84315a18383f88093e86a66fbf76c67c8",
+    "url": "https://github.com/Xero-05/xenon-browser/actions/runs/37133095203",
+    "conclusion": "success"
+  },
+  "assets": [
+    {
+      "name": "Xenon-0.1.0-alpha.16-windows-x64-setup-unsigned.exe",
+      "size": 203419099,
+      "digest": "sha256:5c6dc2c5d8a81f99d282a102d42b06e62cfbfb0d6c2844d64533e1e474bf235f",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.16-windows-x64-setup-unsigned.exe.sha256",
+      "size": 118,
+      "digest": "sha256:cc16e724a7abd71465559d04fdefc59ea054d209ae1a9c8594e24710b72b52e4",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.16-windows-x64-unsigned.zip",
+      "size": 234036867,
+      "digest": "sha256:97e164243ba03300d0a182a2e87d9b97144baa7315d774edb193c6f5d01ab80a",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.16-windows-x64-unsigned.zip.sha256",
+      "size": 112,
+      "digest": "sha256:8fe517e9ec0253fe0e7da06cfa82a33cc7721aff5ea0751f787c8fcae9c36d46",
+      "state": "uploaded"
+    }
+  ],
+  "packageVerification": {
+    "schemaVersion": 1,
+    "version": "0.1.0-alpha.16",
+    "sourceCommit": "4e3197c84315a18383f88093e86a66fbf76c67c8",
+    "capturedUtc": "2026-10-03T15:28:29.685Z",
+    "passed": true,
+    "manifestFilesVerified": 1277,
+    "assets": [
+      {
+        "name": "Xenon-0.1.0-alpha.16-windows-x64-unsigned.zip",
+        "size": 234036867,
+        "sha256": "97e164243ba03300d0a182a2e87d9b97144baa7315d774edb193c6f5d01ab80a"
+      },
+      {
+        "name": "Xenon-0.1.0-alpha.16-windows-x64-unsigned.zip.sha256",
+        "size": 112,
+        "sha256": "8fe517e9ec0253fe0e7da06cfa82a33cc7721aff5ea0751f787c8fcae9c36d46"
+      },
+      {
+        "name": "Xenon-0.1.0-alpha.16-windows-x64-setup-unsigned.exe",
+        "size": 203419099,
+        "sha256": "5c6dc2c5d8a81f99d282a102d42b06e62cfbfb0d6c2844d64533e1e474bf235f"
+      },
+      {
+        "name": "Xenon-0.1.0-alpha.16-windows-x64-setup-unsigned.exe.sha256",
+        "size": 118,
+        "sha256": "cc16e724a7abd71465559d04fdefc59ea054d209ae1a9c8594e24710b72b52e4"
+      }
+    ],
+    "packagedBinaries": {
+      "executableSha256": "38374359c9623d57e0118300722e783a2e14f7733eb4b8d3e015d4de9ac34e5a",
+      "applicationDllSha256": "30ed558b631021cb7d63d313de7e03a3e400af9d7079d323e06e4276eb83714f",
+      "cefDllSha256": "e73aeafbd0c1f7169f3d0b2fb78f385cba7f00d7bf93b2cfbdcd82fe9980e6b6"
+    },
+    "smoke": {
+      "run": "package-smoke-1791041275597",
+      "capturedAt": "2026-10-03T15:27:58.556Z",
+      "applicationDllSha256": "30ed558b631021cb7d63d313de7e03a3e400af9d7079d323e06e4276eb83714f",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Packaged branding changes only permitted CEF bootstrap resources",
+          "passed": true
+        },
+        {
+          "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+          "passed": true
+        },
+        {
+          "name": "Packaged browser observes and performs a verified page action",
+          "passed": true
+        }
+      ]
+    },
+    "scope": "ZIP checksum/inventory and every extracted manifest file verified. Bundled Node/MCP adapter and packaged production browser performed a verified synthetic page action. Installer assembled from this ZIP; 47 isolated lifecycle checks passed separately.",
+    "limits": [
+      "Unsigned hashes establish byte integrity, not publisher identity",
+      "Installer fixture uses a tiny synthetic payload and separate identity; no production upgrade installed over user copy",
+      "Post-packaging record is separate from archive documentation"
+    ],
+    "privacy": "Disposable profiles and synthetic files/accounts only; no private tokens, raw calls, profiles, browsing logs or screenshots"
+  },
+  "notes": "Published assets verified against local hashes; source tag binds the tested release commit. Unsigned hashes do not establish publisher identity.",
+  "nativeUpdateVerification": {
+    "simulatedCurrent": "0.1.0-alpha.15",
+    "available": "0.1.0-alpha.16",
+    "installerBytes": 203419099,
+    "expectedSha256": "5c6dc2c5d8a81f99d282a102d42b06e62cfbfb0d6c2844d64533e1e474bf235f",
+    "sizeAndSha256Verified": true,
+    "installerLaunched": false,
+    "method": "Release-built native updater test runner; real public metadata and download, disposable staging only"
+  }
+}

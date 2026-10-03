@@ -8,6 +8,8 @@ Alpha.16 packages the brightness-hover reference fix. The [release validation re
 
 Real employer uploads, physical UI acceptance and the full theme/DPI/permission matrix remain unverified. Earlier tour, authentication, autofill and lifecycle evidence retains its original binary hashes. Package smoke and publication evidence are recorded separately after assembly; unsigned hashes establish byte integrity, not publisher identity.
 
+The [alpha.16 package record](test-results/alpha16-package-smoke.json) verifies all 1,277 extracted runtime hashes and three packaged-browser smoke checks. The [publication record](test-results/alpha16-publication.json) binds the four uploaded assets and tag to source commit `4e3197c84315a18383f88093e86a66fbf76c67c8` and its successful Windows CI. Native update code discovered alpha.16 from a simulated alpha.15 version and downloaded/verified the 203,419,099-byte installer without launching it. These post-packaging records are separate from the archive documentation.
+
 ## Alpha.15 release validation
 
 Alpha.15 includes the first-run tour, Simplified Chinese native interface and decorative-shadow observation fix. The [release validation record](test-results/alpha15-validation.json) binds a full Release build, 11 native groups, 90 adapter/fixed-script checks, 18 bootstrap checks, five branding checks, 47 isolated installer checks and 48 serial live checks to the alpha.15 binaries. The live suites cover introduction and language persistence, immediate renderer locale, duplicate startup and cancellation, Menu replay and documentation navigation, MCP isolation and handoff, rendered visibility and synthetic uploads.
