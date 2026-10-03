@@ -1,0 +1,390 @@
+{
+  "capturedAt": "2026-10-03T15:11:25.021Z",
+  "scope": "Local source fix and production-browser candidate validation. The published alpha.15 installer is unchanged.",
+  "version": "0.1.0-alpha.15",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "ebb26869546d627a10b72c204ccda3f98a7801506b80cbf7564fabe275706b3e",
+  "sourceSha256": {
+    "native/src/visible_evidence.cpp": "34f32e1729fe9566bde6fa2225d65e4e85c866b9fe1663aa34ea20da3074117c",
+    "tests/native/visible_evidence_tests.cpp": "1483bdf2d44647b942e69bf05882b2a6cded0fed8b034c03eb99dacf4dcca2d2",
+    "tests/fixtures/visibility-fixture.mjs": "dd319ca9c2ef6fe7f403c4d60cb7f0bee717cb755a04582faaa198bfc4410703",
+    "tests/visibility-integration.mjs": "05f704c4411fa972733284ff79ffa5b6b027d7468e030436389ba3be199b7b85",
+    "tests/upload-entry-integration.mjs": "51d7c1dd971b2031484f4fbbfd56849148e42ebba6b016a6b8313d0e07f92f0c"
+  },
+  "rootCause": "The public Attach hover applies filter: brightness(0.6) as well as a box shadow. Every non-none filter was rejected for geometry and treated as potentially unbounded paint, suppressing earlier controls and text. Supported brightness darkening now preserves paint bounds, while conservative luminance intervals prove text contrast. Element filters apply once despite copied LayoutText styles. Other filters and darkened frame embeddings remain conservative omissions. Post-pointer-move target revalidation is unchanged.",
+  "publicPage": "https://job-boards.greenhouse.io/abcellera/jobs/8006394003",
+  "publicStyleInspection": {
+    "method": "Fresh headless development-browser profile; computed CSS for the public Attach control and named ancestors only.",
+    "hoverFilter": "brightness(0.6)",
+    "hoverBoxShadow": "rgba(0, 0, 0, 0.3) 0px 2px 6px 0px"
+  },
+  "baseline": {
+    "mode": "failure_reproduced",
+    "matchedPublishedAlpha15Dll": true,
+    "capturedAt": "2026-10-03T14:37:08.029Z",
+    "applicationDllSha256": "dc2c2847553123b58f810ed27f6097e59c9bc31f278a511a2bf0a76f5c195e18",
+    "applicationDllSha256AtEnd": "dc2c2847553123b58f810ed27f6097e59c9bc31f278a511a2bf0a76f5c195e18",
+    "hoverResults": [
+      {
+        "label": "resume-hover",
+        "isError": true,
+        "code": "stale_element"
+      },
+      {
+        "label": "cover-hover",
+        "isError": true,
+        "code": "stale_element"
+      }
+    ],
+    "sameDocumentThroughout": true,
+    "observations": [
+      {
+        "label": "initial",
+        "nodes": 36,
+        "attachRefs": 0,
+        "omitted": {
+          "malformedTextBox": 7,
+          "unprovenGeometry": 290,
+          "unprovenTextGeometry": 58,
+          "unprovenViewport": 3,
+          "unsupportedFragmentedLayout": 21
+        },
+        "viewport": {
+          "height": 637,
+          "pageX": 0,
+          "pageY": 0,
+          "width": 913
+        }
+      },
+      {
+        "label": "before-hover",
+        "nodes": 33,
+        "attachRefs": 2,
+        "omitted": {
+          "malformedTextBox": 7,
+          "unprovenGeometry": 300,
+          "unprovenTextGeometry": 59,
+          "unprovenViewport": 3,
+          "unsupportedFragmentedLayout": 21
+        },
+        "viewport": {
+          "height": 637,
+          "pageX": 0,
+          "pageY": 410,
+          "width": 913
+        }
+      },
+      {
+        "label": "resume-hover",
+        "nodes": 12,
+        "attachRefs": 1,
+        "omitted": {
+          "malformedTextBox": 7,
+          "unprovenGeometry": 356,
+          "unprovenTextGeometry": 71,
+          "unprovenViewport": 3,
+          "unsupportedFragmentedLayout": 21
+        },
+        "viewport": {
+          "height": 637,
+          "pageX": 0,
+          "pageY": 410,
+          "width": 913
+        }
+      },
+      {
+        "label": "cover-hover",
+        "nodes": 3,
+        "attachRefs": 0,
+        "omitted": {
+          "malformedTextBox": 7,
+          "unprovenGeometry": 368,
+          "unprovenTextGeometry": 75,
+          "unprovenViewport": 3,
+          "unsupportedFragmentedLayout": 21
+        },
+        "viewport": {
+          "height": 637,
+          "pageX": 0,
+          "pageY": 410,
+          "width": 913
+        }
+      },
+      {
+        "label": "pointer-away",
+        "nodes": 33,
+        "attachRefs": 2,
+        "omitted": {
+          "malformedTextBox": 7,
+          "unprovenGeometry": 300,
+          "unprovenTextGeometry": 59,
+          "unprovenViewport": 3,
+          "unsupportedFragmentedLayout": 21
+        },
+        "viewport": {
+          "height": 637,
+          "pageX": 0,
+          "pageY": 410,
+          "width": 913
+        }
+      }
+    ]
+  },
+  "validation": {
+    "build": {
+      "passed": true,
+      "command": "./scripts/build.ps1 -Test",
+      "report": "out/greenhouse-hover-final-build.log",
+      "nativeGroups": 11,
+      "adapterAndScriptChecks": 76,
+      "groups": {
+        "adapter": 14,
+        "loginCapture": 32,
+        "humanAutofill": 24,
+        "formFill": 6
+      },
+      "brandingChecks": 5
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npm.cmd run typecheck"
+    },
+    "visibility": {
+      "capturedAt": "2026-10-03T15:09:56.331Z",
+      "passed": true,
+      "checks": 11,
+      "command": "node tests/visibility-integration.mjs",
+      "applicationDllSha256": "ebb26869546d627a10b72c204ccda3f98a7801506b80cbf7564fabe275706b3e",
+      "applicationDllSha256AtEnd": "ebb26869546d627a10b72c204ccda3f98a7801506b80cbf7564fabe275706b3e",
+      "results": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ],
+      "hiddenCases": 25,
+      "successiveHovers": 2
+    },
+    "upload": {
+      "capturedAt": "2026-10-03T15:08:08.374Z",
+      "passed": true,
+      "checks": 10,
+      "command": "node tests/upload-entry-integration.mjs",
+      "applicationDllSha256": "ebb26869546d627a10b72c204ccda3f98a7801506b80cbf7564fabe275706b3e",
+      "applicationDllSha256AtEnd": "ebb26869546d627a10b72c204ccda3f98a7801506b80cbf7564fabe275706b3e",
+      "results": [
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true
+        },
+        {
+          "name": "A brightness-styled hover preserves the approved upload entry",
+          "passed": true
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true
+        }
+      ],
+      "hoveredEntry": {
+        "approvedSyntheticFileTransferred": true,
+        "uploads": 1
+      }
+    },
+    "publicGreenhouse": {
+      "passed": true,
+      "method": "Normal production MCP adapter in a disposable profile: observe, scroll 410 CSS pixels, fresh-reference hover of each Attach, screenshots, observe and pointer-away hover.",
+      "capturedAt": "2026-10-03T15:09:09.478Z",
+      "applicationDllSha256": "ebb26869546d627a10b72c204ccda3f98a7801506b80cbf7564fabe275706b3e",
+      "applicationDllSha256AtEnd": "ebb26869546d627a10b72c204ccda3f98a7801506b80cbf7564fabe275706b3e",
+      "hoverResults": [
+        {
+          "label": "resume-hover",
+          "isError": false
+        },
+        {
+          "label": "cover-hover",
+          "isError": false
+        }
+      ],
+      "sameDocumentThroughout": true,
+      "observations": [
+        {
+          "label": "initial",
+          "nodes": 36,
+          "attachRefs": 0,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 290,
+            "unprovenTextGeometry": 58,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 0,
+            "width": 913
+          }
+        },
+        {
+          "label": "before-hover",
+          "nodes": 33,
+          "attachRefs": 2,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 300,
+            "unprovenTextGeometry": 59,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 410,
+            "width": 913
+          }
+        },
+        {
+          "label": "resume-hover",
+          "nodes": 33,
+          "attachRefs": 2,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 300,
+            "unprovenTextGeometry": 59,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 410,
+            "width": 913
+          }
+        },
+        {
+          "label": "cover-hover",
+          "nodes": 33,
+          "attachRefs": 2,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 300,
+            "unprovenTextGeometry": 59,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 410,
+            "width": 913
+          }
+        },
+        {
+          "label": "pointer-away",
+          "nodes": 33,
+          "attachRefs": 2,
+          "omitted": {
+            "malformedTextBox": 7,
+            "unprovenGeometry": 300,
+            "unprovenTextGeometry": 59,
+            "unprovenViewport": 3,
+            "unsupportedFragmentedLayout": 21
+          },
+          "viewport": {
+            "height": 637,
+            "pageX": 0,
+            "pageY": 410,
+            "width": 913
+          }
+        }
+      ]
+    }
+  },
+  "preliminaryFailures": [
+    {
+      "report": "out/greenhouse-hover-visibility-failed.json",
+      "outcome": "Existing click readout timed out after adding hover shadows. Screenshot and pointer-away observation confirmed the website click completed; the new shadow intersected the status text conservative ink bounds. The fixture readout was moved clear of those bounds and all 11 checks then passed. The failed report is retained."
+    },
+    {
+      "report": "out/greenhouse-hover-upload-count-failed.json",
+      "outcome": "All 10 checks passed but the harness still expected nine. Its acceptance count was updated for the new hover check and the complete suite reran successfully. The failed report is retained."
+    }
+  ],
+  "limits": [
+    "This is source-candidate validation, not a newly packaged or installed release.",
+    "The public-page test entered no applicant data, sent no files and did not submit an application or interact with CAPTCHA. A real employer upload remains unverified.",
+    "The public MCP reproduction used a 913x637 CSS viewport; the supplied report used 973x637. Both reproduced the same 33-to-12-to-3-to-33 observation counts.",
+    "Unsupported effects, intersecting paint bounds and uncertain contrast can still omit legitimate visible content; coverage remains explicit and conservative.",
+    "Only sanitized counts, test outcomes and binary/source hashes are tracked. Disposable profiles, pairing state, raw observations and screenshots remain local."
+  ]
+}

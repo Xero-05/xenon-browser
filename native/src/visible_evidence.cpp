@@ -120,6 +120,34 @@ double contrast(Rgba fg, const Rgba& bg, double opacity) {
   const double a = luminance(fg), b = luminance(bg);
   return (std::max(a,b) + .05) / (std::min(a,b) + .05);
 }
+std::optional<double> brightness_gain(const std::string& value) {
+  if(value=="none")return 1;
+  if(value.empty() || value.size()>512)return {};
+  double gain=1;size_t start=0;
+  while(start<value.size()) {
+    if(value.compare(start,11,"brightness(")!=0)return {};
+    const auto end=value.find(')',start+11);if(end==std::string::npos)return {};
+    auto argument=value.substr(start+11,end-start-11);const bool percent=!argument.empty() && argument.back()=='%';
+    if(percent)argument.pop_back();const auto parsed=css_number(argument);if(!parsed)return {};
+    const double amount=*parsed/(percent?100:1);if(amount<0 || amount>1)return {};gain*=amount;
+    start=end+1;if(start<value.size()) {if(value[start]!=' ')return {};while(start<value.size() && value[start]==' ')++start;}
+  }
+  return gain;
+}
+double darkened_contrast(Rgba fg, const Rgba& bg, double opacity, double gain) {
+  if(gain==1)return contrast(fg,bg,opacity);
+  const double alpha=fg.a*opacity;
+  // Foreground passes through every ancestor brightness filter. Background
+  // can be painted inside or outside those layers; bound each channel rather
+  // than guessing which layer supplied a blended snapshot background.
+  const Rgba low_bg{bg.r*gain,bg.g*gain,bg.b*gain,1};
+  const Rgba low_ink{fg.r*gain*alpha+low_bg.r*(1-alpha),fg.g*gain*alpha+low_bg.g*(1-alpha),fg.b*gain*alpha+low_bg.b*(1-alpha),1};
+  const Rgba high_ink{fg.r*gain*alpha+bg.r*(1-alpha),fg.g*gain*alpha+bg.g*(1-alpha),fg.b*gain*alpha+bg.b*(1-alpha),1};
+  const double bg_low=luminance(low_bg),bg_high=luminance(bg),ink_low=luminance(low_ink),ink_high=luminance(high_ink);
+  if(ink_high<bg_low)return (bg_low+.05)/(ink_high+.05);
+  if(bg_high<ink_low)return (ink_low+.05)/(bg_high+.05);
+  return 1; // overlapping luminance intervals cannot prove readable contrast
+}
 std::optional<Rect> box_shadow_bounds(const std::string& value, const Rect& box) {
   if(value=="none")return box;
   if(value.empty() || value.size()>4096)return {};
@@ -234,12 +262,13 @@ bool ancestor(const Document& d, int parent, int child) {
 }
 bool basic_style(const Layout& l) {
   if (!l.styles_complete || !l.box || l.styles[Display] == "none" || l.styles[Visibility] != "visible" || l.styles[ContentVisibility] == "hidden") return false;
-  for (int s : {ClipPath, Filter, BackdropFilter, Transform, Perspective, MaskImage, WebkitMaskImage}) if (l.styles[s] != "none") return false;
+  for (int s : {ClipPath, BackdropFilter, Transform, Perspective, MaskImage, WebkitMaskImage}) if (l.styles[s] != "none") return false;
+  if(!brightness_gain(l.styles[Filter]))return false;
   if (l.styles[Clip] != "auto" || l.styles[MixBlendMode] != "normal") return false;
   const auto zoom = css_number(l.styles[Zoom]); if (!zoom || *zoom != 1) return false;
   return true;
 }
-bool inherited_geometry(FilterState& state, const Document& d, int node, const Rect& r, bool require_viewport) {
+bool inherited_geometry(FilterState& state, const Document& d, int node, const Rect& r, bool require_viewport, bool unfiltered_embedding=false) {
   if (require_viewport && (!d.viewport || !contains(*d.viewport,r))) return false;
   int depth = 0;
   for (int n=node; n >= 0 && static_cast<size_t>(n)<d.parents.size() && depth++<128; n=d.parents[n]) {
@@ -250,7 +279,9 @@ bool inherited_geometry(FilterState& state, const Document& d, int node, const R
     // Visibility is inherited but may explicitly become visible on descendants.
     // Other paint-affecting ancestor styles cannot be overridden that way.
     if (!l.styles_complete) return false;
-    for (int s : {ClipPath, Filter, BackdropFilter, Transform, Perspective, MaskImage, WebkitMaskImage}) if (l.styles[s] != "none") return false;
+    for (int s : {ClipPath, BackdropFilter, Transform, Perspective, MaskImage, WebkitMaskImage}) if (l.styles[s] != "none") return false;
+    const auto brightness=brightness_gain(l.styles[Filter]);
+    if(!brightness || (unfiltered_embedding && *brightness!=1))return false;
     const auto zoom=css_number(l.styles[Zoom]);
     if (!zoom || *zoom != 1 || l.styles[Clip] != "auto" || l.styles[MixBlendMode] != "normal") return false;
     const auto op=css_number(l.styles[Opacity]); if (!op || *op < 0 || *op > 1) return false;
@@ -281,7 +312,10 @@ bool occluded(FilterState& state, const Document& d, const Layout& target, const
   return false;
 }
 bool shown(FilterState& state, const Document& d, const Layout& l, const Rect& r) {
-  return l.basic && l.effective_opacity >= kMinOpacity && inherited_geometry(state,d,l.node,r,true) && !occluded(state,d,l,r);
+  const bool embedding=l.node>=0 && (d.tags[l.node]=="IFRAME" || d.tags[l.node]=="FRAME" || d.tags[l.node]=="OBJECT" || d.tags[l.node]=="EMBED");
+  // Child-frame contrast is evaluated in its own snapshot. Do not accept an
+  // embedding that changes its colors without propagating those paint layers.
+  return l.basic && l.effective_opacity >= kMinOpacity && inherited_geometry(state,d,l.node,r,true,embedding) && !occluded(state,d,l,r);
 }
 bool center_geometry(const Document& d,const Layout& l) {
   if(l.node<0 || d.node_types[l.node]!=1)return false;
@@ -418,7 +452,7 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
       }
       // Only supported box shadows have bounded ink. Unknown shadow/filter
       // paint still blocks evidence globally rather than guessing its reach.
-      l.unbounded_paint=!shadow_bounds || l.styles[TextShadow]!="none" || l.styles[Filter]!="none" ||
+      l.unbounded_paint=!shadow_bounds || l.styles[TextShadow]!="none" || !brightness_gain(l.styles[Filter]) ||
         l.styles[BackdropFilter]!="none" || (outline_paint && (!outline_width || !outline_offset));
       const std::string tag=l.node>=0?d.tags[l.node]:"";
       const bool media=tag=="IMG" || tag=="SVG" || tag=="CANVAS" || tag=="VIDEO" || tag=="IFRAME" || tag=="OBJECT" || tag=="EMBED";
@@ -467,14 +501,18 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
       bool unsupported=!font || *font<kMinFontSize || !fg || !bg || bg->a<.999 || !l.text_opacity || *l.text_opacity<kMinOpacity ||
         !stroke || *stroke!=0 || l.styles[TextShadow]!="none" || l.styles[TextSecurity]!="none";
       for(int s:{LetterSpacing,WordSpacing}) if(l.styles[s]!="normal") {const auto v=css_number(l.styles[s],true);if(!v || *v<0)unsupported=true;}
+      double gain=1;
       for(int n=l.node,depth=0;n>=0 && static_cast<size_t>(n)<d.parents.size() && depth++<128;n=d.parents[n]) {
         if(d.node_types[n]==9 || d.node_types[n]==11)continue;
         const int ancestor_li=d.node_layout[n];if(ancestor_li<0)continue;const auto& a=d.layouts[ancestor_li];
         if(a.styles[TextOverflow]!="clip" || (a.styles[LineClamp]!="none" && a.styles[LineClamp]!="0"))unsupported=true;
         if(a.styles[BackgroundImage]!="none")unsupported=true;
+        // LayoutText copies its element's computed style, but does not create
+        // another CSS filter layer. Apply only actual element filters once.
+        if(d.node_types[n]==1) {const auto brightness=brightness_gain(a.styles[Filter]);if(!brightness)unsupported=true;else gain*=*brightness;}
       }
       if(unsupported) {state.omit("unsupportedTextStyle");continue;}
-      if(contrast(*fg,*bg,std::min(l.effective_opacity,*l.text_opacity))<kMinContrast) {state.omit("lowContrastText");continue;}
+      if(darkened_contrast(*fg,*bg,std::min(l.effective_opacity,*l.text_opacity),gain)<kMinContrast) {state.omit("lowContrastText");continue;}
       if(!units[li])units[li]=utf16_offsets(l.text);const auto& u=*units[li];
       const size_t begin=static_cast<size_t>(start),end=begin+static_cast<size_t>(length);
       if(!u.safe) {state.omit("unsafeUnicode");continue;}

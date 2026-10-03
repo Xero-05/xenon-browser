@@ -132,6 +132,19 @@ try {
     assert(named(observation, 'Visible opaque overlay'));
     return { hiddenCases: hiddenMarkers.length, requestedFrames: fixture.requestedFrames(), coverage: observation.coverage, visibility: observation.visibility, contentTrust: observation.contentTrust };
   });
+  await check('Brightness hover keeps both rendered controls and their references usable', async () => {
+    let observation = await observe();
+    const document = observation.documentId;
+    for (const name of ['Visible action', 'Rendered label action']) {
+      const node = observation.nodes.find(node => node.role === 'button' && node.name === name && node.ref);
+      assert(node, 'Visible hover target needs a reference');
+      await tool('interact', { ...mutation(), observationId: observation.observationId, action: 'hover', elementRef: node.ref });
+      observation = await observe();
+      assert.equal(observation.documentId, document);
+      for (const label of ['Visible action', 'Rendered label action']) assert(observation.nodes.some(node => node.role === 'button' && node.name === label && node.ref), 'Hover removed an otherwise readable control');
+    }
+    return { hoverOperations: 2, unchangedDocument: true, bothReferencesPreserved: true };
+  });
   await check('Visible button text remains actionable despite hostile accessibility labels', async () => {
     await act('Visible action', 'Visible action completed');
     await act('Rendered label action', 'Referenced label action completed');
@@ -255,7 +268,7 @@ try {
     assert.equal(applicationDllSha256AtEnd, applicationDllSha256, 'Browser DLL changed during visibility validation');
   } catch (error) { results.push({ name: 'Tested binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe',
-    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 9 && results.every(result => result.passed), results };
+    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 11 && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true });
   const reportPath = resolve(root, 'out/visibility-integration-results.json');
   await writeFile(reportPath, JSON.stringify(report, null, 2));

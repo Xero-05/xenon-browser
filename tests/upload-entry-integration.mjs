@@ -148,7 +148,7 @@ async function startFixtures() {
     }
     const direct = ['direct', 'direct-disabled', 'direct-directory'].includes(mode), label = mode === 'none' ? 'No chooser button' : 'Choose approved fixture';
     const inputFlags = (mode === 'direct-disabled' ? 'disabled ' : '') + (mode.includes('directory') ? 'webkitdirectory directory ' : '') + (mode === 'multiple' ? 'multiple ' : '');
-    response.end('<!doctype html><meta charset="utf-8"><title>Upload entry fixture ' + caseId + '</title><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}input,button{font:inherit;margin:12px;padding:10px;color:#152235;background:white}body:after{content:"";position:absolute;left:500px;top:10000px;width:20px;height:12px;box-shadow:0 0 1px #888}[hidden]{display:none!important}</style>' +
+    response.end('<!doctype html><meta charset="utf-8"><title>Upload entry fixture ' + caseId + '</title><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}input,button{font:inherit;margin:12px;padding:10px;color:#152235;background:white}button:hover{filter:brightness(.6);box-shadow:0 2px 6px #0005}body:after{content:"";position:absolute;left:500px;top:10000px;width:20px;height:12px;box-shadow:0 0 1px #888}[hidden]{display:none!important}</style>' +
       '<h1>Upload entry fixture ready</h1><label>' + (direct ? 'Direct upload ' : '') + '<input id="file" type="file" ' + inputFlags + (direct ? '' : 'hidden') + '></label>' + (direct || mode === 'child-hidden' ? '' : '<button id="choose" ' + (mode === 'button-disabled' ? 'disabled' : '') + '>' + label + '</button>') + '<p id="status">No file transferred</p>' +
       '<script>const caseId=' + JSON.stringify(caseId) + ',mode=' + JSON.stringify(mode) + ';const file=document.querySelector("#file"),button=document.querySelector("#choose");' +
       'function event(value){return fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(value)})}event({type:"opened"});' +
@@ -243,6 +243,15 @@ try {
     else { assert(!response.isError, JSON.stringify(response.structuredContent)); selectionFacts(response, 'dispatched', 'selected'); await until(() => fixtureStates.get(caseId).uploaded && fixtureStates.get(caseId).clicks === 1); assert.equal(fixtureStates.get(caseId).clicks, 1); assert.deepEqual(fixtureStates.get(caseId).trusted, [true]); assert.equal(fixtureStates.get(caseId).uploads, 1); }
     return { reproducedUnsupportedEntry: baseline, uploaded: fixtureStates.get(caseId).uploaded, crossOriginFrame: mode === 'frame' };
   });
+  if (!baseline) await check('A brightness-styled hover preserves the approved upload entry', async () => {
+    const tab = await open('hover-entry', 'custom'), { observation, node } = await target(tab, 'Choose approved fixture', 'BUTTON');
+    await tool('interact', { ...mutation(tab), observationId: observation.observationId, action: 'hover', elementRef: node.ref });
+    const response = await upload(tab, 'Choose approved fixture');
+    assert(!response.isError, JSON.stringify(response.structuredContent)); selectionFacts(response, 'dispatched', 'selected');
+    await until(() => fixtureStates.get('hover-entry').uploaded && fixtureStates.get('hover-entry').clicks === 1);
+    assert.equal(fixtureStates.get('hover-entry').uploads, 1);
+    return { hoverSucceeded: true, freshReferenceUsable: true, uploads: 1 };
+  });
   await check('A visible button without a file chooser cannot receive a file', async () => {
     const tab = await open('no-chooser', 'none'), response = await upload(tab, 'No chooser button'); assert(response.isError);
     assert.equal(fixtureStates.get('no-chooser').uploads, 0);
@@ -331,7 +340,7 @@ try {
   } catch (error) { results.push({ name: 'Source and binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe', profile,
     applicationDllSha256, applicationDllSha256AtEnd, mode: baseline ? 'baseline_failure_reproduction' : 'acceptance', benchmark: benchmarkMetadata ?? null,
-    passed: results.length === 6 + (baseline ? 0 : 3) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0) && results.every(result => result.passed), results };
+    passed: results.length === 6 + (baseline ? 0 : 4) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0) && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true }); const reportPath = resolve(root, baseline ? 'out/upload-entry-baseline-results.json' : 'out/upload-entry-integration-results.json');
   await writeFile(reportPath, JSON.stringify(report, null, 2)); console.log('Report: ' + reportPath); process.exitCode = report.passed ? 0 : 1;
 }

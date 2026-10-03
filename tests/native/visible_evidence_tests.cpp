@@ -189,6 +189,27 @@ void editable_values_and_visible_labels() {
   for(size_t i=0;i<f.snapshot["documents"][0]["layout"]["nodeIndex"].size();++i)if(f.snapshot["documents"][0]["layout"]["nodeIndex"][i]==input){f.style(0,static_cast<int>(i),"overflow-x","clip");f.style(0,static_cast<int>(i),"overflow-y","clip");f.style(0,static_cast<int>(i),"border-left-width","2px");f.style(0,static_cast<int>(i),"border-top-width","2px");}
   require(!Fixture::output(f.run(),input).is_null(),"An input's own overflow incorrectly clipped its border-box geometry");
 }
+void brightness_filters_preserve_geometry_and_contrast() {
+  for(const auto& filter:std::vector<std::string>{"brightness(0.6)","brightness(60%)","brightness(0.8) brightness(0.75)"}) {
+    Fixture f;auto [button,text]=f.button(0,1);f.style(0,1,"filter",filter);f.style(0,text,"filter",filter);
+    f.style(0,1,"box-shadow","rgba(0, 0, 0, 0.3) 0px 2px 6px 0px");
+    int n=f.node(0,1,"DIV"),l=f.layout(0,n,{500,900,20,20},100);f.style(0,l,"filter",filter);
+    auto result=f.run();const auto& output=Fixture::output(result,button);
+    require(!output.is_null() && output["name"]=="Visible button","Brightness hover suppressed readable control evidence");
+  }
+  Fixture copied;auto [button,text]=copied.button(0,1);copied.style(0,1,"filter","brightness(0.6)");copied.style(0,text,"filter","brightness(0.6)");
+  copied.style(0,text,"-webkit-text-fill-color","rgb(0, 220, 0)");
+  require(Fixture::output(copied.run(),button)["name"]=="Visible button","LayoutText copied filter was applied as a second brightness layer");
+  for(const auto& filter:std::vector<std::string>{"brightness(0)","brightness(0.1)"}) {
+    Fixture f;auto [b,t]=f.button(0,1,"HIDDEN_DARKENED_TEXT");f.style(0,1,"filter",filter);
+    f.style(0,t,"-webkit-text-fill-color","rgb(255, 255, 255)");f.snapshot["documents"][0]["layout"]["blendedBackgroundColors"][t]=f.string("rgb(0, 0, 0)");
+    auto result=f.run();require(result.dump().find("HIDDEN_DARKENED_TEXT")==std::string::npos,"Unreadable darkened text leaked");require(result["omitted"].contains("lowContrastText"),"Darkened contrast omission was not explicit");
+  }
+  for(const auto& filter:std::vector<std::string>{"brightness(1.2)","brightness(-1)","brightness(0.6) blur(1px)","brightness(0.6)garbage"}) {
+    Fixture f;f.button(0,1,"HIDDEN_UNSUPPORTED_FILTER");int n=f.node(0,1,"DIV"),l=f.layout(0,n,{500,900,20,20},100);f.style(0,l,"filter",filter);
+    require(f.run().dump().find("HIDDEN_UNSUPPORTED_FILTER")==std::string::npos,"Unsupported filter stopped acting as an uncertain paint blocker");
+  }
+}
 void svg_text_requires_visual_evidence() {
   Fixture f;int svg=f.node(0,1,"svg");f.layout(0,svg,{20,20,200,100});int text=f.node(0,svg,"text",{{"fill","transparent"}});f.layout(0,text,{25,25,180,20});
   int child=f.node(0,text,"#text");int layout=f.layout(0,child,{25,25,180,20},2,"HIDDEN_SVG_PAINT");f.box(0,layout,{25,25,180,20},0,16);
@@ -208,6 +229,7 @@ void child_frames_and_malformed_evidence() {
   Fixture f;int owner=f.node(0,1,"IFRAME");f.layout(0,owner,{10,10,400,200},5);int child=f.document("child");int root=f.node(child,-1,"#document");int html=f.node(child,root,"HTML");f.layout(child,html,{0,0,400,200},0);auto [button,text]=f.button(child,html,"Frame button");
   f.snapshot["documents"][0]["nodes"]["contentDocumentIndex"]={{"index",{owner}},{"value",{child}}};
   auto result=f.run();require(result["frames"].contains("child"),"Visible iframe viewport not derived");require(Fixture::output(result,button,child,"child")["name"]=="Frame button","Child-frame visible text missing");require(result["frames"]["child"]["ownerBackendNodeId"]==1000+owner,"Frame owner provenance missing");
+  f.style(0,0,"filter","brightness(0.6)");require(!f.run()["frames"].contains("child"),"Filtered embedding exposed child text without its parent brightness effects");f.style(0,0,"filter","none");
   f.snapshot["documents"][0]["layout"]["bounds"][1]={900,10,400,200};require(!f.run()["frames"].contains("child"),"Offscreen iframe exposed child content");
   Fixture malformed;malformed.button(0,1);malformed.snapshot["documents"][0]["textBoxes"]["start"][0]=99999;
   require(malformed.run()["partial"]==true,"Malformed text range did not fail closed");
@@ -221,7 +243,7 @@ int main(int argc,char** argv) {
     // Optional offline replay accepts only a caller-selected synthetic snapshot;
     // no browser diagnostics or raw website snapshots are enabled in production.
     if(argc==2){std::ifstream input(argv[1]);Json fixture;input>>fixture;std::cout<<xenon::visible_snapshot(fixture.at("snapshot"),fixture.at("viewports")).dump(2)<<'\n';return 0;}
-    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();editable_values_and_visible_labels();svg_text_requires_visual_evidence();utf16_and_unicode_controls();child_frames_and_malformed_evidence();
+    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();utf16_and_unicode_controls();child_frames_and_malformed_evidence();
     std::cout<<"Visible evidence regression tests passed\n";return 0;
   }catch(const std::exception& e){std::cerr<<"Visible evidence test failed: "<<e.what()<<'\n';return 1;}
 }

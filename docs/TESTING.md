@@ -14,6 +14,12 @@ The [alpha.15 package record](test-results/alpha15-package-smoke.json) verifies 
 
 The [introduction validation record](test-results/introduction-validation.json) covers the language-first welcome flow, short browser tour, completion and skip persistence, normal restart, Menu replay and GitHub documentation navigation. The final source candidate passed a full build, all 11 native test targets, six introduction checks, six existing language checks and five bootstrap branding checks. English and Simplified Chinese fixture captures were inspected at the runner's default DPI with the System dark theme. Live checks use native window messages; physical input, multi-monitor/DPI, light-theme and high-contrast acceptance remain unverified.
 
+## Greenhouse hover fix candidate
+
+The [hover validation record](test-results/greenhouse-hover-fix.json) preserves the alpha.15 reproduction: two Attach hovers failed as stale and reduced 33 observed nodes to 12, then 3; moving the pointer away restored 33. The hover style also applies `brightness(0.6)`, which the filter previously rejected as potentially unbounded paint. Supported brightness darkening now preserves geometry and independently proves readable contrast; unknown filters and darkened frame embeddings remain conservative omissions. The existing post-pointer-move validation remains in place.
+
+Native regressions cover percentages, chained filters, copied LayoutText styles, unreadable darkened text and unsupported effects. Synthetic live checks cover two successive hovers, hidden brightness text, stale references and approved file transfer through a hovered entry. The public-page check uses only observation, screenshots, scrolling and hovering in a disposable profile. It verifies both Attach references survive without filling fields or sending files to Greenhouse.
+
 ## Greenhouse observation fix candidate
 
 The [candidate validation record](test-results/greenhouse-observation-fix.json) records the alpha.14 empty-observation reproduction and the corrected production browser. Decorative box shadows previously acted as potential page-wide blockers, including shadows below the viewport. The filter now bounds supported shadows conservatively and preserves fail-closed handling of uncertain paint and geometry.
