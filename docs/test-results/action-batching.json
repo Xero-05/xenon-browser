@@ -1,0 +1,126 @@
+{
+  "run": "batch-1791082569896-3fd1b1b4",
+  "capturedAt": "2026-10-04T02:56:22.566Z",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "68cd038a86cd75007cccf823b31dc68698651c78231dc947a308fe88f56be2f9",
+  "passed": true,
+  "results": [
+    {
+      "name": "modern: eight ordered actions and exact-request deduplication",
+      "passed": true,
+      "elapsedMs": 2348,
+      "detail": {
+        "interactionCalls": 1,
+        "batchMs": 1610,
+        "steps": 8,
+        "verifiedCount": 2,
+        "documentPreserved": true
+      }
+    },
+    {
+      "name": "Separate calls comparison on the same eight-action plan",
+      "passed": true,
+      "elapsedMs": 2339,
+      "detail": {
+        "interactionCalls": 8,
+        "serialMs": 1908,
+        "steps": 8,
+        "limitation": "Deterministic MCP harness timing; excludes model inference and does not establish a general speedup."
+      }
+    },
+    {
+      "name": "Replaced target stops the suffix without retargeting",
+      "passed": true,
+      "elapsedMs": 1164,
+      "detail": {
+        "error": "stale_element",
+        "suffixUntouched": true
+      }
+    },
+    {
+      "name": "Covered target stops the suffix without retargeting",
+      "passed": true,
+      "elapsedMs": 1160,
+      "detail": {
+        "error": "stale_element",
+        "suffixUntouched": true
+      }
+    },
+    {
+      "name": "Navigation cancels original-document targets",
+      "passed": true,
+      "elapsedMs": 1017,
+      "detail": {
+        "status": "stopped",
+        "stoppedAt": 1,
+        "destinationVerified": true
+      }
+    },
+    {
+      "name": "legacy: eight ordered actions and exact-request deduplication",
+      "passed": true,
+      "elapsedMs": 2382,
+      "detail": {
+        "interactionCalls": 1,
+        "batchMs": 1618,
+        "steps": 8,
+        "verifiedCount": 2,
+        "documentPreserved": true
+      }
+    },
+    {
+      "name": "Binary remained unchanged",
+      "passed": true
+    }
+  ],
+  "releaseStatus": "Unreleased local change based on alpha.17; no package or publication performed",
+  "validation": [
+    {
+      "check": "Full native Release build",
+      "passed": true
+    },
+    {
+      "groups": 11,
+      "passed": true,
+      "check": "Final CTest native suite"
+    },
+    {
+      "check": "Adapter typecheck",
+      "passed": true
+    },
+    {
+      "tests": 107,
+      "passed": true,
+      "check": "npm test"
+    },
+    {
+      "checks": 5,
+      "passed": true,
+      "check": "Bootstrap branding integrity"
+    },
+    {
+      "check": "git diff --check",
+      "passed": true
+    }
+  ],
+  "coverageLimits": [
+    "Live results use production CEF and generated synthetic state; no physical human input or credential UI was exercised.",
+    "Native fake-engine cases cover batch ordering, strict admission, deduplication, current-gesture handoff drain, human epochs, navigation/protection, disconnect/retire, read-only policy, client/workspace revocation, unknown result retention and metadata-only restart.",
+    "Interaction calls fell from eight to one; harness elapsed times exclude model inference and do not establish a general model speedup.",
+    "No installer, release packaging or publication was performed."
+  ],
+  "developmentFailures": [
+    {
+      "check": "Initial restricted npm test",
+      "result": "Node child-process creation failed with EPERM; the ordinary Windows runner passed all 107 tests."
+    },
+    {
+      "check": "Initial native build",
+      "result": "Duplicate await_result test helper definition; corrected to reuse the existing helper."
+    },
+    {
+      "check": "Initial expanded broker removal regression",
+      "result": "Removal wrapper discarded stopped batch status; fixed to retain stopped/unknown metadata while withholding page details. Final native suite passed."
+    }
+  ]
+}

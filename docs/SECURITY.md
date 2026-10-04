@@ -22,6 +22,8 @@ Revoking a client removes its workspace/account grants and disconnects its broke
 
 If a revocation cannot be saved, the native client list marks it **NOT SAVED**: access stays blocked for the current run, but restarting can restore the previously saved authorization. Select that entry and use **Revoke / retry** until the browser confirms the revocation is saved.
 
+Simple-action batches are bounded native plans, with every nested step validated before any effects. Scope, authority, operation ID and observation are fixed for the whole plan. Each step uses the existing guarded input path and rechecks document, observation, attachment, permissions, ownership, human activity and authentication protection. Handoff lets only the current gesture drain and prevents all later steps. A failed step cancels the suffix without rollback or replay. Batches cannot contain scripts, credential use, file selection, coordinate guesses or native controls, and retained/recovery outcomes must be inspected before any repeat.
+
 ## Browser and observation boundary
 
 Production starts through the matching CEF sandbox bootstrap with sandboxing enabled and Chromium command-line switches disabled. There is no agent-facing CDP port, JavaScript evaluator, cookie export, request/response-body inspector, clipboard API, OS shell, unrestricted filesystem tool or raw profile-directory argument. Agent navigation is limited to ordinary HTTP(S) and an empty initial page; page-only input excludes browser/OS shortcuts.

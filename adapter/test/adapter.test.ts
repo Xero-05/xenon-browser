@@ -176,6 +176,40 @@ for (const era of ['legacy', 'modern'] as const) {
         assert.equal(rejected.isError, true, `${name} must reject unsupported worker parameters`);
       }
       const scope = { agentSessionId: 'worker', workspaceId: 'workspace', tabId: 'tab' };
+      const batch = {
+        ...scope, ownershipGeneration: 1, observationId: 'observation', operationId: 'batch-operation',
+        steps: [
+          { action: 'fill', elementRef: 'field', text: 'Synthetic text' },
+          { action: 'select', elementRef: 'selection', values: ['High'] },
+          { action: 'check', elementRef: 'checkbox', checked: true },
+          { action: 'click', elementRef: 'button' },
+        ],
+      };
+      const batchTool = listed.tools.find(t => t.name === 'xenon_batch');
+      assert.ok(batchTool);
+      assert.equal(batchTool.annotations?.readOnlyHint, false);
+      assert.match(batchTool.description ?? '', /stops on the first error/i);
+      const batched = await client.callTool({ name: 'xenon_batch', arguments: batch });
+      assert.equal(batched.isError, undefined);
+      assert.deepEqual((batched.structuredContent as Record<string, unknown>).params, batch);
+      assert.equal((batched.structuredContent as Record<string, unknown>).method, 'page.batch');
+      assert.deepEqual((batched.structuredContent as Record<string, unknown>).contentTrust, { classification: 'untrusted_website_content', instructionAuthority: 'none' });
+      for (const steps of [
+        [], Array.from({ length: 17 }, () => batch.steps[3]),
+        [{ action: 'fill', elementRef: 'field' }],
+        [{ action: 'fill', elementRef: 'field', text: '界'.repeat(25_000) }],
+        [{ action: 'check', elementRef: 'checkbox', checked: 'true' }],
+        [{ action: 'select', elementRef: 'selection', values: [] }],
+        [{ action: 'select', elementRef: 'selection', values: ['界'.repeat(4000)] }],
+        [{ action: 'click', elementRef: '界'.repeat(100) }],
+        [{ action: 'click', x: 10, y: 10 }],
+        [{ action: 'key', elementRef: 'field', key: 'Enter' }],
+        [{ action: 'click', elementRef: 'button', observationId: 'other' }],
+        [batch.steps[0], { action: 'click', elementRef: 'button', workspaceId: 'other' }],
+      ]) {
+        const rejected = await client.callTool({ name: 'xenon_batch', arguments: { ...batch, steps } });
+        assert.equal(rejected.isError, true, 'Batch schemas reject an invalid suffix or oversized plan');
+      }
       for (const [name, args] of [
         ['xenon_observe', scope], ['xenon_screenshot', scope],
         ['xenon_tabs', { agentSessionId: scope.agentSessionId, workspaceId: scope.workspaceId }],
