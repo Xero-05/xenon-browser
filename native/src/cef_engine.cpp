@@ -1676,6 +1676,13 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     if(!files_){reply(failure("files_unavailable","The native file policy is unavailable."));return;}
     const bool folders=command=="files.folders";const char* key=folders?"folders":"files";Json all=Json::array();
     std::set<std::string> selected;for(const auto& id:p.value("allowedFileIds",Json::array()))if(id.is_string())selected.insert(id.get<std::string>());
+    if(!folders){
+      std::vector<std::string> scopes;for(const auto& scope:p.value("fileScopes",Json::array({field(p,"workspaceId")})))if(scope.is_string())scopes.push_back(scope.get<std::string>());
+      reply(files_->discover_files(scopes,field(p,"folderId"),static_cast<size_t>(std::clamp(p.value("limit",100),1,1000)),
+        field(p,"cursor"),field(p,"query"),p.value("restrictFileIds",false)?std::optional<std::set<std::string>>(selected):std::nullopt,
+        field(p,"clientId")+"/"+field(p,"agentSessionId")+"/"+field(p,"workspaceId")));
+      return;
+    }
     bool found=field(p,"folderId").empty();const auto limit=static_cast<size_t>(std::clamp(p.value("limit",100),1,1000));
     for(const auto& scope:p.value("fileScopes",Json::array({field(p,"workspaceId")})))if(scope.is_string()) {
       const auto value=scope.get<std::string>();auto result=folders?files_->list_folders(value):files_->list_files(value,field(p,"folderId"),limit);
@@ -1691,7 +1698,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   }
   auto it=tabs_.find(field(p,"tabId"));if(it==tabs_.end()){reply(failure("tab_not_found","The tab is not available."));return;}
   auto t=it->second;
-  const bool mutating=command!="page.observe"&&command!="page.screenshot"&&command!="page.wait"&&command!="auth.accounts";
+  const bool mutating=command!="page.observe"&&command!="page.screenshot"&&command!="page.inspect"&&command!="page.wait"&&command!="auth.accounts";
   ActionScope action_scope(*this,mutating?std::make_shared<ActionGuard>(ActionGuard{t->epoch,t->human_input,std::move(continuation),command=="files.upload"}):nullptr);
   if(field(p,"workspaceId",t->workspace)!=t->workspace){reply(failure("wrong_workspace","The tab belongs to a different workspace."));return;}
   if(t->protected_auth&&command!="tabs.close"){
@@ -1708,6 +1715,37 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   }
   if(!web_url(t->browser->GetMainFrame()->GetURL().ToString())){reply(failure("internal_page","Browser settings and privileged pages require native human interaction."));return;}
   if(command=="page.observe"){observe(t,p,reply);return;}
+  if(command=="page.inspect"){
+    const auto epoch=t->epoch, human_input=t->human_input;
+    observe(t,p,[this,t,p,epoch,human_input,reply](Json before){
+      if(!before.value("ok",false)){reply(before);return;}
+      exec("page.screenshot",p,[this,t,p,epoch,human_input,reply,before](Json capture){
+        if(!capture.value("ok",false)){reply(capture);return;}
+        observe(t,p,[t,epoch,human_input,reply,before,capture](Json after) mutable {
+          if(!after.value("ok",false)){reply(after);return;}
+          auto comparable=[](Json evidence){
+            for(auto& node:evidence["nodes"])node.erase("ref");
+            return Json{{"documentId",evidence["documentId"]},{"viewport",evidence.value("viewport",Json::object())},
+              {"nodes",evidence["nodes"]},{"frames",evidence["frames"]},{"coverage",evidence["coverage"]},
+              {"truncated",evidence["truncated"]}};
+          };
+          auto& observation=after["result"];auto& screenshot=capture["result"];
+          auto viewport=screenshot["viewport"];viewport.erase("coordinates");
+          if(t->closed||t->epoch!=epoch||t->human_input!=human_input||t->protected_auth||
+             comparable(before["result"])!=comparable(observation)||viewport!=observation.value("viewport",Json::object())||
+             screenshot["documentId"]!=observation["documentId"]){
+            t->screenshot.clear();reply(failure("inspection_changed","Document, viewport or rendered evidence changed during capture. Inspect again."));return;
+          }
+          t->screenshot=field(observation,"observationId");
+          for(const auto* key:{"mimeType","data","imageWidth","imageHeight","scaleX","scaleY","coordinateMapping"})observation[key]=screenshot[key];
+          observation["consistency"]="validated_capture_interval";
+          observation["screenshotCapturedAtUnixMs"]=screenshot["capturedAtUnixMs"];
+          observation["limitations"].push_back("Rendered nodes and viewport were checked before and after the screenshot. Page scripts and image/canvas content are not frozen; this is not an atomic page snapshot.");
+          reply(std::move(after));
+        });
+      });
+    });return;
+  }
   if(command=="page.click"||command=="page.hover"){click(t,p,reply,command=="page.hover");return;}
   if(command=="page.fill"){fill(t,p,reply);return;}
   if(command=="page.key"){

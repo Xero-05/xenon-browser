@@ -5,7 +5,8 @@ import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { resolve, basename } from 'node:path';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/client';
@@ -21,6 +22,8 @@ const runFile = promisify(execFile), results = [];
 const hash = async path => createHash('sha256').update(await readFile(path)).digest('hex');
 const manifest = JSON.parse(await readFile(resolve(release, 'release-manifest.json'), 'utf8'));
 const applicationDllSha256 = await hash(resolve(release, 'Xenon.dll'));
+const { createScopedWorker } = await import(pathToFileURL(resolve(release, 'adapter/dist/src/scoped-client.js')).href);
+const evidenceDirectory = resolve(profile, 'public-mcp-evidence');
 assert.equal(applicationDllSha256, manifest.files.find(f => f.path === 'Xenon.dll')?.sha256);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const pipeAlive = () => new Promise(r => {
@@ -51,7 +54,7 @@ const server = http.createServer((req, res) => {
   res.end('<!doctype html><title>Xenon release fixture</title><style>body{font:16px system-ui;margin:18px;background:#f2f4f8;color:#18212d}label{display:block;margin:12px 0}input{margin:4px}</style><h1>Packaged browser ready</h1><button onclick="this.textContent=\'Package action verified\'">Verify package action</button><label>Package first field <input id="first"></label><label>Package second field <input id="second"></label><button onclick="if(document.querySelector(\'#first\').value===\'Synthetic first\'&&document.querySelector(\'#second\').value===\'Synthetic second\')this.textContent=\'Package batch verified\'">Verify package batch</button>');
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
-let browser, client, tab, branding;
+let browser, client, tab, branding, helperInspection, helperScope;
 try {
   await check('Packaged branding changes only permitted CEF bootstrap resources', async () => {
     branding = await verifyBranding({ release }); assert.equal(branding.passed, true);
@@ -63,8 +66,10 @@ try {
     await until(pipeAlive, 30000);
     client = new Client({ name: 'Xenon release smoke', version: '1' });
     await client.connect(new StdioClientTransport({ command: resolve(release, 'runtime/node.exe'),
-      args: [resolve(release, 'adapter/dist/src/cli.js'), 'serve', '--config', configPath], stderr: 'pipe' }));
-    assert((await client.listTools()).tools.some(tool => tool.name === 'xenon_batch'), 'Packaged adapter must expose batching');
+      args: [resolve(release, 'adapter/dist/src/cli.js'), 'serve', '--config', configPath, '--evidence-dir', evidenceDirectory], stderr: 'pipe' }));
+    const tools = (await client.listTools()).tools;
+    assert(tools.some(tool => tool.name === 'xenon_batch'), 'Packaged adapter must expose batching');
+    assert(tools.some(tool => tool.name === 'xenon_inspect'), 'Packaged adapter must expose combined inspection');
   });
   const tool = async (name, args = {}) => {
     const response = await client.callTool({ name: `xenon_${name}`, arguments: args });
@@ -110,6 +115,45 @@ try {
     assert.equal(result.status, 'completed'); assert.equal(result.steps.length, 3);
     await until(async () => (await observe(scope)).nodes?.some(node => node.role === 'button' && node.name === 'Package batch verified'));
   });
+  await check('Packaged scoped helper combines inspection, control and a verified batch', async () => {
+    const worker = await createScopedWorker(client, 'Packaged scoped helper');
+    const { tab: bound, reply: created } = await worker.createTab(`http://127.0.0.1:${server.address().port}/`);
+    await until(async () => (await observe(bound.scope)).nodes?.some(node => node.name === 'Verify package action'));
+    const inspection = await bound.inspect();
+    assert.equal(inspection.structuredContent.consistency, 'validated_capture_interval');
+    assert(inspection.content.some(item => item.type === 'image' && item.mimeType === 'image/png'));
+    assert.equal(inspection.structuredContent.control.tabId, bound.scope.tabId);
+    const button = inspection.structuredContent.nodes.find(node => node.name === 'Verify package action' && node.ref);
+    assert(button);
+    const outcome = await bound.batch([{ action: 'click', elementRef: button.ref }], {
+      observationId: inspection.structuredContent.observationId, ownershipGeneration: created.structuredContent.ownershipGeneration
+    }, { inspectAfter: true });
+    assert.equal(outcome.batch.structuredContent.status, 'completed');
+    assert(outcome.batch.structuredContent.timing.executionMs >= 0);
+    assert(outcome.batch.structuredContent.steps[0].durationMs >= 0);
+    assert(outcome.inspection && !outcome.inspection.isError);
+    assert(outcome.inspection.structuredContent.nodes.some(node => node.name === 'Package action verified'));
+    helperInspection = outcome.inspection; helperScope = bound.scope;
+  });
+  await check('Packaged opt-in export preserves exact public replies and permitted PNGs', async () => {
+    const requests = (await readdir(evidenceDirectory)).filter(name => name.endsWith('.request.json'));
+    assert(requests.length > 0);
+    let matched = false;
+    for (const name of requests) {
+      const request = JSON.parse(await readFile(resolve(evidenceDirectory, name), 'utf8'));
+      const result = JSON.parse(await readFile(resolve(evidenceDirectory, `${request.requestId}.result.json`), 'utf8')).result;
+      if (request.name !== 'xenon_inspect' || request.arguments.tabId !== helperScope.tabId ||
+          result.structuredContent.observationId !== helperInspection.structuredContent.observationId) continue;
+      assert.deepEqual(request.arguments, helperScope);
+      assert.deepEqual(result, helperInspection);
+      for (const [index, item] of result.content.entries()) {
+        if (item.type === 'image' && item.mimeType === 'image/png')
+          assert.deepEqual(await readFile(resolve(evidenceDirectory, `${request.requestId}.${index}.png`)), Buffer.from(item.data, 'base64'));
+      }
+      matched = true;
+    }
+    assert(matched, 'The exact helper inspection reply must be exported');
+  });
 } catch (error) {
   if (!results.some(r => !r.passed)) results.push({ name: 'Release harness', passed: false, error: error.message });
   console.log(`FAIL ${error.message}`);
@@ -118,8 +162,9 @@ try {
   if (browser?.pid) await runFile('taskkill.exe', ['/PID', String(browser.pid), '/T', '/F'], { windowsHide: true }).catch(() => {});
   server.closeAllConnections(); await new Promise(r => server.close(r));
   const report = { run, capturedAt: new Date().toISOString(), release: basename(release),
-    applicationDllSha256, branding, passed: results.length === 4 && results.every(r => r.passed), results };
+    applicationDllSha256, branding, passed: results.length === 6 && results.every(r => r.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true });
   await writeFile(resolve(root, 'out/package-smoke-results.json'), JSON.stringify(report, null, 2) + '\n');
+  await writeFile(resolve(root, 'out', `${run}.json`), JSON.stringify(report, null, 2) + '\n');
   process.exitCode = report.passed ? 0 : 1;
 }

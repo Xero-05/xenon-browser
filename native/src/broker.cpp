@@ -22,7 +22,15 @@ std::string field(const Json& value, const char* key) {
 }
 using Delivery = std::pair<Reply, Json>;
 void deliver(std::vector<Delivery> items) { for (auto& [reply, value] : items) if (reply) { try { reply(std::move(value)); } catch (...) {} } }
-const std::set<std::string> read_commands{"page.observe", "page.screenshot", "files.downloads", "auth.accounts"};
+const std::set<std::string> read_commands{"page.observe", "page.screenshot", "page.inspect", "files.downloads", "auth.accounts"};
+bool valid_handle(const Json& value) {
+  if (!value.is_string()) return false;
+  const auto& id = value.get_ref<const std::string&>();
+  return !id.empty() && id.size() <= 256 && std::all_of(id.begin(), id.end(), [](unsigned char ch) { return ch > 32 && ch != 127; });
+}
+double elapsed_ms(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end) {
+  return std::chrono::duration<double, std::milli>(end - start).count();
+}
 const std::set<std::string> write_commands{"tabs.close", "page.navigate", "page.back", "page.forward", "page.reload", "page.click", "page.fill", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.batch", "page.dialog", "files.upload", "auth.login"};
 const std::set<std::string> target_commands{"page.click", "page.fill", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.batch", "files.upload", "auth.login"};
 // Validate the entire bounded plan before admitting any effects. Nested steps
@@ -35,7 +43,7 @@ bool valid_batch(const Json& params) {
     if (!step.is_object()) return false;
     bytes += step.dump().size(); if (bytes > 65536) return false;
     const auto action = field(step, "action"), ref = field(step, "elementRef");
-    if (ref.empty() || ref.size() > 256) return false;
+    if (!step.contains("elementRef") || !valid_handle(step["elementRef"])) return false;
     std::set<std::string> keys{"action", "elementRef"};
     if (action == "fill") {
       keys.insert("text"); const auto text = step.find("text");
@@ -115,6 +123,8 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     bool dispatched{};
     Json result;
     std::vector<Reply> waiters;
+    std::chrono::steady_clock::time_point queued_at{std::chrono::steady_clock::now()};
+    std::optional<std::chrono::steady_clock::time_point> started_at;
   };
   BrowserEngine& engine;
   std::filesystem::path root;
@@ -465,6 +475,10 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     }
     value["operationId"] = id;
     value["dispatchStatus"] = operation.dispatched ? "dispatched" : "not_dispatched";
+    const auto finished_at = std::chrono::steady_clock::now();
+    value["timing"] = {{"queueMs", elapsed_ms(operation.queued_at, operation.started_at.value_or(finished_at))},
+                       {"executionMs", operation.started_at ? elapsed_ms(*operation.started_at, finished_at) : 0.0},
+                       {"totalMs", elapsed_ms(operation.queued_at, finished_at)}};
     operation.result = value;
     for (auto& waiter : operation.waiters) output.emplace_back(std::move(waiter), value);
     operation.waiters.clear();
@@ -508,11 +522,14 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       else if(clients.at(client).policy_epoch!=policy_epoch||!allowed(client,workspace,method))value=failure("PERMISSION_CHANGED","Native permissions changed while the result was pending");
       else if(!worker_active_locked(session,client,connection,attachment))value=stale_worker_locked(session);
       else if (it == tabs.end() || it->second.workspace != workspace) value = failure("TAB_CLOSED", "Tab closed while observing");
-      else if (it->second.protected_auth && (method == "page.observe" || method == "page.screenshot" || method == "page.wait")) value = failure("SENSITIVE_AUTH_IN_PROGRESS", "Detailed observations are paused during protected authentication");
+      else if (it->second.protected_auth && (method == "page.observe" || method == "page.screenshot" || method == "page.inspect" || method == "page.wait")) value = failure("SENSITIVE_AUTH_IN_PROGRESS", "Detailed observations are paused during protected authentication");
       else if (it->second.human_busy) value = failure("HUMAN_INPUT_PAUSED", "Human page input is still active; wait for the pause to end and observe again");
       else if (it->second.generation != generation || it->second.frozen) value = failure("OWNERSHIP_CHANGED", "Control changed while observing; capture a fresh observation");
       else if (it->second.state_epoch != state_epoch || !it->second.active.empty() || !it->second.dialog_active.empty()) value = failure("OBSERVATION_CHANGED", "The tab changed while observing; capture a fresh observation");
-      else observe_result_locked(it->second, session, value, generation);
+      else {
+        observe_result_locked(it->second, session, value, generation);
+        if (method == "page.inspect" && value.value("ok", false)) value["result"]["control"] = tab_json(tab_id, it->second, session);
+      }
       finish_callback_locked(session);
     }
     reply(std::move(value));
@@ -580,17 +597,18 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     auto self = shared_from_this();
     auto started = std::make_shared<std::atomic<bool>>(false);
     auto completed = std::make_shared<std::atomic<bool>>(false);
-    auto reply = [self, tab_id, command, progress, done, index, action, started, completed](Json value) {
+    const auto step_start = std::chrono::steady_clock::now();
+    auto reply = [self, tab_id, command, progress, done, index, action, started, completed, step_start](Json value) {
       if (completed->exchange(true)) return;
       if (!value.is_object() || !value.contains("ok") || !value["ok"].is_boolean()) value = failure("OUTCOME_UNKNOWN", "Step returned an invalid completion; inspect the page before continuing");
-      progress->results.push_back({{"index", index}, {"action", action}, {"dispatchStatus", started->load() ? "dispatched" : "not_dispatched"}, {"response", value}});
+      progress->results.push_back({{"index", index}, {"action", action}, {"durationMs", elapsed_ms(step_start, std::chrono::steady_clock::now())}, {"dispatchStatus", started->load() ? "dispatched" : "not_dispatched"}, {"response", value}});
       ++progress->next;
       if (!value.value("ok", false)) {
         const auto code = field(value.value("error", Json::object()), "code");
         const bool unknown = code == "OUTCOME_UNKNOWN" || code == "input_uncertain" || code == "input_interrupted";
         const auto& steps = command.params.at("steps");
         for (; progress->next < steps.size(); ++progress->next)
-          progress->results.push_back({{"index", progress->next}, {"action", field(steps[progress->next], "action")}, {"dispatchStatus", "not_dispatched"}, {"status", "skipped"}});
+          progress->results.push_back({{"index", progress->next}, {"action", field(steps[progress->next], "action")}, {"durationMs", 0.0}, {"dispatchStatus", "not_dispatched"}, {"status", "skipped"}});
         done(success({{"status", unknown ? "outcome_unknown" : "stopped"}, {"stoppedAt", index}, {"steps", progress->results}})); return;
       }
       self->batch_step(tab_id, command, progress, done);
@@ -660,7 +678,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
             if (tab->second.dialog_active == command.operation) tab->second.dialog_active.clear();
             self->finish_locked(command.operation, failure(!persisted ? "JOURNAL_UNAVAILABLE" : human_changed ? "HUMAN_ACTIVITY" : "OWNERSHIP_CHANGED", persisted ? "Command was cancelled before dispatch; observe again before continuing" : "Command was not dispatched because its recovery record could not be saved"), cancelled, persisted ? "cancelled" : "failed");
             self->transfer_if_ready_locked(tab->second);
-          } else { dispatch = true; }
+          } else { dispatch = true; operation->second.started_at = std::chrono::steady_clock::now(); }
         }
       }
       deliver(std::move(cancelled));
@@ -759,6 +777,11 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   auto authenticated = self->connections.find(connection);
   if (authenticated == self->connections.end()) { respond(failure("UNAUTHORIZED", "Authenticate the local adapter first")); return; }
   const auto client = authenticated->second;
+  // Validate native syntax too. Unknown/foreign IDs share denial codes to
+  // avoid revealing resources belonging to another principal.
+  for (const auto* key : {"agentSessionId", "workspaceId", "tabId", "toSessionId", "folderId", "fileId", "accountId", "observationId", "operationId", "cursor", "elementRef", "fromRef", "toRef"}) {
+    if (params.contains(key) && !valid_handle(params[key])) { respond(failure("INVALID_HANDLE", std::string(key) + " must be a nonempty opaque ID of at most 256 UTF-8 bytes without whitespace or control characters. Copy the returned handle exactly.")); return; }
+  }
   if (method == "control.activity") {
     Json result = Json::array();
     for (const auto& [id, tab] : self->tabs) {
@@ -842,10 +865,14 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     respond(success({{"operationId", id}, {"state", operation->second.state}, {"dispatchStatus", operation->second.dispatched ? "dispatched" : "not_dispatched"}, {"response", operation->second.result}})); return;
   }
   auto session_id = field(params, "agentSessionId"); auto worker = self->workers.find(session_id);
+  if (session_id.empty()) { respond(failure("INVALID_SCOPE", "This action requires an explicit agentSessionId returned by Xenon")); return; }
   if(worker!=self->workers.end() && worker->second.client==client && worker->second.retiring){respond(failure("SESSION_RETIRED","This worker is retiring and cannot accept requests"));return;}
-  if (worker == self->workers.end() || worker->second.client != client || !worker->second.connected || worker->second.connection != connection) { respond(failure("SESSION_DENIED", "Use a connected worker belonging to this client")); return; }
+  if (worker == self->workers.end() || worker->second.client != client) { respond(failure("SESSION_DENIED", "Unknown or unauthorized worker handle; use an agentSessionId returned for this paired client")); return; }
+  if (!worker->second.connected) { respond(failure("SESSION_DISCONNECTED", "This client's worker is disconnected. Resume it explicitly before using its handles")); return; }
+  if (worker->second.connection != connection) { respond(failure("SESSION_CONNECTION_MISMATCH", "This client's worker is attached to another connection. Route calls through its original connection")); return; }
   auto workspace_id = field(params, "workspaceId");
-  if (workspace_id.empty() || !self->granted(client, workspace_id)) { respond(failure("WORKSPACE_DENIED", "Workspace access has not been granted")); return; }
+  if (workspace_id.empty()) { respond(failure("INVALID_SCOPE", "Supply the opaque workspaceId returned by Xenon, not a workspace name")); return; }
+  if (!self->granted(client, workspace_id)) { respond(failure("WORKSPACE_DENIED", "Unknown or ungranted workspace handle; use xenon_workspaces to find this client's authorized IDs")); return; }
   if (!self->workspaces.at(workspace_id).ready) { respond(failure("WORKSPACE_NOT_READY", "Workspace is not initialized")); return; }
   if(!self->allowed(client,workspace_id,method)){respond(failure("PERMISSION_DENIED","This action is disabled by client or workspace permissions"));return;}
   const auto attachment=worker->second.attachment;
@@ -918,6 +945,8 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     },std::move(permit)); return;
   }
   auto tab_id = field(params, "tabId"); auto found = self->tabs.find(tab_id);
+  if (tab_id.empty()) { respond(failure("INVALID_SCOPE", "This action requires an explicit tabId from xenon_tabs or xenon_tab_create")); return; }
+  if (found != self->tabs.end() && found->second.workspace != workspace_id && self->granted(client, found->second.workspace)) { respond(failure("SCOPE_MISMATCH", "The supplied tabId belongs to a different authorized workspace. Reuse its matching workspaceId")); return; }
   if (found == self->tabs.end() || found->second.workspace != workspace_id) { respond(failure("TAB_DENIED", "Unknown tab in this workspace")); return; }
   auto& tab = found->second;
   if (method == "control.status") { respond(success(self->tab_json(tab_id, tab, session_id))); return; }
@@ -939,7 +968,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     std::vector<Delivery> output; self->begin_transfer_locked(tab, recipient, output, "OWNERSHIP_CHANGED");
     auto result = success(self->tab_json(tab_id, tab, session_id)); lock.unlock(); deliver(std::move(output)); reply(std::move(result)); return;
   }
-  if (tab.protected_auth && (method == "page.observe" || method == "page.screenshot" || method == "page.wait")) { respond(failure("SENSITIVE_AUTH_IN_PROGRESS", "Detailed observations are paused during protected authentication")); return; }
+  if (tab.protected_auth && (method == "page.observe" || method == "page.screenshot" || method == "page.inspect" || method == "page.wait")) { respond(failure("SENSITIVE_AUTH_IN_PROGRESS", "Detailed observations are paused during protected authentication")); return; }
   if (method == "page.wait") {
     if (tab.human_busy) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input is active; wait for the pause to end before observing")); return; }
     if (!tab.active.empty() || !tab.dialog_active.empty() || tab.frozen) { respond(failure("TAB_BUSY", "Tab is executing input or changing owner")); return; }

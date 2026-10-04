@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 export interface NativeError { code: string; message: string }
-export type NativeReply = ({ ok: true; result: Record<string, unknown> } | { ok: false; error: NativeError }) & { operationId?: string; dispatchStatus?: string };
+export type NativeReply = ({ ok: true; result: Record<string, unknown> } | { ok: false; error: NativeError }) & { operationId?: string; dispatchStatus?: string; timing?: { queueMs: number; executionMs: number; totalMs: number } };
 export interface ClientConfig { clientId: string; token: string; pipe?: string }
 export interface BrokerTransport {
   call(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<NativeReply>;

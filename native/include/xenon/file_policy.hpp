@@ -36,6 +36,11 @@ class FilePolicy {
   Json grant_folder(const std::string& scope, const std::filesystem::path& native_path);
   Json list_folders(const std::string& scope) const;
   Json list_files(const std::string& scope, const std::string& folder_id = {}, size_t limit = 100);
+  // Opaque, expiring cursors bind the complete authorized scope and filter.
+  Json discover_files(const std::vector<std::string>& scopes, const std::string& folder_id,
+                      size_t limit, const std::string& cursor = {}, const std::string& query = {},
+                      const std::optional<std::set<std::string>>& selected = std::nullopt,
+                      const std::string& principal = {});
   Json revoke_grant(const std::string& scope, const std::string& grant_id);
   std::optional<UploadFile> resolve_upload(const std::string& scope, const std::string& file_id) const;
   bool selected_grant(const std::string& scope, const std::string& file_id, const std::set<std::string>& selected) const;

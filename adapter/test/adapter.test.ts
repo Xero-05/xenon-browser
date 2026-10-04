@@ -11,6 +11,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { PipeTransport } from '../src/ipc.js';
 import { toolResult } from '../src/server.js';
 import { writePrivateConfig } from '../src/private-config.js';
+import { ScopedXenonTab } from '../src/scoped-client.js';
 
 test('pairing configuration is written privately and never overwrites an existing grant', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'xenon-config-test-'));
@@ -176,6 +177,8 @@ for (const era of ['legacy', 'modern'] as const) {
         assert.equal(rejected.isError, true, `${name} must reject unsupported worker parameters`);
       }
       const scope = { agentSessionId: 'worker', workspaceId: 'workspace', tabId: 'tab' };
+      const bound = await new ScopedXenonTab(client, scope).observe();
+      assert.deepEqual(bound.structuredContent?.params, scope);
       const batch = {
         ...scope, ownershipGeneration: 1, observationId: 'observation', operationId: 'batch-operation',
         steps: [
@@ -211,7 +214,7 @@ for (const era of ['legacy', 'modern'] as const) {
         assert.equal(rejected.isError, true, 'Batch schemas reject an invalid suffix or oversized plan');
       }
       for (const [name, args] of [
-        ['xenon_observe', scope], ['xenon_screenshot', scope],
+        ['xenon_observe', scope], ['xenon_screenshot', scope], ['xenon_inspect', scope],
         ['xenon_tabs', { agentSessionId: scope.agentSessionId, workspaceId: scope.workspaceId }],
         ['xenon_downloads', { agentSessionId: scope.agentSessionId, workspaceId: scope.workspaceId }],
         ['xenon_operation', { operationId: 'previous-page-operation' }],
@@ -229,6 +232,13 @@ for (const era of ['legacy', 'modern'] as const) {
         const metadata = files.structuredContent as Record<string, unknown>;
         assert.equal((metadata.textSafety as Record<string, unknown>).withheldValues, 0);
         assert.ok(!Object.hasOwn(metadata, 'contentTrust'));
+      }
+      const fileArgs = { agentSessionId: scope.agentSessionId, workspaceId: scope.workspaceId, folderId: 'folder', limit: 1, query: 'nested/report', cursor: 'continuation' };
+      const filesPage = await client.callTool({ name: 'xenon_files', arguments: fileArgs });
+      assert.deepEqual((filesPage.structuredContent as Record<string, unknown>).params, fileArgs);
+      for (const args of [{ ...scope, tabId: 'copied tab label' }, { ...scope, agentSessionId: 123 }, { ...scope, workspaceId: '界'.repeat(100) }]) {
+        const invalidHandle = await client.callTool({ name: 'xenon_inspect', arguments: args });
+        assert.equal(invalidHandle.isError, true);
       }
       const invalid = await client.callTool({ name: 'xenon_login', arguments: { password: 'CANARY-not-a-supported-parameter' } });
       assert.equal(invalid.isError, true);

@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.1.0-alpha.19
+
+Granted-file discovery supports filename/relative-path queries and opaque continuation cursors, with explicit truncation and incomplete-scan reporting. Native validation keeps every page bound to the original worker, workspace and grants. Malformed handles and authorized scope mismatches have clearer diagnostics; unknown or foreign handles retain conservative denials.
+
+The new `xenon_inspect` read returns visible nodes, a permitted PNG and broker control metadata under one observation ID. Native checks validate the capture interval and withhold changed or protected evidence. Page scripts and canvas continue running. The official-MCP scoped worker/tab helper binds scope, keeps action evidence explicit and retains operation IDs when a connection fails without retrying mutations.
+
+Hosts can opt into `serve --evidence-dir <new-private-directory>` to save exact public MCP tool requests and replies, operation IDs and permitted PNGs in a private bounded directory. Export starts on the first accepted tool call, including with modern SDK discovery. Native operation replies now include queue/execution timings, and batch results include per-step durations. Worker instructions are shorter while retaining ownership, privacy and stale-evidence requirements.
+
+Both Windows x64 formats remain unsigned prerelease artifacts. Restart Xenon and reconnect the adapter after upgrading so the host discovers the new tool. Runtime dependency pins remain unchanged, including the documented Chrome security-update lag. See the [MCP reference](MCP.md), [agent guide](AGENT_GUIDE.md) and [validation scope](TESTING.md).
+
 ## 0.1.0-alpha.18
 
 Agents can use `xenon_batch` to fill multiple visible fields, select options, check boxes and click observed controls in one MCP call. Up to 16 simple actions run in order using the original observation and one operation ID. The eight-action synthetic form sequence uses one interaction call instead of eight; harness timings exclude model inference and do not establish a general model-speed improvement.

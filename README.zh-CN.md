@@ -8,9 +8,9 @@
 
 Xenon 把 Chromium 网页浏览和原生智能体控制结合起来。外部智能体可以查看页面、操作网站，还能接手正在运行的标签页。哪些 MCP 客户端可以连接、能用哪些工作区、能访问哪些已保存账号或本地文件，全部由你决定。模型由你自己的 MCP 宿主提供：Xenon 不内置大语言模型，也不需要模型 API 密钥。
 
-**当前版本：0.1.0-alpha.18 · Windows 10/11 x64 · 未签名 Alpha 版本。** 提供当前用户安装程序和便携 ZIP 包，并支持原生更新检查。参见[发行说明](docs/RELEASE_NOTES.md)和[验证范围](docs/TESTING.md)。
+**当前版本：0.1.0-alpha.19 · Windows 10/11 x64 · 未签名 Alpha 版本。** 提供当前用户安装程序和便携 ZIP 包，并支持原生更新检查。参见[发行说明](docs/RELEASE_NOTES.md)和[验证范围](docs/TESTING.md)。
 
-[下载 Windows 版本](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.18) · [快速入门](docs/GETTING_STARTED.md) · [用户指南](docs/USER_GUIDE.md) · [智能体指南](docs/AGENT_GUIDE.md) · [MCP 参考](docs/MCP.md)
+[下载 Windows 版本](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.19) · [快速入门](docs/GETTING_STARTED.md) · [用户指南](docs/USER_GUIDE.md) · [智能体指南](docs/AGENT_GUIDE.md) · [MCP 参考](docs/MCP.md)
 
 ## 应用截图
 

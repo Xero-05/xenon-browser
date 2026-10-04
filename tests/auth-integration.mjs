@@ -91,7 +91,7 @@ async function check(name, fn) {
   catch (error) { results.push({ name, passed: false, elapsedMs: Date.now() - start, error: error.message }); console.log(`FAIL ${name}: ${error.message}`); }
 }
 async function expectSealed(client, worker, tab) {
-  for (const action of ['observe', 'screenshot']) {
+  for (const action of ['observe', 'screenshot', 'inspect']) {
     const result = await raw(client, action, scope(tab, worker));
     assert(result.isError, `${action} exposed a protected authentication document`);
     assert(['SENSITIVE_AUTH_IN_PROGRESS', 'protected_auth', 'screenshot_protected'].includes(result.structuredContent?.error?.code), `${action} failed for an unrelated reason: ${result.structuredContent?.error?.code ?? 'missing error code'}`);
@@ -339,7 +339,8 @@ try {
   const report = { run, capturedAt: new Date().toISOString(), binary, applicationDll, applicationDllSha256, applicationDllSha256AtEnd, profile,
     passed: results.length > 0 && results.every(r => r.passed), logCanaryScan, results };
   await mkdir(resolve(root, 'out'), { recursive: true });
-  await writeFile(resolve(root, 'out/auth-integration-results.json'), JSON.stringify(report, null, 2));
-  console.log(`Report: ${resolve(root, 'out/auth-integration-results.json')}`);
+  const reportPath = resolve(root, 'out', `${run}.json`);
+  await writeFile(reportPath, JSON.stringify(report, null, 2));
+  console.log(`Report: ${reportPath}`);
   process.exitCode = report.passed ? 0 : 1;
 }

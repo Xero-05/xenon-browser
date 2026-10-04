@@ -1,4 +1,5 @@
 #include "xenon/file_policy.hpp"
+#include <chrono>
 #include "xenon/local_security.hpp"
 #include <windows.h>
 #include <algorithm>
@@ -45,6 +46,11 @@ std::wstring folded(std::wstring value) {
 bool same_path(const std::filesystem::path& a, const std::filesystem::path& b) {
   const auto aa = a.native(), bb = b.native();
   return CompareStringOrdinal(aa.data(), static_cast<int>(aa.size()), bb.data(), static_cast<int>(bb.size()), TRUE) == CSTR_EQUAL;
+}
+bool contains_name(const std::wstring& name, const std::wstring& query) {
+  for (size_t at = 0; at + query.size() <= name.size(); ++at)
+    if (query.empty() || CompareStringOrdinal(name.data() + at, static_cast<int>(query.size()), query.data(), static_cast<int>(query.size()), TRUE) == CSTR_EQUAL) return true;
+  return false;
 }
 bool within(const std::filesystem::path& target, const std::filesystem::path& root) {
   auto ti = target.begin();
@@ -212,6 +218,15 @@ struct FilePolicy::Impl {
   std::vector<FileIdentity> denied_source_ids;
   std::map<std::string, Grant> grants;
   std::map<std::string, Grant> folders;
+  struct Discovery {
+    std::string binding;
+    std::shared_ptr<std::vector<Grant>> entries{std::make_shared<std::vector<Grant>>()};
+    size_t bytes{};
+    size_t next{};
+    bool incomplete{};
+    std::chrono::steady_clock::time_point expires;
+  };
+  std::map<std::string, Discovery> discoveries;
   std::map<std::string, std::filesystem::path> download_scopes;
   mutable std::mutex mutex;
   bool denied(const std::filesystem::path& path, const FileIdentity& identity) const {
@@ -331,62 +346,132 @@ Json FilePolicy::list_folders(const std::string& scope) const {
   return success({{"folders", std::move(folders)}});
 }
 Json FilePolicy::list_files(const std::string& scope, const std::string& folder_id, size_t limit) {
+  return discover_files({scope}, folder_id, limit);
+}
+Json FilePolicy::discover_files(const std::vector<std::string>& scopes, const std::string& folder_id,
+                               size_t limit, const std::string& cursor, const std::string& query,
+                               const std::optional<std::set<std::string>>& selected, const std::string& principal) {
+  if (query.size() > 500 || cursor.size() > 256) return failure("invalid_filter", "File query or cursor exceeds its supported bound.");
   limit = std::clamp<size_t>(limit, 1, 1000);
   std::lock_guard lock(impl_->mutex);
-  Json files = Json::array(); bool truncated = false;
-  if (folder_id.empty()) {
-    for (const auto& [id, grant] : impl_->grants) if (grant.scope == scope && grant.folder.empty()) {
-      if (files.size() >= limit) { truncated = true; break; }
+  const auto now = std::chrono::steady_clock::now();
+  std::erase_if(impl_->discoveries, [&](const auto& entry) { return entry.second.expires <= now; });
+  const auto binding = Json{{"scopes", scopes}, {"folder", folder_id}, {"query", query},
+                            {"selected", selected ? Json(*selected) : Json(nullptr)}, {"principal", principal}}.dump();
+  Impl::Discovery discovery;
+  if (!cursor.empty()) {
+    const auto found = impl_->discoveries.find(cursor);
+    if (found == impl_->discoveries.end() || found->second.binding != binding)
+      return failure("invalid_cursor", "Cursor expired or does not match this worker, scope and query. Start a new listing.");
+    discovery = found->second;
+  } else {
+    discovery.binding = binding; discovery.expires = now + std::chrono::minutes(2);
+    auto needle = widen(query); std::replace(needle.begin(), needle.end(), L'/', L'\\');
+    const auto include = [&](const Impl::Grant& grant, const std::string& id, const std::filesystem::path& relative) {
+      if (selected && !selected->contains(id) && (grant.folder.empty() || !selected->contains(grant.folder))) {
+        const bool individually_selected = std::any_of(impl_->grants.begin(), impl_->grants.end(), [&](const auto& item) {
+          return selected->contains(item.first) && item.second.scope == grant.scope && item.second.folder == grant.folder &&
+                 item.second.identity == grant.identity && same_path(item.second.path, grant.path);
+        });
+        if (!individually_selected) return;
+      }
+      if (contains_name(relative.native(), needle)) {
+        const auto bytes = sizeof(Impl::Grant) + grant.path.native().size() * sizeof(wchar_t) + grant.scope.size() + grant.folder.size();
+        if (discovery.bytes + bytes > 4 * 1024 * 1024) { discovery.incomplete = true; return; }
+        discovery.bytes += bytes; discovery.entries->push_back(grant);
+      }
+    };
+    if (folder_id.empty()) {
+      for (const auto& [id, grant] : impl_->grants)
+        if (grant.folder.empty() && std::find(scopes.begin(), scopes.end(), grant.scope) != scopes.end())
+          include(grant, id, grant.path.filename());
+    } else {
+      const auto folder = impl_->folders.find(folder_id);
+      if (folder == impl_->folders.end() || std::find(scopes.begin(), scopes.end(), folder->second.scope) == scopes.end())
+        return failure("folder_denied", "This client has no such allowed folder grant.");
+      if (selected && !selected->contains(folder_id) && std::none_of(impl_->grants.begin(), impl_->grants.end(), [&](const auto& item) {
+          return item.second.scope == folder->second.scope && item.second.folder == folder_id && selected->contains(item.first);
+        })) return failure("folder_denied", "This client has no such allowed folder grant.");
       try {
-        const auto opened = open_regular(grant.path);
-        if (!(opened.identity == grant.identity) || impl_->denied(opened.canonical, opened.identity)) continue;
-        files.push_back({{"fileId", id}, {"name", utf8(grant.path.filename().native())}, {"size", opened.size}});
-      } catch (...) {}
+        auto root = open_path(folder->second.path, true);
+        if (!(root.identity == folder->second.identity) || impl_->denied(root.canonical, root.identity))
+          return failure("folder_changed", "The granted folder is unavailable or changed.");
+        size_t inspected = 0;
+        std::error_code ec;
+        auto iter = std::filesystem::recursive_directory_iterator(root.canonical, std::filesystem::directory_options::skip_permission_denied, ec);
+        const auto end = std::filesystem::recursive_directory_iterator{};
+        if (ec) discovery.incomplete = true;
+        for (; iter != end; iter.increment(ec)) {
+          if (ec) { discovery.incomplete = true; ec.clear(); continue; }
+          if (++inspected > 5000) { discovery.incomplete = true; break; }
+          const auto path = iter->path();
+          const auto attributes = GetFileAttributesW(path.c_str());
+          if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) { iter.disable_recursion_pending(); continue; }
+          if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
+            if (iter.depth() >= 7) { iter.disable_recursion_pending(); discovery.incomplete = true; continue; }
+            for (const auto& protected_root : impl_->protected_roots) if (within(path, protected_root)) { iter.disable_recursion_pending(); break; }
+            continue;
+          }
+          try {
+            auto opened = open_regular(path);
+            if (!within(opened.canonical, root.canonical) || impl_->denied(opened.canonical, opened.identity)) continue;
+            include({folder->second.scope, opened.canonical, opened.identity, folder_id}, {}, path.lexically_relative(root.canonical));
+          } catch (...) { /* Busy, protected or changing files remain unavailable. */ }
+        }
+        if (ec) discovery.incomplete = true;
+      } catch (...) { return failure("folder_unavailable", "The approved folder could not be safely listed."); }
     }
-    return success({{"files", std::move(files)}, {"truncated", truncated}});
+    std::sort(discovery.entries->begin(), discovery.entries->end(), [](const auto& a, const auto& b) { return a.path.native() < b.path.native(); });
   }
-  const auto folder = impl_->folders.find(folder_id);
-  if (folder == impl_->folders.end() || folder->second.scope != scope) return failure("folder_denied", "This workspace has no such folder grant.");
+  Json files = Json::array();
   std::vector<std::string> added;
   try {
-    auto root = open_path(folder->second.path, true);
-    if (!(root.identity == folder->second.identity) || impl_->denied(root.canonical, root.identity)) return failure("folder_changed", "The granted folder is unavailable or changed.");
-    size_t inspected = 0;
-    std::error_code ec;
-    const auto options = std::filesystem::directory_options::skip_permission_denied;
-    auto iter = std::filesystem::recursive_directory_iterator(root.canonical, options, ec);
-    const auto end = std::filesystem::recursive_directory_iterator{};
-    for (; iter != end; iter.increment(ec)) {
-      if (ec) { ec.clear(); continue; }
-      if (++inspected > 5000 || files.size() >= limit || impl_->grants.size() >= 10000) { truncated = true; break; }
-      const auto path = iter->path();
-      const auto attributes = GetFileAttributesW(path.c_str());
-      if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) { iter.disable_recursion_pending(); continue; }
-      if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
-        if (iter.depth() >= 7) { iter.disable_recursion_pending(); truncated = true; continue; }
-        bool denied = false;
-        for (const auto& protected_root : impl_->protected_roots) if (within(path, protected_root)) { denied = true; break; }
-        if (denied) iter.disable_recursion_pending();
-        continue;
-      }
+    std::optional<Opened> root;
+    if (!folder_id.empty()) {
+      const auto folder = impl_->folders.find(folder_id);
+      if (folder == impl_->folders.end()) return failure("folder_denied", "The folder grant was revoked.");
+      root.emplace(open_path(folder->second.path, true));
+      if (!(root->identity == folder->second.identity) || impl_->denied(root->canonical, root->identity))
+        return failure("folder_changed", "The granted folder is unavailable or changed.");
+    }
+    while (discovery.next < discovery.entries->size() && files.size() < limit) {
+      const auto& candidate = (*discovery.entries)[discovery.next++];
       try {
-        auto opened = open_regular(path);
-        if (!within(opened.canonical, root.canonical) || impl_->denied(opened.canonical, opened.identity)) continue;
+        auto opened = open_regular(candidate.path);
+        if (!(opened.identity == candidate.identity) || impl_->denied(opened.canonical, opened.identity) ||
+            (root && !within(opened.canonical, root->canonical))) continue;
         std::string id;
         for (const auto& [existing_id, grant] : impl_->grants)
-          if (grant.scope == scope && grant.folder == folder_id && grant.identity == opened.identity && same_path(grant.path, opened.canonical)) { id = existing_id; break; }
+          if (grant.scope == candidate.scope && grant.folder == folder_id && grant.identity == opened.identity && same_path(grant.path, opened.canonical)) { id = existing_id; break; }
         if (id.empty()) {
+          if (folder_id.empty()) continue; // A revoked single-file grant cannot be revived by a cursor.
+          if (impl_->grants.size() >= 10000) { --discovery.next; discovery.incomplete = true; break; }
           id = local_security::random_hex(24);
-          impl_->grants.emplace(id, Impl::Grant{scope, opened.canonical, opened.identity, folder_id});
+          impl_->grants.emplace(id, candidate);
           added.push_back(id);
         }
-        files.push_back({{"fileId", id}, {"name", utf8(path.filename().native())},
-                        {"relativePath", utf8(path.lexically_relative(root.canonical).native())}, {"size", opened.size}});
-      } catch (...) { /* Busy or changing files remain unavailable. */ }
+        if (selected && !selected->contains(id) && (candidate.folder.empty() || !selected->contains(candidate.folder))) continue;
+        Json entry{{"fileId", id}, {"name", utf8(candidate.path.filename().native())}, {"size", opened.size}};
+        if (root) entry["relativePath"] = utf8(candidate.path.lexically_relative(root->canonical).native());
+        files.push_back(std::move(entry));
+      } catch (...) {}
     }
     if (!added.empty()) impl_->persist_state();
-    return success({{"folderId", folder_id}, {"files", std::move(files)}, {"truncated", truncated},
-                    {"limits", {{"maxFiles", limit}, {"maxEntries", 5000}, {"maxDepth", 8}}}});
+    Json next = nullptr;
+    if (discovery.next < discovery.entries->size() && !files.empty()) {
+      const auto cache_bytes = [&] {
+        size_t bytes{}; for (const auto& [token, cached] : impl_->discoveries) bytes += cached.bytes + cached.binding.size();
+        return bytes;
+      };
+      while (!impl_->discoveries.empty() && (impl_->discoveries.size() >= 32 || cache_bytes() + discovery.bytes + discovery.binding.size() > 16 * 1024 * 1024))
+        impl_->discoveries.erase(impl_->discoveries.begin());
+      const auto token = local_security::random_hex(24);
+      impl_->discoveries[token] = discovery; next = token;
+    }
+    Json result{{"files", std::move(files)}, {"truncated", !next.is_null() || discovery.incomplete}, {"nextCursor", next},
+                {"scanIncomplete", discovery.incomplete}, {"limits", {{"maxFiles", limit}, {"maxEntries", 5000}, {"maxDepth", 8}, {"maxSnapshotBytes", 4 * 1024 * 1024}}}};
+    if (!folder_id.empty()) result["folderId"] = folder_id;
+    return success(std::move(result));
   } catch (...) {
     for (const auto& id : added) impl_->grants.erase(id);
     return failure("folder_unavailable", "The approved folder could not be safely listed.");
@@ -394,6 +479,7 @@ Json FilePolicy::list_files(const std::string& scope, const std::string& folder_
 }
 Json FilePolicy::revoke_grant(const std::string& scope, const std::string& grant_id) {
   std::lock_guard lock(impl_->mutex);
+  impl_->discoveries.clear();
   bool removed = false;
   const auto folder = impl_->folders.find(grant_id);
   if (folder != impl_->folders.end() && folder->second.scope == scope) { impl_->folders.erase(folder); removed = true; }
@@ -431,6 +517,7 @@ bool FilePolicy::selected_grant(const std::string& scope,const std::string& file
 }
 void FilePolicy::revoke_scope(const std::string& scope) {
   std::lock_guard lock(impl_->mutex);
+  impl_->discoveries.clear();
   std::erase_if(impl_->grants, [&](const auto& grant) { return grant.second.scope == scope; });
   std::erase_if(impl_->folders, [&](const auto& grant) { return grant.second.scope == scope; });
   impl_->persist_state();

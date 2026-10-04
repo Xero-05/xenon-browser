@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.19",
+  "capturedUtc": "2026-10-04T21:26:17.322Z",
+  "passed": true,
+  "binaries": {
+    "productionExecutableSha256": "50819ebeb181a9fb77442f811874ec718188e0b4cd3767547a0ebdd24eb5be68",
+    "productionDllSha256": "b1ca3f4afaaba4b127c5e9a0188a2c81a7662d0203759e2bcc0f344ba75f48c2",
+    "fixtureDllSha256": "2fe5a48b71bfade45ba8b0bde713ec51bd12dd0aceb677bf42fbaefa44f9d308",
+    "fixtureShipped": false
+  },
+  "build": {
+    "command": "./scripts/build.ps1 -Test -Jobs 6",
+    "passed": true,
+    "groups": [
+      {
+        "name": "native",
+        "passed": true,
+        "checks": 11
+      },
+      {
+        "name": "adapter",
+        "passed": true,
+        "checks": 20
+      },
+      {
+        "name": "login capture",
+        "passed": true,
+        "checks": 32
+      },
+      {
+        "name": "human autofill",
+        "passed": true,
+        "checks": 31
+      },
+      {
+        "name": "protected login",
+        "passed": true,
+        "checks": 10
+      },
+      {
+        "name": "form fill",
+        "passed": true,
+        "checks": 6
+      }
+    ],
+    "brandingChecks": 5
+  },
+  "typecheck": {
+    "command": "npm.cmd run typecheck",
+    "passed": true
+  },
+  "adapterAndScripts": {
+    "command": "npm.cmd test",
+    "passed": true,
+    "checks": 113
+  },
+  "live": {
+    "batch": {
+      "run": "batch-1791149010180-5e7b0233",
+      "capturedAt": "2026-10-04T21:23:44.654Z",
+      "passed": true,
+      "applicationDllSha256": "b1ca3f4afaaba4b127c5e9a0188a2c81a7662d0203759e2bcc0f344ba75f48c2",
+      "checks": [
+        {
+          "name": "modern: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Separate calls comparison on the same eight-action plan",
+          "passed": true
+        },
+        {
+          "name": "Replaced target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Covered target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Navigation cancels original-document targets",
+          "passed": true
+        },
+        {
+          "name": "legacy: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Binary remained unchanged",
+          "passed": true
+        }
+      ]
+    },
+    "filesAndUploads": {
+      "run": "upload-entry-1791149025201-826c1294",
+      "capturedAt": "2026-10-04T21:23:57.239Z",
+      "passed": true,
+      "applicationDllSha256": "b1ca3f4afaaba4b127c5e9a0188a2c81a7662d0203759e2bcc0f344ba75f48c2",
+      "checks": [
+        {
+          "name": "File discovery retains truncation, later pages and scoped relative-path filters",
+          "passed": true
+        },
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true
+        },
+        {
+          "name": "A brightness-styled hover preserves the approved upload entry",
+          "passed": true
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true
+        }
+      ]
+    },
+    "protectedAuthentication": {
+      "run": "auth-integration-1791149037433",
+      "capturedAt": "2026-10-04T21:24:06.789Z",
+      "passed": true,
+      "applicationDllSha256": "2fe5a48b71bfade45ba8b0bde713ec51bd12dd0aceb677bf42fbaefa44f9d308",
+      "checks": [
+        {
+          "name": "Safe page screenshots remain available",
+          "passed": true
+        },
+        {
+          "name": "No raw eval, CDP, cookies or storage tools",
+          "passed": true
+        },
+        {
+          "name": "Synthetic password and OTP input events seal all observers through reveal and handoff",
+          "passed": true
+        },
+        {
+          "name": "Native folder grants persist and upload only approved opaque file handles",
+          "passed": true
+        },
+        {
+          "name": "Account rights remain per client across handoff",
+          "passed": true
+        },
+        {
+          "name": "Exact credential origin enforced",
+          "passed": true
+        },
+        {
+          "name": "GET and readonly forms reject credentials before input or submission",
+          "passed": true
+        },
+        {
+          "name": "Named login submitter advances the POST flow exactly once",
+          "passed": true
+        },
+        {
+          "name": "Opaque saved login authenticates without a model-visible credential",
+          "passed": true
+        },
+        {
+          "name": "Four-agent handoff preserves quarantine and sends no website input",
+          "passed": true
+        },
+        {
+          "name": "Username-first forms reuse only the exact-origin account",
+          "passed": true
+        }
+      ],
+      "logCanaryScan": {
+        "passed": true,
+        "filesScanned": 107
+      }
+    }
+  },
+  "installer": {
+    "passed": true,
+    "checks": 47,
+    "method": "Isolated test identities, synthetic payloads, custom/default folders, profile retention and mutex checks.",
+    "productionUpgradeInstalled": false
+  },
+  "cefMaintenance": {
+    "checkedUtc": "2026-10-04T21:22:56.4330517Z",
+    "latestWindows64Stable": "154.0.33+ga03e714+chromium-154.0.8037.94",
+    "pinnedChromium": "154.0.8037.94",
+    "minimal": [
+      {
+        "name": "cef_binary_154.0.33+ga03e714+chromium-154.0.8037.94_windows64_minimal.tar.bz2",
+        "sha1": "fced8a0428b7ef68d0df5e288281c673798d3071",
+        "size": 172788468,
+        "last_modified": "2026-10-02T05:30:55.878Z"
+      }
+    ],
+    "selection": "Highest stable modern CEF version in Windows x64 index; index order is not version order.",
+    "chromeDesktopSecurityUpdate": "154.0.8037.97/.98",
+    "dependenciesChanged": false,
+    "securityUpdateLagRetained": true,
+    "sources": [
+      "https://cef-builds.spotifycdn.com/index.json",
+      "https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop.html"
+    ]
+  },
+  "candidateHistory": "docs/test-results/browser-improvements-validation.json retains the original candidate hashes and failed harness attempts.",
+  "limits": [
+    "Combined inspection validates a capture interval while page scripts and canvas continue running.",
+    "Synthetic CEF fixtures and native authentication drivers do not establish physical UI or real-site acceptance.",
+    "Native timings exclude model inference and do not establish a general speedup.",
+    "Package and publication evidence is recorded separately after assembly. The user installation is not replaced."
+  ],
+  "privacy": "Disposable synthetic profiles only; no pairing tokens, raw calls, browsing logs, vault data or screenshots."
+}
