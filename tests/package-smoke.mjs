@@ -48,7 +48,7 @@ await writeFile(resolve(profile, 'broker-state.json'), JSON.stringify({ version:
   workspaces: [], accountGrants: [], operations: [] }));
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.end('<!doctype html><title>Xenon release fixture</title><h1>Packaged browser ready</h1><button onclick="this.textContent=\'Package action verified\'">Verify package action</button>');
+  res.end('<!doctype html><title>Xenon release fixture</title><h1>Packaged browser ready</h1><button onclick="this.textContent=\'Package action verified\'">Verify package action</button><label>Package first field<input id="first"></label><label>Package second field<input id="second"></label><button onclick="if(document.querySelector(\'#first\').value===\'Synthetic first\'&&document.querySelector(\'#second\').value===\'Synthetic second\')this.textContent=\'Package batch verified\'">Verify package batch</button>');
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 let browser, client, tab, branding;
@@ -64,6 +64,7 @@ try {
     client = new Client({ name: 'Xenon release smoke', version: '1' });
     await client.connect(new StdioClientTransport({ command: resolve(release, 'runtime/node.exe'),
       args: [resolve(release, 'adapter/dist/src/cli.js'), 'serve', '--config', configPath], stderr: 'pipe' }));
+    assert((await client.listTools()).tools.some(tool => tool.name === 'xenon_batch'), 'Packaged adapter must expose batching');
   });
   const tool = async (name, args = {}) => {
     const response = await client.callTool({ name: `xenon_${name}`, arguments: args });
@@ -94,6 +95,20 @@ try {
     await tool('interact', { ...scope, ownershipGeneration: tab.ownershipGeneration, operationId: randomUUID(),
       observationId: evidence.observationId, action: 'click', elementRef: button.ref });
     await until(async () => (await observe(scope)).nodes?.some(n => n.role === 'button' && n.name === 'Package action verified'));
+  });
+  await check('Packaged batch fills multiple fields and verifies website state', async () => {
+    const scope = { agentSessionId: tab.agentSessionId, workspaceId: tab.workspaceId, tabId: tab.tabId };
+    const evidence = await observe(scope);
+    const ref = (name, tag) => {
+      const node = evidence.nodes.find(node => node.name === name && node.tag === tag && node.ref);
+      assert(node, `Missing packaged batch target: ${name}`); return node.ref;
+    };
+    const result = await tool('batch', { ...scope, ownershipGeneration: tab.ownershipGeneration, operationId: randomUUID(), observationId: evidence.observationId,
+      steps: [{ action: 'fill', elementRef: ref('Package first field', 'INPUT'), text: 'Synthetic first' },
+        { action: 'fill', elementRef: ref('Package second field', 'INPUT'), text: 'Synthetic second' },
+        { action: 'click', elementRef: ref('Verify package batch', 'BUTTON') }] });
+    assert.equal(result.status, 'completed'); assert.equal(result.steps.length, 3);
+    await until(async () => (await observe(scope)).nodes?.some(node => node.role === 'button' && node.name === 'Package batch verified'));
   });
 } catch (error) {
   if (!results.some(r => !r.passed)) results.push({ name: 'Release harness', passed: false, error: error.message });

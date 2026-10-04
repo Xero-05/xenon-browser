@@ -8,9 +8,9 @@
 
 Xenon combines Chromium browsing with native controls for external agents to inspect pages, interact with websites, and hand off live tabs. You choose which MCP clients can connect, which workspaces they can use, and which saved accounts or local files they may access. Your MCP host supplies the model; Xenon has no built-in LLM and needs no model API key.
 
-**Current version: 0.1.0-alpha.17 · Windows 10/11 x64 · unsigned alpha.** Available as a per-user installer and a portable ZIP, with native update checks. See [release notes](docs/RELEASE_NOTES.md) and [validation scope](docs/TESTING.md).
+**Current version: 0.1.0-alpha.18 · Windows 10/11 x64 · unsigned alpha.** Available as a per-user installer and a portable ZIP, with native update checks. See [release notes](docs/RELEASE_NOTES.md) and [validation scope](docs/TESTING.md).
 
-[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.17) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent guide](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
+[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.18) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent guide](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
 
 ## Screenshots
 
@@ -71,7 +71,7 @@ For the portable ZIP, verify its checksum, extract the **whole archive**, and ru
 
 ## MCP capabilities
 
-Xenon exposes **24 tools** through a strict TypeScript MCP stdio adapter. Tool replies include structured JSON and JSON text; screenshots additionally include MCP image content. The [agent guide](docs/AGENT_GUIDE.md) provides copyable host instructions, and the [MCP reference](docs/MCP.md) explains parameters, evidence, and errors.
+Xenon exposes **25 tools** through a strict TypeScript MCP stdio adapter. Tool replies include structured JSON and JSON text; screenshots additionally include MCP image content. The [agent guide](docs/AGENT_GUIDE.md) provides copyable host instructions, and the [MCP reference](docs/MCP.md) explains parameters, evidence, and errors.
 
 | Tools | Purpose |
 | --- | --- |
@@ -82,6 +82,7 @@ Xenon exposes **24 tools** through a strict TypeScript MCP stdio adapter. Tool r
 | `xenon_activity` | Read trusted human-activity and pause metadata without typed values or page text. Supporting hosts can also subscribe to `xenon://control/activity`. |
 | `xenon_observe`, `xenon_screenshot` | Obtain bounded viewport evidence and page-only images, with document identity and freshness checks. |
 | `xenon_navigate`, `xenon_interact`, `xenon_wait`, `xenon_dialog` | Navigate, perform finite gestures, wait for rendered text, and answer agent-controlled JavaScript dialogs. Native security prompts stay with the human. |
+| `xenon_batch` | Run up to 16 observed fill/select/check/click actions in one call, with guarded targets and per-step outcomes. |
 | `xenon_accounts`, `xenon_login` | List granted account metadata and request protected sign-in without returning vault usernames or passwords. |
 | `xenon_folders`, `xenon_files`, `xenon_upload`, `xenon_downloads` | Find approved handles, select an authorized upload file, and inspect download metadata. |
 | `xenon_operation` | Inspect a retained mutation after a timeout or disconnection before deciding what to do next. |

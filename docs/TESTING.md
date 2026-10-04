@@ -2,7 +2,13 @@
 
 Xenon is a Windows x64 development alpha. The attached test records distinguish exercised behavior from inherited Chromium features and remaining manual coverage. They are not an independent security audit or a production reliability certification.
 
-## Unreleased simple-action batching
+## Alpha.18 release validation
+
+Alpha.18 packages guarded simple-action batching. The [release validation record](test-results/alpha18-validation.json) binds the full Release build, all 11 native groups, adapter typechecking, 107 adapter/fixed-script checks, five branding checks, seven live batch/integrity checks and 47 isolated installer checks to the rebuilt release binaries. Modern and legacy clients verified the eight-action synthetic form sequence in one interaction call; separate calls required eight. Replaced/covered targets and navigation stopped the remaining steps.
+
+Harness timings exclude model inference and do not establish a general speedup. Physical human input, real-site acceptance and unrelated live suites retain their earlier scope. Runtime pins remain at the newest Windows x64 stable CEF build checked on 2026-10-03, with the documented Chrome security-update lag. Package smoke and publication evidence are recorded separately after assembly.
+
+## Simple-action batching candidate
 
 The 2026-10-03 local batching change passed the full Release build, all 11 native test groups, adapter typechecking, 107 adapter/fixed-script tests, five branding checks and seven live batch/integrity checks. Modern and legacy clients each filled three fields, selected an option, checked a box and clicked three buttons in one `xenon_batch` call; synthetic website values and counters were verified. Replaced/covered targets and navigation stopped the suffix. Native tests additionally cover handoff, human epochs, read-only policy, disconnect/retire, revocation/removal, withheld uncertainty and restart without replay or persisted input values. [Sanitized evidence](test-results/action-batching.json) binds the live results to the rebuilt production DLL and retains development failures.
 

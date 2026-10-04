@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.0-alpha.18
+
+Agents can use `xenon_batch` to fill multiple visible fields, select options, check boxes and click observed controls in one MCP call. Up to 16 simple actions run in order using the original observation and one operation ID. The eight-action synthetic form sequence uses one interaction call instead of eight; harness timings exclude model inference and do not establish a general model-speed improvement.
+
+The native broker validates the entire plan before input, then uses the existing guarded action path for every step. A failed or stale target, navigation, changed evidence, human activity, authentication protection or authority loss stops further actions. Handoff drains only the current finite gesture. Results distinguish completed, stopped and unknown outcomes, identify the unsuccessful step and mark untouched steps as skipped. Applied actions are not rolled back, refreshed, retargeted or automatically retried. New controls revealed by an action need a separate observation. Credentials and uploads retain their dedicated tools.
+
+Both the Windows x64 installer and portable ZIP remain unsigned prerelease artifacts. Close Xenon and stop/reconnect the MCP adapter when upgrading so the host discovers the new tool. Existing profiles and pairing configuration remain separate from application files. Runtime dependency pins are unchanged, including the documented lag behind Chrome's newer security update. See [batch usage](MCP.md#batching-simple-actions) and the [validation scope](TESTING.md).
+
 ## 0.1.0-alpha.17
 
 The native saved-account picker can appear about 250 ms after physical input releases and leaves an eligible login field focused. It no longer waits for the full two-second agent cooldown; that pause still applies to agent input. Held input, dialogs, navigation, new activity and vault lock continue to block or invalidate offers.

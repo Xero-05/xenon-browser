@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.18",
+  "capturedUtc": "2026-10-04T03:40:43.098Z",
+  "passed": true,
+  "binaries": {
+    "productionExecutableSha256": "acb3adf4e2bb39e53eeb0d49f59d0929fc3ed54e520d141d56e89e01654ff572",
+    "productionDllSha256": "dff0c5310d3f9f4c0cc6ff44ae4a0d339ca1ec884c9dea251ddc945ed878441e",
+    "fixtureDllSha256": "29ed19bfd4ab307b076f45b15689a022c7f8299e8f3b71b3da18af40d654fc5b"
+  },
+  "build": {
+    "command": "./scripts/build.ps1 -Test -Jobs 6",
+    "passed": true,
+    "groups": [
+      {
+        "name": "native",
+        "passed": true,
+        "checks": 11
+      },
+      {
+        "name": "adapter",
+        "passed": true,
+        "checks": 14
+      },
+      {
+        "name": "login capture",
+        "passed": true,
+        "checks": 32
+      },
+      {
+        "name": "human autofill",
+        "passed": true,
+        "checks": 31
+      },
+      {
+        "name": "protected login",
+        "passed": true,
+        "checks": 10
+      },
+      {
+        "name": "form fill",
+        "passed": true,
+        "checks": 6
+      }
+    ],
+    "brandingChecks": 5
+  },
+  "typecheck": {
+    "command": "npm.cmd run typecheck",
+    "passed": true
+  },
+  "adapterAndScripts": {
+    "command": "npm.cmd test",
+    "passed": true,
+    "checks": 107
+  },
+  "live": {
+    "run": "batch-1791085138410-edc0886f",
+    "capturedAt": "2026-10-04T03:39:10.803Z",
+    "binary": "build/app/Release/Xenon.exe",
+    "applicationDllSha256": "dff0c5310d3f9f4c0cc6ff44ae4a0d339ca1ec884c9dea251ddc945ed878441e",
+    "passed": true,
+    "results": [
+      {
+        "name": "modern: eight ordered actions and exact-request deduplication",
+        "passed": true,
+        "elapsedMs": 2403,
+        "detail": {
+          "interactionCalls": 1,
+          "batchMs": 1723,
+          "steps": 8,
+          "verifiedCount": 2,
+          "documentPreserved": true
+        }
+      },
+      {
+        "name": "Separate calls comparison on the same eight-action plan",
+        "passed": true,
+        "elapsedMs": 1946,
+        "detail": {
+          "interactionCalls": 8,
+          "serialMs": 1614,
+          "steps": 8,
+          "limitation": "Deterministic MCP harness timing; excludes model inference and does not establish a general speedup."
+        }
+      },
+      {
+        "name": "Replaced target stops the suffix without retargeting",
+        "passed": true,
+        "elapsedMs": 1278,
+        "detail": {
+          "error": "stale_element",
+          "suffixUntouched": true
+        }
+      },
+      {
+        "name": "Covered target stops the suffix without retargeting",
+        "passed": true,
+        "elapsedMs": 1294,
+        "detail": {
+          "error": "stale_element",
+          "suffixUntouched": true
+        }
+      },
+      {
+        "name": "Navigation cancels original-document targets",
+        "passed": true,
+        "elapsedMs": 948,
+        "detail": {
+          "status": "stopped",
+          "stoppedAt": 1,
+          "destinationVerified": true
+        }
+      },
+      {
+        "name": "legacy: eight ordered actions and exact-request deduplication",
+        "passed": true,
+        "elapsedMs": 2409,
+        "detail": {
+          "interactionCalls": 1,
+          "batchMs": 1544,
+          "steps": 8,
+          "verifiedCount": 2,
+          "documentPreserved": true
+        }
+      },
+      {
+        "name": "Binary remained unchanged",
+        "passed": true
+      }
+    ]
+  },
+  "installer": {
+    "passed": true,
+    "checks": 47,
+    "scope": "same Inno policy with isolated test-only identity, directory and mutex",
+    "productionUpgradeInstalled": false
+  },
+  "cefMaintenance": {
+    "checkedOn": "2026-10-03",
+    "latestWindows64Stable": "154.0.33+ga03e714+chromium-154.0.8037.94",
+    "pinnedChromium": "154.0.8037.94",
+    "minimal": {
+      "name": "cef_binary_154.0.33+ga03e714+chromium-154.0.8037.94_windows64_minimal.tar.bz2",
+      "sha1": "fced8a0428b7ef68d0df5e288281c673798d3071",
+      "size": 172788468,
+      "last_modified": "2026-10-02T05:30:55.878Z"
+    },
+    "chromeDesktopSecurityUpdate": "154.0.8037.97/.98",
+    "dependenciesChanged": false,
+    "sources": [
+      "https://cef-builds.spotifycdn.com/index.json",
+      "https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop.html"
+    ],
+    "securityUpdateLagRetained": true
+  },
+  "limits": [
+    "Harness timings exclude model inference and do not establish a general speedup.",
+    "Real-site acceptance, physical input and human account-picker selection were not repeated.",
+    "Unrelated authentication, persistence, input and UI suites retain their historical binary-bound scope.",
+    "Package and publication evidence is recorded after assembly; the installed browser was not replaced."
+  ],
+  "privacy": "Disposable synthetic profiles only; no private configuration, vault data, raw browsing logs or screenshots."
+}

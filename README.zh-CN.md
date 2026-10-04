@@ -8,9 +8,9 @@
 
 Xenon 把 Chromium 网页浏览和原生智能体控制结合起来。外部智能体可以查看页面、操作网站，还能接手正在运行的标签页。哪些 MCP 客户端可以连接、能用哪些工作区、能访问哪些已保存账号或本地文件，全部由你决定。模型由你自己的 MCP 宿主提供：Xenon 不内置大语言模型，也不需要模型 API 密钥。
 
-**当前版本：0.1.0-alpha.17 · Windows 10/11 x64 · 未签名 Alpha 版本。** 提供当前用户安装程序和便携 ZIP 包，并支持原生更新检查。参见[发行说明](docs/RELEASE_NOTES.md)和[验证范围](docs/TESTING.md)。
+**当前版本：0.1.0-alpha.18 · Windows 10/11 x64 · 未签名 Alpha 版本。** 提供当前用户安装程序和便携 ZIP 包，并支持原生更新检查。参见[发行说明](docs/RELEASE_NOTES.md)和[验证范围](docs/TESTING.md)。
 
-[下载 Windows 版本](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.17) · [快速入门](docs/GETTING_STARTED.md) · [用户指南](docs/USER_GUIDE.md) · [智能体指南](docs/AGENT_GUIDE.md) · [MCP 参考](docs/MCP.md)
+[下载 Windows 版本](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.18) · [快速入门](docs/GETTING_STARTED.md) · [用户指南](docs/USER_GUIDE.md) · [智能体指南](docs/AGENT_GUIDE.md) · [MCP 参考](docs/MCP.md)
 
 ## 应用截图
 
@@ -71,7 +71,7 @@ Xenon 把 Chromium 网页浏览和原生智能体控制结合起来。外部智�
 
 ## MCP 功能
 
-Xenon 通过严格校验参数的 TypeScript MCP stdio 适配器提供 **24 个工具**。工具响应包含结构化 JSON 和 JSON 文本，截图还会附带 MCP 图像内容。[智能体指南](docs/AGENT_GUIDE.md)提供可直接复制的宿主指令，[MCP 参考](docs/MCP.md)说明参数、页面证据和错误处理。
+Xenon 通过严格校验参数的 TypeScript MCP stdio 适配器提供 **25 个工具**。工具响应包含结构化 JSON 和 JSON 文本，截图还会附带 MCP 图像内容。[智能体指南](docs/AGENT_GUIDE.md)提供可直接复制的宿主指令，[MCP 参考](docs/MCP.md)说明参数、页面证据和错误处理。
 
 | 工具 | 用途 |
 | --- | --- |
@@ -81,6 +81,7 @@ Xenon 通过严格校验参数的 TypeScript MCP stdio 适配器提供 **24 个�
 | `xenon_control_status`, `xenon_control` | 查看控制权，并凭当前控制权版本号获取、释放或交接控制权。 |
 | `xenon_activity` | 读取可信的用户活动与暂停元数据，不含输入内容和页面文本。支持的宿主还可订阅 `xenon://control/activity`。 |
 | `xenon_observe`, `xenon_screenshot` | 获取有界视口证据和只含网页内容的图像，并检查文档身份与证据是否仍然有效。 |
+| `xenon_batch` | 在一次调用中按顺序执行最多 16 个已观察到的填写、选择、勾选或点击操作，并报告每一步的结果。 |
 | `xenon_navigate`, `xenon_interact`, `xenon_wait`, `xenon_dialog` | 导航、执行有限时长的完整操作、等待已渲染文本，以及处理智能体控制的 JavaScript 对话框。原生安全提示仍由用户处理。 |
 | `xenon_accounts`, `xenon_login` | 列出已授权账号的元数据，并请求受保护登录；不会返回凭据库中的用户名或密码。 |
 | `xenon_folders`, `xenon_files`, `xenon_upload`, `xenon_downloads` | 查找已批准的句柄、选择已授权的上传文件，以及查看下载元数据。 |
