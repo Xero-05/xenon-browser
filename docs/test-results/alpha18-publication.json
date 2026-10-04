@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.18",
+  "publishedUtc": "2026-10-04T03:56:08Z",
+  "sourceCommit": "ec29d0ba329eecd1222c5dba69aa339df810a0e2",
+  "url": "https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.18",
+  "draft": false,
+  "prerelease": true,
+  "windowsCi": {
+    "url": "https://github.com/Xero-05/xenon-browser/actions/runs/37175136642",
+    "conclusion": "success",
+    "headSha": "ec29d0ba329eecd1222c5dba69aa339df810a0e2",
+    "attempt": 1
+  },
+  "assets": [
+    {
+      "name": "Xenon-0.1.0-alpha.18-windows-x64-setup-unsigned.exe",
+      "size": 203446281,
+      "digest": "sha256:c3cb1641e67c74c90113673dc945b15d2f0b2abb94095b643d78593c02ffc074",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.18-windows-x64-setup-unsigned.exe.sha256",
+      "size": 118,
+      "digest": "sha256:1d600d4f85f63df74c787f09b9cc969610869afe6e2868c241f17dc6795f61a5",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.18-windows-x64-unsigned.zip",
+      "size": 234076563,
+      "digest": "sha256:2b4f66acd2153a1e74d57bc179441007ab7b07513ed16a534dfb68c5023462b4",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.18-windows-x64-unsigned.zip.sha256",
+      "size": 112,
+      "digest": "sha256:ee6a9b75e785f52e548b0e7cb603f1485bbe522b50009ddd11eebf87204dc01b",
+      "state": "uploaded"
+    }
+  ],
+  "notes": "Published assets verified against local hashes; tag and Windows CI bind the tested source. Unsigned hashes establish byte integrity, not publisher identity.",
+  "packageVerification": {
+    "schemaVersion": 1,
+    "version": "0.1.0-alpha.18",
+    "sourceCommit": "ec29d0ba329eecd1222c5dba69aa339df810a0e2",
+    "capturedUtc": "2026-10-04T03:50:43.786Z",
+    "passed": true,
+    "manifestFilesVerified": 1287,
+    "assets": [
+      {
+        "name": "Xenon-0.1.0-alpha.18-windows-x64-unsigned.zip",
+        "size": 234076563,
+        "sha256": "2b4f66acd2153a1e74d57bc179441007ab7b07513ed16a534dfb68c5023462b4"
+      },
+      {
+        "name": "Xenon-0.1.0-alpha.18-windows-x64-unsigned.zip.sha256",
+        "size": 112,
+        "sha256": "ee6a9b75e785f52e548b0e7cb603f1485bbe522b50009ddd11eebf87204dc01b"
+      },
+      {
+        "name": "Xenon-0.1.0-alpha.18-windows-x64-setup-unsigned.exe",
+        "size": 203446281,
+        "sha256": "c3cb1641e67c74c90113673dc945b15d2f0b2abb94095b643d78593c02ffc074"
+      },
+      {
+        "name": "Xenon-0.1.0-alpha.18-windows-x64-setup-unsigned.exe.sha256",
+        "size": 118,
+        "sha256": "1d600d4f85f63df74c787f09b9cc969610869afe6e2868c241f17dc6795f61a5"
+      }
+    ],
+    "packagedBinaries": {
+      "executableSha256": "acb3adf4e2bb39e53eeb0d49f59d0929fc3ed54e520d141d56e89e01654ff572",
+      "applicationDllSha256": "dff0c5310d3f9f4c0cc6ff44ae4a0d339ca1ec884c9dea251ddc945ed878441e",
+      "cefDllSha256": "e73aeafbd0c1f7169f3d0b2fb78f385cba7f00d7bf93b2cfbdcd82fe9980e6b6"
+    },
+    "smoke": {
+      "run": "package-smoke-1791085819445",
+      "capturedAt": "2026-10-04T03:50:22.889Z",
+      "applicationDllSha256": "dff0c5310d3f9f4c0cc6ff44ae4a0d339ca1ec884c9dea251ddc945ed878441e",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Packaged branding changes only permitted CEF bootstrap resources",
+          "passed": true
+        },
+        {
+          "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+          "passed": true
+        },
+        {
+          "name": "Packaged browser observes and performs a verified page action",
+          "passed": true
+        },
+        {
+          "name": "Packaged batch fills multiple fields and verifies website state",
+          "passed": true
+        }
+      ]
+    },
+    "scope": "ZIP checksum/inventory and every extracted manifest file verified. Bundled Node/MCP adapter and packaged production browser performed a verified synthetic page action and three-step batch. Installer assembled from this ZIP; 47 isolated lifecycle checks passed separately.",
+    "limits": [
+      "Unsigned hashes establish byte integrity, not publisher identity.",
+      "No production installer was run over the user copy.",
+      "Post-packaging record is separate from archive documentation."
+    ],
+    "privacy": "Disposable synthetic profiles only; no private tokens, raw calls, browsing logs or screenshots."
+  },
+  "nativeUpdateVerification": {
+    "simulatedCurrent": "0.1.0-alpha.17",
+    "available": "0.1.0-alpha.18",
+    "installerBytes": 203446281,
+    "expectedSha256": "c3cb1641e67c74c90113673dc945b15d2f0b2abb94095b643d78593c02ffc074",
+    "sizeAndSha256Verified": true,
+    "installerLaunched": false,
+    "method": "Release-built native updater runner; public metadata and download, disposable staging only."
+  },
+  "releaseCleanup": {
+    "schemaVersion": 1,
+    "authorization": "Keep only the latest three alpha releases; delete release downloads while preserving tags/source.",
+    "startedUtc": "2026-10-04T04:00:07.8663457Z",
+    "retained": [
+      "v0.1.0-alpha.18",
+      "v0.1.0-alpha.17",
+      "v0.1.0-alpha.16"
+    ],
+    "removed": [
+      {
+        "id": 402533545,
+        "assetBytes": 437436102,
+        "tag": "v0.1.0-alpha.15",
+        "assets": 4
+      },
+      {
+        "id": 402474933,
+        "assetBytes": 436966139,
+        "tag": "v0.1.0-alpha.14",
+        "assets": 4
+      },
+      {
+        "id": 402434988,
+        "assetBytes": 436923585,
+        "tag": "v0.1.0-alpha.13",
+        "assets": 4
+      },
+      {
+        "id": 402350026,
+        "assetBytes": 436906962,
+        "tag": "v0.1.0-alpha.12",
+        "assets": 4
+      },
+      {
+        "id": 402184878,
+        "assetBytes": 436421267,
+        "tag": "v0.1.0-alpha.11",
+        "assets": 4
+      },
+      {
+        "id": 402173335,
+        "assetBytes": 436409130,
+        "tag": "v0.1.0-alpha.10",
+        "assets": 4
+      },
+      {
+        "id": 401457617,
+        "assetBytes": 233442323,
+        "tag": "v0.1.0-alpha.9",
+        "assets": 2
+      }
+    ],
+    "planned": [
+      {
+        "id": 402533545,
+        "tag_name": "v0.1.0-alpha.15",
+        "assetCount": 4
+      },
+      {
+        "id": 402474933,
+        "tag_name": "v0.1.0-alpha.14",
+        "assetCount": 4
+      },
+      {
+        "id": 402434988,
+        "tag_name": "v0.1.0-alpha.13",
+        "assetCount": 4
+      },
+      {
+        "id": 402350026,
+        "tag_name": "v0.1.0-alpha.12",
+        "assetCount": 4
+      },
+      {
+        "id": 402184878,
+        "tag_name": "v0.1.0-alpha.11",
+        "assetCount": 4
+      },
+      {
+        "id": 402173335,
+        "tag_name": "v0.1.0-alpha.10",
+        "assetCount": 4
+      },
+      {
+        "id": 401457617,
+        "tag_name": "v0.1.0-alpha.9",
+        "assetCount": 2
+      }
+    ],
+    "verified": true,
+    "completedUtc": "2026-10-04T04:00:19.1941652Z",
+    "tagsPreserved": true,
+    "tagObjects": {
+      "v0.1.0-alpha.15": "944852582a1a4139b06f386d88f0caea82c7c4b3",
+      "v0.1.0-alpha.10": "af3f8c083e92e89bb8fa73ce876489a5e21a6fed",
+      "v0.1.0-alpha.12": "9411c88ee7911d49a1316fdaad86aa50f9925b37",
+      "v0.1.0-alpha.14": "fc9af84220209a9446d0699e09065bd353ac06e6",
+      "v0.1.0-alpha.13": "427c26762022cd939101aca5c15a14fb06d6f94a",
+      "v0.1.0-alpha.17": "59754c8b4fa0ea467082545b1e813711aa175bbf",
+      "v0.1.0-alpha.11": "2e21cda583f2568051988f40afa60baf524253b9",
+      "v0.1.0-alpha.16": "4e3197c84315a18383f88093e86a66fbf76c67c8",
+      "v0.1.0-alpha.18": "ec29d0ba329eecd1222c5dba69aa339df810a0e2",
+      "v0.1.0-alpha.9": "c6ccb63ba472a03b4135e25ca959535fbb8b676e"
+    }
+  }
+}

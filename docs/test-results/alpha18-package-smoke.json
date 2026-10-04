@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.18",
+  "sourceCommit": "ec29d0ba329eecd1222c5dba69aa339df810a0e2",
+  "capturedUtc": "2026-10-04T03:50:43.786Z",
+  "passed": true,
+  "manifestFilesVerified": 1287,
+  "assets": [
+    {
+      "name": "Xenon-0.1.0-alpha.18-windows-x64-unsigned.zip",
+      "size": 234076563,
+      "sha256": "2b4f66acd2153a1e74d57bc179441007ab7b07513ed16a534dfb68c5023462b4"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.18-windows-x64-unsigned.zip.sha256",
+      "size": 112,
+      "sha256": "ee6a9b75e785f52e548b0e7cb603f1485bbe522b50009ddd11eebf87204dc01b"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.18-windows-x64-setup-unsigned.exe",
+      "size": 203446281,
+      "sha256": "c3cb1641e67c74c90113673dc945b15d2f0b2abb94095b643d78593c02ffc074"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.18-windows-x64-setup-unsigned.exe.sha256",
+      "size": 118,
+      "sha256": "1d600d4f85f63df74c787f09b9cc969610869afe6e2868c241f17dc6795f61a5"
+    }
+  ],
+  "packagedBinaries": {
+    "executableSha256": "acb3adf4e2bb39e53eeb0d49f59d0929fc3ed54e520d141d56e89e01654ff572",
+    "applicationDllSha256": "dff0c5310d3f9f4c0cc6ff44ae4a0d339ca1ec884c9dea251ddc945ed878441e",
+    "cefDllSha256": "e73aeafbd0c1f7169f3d0b2fb78f385cba7f00d7bf93b2cfbdcd82fe9980e6b6"
+  },
+  "smoke": {
+    "run": "package-smoke-1791085819445",
+    "capturedAt": "2026-10-04T03:50:22.889Z",
+    "applicationDllSha256": "dff0c5310d3f9f4c0cc6ff44ae4a0d339ca1ec884c9dea251ddc945ed878441e",
+    "passed": true,
+    "checks": [
+      {
+        "name": "Packaged branding changes only permitted CEF bootstrap resources",
+        "passed": true
+      },
+      {
+        "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+        "passed": true
+      },
+      {
+        "name": "Packaged browser observes and performs a verified page action",
+        "passed": true
+      },
+      {
+        "name": "Packaged batch fills multiple fields and verifies website state",
+        "passed": true
+      }
+    ]
+  },
+  "scope": "ZIP checksum/inventory and every extracted manifest file verified. Bundled Node/MCP adapter and packaged production browser performed a verified synthetic page action and three-step batch. Installer assembled from this ZIP; 47 isolated lifecycle checks passed separately.",
+  "limits": [
+    "Unsigned hashes establish byte integrity, not publisher identity.",
+    "No production installer was run over the user copy.",
+    "Post-packaging record is separate from archive documentation."
+  ],
+  "privacy": "Disposable synthetic profiles only; no private tokens, raw calls, browsing logs or screenshots."
+}

@@ -8,6 +8,8 @@ The native broker validates the entire plan before input, then uses the existing
 
 Both the Windows x64 installer and portable ZIP remain unsigned prerelease artifacts. Close Xenon and stop/reconnect the MCP adapter when upgrading so the host discovers the new tool. Existing profiles and pairing configuration remain separate from application files. Runtime dependency pins are unchanged, including the documented lag behind Chrome's newer security update. See [batch usage](MCP.md#batching-simple-actions) and the [validation scope](TESTING.md).
 
+The [alpha.18 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.18) publishes both formats and their checksums. All 1,287 runtime hashes, four packaged-browser smoke checks and the release source's Windows CI passed. [Package evidence](test-results/alpha18-package-smoke.json) and [publication evidence](test-results/alpha18-publication.json) bind the uploaded bytes and native updater verification. Release downloads now retain only alpha.16–18; older source tags and history remain available.
+
 ## 0.1.0-alpha.17
 
 The native saved-account picker can appear about 250 ms after physical input releases and leaves an eligible login field focused. It no longer waits for the full two-second agent cooldown; that pause still applies to agent input. Held input, dialogs, navigation, new activity and vault lock continue to block or invalidate offers.
