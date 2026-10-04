@@ -48,7 +48,7 @@ await writeFile(resolve(profile, 'broker-state.json'), JSON.stringify({ version:
   workspaces: [], accountGrants: [], operations: [] }));
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.end('<!doctype html><title>Xenon release fixture</title><h1>Packaged browser ready</h1><button onclick="this.textContent=\'Package action verified\'">Verify package action</button><label>Package first field<input id="first"></label><label>Package second field<input id="second"></label><button onclick="if(document.querySelector(\'#first\').value===\'Synthetic first\'&&document.querySelector(\'#second\').value===\'Synthetic second\')this.textContent=\'Package batch verified\'">Verify package batch</button>');
+  res.end('<!doctype html><title>Xenon release fixture</title><style>body{font:16px system-ui;margin:18px;background:#f2f4f8;color:#18212d}label{display:block;margin:12px 0}input{margin:4px}</style><h1>Packaged browser ready</h1><button onclick="this.textContent=\'Package action verified\'">Verify package action</button><label>Package first field <input id="first"></label><label>Package second field <input id="second"></label><button onclick="if(document.querySelector(\'#first\').value===\'Synthetic first\'&&document.querySelector(\'#second\').value===\'Synthetic second\')this.textContent=\'Package batch verified\'">Verify package batch</button>');
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 let browser, client, tab, branding;
@@ -101,7 +101,7 @@ try {
     const evidence = await observe(scope);
     const ref = (name, tag) => {
       const node = evidence.nodes.find(node => node.name === name && node.tag === tag && node.ref);
-      assert(node, `Missing packaged batch target: ${name}`); return node.ref;
+      assert(node, `Missing packaged batch target: ${name}; rendered targets: ${JSON.stringify(evidence.nodes.map(node => ({ name: node.name, tag: node.tag })))}`); return node.ref;
     };
     const result = await tool('batch', { ...scope, ownershipGeneration: tab.ownershipGeneration, operationId: randomUUID(), observationId: evidence.observationId,
       steps: [{ action: 'fill', elementRef: ref('Package first field', 'INPUT'), text: 'Synthetic first' },
@@ -118,7 +118,7 @@ try {
   if (browser?.pid) await runFile('taskkill.exe', ['/PID', String(browser.pid), '/T', '/F'], { windowsHide: true }).catch(() => {});
   server.closeAllConnections(); await new Promise(r => server.close(r));
   const report = { run, capturedAt: new Date().toISOString(), release: basename(release),
-    applicationDllSha256, branding, passed: results.length === 3 && results.every(r => r.passed), results };
+    applicationDllSha256, branding, passed: results.length === 4 && results.every(r => r.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true });
   await writeFile(resolve(root, 'out/package-smoke-results.json'), JSON.stringify(report, null, 2) + '\n');
   process.exitCode = report.passed ? 0 : 1;

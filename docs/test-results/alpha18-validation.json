@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.1.0-alpha.18",
-  "capturedUtc": "2026-10-04T03:40:43.098Z",
+  "capturedUtc": "2026-10-04T03:48:12.461Z",
   "passed": true,
   "binaries": {
     "productionExecutableSha256": "acb3adf4e2bb39e53eeb0d49f59d0929fc3ed54e520d141d56e89e01654ff572",
@@ -154,11 +154,96 @@
     ],
     "securityUpdateLagRetained": true
   },
+  "packageFixtureDevelopment": {
+    "failures": [
+      {
+        "run": "package-smoke-1791085438106",
+        "capturedAt": "2026-10-04T03:44:00.522Z",
+        "applicationDllSha256": "dff0c5310d3f9f4c0cc6ff44ae4a0d339ca1ec884c9dea251ddc945ed878441e",
+        "passed": false,
+        "checks": [
+          {
+            "name": "Packaged branding changes only permitted CEF bootstrap resources",
+            "passed": true
+          },
+          {
+            "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+            "passed": true
+          },
+          {
+            "name": "Packaged browser observes and performs a verified page action",
+            "passed": true
+          },
+          {
+            "name": "Packaged batch fills multiple fields and verifies website state",
+            "passed": false,
+            "error": "Missing packaged batch target: Package first field"
+          }
+        ]
+      },
+      {
+        "run": "package-smoke-1791085497404",
+        "capturedAt": "2026-10-04T03:44:59.176Z",
+        "applicationDllSha256": "dff0c5310d3f9f4c0cc6ff44ae4a0d339ca1ec884c9dea251ddc945ed878441e",
+        "passed": false,
+        "checks": [
+          {
+            "name": "Packaged branding changes only permitted CEF bootstrap resources",
+            "passed": true
+          },
+          {
+            "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+            "passed": true
+          },
+          {
+            "name": "Packaged browser observes and performs a verified page action",
+            "passed": true
+          },
+          {
+            "name": "Packaged batch fills multiple fields and verifies website state",
+            "passed": false,
+            "error": "Missing packaged batch target: Package first field; rendered targets: [{\"name\":\"Packaged browser ready\"},{\"name\":\"Package action verified\",\"tag\":\"BUTTON\"},{\"name\":\"\",\"tag\":\"LABEL\"},{\"name\":\"\",\"tag\":\"LABEL\"},{\"name\":\"Verify package batch\",\"tag\":\"BUTTON\"},{\"name\":\"Packaged browser ready\"},{\"name\":\"Package action verified\"},{\"name\":\"\",\"tag\":\"INPUT\"},{\"name\":\"\",\"tag\":\"INPUT\"},{\"name\":\"Verify package batch\"}]"
+          }
+        ]
+      },
+      {
+        "run": "package-smoke-1791085542483",
+        "capturedAt": "2026-10-04T03:45:44.161Z",
+        "applicationDllSha256": "dff0c5310d3f9f4c0cc6ff44ae4a0d339ca1ec884c9dea251ddc945ed878441e",
+        "passed": false,
+        "checks": [
+          {
+            "name": "Packaged branding changes only permitted CEF bootstrap resources",
+            "passed": true
+          },
+          {
+            "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+            "passed": true
+          },
+          {
+            "name": "Packaged browser observes and performs a verified page action",
+            "passed": true
+          },
+          {
+            "name": "Packaged batch fills multiple fields and verifies website state",
+            "passed": false,
+            "error": "Missing packaged batch target: Package first field; rendered targets: [{\"name\":\"Packaged browser ready\"},{\"name\":\"Package action verified\",\"tag\":\"BUTTON\"},{\"name\":\"\",\"tag\":\"LABEL\"},{\"name\":\"\",\"tag\":\"LABEL\"},{\"name\":\"Verify package batch\",\"tag\":\"BUTTON\"},{\"name\":\"Packaged browser ready\"},{\"name\":\"Package action verified\"},{\"name\":\"\",\"tag\":\"INPUT\"},{\"name\":\"\",\"tag\":\"INPUT\"},{\"name\":\"Verify package batch\"}]"
+          }
+        ]
+      }
+    ],
+    "correction": "Explicit body foreground/background and block label spacing expose fixture labels through the existing rendered-evidence filter; the harness now requires all four checks. No product code or binary changed.",
+    "correctedCandidate": {
+      "run": "package-smoke-1791085638359",
+      "passed": true,
+      "applicationDllSha256": "dff0c5310d3f9f4c0cc6ff44ae4a0d339ca1ec884c9dea251ddc945ed878441e"
+    }
+  },
   "limits": [
     "Harness timings exclude model inference and do not establish a general speedup.",
     "Real-site acceptance, physical input and human account-picker selection were not repeated.",
     "Unrelated authentication, persistence, input and UI suites retain their historical binary-bound scope.",
-    "Package and publication evidence is recorded after assembly; the installed browser was not replaced."
+    "Final package and publication evidence is recorded after assembly; the installed browser was not replaced."
   ],
   "privacy": "Disposable synthetic profiles only; no private configuration, vault data, raw browsing logs or screenshots."
 }
