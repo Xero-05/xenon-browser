@@ -32,7 +32,11 @@ Before input, read current control status as needed and obtain fresh page
 evidence. Use the returned ownershipGeneration, observationId and element ref.
 Read coverage/truncation/limitations; missing text does not prove absence.
 For coordinates use a fresh screenshot and its CSS-pixel scale mapping.
-Re-observe after changes. Do not guess stale targets or reuse evidence across
+For a known sequence of visible fill/select/check/click actions, use xenon_batch
+to send up to 16 steps from that observation in one call. Check the batch status
+and each step response; stopped/skipped/unknown steps are not completed work.
+Observe separately when a step reveals new controls or the next action depends
+on its result. Re-observe after changes. Do not guess stale targets or reuse evidence across
 navigation, handoff, human activity or a changed document/viewport.
 
 Human page input temporarily pauses this tab without changing its owner. Stop
@@ -73,7 +77,7 @@ Read the host's current tool schemas. Xenon uses strict parameters; there is no 
 1. Call `xenon_worker_create` with a descriptive `name`. Omit `workspaceId` for a new persistent workspace only when native automatic creation is enabled and its quota permits; otherwise supply an already granted workspace to keep its cookies and sign-in session. Save both returned handles.
 2. With effective interaction permission, call `xenon_tab_create` with the worker, workspace and an HTTP(S) `url`. Save `tabId` and the returned `ownershipGeneration`; the creator owns this tab automatically. To use an existing tab, list `xenon_tabs`, inspect `xenon_control_status` and acquire an unowned tab with `xenon_control` when permitted. Read-only clients can observe shared tabs without acquiring writable ownership.
 3. Call `xenon_observe` with the three scope handles. Read `coverage`, `truncated`, `frames` and `limitations`. Save `observationId` and the target node's opaque `ref`.
-4. Make one intended action, then inspect the resulting page. A successful tool reply is not a business outcome such as a completed booking or a server-accepted upload.
+4. Make an intended action or use `xenon_batch` for a known sequence of up to 16 visible fill/select/check/click targets from the same observation, then inspect the resulting page. Check batch `status` and individual responses even when the MCP envelope succeeds. A successful tool reply is not a business outcome such as a completed booking or a server-accepted upload.
 
 For example, these are tool names and argument objects, not code to execute in a page. Replace every placeholder with a returned value; generate a fresh UUID for each distinct mutation.
 
@@ -94,6 +98,8 @@ xenon_observe({
 ```
 
 An element click uses `xenon_interact` with `action: "click"`, all three scope handles, `ownershipGeneration` as the current returned integer, `observationId`, `elementRef` from the observed node's `ref`, and `operationId`. Other supported actions are `hover`, `fill`, `select`, `check`, `key`, `scroll` and `drag`; use their advertised fields. A gesture is complete within one call, with no held keys across calls.
+
+`xenon_batch` uses the same scope/generation/observation/operation fields and a `steps` array. Each step contains its `action`, `elementRef` and only the required action fields (`text`, `values` or `checked`). See the [batch example and result contract](MCP.md#batching-simple-actions). Steps run serially with existing target checks, stop on the first error or invalidation, and never refresh evidence or retry. Handoff cancels the suffix after the current gesture drains. Applied steps remain applied; inspect retained operation results and the website after uncertainty.
 
 Structured evidence covers rendered content in the current viewport. Hidden accessibility names, `title`/`alt` attributes and descriptions are omitted. Use `xenon_screenshot` for unnamed visual controls, and scroll then observe to inspect offscreen content. `query` and `xenon_wait` use the same filter; they cannot search hidden/offscreen text. Coverage is conservative and does not prove pixel-level legibility. `textSafety` may withhold a whole string containing unsafe non-rendering characters.
 

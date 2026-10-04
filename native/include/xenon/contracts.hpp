@@ -46,6 +46,8 @@ class BrowserEngine {
 // workspace.ensure {workspaceId}; tabs.create {workspaceId, url};
 // tabs.close / tabs.list; page.navigate/back/forward/reload/observe/screenshot;
 // page.click/fill/select/check/key/scroll/drag/hover/wait/dialog;
+// page.batch is broker-only: bounded sequential fill/select/check/click steps,
+// dispatched as existing guarded engine commands under one journal reservation.
 // files.upload/downloads; auth.accounts/login.
 // Page commands include agentSessionId, workspaceId, tabId; mutating commands
 // also include operationId and ownershipGeneration. Observe returns observationId.

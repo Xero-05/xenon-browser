@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Xenon batch fixture</title>
+<style>
+body{font:16px system-ui;margin:18px;background:#f2f4f8;color:#18212d}label{display:block;margin:8px 0}input,textarea,select,button{font:inherit;margin:4px;padding:6px}textarea{height:32px}button{cursor:pointer}#overlay{position:fixed;inset:0;background:#222a;z-index:10;display:none}
+</style></head><body>
+<h1>Batch fixture ready</h1>
+<label>First field <input id="first"></label>
+<label>Second field <textarea id="second"></textarea></label>
+<label>Fixture date <input id="date" type="date"></label>
+<label>Priority <select id="priority"><option value="normal">Normal</option><option value="high">High</option></select></label>
+<label><input id="check" type="checkbox">Approve fixture</label>
+<button id="increment">Increment count</button><output id="count">Count: 0</output>
+<button id="suffix">Suffix button</button>
+<button id="replace">Replace target</button><button id="target">Original target</button>
+<button id="cover">Show overlay</button><button id="navigate">Navigate fixture</button>
+<div id="overlay">Synthetic overlay</div>
+<script>
+const caseId=new URL(location.href).searchParams.get('case');let count=0,suffix=0,target=0;
+const effects=[];
+function snapshot(){return {first:document.querySelector('#first').value,second:document.querySelector('#second').value,date:document.querySelector('#date').value,priority:document.querySelector('#priority').value,checked:document.querySelector('#check').checked,count,suffix,target,effects,timeOrigin:performance.timeOrigin};}
+function report(){fetch('/state?id='+encodeURIComponent(caseId),{method:'POST',body:JSON.stringify(snapshot())}).catch(()=>{});}
+for(const type of ['input','change','click'])document.addEventListener(type,e=>{effects.push({type,id:e.target.id});queueMicrotask(report);},true);
+document.querySelector('#increment').onclick=()=>{document.querySelector('#count').textContent='Count: '+(++count);};
+document.querySelector('#suffix').onclick=()=>++suffix;
+document.querySelector('#target').onclick=()=>++target;
+document.querySelector('#replace').onclick=()=>{const old=document.querySelector('#target'),next=old.cloneNode(true);next.textContent='Replacement target';next.onclick=()=>++target;old.replaceWith(next);};
+document.querySelector('#cover').onclick=()=>{document.querySelector('#overlay').style.display='block';};
+document.querySelector('#navigate').onclick=()=>{location.href='/destination?case='+encodeURIComponent(caseId);};
+setInterval(report,200);report();
+</script></body></html>

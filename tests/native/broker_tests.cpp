@@ -164,6 +164,135 @@ Json action_params(Broker& broker, const Worker& worker, const std::string& oper
   base["operationId"] = operation; base["ownershipGeneration"] = status["result"]["ownershipGeneration"];
   base["observationId"] = snapshot["result"]["observationId"]; base["elementRef"] = "node_1"; return base;
 }
+Json batch_params(Broker& broker, const Worker& worker, const std::string& operation) {
+  auto params = action_params(broker, worker, operation); params.erase("elementRef");
+  params["steps"] = Json::array({{{"action", "fill"}, {"elementRef", "field-one"}, {"text", "Synthetic draft"}},
+    {{"action", "check"}, {"elementRef", "checkbox"}, {"checked", true}}, {{"action", "click"}, {"elementRef", "button"}}});
+  return params;
+}
+std::future<Json> submit(Broker& broker, const Worker& worker, const std::string& method, const Json& params) {
+  auto promise = std::make_shared<std::promise<Json>>(); auto future = promise->get_future();
+  broker.dispatch(worker.connection, {{"method", method}, {"params", params}}, [promise](Json result) { promise->set_value(std::move(result)); });
+  return future;
+}
+Json await_result(std::future<Json>& future);
+void batch_operations(const std::filesystem::path& directory) {
+  FakeEngine engine; Broker broker(engine, directory); pair(broker, "batch", "Batch fixture");
+  auto a = worker(broker, "batch", "batch-owner");
+  auto params = batch_params(broker, a, "batch-ordered");
+  const auto before = engine.call_count();
+  for (auto steps : {Json::array(), Json::array({{{"action", "key"}, {"elementRef", "field"}, {"key", "Enter"}}}),
+      Json::array({{{"action", "fill"}, {"elementRef", "field"}}}),
+      Json::array({{{"action", "check"}, {"elementRef", "field"}, {"checked", "true"}}}),
+      Json::array({{{"action", "select"}, {"elementRef", "field"}, {"values", Json::array()}}}),
+      Json::array({params["steps"][0], {{"action", "click"}, {"elementRef", "button"}, {"workspaceId", "forged"}}}),
+      Json::array({{{"action", "fill"}, {"elementRef", "field"}, {"text", std::string(65536, 'x')}}})}) {
+    auto invalid = params; invalid["steps"] = std::move(steps);
+    require(code(call(broker, a.connection, "page.batch", invalid)) == "INVALID_BATCH", "Native batch validation rejects malformed plans before any effect");
+  }
+  auto too_many = params; for (size_t i = 3; i < 17; ++i) too_many["steps"].push_back(params["steps"][2]);
+  require(code(call(broker, a.connection, "page.batch", too_many)) == "INVALID_BATCH", "Native batch size is bounded");
+  auto no_evidence = params; no_evidence["observationId"] = "forged";
+  require(code(call(broker, a.connection, "page.batch", no_evidence)) == "OBSERVATION_REQUIRED", "A batch requires the owner's current observation");
+  require(engine.call_count() == before, "Invalid plans dispatch no prefix");
+  auto final = submit(broker, a, "page.batch", params); engine.wait_pending(1);
+  auto duplicate = submit(broker, a, "page.batch", params);
+  auto conflict = params; conflict["steps"][0]["text"] = "different";
+  require(code(call(broker, a.connection, "page.batch", conflict)) == "OPERATION_CONFLICT", "Batch IDs bind the complete plan");
+  auto single = params; single.erase("steps"); single["elementRef"] = "other-button"; single["operationId"] = "after-batch";
+  auto queued = submit(broker, a, "page.click", single);
+  require(engine.pending_params("batch-ordered")["text"] == "Synthetic draft", "First field is filled first");
+  engine.complete("batch-ordered"); engine.wait_pending(1);
+  require(engine.pending_params("batch-ordered")["checked"] == true, "Second step executes after first completion");
+  engine.complete("batch-ordered"); engine.wait_pending(1);
+  require(engine.pending_params("batch-ordered")["elementRef"] == "button", "Third step retains the original target");
+  engine.complete("batch-ordered"); const auto result = await_result(final);
+  require(result["result"]["status"] == "completed" && result["result"]["steps"].size() == 3, "Batch reports all ordered outcomes");
+  require(await_result(duplicate) == result, "In-flight duplicate shares outcomes without replay");
+  engine.wait_pending(1); engine.complete("after-batch"); require(await_result(queued).value("ok", false), "Other input cannot interleave with a batch");
+  const auto completed_calls = engine.call_count();
+  require(call(broker, a.connection, "page.batch", params) == result && engine.call_count() == completed_calls, "Completed duplicate does not repeat any step");
+
+  for (const auto* error : {"stale_element", "input_uncertain"}) {
+    auto plan = batch_params(broker, a, std::string("batch-") + error); auto stopped = submit(broker, a, "page.batch", plan);
+    engine.wait_pending(1); engine.complete(plan["operationId"]); engine.wait_pending(1);
+    engine.complete(plan["operationId"], failure(error, "Synthetic failure")); const auto value = await_result(stopped);
+    require(value["result"]["status"] == (std::string(error) == "input_uncertain" ? "outcome_unknown" : "stopped"), "Batch preserves uncertainty separately from a stopped plan");
+    require(value["result"]["stoppedAt"] == 1 && value["result"]["steps"][2]["status"] == "skipped" && engine.pending_count() == 0, "The suffix has no effects after a failure");
+    const auto status = call(broker, a.connection, "operations.get", {{"operationId", plan["operationId"]}});
+    require(status["result"]["state"] == (std::string(error) == "input_uncertain" ? "outcome_unknown" : "failed"), "Recovery journal reflects batch outcome");
+  }
+  auto unknown_params = batch_params(broker, a, "batch-unknown-withheld"); auto unknown = submit(broker, a, "page.batch", unknown_params); engine.wait_pending(1);
+  auto restricted = ClientPolicy::legacy(256); restricted.capabilities.interaction = false;
+  require(broker.configure_client(broker.state()["clients"][0]["clientId"], restricted), "Permissions change while a batch step has an uncertain result");
+  engine.complete("batch-unknown-withheld", failure("input_uncertain", "Synthetic uncertain input"));
+  require(code(await_result(unknown)) == "PERMISSION_CHANGED", "Revocation withholds uncertain batch page details");
+  require(call(broker, a.connection, "operations.get", {{"operationId", "batch-unknown-withheld"}})["result"]["state"] == "outcome_unknown", "Withholding details cannot turn uncertainty into a known failure");
+}
+void batch_boundaries(const std::filesystem::path& directory) {
+  for (const auto* boundary : {"handoff", "human", "navigation", "protection", "disconnect", "retire", "policy", "revoke", "remove"}) {
+    FakeEngine engine; Broker broker(engine, directory / boundary); const auto principal = pair(broker, "batch", "Batch fixture");
+    std::future<Json> removal;
+    auto a = worker(broker, "batch", "owner"), b = worker(broker, "batch", "recipient", a.workspace);
+    auto params = batch_params(broker, a, "batch-boundary"); engine.delay_guard = true; auto final = submit(broker, a, "page.batch", params);
+    engine.wait_guard("batch-boundary"); const auto continuation = engine.guard_permit("batch-boundary");
+    engine.dispatch_guard("batch-boundary"); engine.wait_pending(1); engine.delay_guard = false;
+    const auto before = engine.call_count(); const std::string kind = boundary;
+    if (kind == "handoff") {
+      auto transfer = a.base(); transfer["expectedGeneration"] = a.tab["ownershipGeneration"]; transfer["toSessionId"] = b.session;
+      require(call(broker, a.connection, "control.handoff", transfer).value("ok", false), "Handoff begins while a batch gesture drains");
+    } else if (kind == "human") {
+      engine.event("human.input", {{"tabId", a.tab["tabId"]}, {"busy", true}});
+      engine.event("human.idle", {{"tabId", a.tab["tabId"]}});
+    } else if (kind == "navigation") engine.event("tab.navigated", {{"tabId", a.tab["tabId"]}, {"documentId", "new-document"}});
+    else if (kind == "protection") engine.event("auth.protected", {{"tabId", a.tab["tabId"]}, {"protected", true}});
+    else if (kind == "disconnect") broker.disconnect(a.connection);
+    else if (kind == "retire") require(call(broker, a.connection, "workers.retire", {{"agentSessionId", a.session}}).value("ok", false), "Worker retires during a batch");
+    else if (kind == "revoke") require(broker.revoke_client(principal["clientId"]) == Broker::RevocationStatus::durable, "Native client revocation cancels a partial batch");
+    else if (kind == "remove") {
+      auto promise = std::make_shared<std::promise<Json>>(); removal = promise->get_future();
+      broker.remove_workspace(a.workspace, [promise](Json value) { promise->set_value(std::move(value)); });
+    }
+    else {
+      auto policy = ClientPolicy::legacy(256); policy.capabilities.interaction = false;
+      require(broker.configure_client(broker.state()["clients"][0]["clientId"], policy), "Native interaction policy changes during a batch");
+    }
+    require(continuation() == (kind == "handoff"), "Only an already-started handoff gesture may continue; other boundaries invalidate it");
+    engine.complete("batch-boundary"); const auto result = await_result(final);
+    require(engine.command_count("page.fill") == 1 && engine.command_count("page.check") == 0 && engine.command_count("page.click") == 0 && engine.pending_count() == 0, "Authority or document changes cancel all later batch steps");
+    if (kind != "remove") require(engine.call_count() == before, "Boundary cancellation adds no engine calls");
+    if (kind == "policy" || kind == "revoke") require(code(result) == "PERMISSION_CHANGED", "Revoked page results are withheld");
+    else if (kind == "remove") {
+      require(result["result"]["resultWithheld"] == true && result["result"]["status"] == "stopped" && !result["result"].contains("steps"), "Removal withholds batch details without inventing completion");
+      engine.wait_removal(); engine.complete_removal(a.workspace); require(await_result(removal).value("ok", false), "Workspace removal waits for the current batch gesture");
+    }
+    else require(result["result"]["status"] == "stopped" && result["result"]["steps"][1]["dispatchStatus"] == "not_dispatched" && result["result"]["steps"][2]["status"] == "skipped", "Boundary result identifies the unstarted suffix");
+    if (kind == "handoff") require(call(broker, a.connection, "control.status", a.base())["result"]["ownerSessionId"] == b.session, "Handoff settles after current gesture without dispatching the plan suffix");
+  }
+  FakeEngine engine; Broker broker(engine, directory / "engine-queue"); pair(broker, "batch", "Batch fixture"); auto a = worker(broker, "batch", "owner");
+  auto params = batch_params(broker, a, "batch-ui-queue"); engine.delay_guard = true; auto result = submit(broker, a, "page.batch", params);
+  engine.wait_guard("batch-ui-queue"); engine.dispatch_guard("batch-ui-queue"); engine.wait_pending(1);
+  engine.complete("batch-ui-queue"); engine.wait_guard("batch-ui-queue");
+  engine.event("human.input", {{"tabId", a.tab["tabId"]}, {"busy", true}}); engine.dispatch_guard("batch-ui-queue");
+  const auto value = await_result(result);
+  require(value["result"]["steps"][0]["dispatchStatus"] == "dispatched" && value["result"]["steps"][1]["dispatchStatus"] == "not_dispatched", "Every step rechecks permission on actual engine dispatch");
+}
+void batch_recovery(const std::filesystem::path& directory) {
+  Json principal;
+  {
+    FakeEngine engine; Broker broker(engine, directory); principal = pair(broker, "batch", "Recovery fixture"); auto a = worker(broker, "batch", "owner");
+    auto params = batch_params(broker, a, "batch-recovery"); params["steps"][0]["text"] = "synthetic-input-must-not-persist";
+    broker.dispatch(a.connection, {{"method", "page.batch"}, {"params", params}}, [](Json) {});
+    engine.wait_pending(1); engine.complete("batch-recovery"); engine.wait_pending(1);
+    // Destroy the engine with the second step unresolved, as with process exit.
+  }
+  std::ifstream file(directory / "broker-state.json"); std::string saved((std::istreambuf_iterator<char>(file)), {});
+  require(saved.find("synthetic-input-must-not-persist") == std::string::npos && saved.find("field-one") == std::string::npos, "Batch recovery persists no input values or target references");
+  FakeEngine engine; Broker broker(engine, directory); require(call(broker, "reconnected", "hello", principal).value("ok", false), "Batch principal survives restart");
+  const auto operation = call(broker, "reconnected", "operations.get", {{"operationId", "batch-recovery"}});
+  require(operation["result"]["state"] == "outcome_unknown" && code(operation["result"]["response"]) == "OUTCOME_UNKNOWN", "Interrupted batches remain unknown after restart without an invented step breakdown");
+  require(engine.call_count() == 0, "Batch recovery never replays a prefix or suffix");
+}
 Json create_only(Broker& broker,const std::string& connection,const std::string& workspace={}) {
   Json params{{"name","lifecycle"}};if(!workspace.empty())params["workspaceId"]=workspace;
   return call(broker,connection,"workers.create",params);
@@ -189,6 +318,7 @@ void client_policy_boundaries(const std::filesystem::path& directory){
   Json base={{"workspaceId",workspace},{"agentSessionId",reader["result"]["agentSessionId"]},{"tabId",human["result"]["tabId"]}};
   require(code(call(broker,"new-client","tabs.create",base))=="PERMISSION_DENIED","Read-only client cannot create tabs");
   require(code(call(broker,"new-client","control.acquire",base))=="PERMISSION_DENIED","Read-only client cannot acquire writable control");
+  require(code(call(broker,"new-client","page.batch",base))=="PERMISSION_DENIED","Native batch admission enforces read-only client and workspace policy");
   ClientPolicy enabled{Capabilities::full(),true,2,1};require(broker.configure_client(client,enabled),"Client ceiling is configured natively");
   require(code(call(broker,"new-client","tabs.create",base))=="PERMISSION_DENIED","Client policy alone does not widen read-only workspace access");
   require(broker.configure_workspace_client(workspace,client,WorkspaceAccess::automatic(enabled)),"Workspace permissions explicitly intersect the client ceiling");
@@ -931,6 +1061,9 @@ int main() {
   try {
     human_dialog_notices();
     const auto root = std::filesystem::absolute(std::filesystem::path("build") / "broker-test-data" / local_security::random_hex(8));
+    batch_operations(root / "batch-operations");
+    batch_boundaries(root / "batch-boundaries");
+    batch_recovery(root / "batch-recovery");
     worker_capacity_and_churn(root / "worker-churn");
     client_policy_boundaries(root / "client-policy");
     legacy_policy_migration(root / "policy-migration");

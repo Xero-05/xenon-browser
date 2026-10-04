@@ -23,8 +23,35 @@ std::string field(const Json& value, const char* key) {
 using Delivery = std::pair<Reply, Json>;
 void deliver(std::vector<Delivery> items) { for (auto& [reply, value] : items) if (reply) { try { reply(std::move(value)); } catch (...) {} } }
 const std::set<std::string> read_commands{"page.observe", "page.screenshot", "files.downloads", "auth.accounts"};
-const std::set<std::string> write_commands{"tabs.close", "page.navigate", "page.back", "page.forward", "page.reload", "page.click", "page.fill", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.dialog", "files.upload", "auth.login"};
-const std::set<std::string> target_commands{"page.click", "page.fill", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "files.upload", "auth.login"};
+const std::set<std::string> write_commands{"tabs.close", "page.navigate", "page.back", "page.forward", "page.reload", "page.click", "page.fill", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.batch", "page.dialog", "files.upload", "auth.login"};
+const std::set<std::string> target_commands{"page.click", "page.fill", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.batch", "files.upload", "auth.login"};
+// Validate the entire bounded plan before admitting any effects. Nested steps
+// cannot override scope, authority, observations or the recovery operation ID.
+bool valid_batch(const Json& params) {
+  const auto steps = params.find("steps");
+  if (steps == params.end() || !steps->is_array() || steps->empty() || steps->size() > 16) return false;
+  size_t bytes{};
+  for (const auto& step : *steps) {
+    if (!step.is_object()) return false;
+    bytes += step.dump().size(); if (bytes > 65536) return false;
+    const auto action = field(step, "action"), ref = field(step, "elementRef");
+    if (ref.empty() || ref.size() > 256) return false;
+    std::set<std::string> keys{"action", "elementRef"};
+    if (action == "fill") {
+      keys.insert("text"); const auto text = step.find("text");
+      if (text == step.end() || !text->is_string() || text->get_ref<const std::string&>().size() > 65536) return false;
+    } else if (action == "select") {
+      keys.insert("values"); const auto values = step.find("values");
+      if (values == step.end() || !values->is_array() || values->empty() || values->size() > 100) return false;
+      for (const auto& value : *values) if (!value.is_string() || value.get_ref<const std::string&>().size() > 10000) return false;
+    } else if (action == "check") {
+      keys.insert("checked"); if (!step.contains("checked") || !step["checked"].is_boolean()) return false;
+    } else if (action != "click") return false;
+    if (step.size() != keys.size()) return false;
+    for (const auto& [key, value] : step.items()) if (!keys.contains(key)) return false;
+  }
+  return true;
+}
 bool safe_web_url(const std::string& url) {
   if (url.size() > 16384 || url.find_first_of("\r\n\t\\") != std::string::npos) return false;
   if (url == "about:blank") return true;
@@ -39,7 +66,10 @@ bool exact_https_origin(const std::string& origin) {
 }
 Json removed_workspace_result(const Json& value) {
   Json filtered;
-  if (value.value("ok", false)) filtered = success({{"status", "completed"}, {"resultWithheld", true}});
+  if (value.value("ok", false)) {
+    const auto status = field(value.value("result", Json::object()), "status");
+    filtered = success({{"status", status == "stopped" || status == "outcome_unknown" ? status : "completed"}, {"resultWithheld", true}});
+  }
   else {
     const auto error = value.find("error");
     auto code = error != value.end() && error->is_object() ? field(*error, "code") : std::string{};
@@ -70,7 +100,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     size_t callbacks{};
   };
   struct Observation { std::string id; uint64_t generation{}, human_epoch{}; };
-  struct Command { std::string operation, session, method; uint64_t generation{}, attachment{}, human_epoch{}; Json params; };
+  struct Command { std::string operation, session, method; uint64_t generation{}, attachment{}, human_epoch{}; Json params; std::string document; };
   struct Tab {
     std::string workspace, owner, document, group;
     uint64_t generation{1}, state_epoch{}, human_epoch{}; bool frozen{}, human_busy{}, protected_auth{};
@@ -423,6 +453,11 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     auto& operation = it->second;
     if (!value.is_object()) value = failure("ENGINE_PROTOCOL", "Engine returned an invalid response");
     operation.state = final_state.empty() ? (value.value("ok", false) ? "completed" : "failed") : final_state;
+    if (final_state.empty() && operation.method == "page.batch" && value.value("ok", false)) {
+      const auto status = field(value.value("result", Json::object()), "status");
+      if (status == "stopped") operation.state = "failed";
+      else if (status == "outcome_unknown") operation.state = "outcome_unknown";
+    }
     if (final_state.empty() && operation.dispatched && !value.value("ok", false)) {
       const auto error = value.find("error");
       const auto code = error != value.end() && error->is_object() ? field(*error, "code") : std::string{};
@@ -510,12 +545,66 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     if (!execute) return;
     dispatch_command(tab_id, std::move(command));
   }
+  bool command_permit(const std::string& tab_id, const Command& command,
+                      const std::shared_ptr<std::atomic<bool>>& step_started = {}) {
+    std::lock_guard lock(mutex);
+    auto tab = tabs.find(tab_id); auto operation = operations.find(command.operation); auto worker = workers.find(command.session);
+    if (tab == tabs.end() || operation == operations.end() || worker == workers.end()) return false;
+    if (stopping || !operation->second.result.is_null() || !clients.contains(worker->second.client) || !granted(worker->second.client, tab->second.workspace) || !worker->second.connected || worker->second.attachment != command.attachment || (tab->second.frozen && !operation->second.dispatched) || tab->second.human_busy || tab->second.human_epoch != command.human_epoch || tab->second.owner != command.session || tab->second.generation != command.generation) return false;
+    if (tab->second.active != command.operation && tab->second.dialog_active != command.operation) return false;
+    if (clients.at(worker->second.client).policy_epoch != command.params.value("trustedPolicyEpoch", uint64_t{}) || !allowed(worker->second.client, tab->second.workspace, command.method)) return false;
+    if (command.method == "auth.login" && account_origin(worker->second.client, tab->second.workspace, field(command.params, "accountId")) != field(command.params, "grantedOrigin")) return false;
+    if (command.method == "page.batch") {
+      const auto observed = tab->second.observations.find(command.session);
+      if (tab->second.protected_auth || tab->second.document != command.document || observed == tab->second.observations.end() || observed->second.id != field(command.params, "observationId") || observed->second.generation != command.generation || observed->second.human_epoch != command.human_epoch) return false;
+      // Handoff drains only the current finite gesture, never the rest of a plan.
+      if (step_started && tab->second.frozen && !step_started->load()) return false;
+    }
+    if (step_started) step_started->store(true);
+    if (!operation->second.dispatched) {
+      operation->second.dispatched = true; operation->second.state = "dispatched"; ++tab->second.state_epoch;
+    }
+    return true;
+  }
+  struct BatchProgress { size_t next{}; Json results = Json::array(); };
+  void batch_step(const std::string& tab_id, const Command& command,
+                  const std::shared_ptr<BatchProgress>& progress, Reply done) {
+    const auto& steps = command.params.at("steps");
+    if (progress->next == steps.size()) {
+      done(success({{"status", "completed"}, {"steps", progress->results}})); return;
+    }
+    const auto index = progress->next;
+    const auto action = field(steps[index], "action");
+    auto params = command.params; params.erase("steps");
+    for (const auto& [key, value] : steps[index].items()) params[key] = value;
+    auto self = shared_from_this();
+    auto started = std::make_shared<std::atomic<bool>>(false);
+    auto completed = std::make_shared<std::atomic<bool>>(false);
+    auto reply = [self, tab_id, command, progress, done, index, action, started, completed](Json value) {
+      if (completed->exchange(true)) return;
+      if (!value.is_object() || !value.contains("ok") || !value["ok"].is_boolean()) value = failure("OUTCOME_UNKNOWN", "Step returned an invalid completion; inspect the page before continuing");
+      progress->results.push_back({{"index", index}, {"action", action}, {"dispatchStatus", started->load() ? "dispatched" : "not_dispatched"}, {"response", value}});
+      ++progress->next;
+      if (!value.value("ok", false)) {
+        const auto code = field(value.value("error", Json::object()), "code");
+        const bool unknown = code == "OUTCOME_UNKNOWN" || code == "input_uncertain" || code == "input_interrupted";
+        const auto& steps = command.params.at("steps");
+        for (; progress->next < steps.size(); ++progress->next)
+          progress->results.push_back({{"index", progress->next}, {"action", field(steps[progress->next], "action")}, {"dispatchStatus", "not_dispatched"}, {"status", "skipped"}});
+        done(success({{"status", unknown ? "outcome_unknown" : "stopped"}, {"stoppedAt", index}, {"steps", progress->results}})); return;
+      }
+      self->batch_step(tab_id, command, progress, done);
+    };
+    try { engine.execute_guarded("page." + action, params, [self, tab_id, command, started] { return self->command_permit(tab_id, command, started); }, reply); }
+    catch (...) { reply(failure("OUTCOME_UNKNOWN", "Step dispatch ended unexpectedly; inspect the page before continuing")); }
+  }
   void dispatch_command(const std::string& tab_id, Command command) {
     auto self = shared_from_this();
     auto completed=std::make_shared<std::atomic<bool>>(false);
     auto done = [self, tab_id, command, completed](Json value) {
       if(!value.is_object() || !value.contains("ok") || !value["ok"].is_boolean())value=failure("OUTCOME_UNKNOWN","Engine returned an invalid completion; inspect operation status and the page before retrying");
       if(completed->exchange(true))return;
+      const bool batch_unknown = command.method == "page.batch" && value.value("ok", false) && field(value.value("result", Json::object()), "status") == "outcome_unknown";
       std::vector<Delivery> replies;
       {
         std::lock_guard lock(self->mutex);
@@ -535,7 +624,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
           auto withheld=failure("PERMISSION_CHANGED","Permissions changed during this operation; page results are withheld. Inspect its recorded dispatch status before continuing.");
           value=std::move(withheld);
         }
-        self->finish_locked(command.operation, std::move(value), replies);
+        self->finish_locked(command.operation, std::move(value), replies, batch_unknown ? "outcome_unknown" : "");
         self->finish_callback_locked(command.session);
       }
       deliver(std::move(replies)); self->pump(tab_id);
@@ -576,23 +665,11 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       }
       deliver(std::move(cancelled));
       if (!dispatch) { {std::lock_guard lock(self->mutex);self->finish_callback_locked(command.session);} self->pump(tab_id); return; }
-      auto permit = [self, tab_id, command] {
-        std::lock_guard lock(self->mutex);
-        auto tab = self->tabs.find(tab_id); auto operation = self->operations.find(command.operation); auto worker = self->workers.find(command.session);
-        if (tab == self->tabs.end() || operation == self->operations.end() || worker == self->workers.end()) return false;
-        if (self->stopping || !operation->second.result.is_null() || !self->clients.contains(worker->second.client) || !self->granted(worker->second.client, tab->second.workspace) || !worker->second.connected || worker->second.attachment!=command.attachment || (tab->second.frozen&&!operation->second.dispatched) || tab->second.human_busy || tab->second.human_epoch!=command.human_epoch || tab->second.owner != command.session || tab->second.generation != command.generation) return false;
-        if (tab->second.active != command.operation && tab->second.dialog_active != command.operation) return false;
-        if(self->clients.at(worker->second.client).policy_epoch!=command.params.value("trustedPolicyEpoch",uint64_t{})||
-          !self->allowed(worker->second.client,tab->second.workspace,command.method))return false;
-        if(command.method=="auth.login"&&self->account_origin(worker->second.client,tab->second.workspace,field(command.params,"accountId"))!=field(command.params,"grantedOrigin"))return false;
-        // Multi-step engine actions recheck authority before each side effect.
-        // Only the first successful check begins a new observation epoch.
-        if (!operation->second.dispatched) {
-          operation->second.dispatched = true; operation->second.state = "dispatched"; ++tab->second.state_epoch;
-        }
-        return true;
-      };
-      try { self->engine.execute_guarded(command.method, command.params, std::move(permit), done); }
+      auto permit = [self, tab_id, command] { return self->command_permit(tab_id, command); };
+      try {
+        if (command.method == "page.batch") self->batch_step(tab_id, command, std::make_shared<BatchProgress>(), done);
+        else self->engine.execute_guarded(command.method, command.params, std::move(permit), done);
+      }
       catch (...) { done(failure("OUTCOME_UNKNOWN", "Engine dispatch ended unexpectedly; inspect operation status before retrying")); }
     });
     if(!posted)done(failure("DISPATCH_CANCELLED","Browser dispatcher stopped before this request could run"));
@@ -876,6 +953,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     self->execute_safe(method, params, [self, client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply](Json value) { self->complete_read(client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply, std::move(value)); }); return;
   }
   if (!write_commands.contains(method)) { respond(failure("METHOD_UNSUPPORTED", "This browser capability is not implemented")); return; }
+  if (method == "page.batch" && !valid_batch(params)) { respond(failure("INVALID_BATCH", "Supply 1–16 element-targeted click/fill/select/check steps, with only their required fields, within 64 KiB of UTF-8 JSON")); return; }
   auto operation_id = field(params, "operationId"); if (operation_id.empty()) operation_id = identifier("op_");
   if (operation_id.size() > 160) { respond(failure("INVALID_OPERATION", "Operation ID is too long")); return; }
   params["operationId"] = operation_id; params["clientId"] = client;
@@ -925,7 +1003,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     Impl::Command command{operation_id, session_id, method, tab.generation, attachment, tab.human_epoch, params};
     lock.unlock(); self->dispatch_command(tab_id, std::move(command)); return;
   }
-  tab.queue.push_back({operation_id, session_id, method, tab.generation, attachment, tab.human_epoch, params});
+  tab.queue.push_back({operation_id, session_id, method, tab.generation, attachment, tab.human_epoch, params, tab.document});
   lock.unlock(); self->pump(tab_id);
 }
 
