@@ -5,7 +5,7 @@ import net from 'node:net';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -20,7 +20,7 @@ const dll = resolve(root, 'build/app/Release/Xenon.dll');
 const digest = async () => createHash('sha256').update(await readFile(dll)).digest('hex');
 const applicationDllSha256 = await digest();
 const html = await readFile(resolve(root, 'tests/fixtures/batch.html'));
-const states = new Map(), destinations = new Set(), results = [], clients = [];
+const states = new Map(), destinations = new Set(), results = [], clients = [], adapterDiagnostics = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const runFile = promisify(execFile);
 const server = http.createServer((req, res) => {
@@ -102,21 +102,48 @@ const browser = spawn(binary, [`--user-data-dir=${profile}`, `--broker-pipe=${pi
 try {
   await until(alivePipe, 30_000);
   for (const era of ['modern', 'legacy']) {
-    const wire = new StdioClientTransport({ command: process.execPath, args: [resolve(root, 'adapter/dist/src/cli.js'), 'serve', '--config', resolve(profile, 'client.json')], stderr: 'pipe' });
+    const exportDirectory = resolve(profile, `evidence-${era}`);
+    const wire = new StdioClientTransport({ command: process.execPath, args: [resolve(root, 'adapter/dist/src/cli.js'), 'serve', '--config', resolve(profile, 'client.json'), '--evidence-dir', exportDirectory], stderr: 'pipe' });
+    wire.stderr?.on('data', bytes => adapterDiagnostics.push(bytes.toString()));
     const client = new Client({ name: `Batch ${era}`, version: '1' }, { versionNegotiation: { mode: era === 'legacy' ? 'legacy' : { pin: '2026-07-28' } } });
     await client.connect(wire); clients.push(client);
     const worker = await tool(client, 'worker_create', { name: `Batch ${era}` });
     await check(`${era}: eight ordered actions and exact-request deduplication`, async () => {
-      const { tab, evidence } = await ready(client, worker, base, era);
+      const { tab } = await ready(client, worker, base, era);
+      const inspection = await raw(client, 'inspect', { ...scope(tab), maxNodes: 1000 });
+      assert(!inspection.isError, JSON.stringify(inspection.structuredContent));
+      assert.equal(inspection.content.filter(item => item.type === 'image').length, 1);
+      const evidence = inspection.structuredContent;
+      assert.equal(evidence.control.ownerSessionId, worker.agentSessionId);
+      assert.equal(evidence.control.ownershipGeneration, tab.ownershipGeneration);
+      assert.equal(evidence.consistency, 'validated_capture_interval');
       const args = { ...mutation(tab), observationId: evidence.observationId, steps: plan(evidence) };
       const started = performance.now(), result = await tool(client, 'batch', args), batchMs = performance.now() - started;
       assert.equal(result.status, 'completed'); assert.equal(result.steps.length, 8);
       assert(result.steps.every((step, index) => step.index === index && step.dispatchStatus === 'dispatched' && step.response.ok));
+      assert(result.timing.queueMs >= 0 && result.timing.executionMs >= 0 && result.timing.totalMs >= result.timing.executionMs);
+      assert(result.steps.every(step => step.durationMs >= 0));
       const state = await verifyFields(tab);
       const after = await observe(client, tab); assert.equal(after.documentId, evidence.documentId);
       await tool(client, 'batch', args); await sleep(350);
       assert.equal(states.get(tab.caseId).count, 2); assert.equal(states.get(tab.caseId).suffix, 1);
-      return { interactionCalls: 1, batchMs: Math.round(batchMs), steps: 8, verifiedCount: state.count, documentPreserved: true };
+      const records = await readdir(exportDirectory);
+      let saved;
+      for (const name of records.filter(name => name.endsWith('.request.json'))) {
+        const request = JSON.parse(await readFile(resolve(exportDirectory, name), 'utf8'));
+        if (request.name === 'xenon_batch' && request.arguments.operationId === args.operationId) { saved = request; break; }
+      }
+      assert(saved); assert.deepEqual(saved.arguments, args);
+      const exported = JSON.parse(await readFile(resolve(exportDirectory, `${saved.requestId}.result.json`), 'utf8'));
+      assert.deepEqual(exported.result.structuredContent, result);
+      assert(records.some(name => name.endsWith('.png')));
+      const fresh = await tool(client, 'inspect', { ...scope(tab), maxNodes: 1000 });
+      const button = fresh.nodes.find(node => node.name === 'Increment count' && node.tag === 'BUTTON'); assert(button);
+      await tool(client, 'interact', { ...mutation(tab), observationId: fresh.observationId, action: 'click',
+        x: button.bounds.x + button.bounds.width / 2 - fresh.viewport.pageX,
+        y: button.bounds.y + button.bounds.height / 2 - fresh.viewport.pageY });
+      await until(() => states.get(tab.caseId).count === 3);
+      return { interactionCalls: 1, batchMs: Math.round(batchMs), nativeTiming: result.timing, steps: 8, verifiedCount: 3, documentPreserved: true, combinedElementAndCoordinateEvidence: true, exactExportVerified: true };
     });
     if (era === 'legacy') continue;
     await check('Separate calls comparison on the same eight-action plan', async () => {
@@ -156,7 +183,7 @@ try {
       return { status: result.status, stoppedAt: result.stoppedAt, destinationVerified: true };
     });
   }
-} catch (error) { results.push({ name: 'Batch harness', passed: false, error: error.message }); console.log(`FAIL harness: ${error.message}`); }
+} catch (error) { results.push({ name: 'Batch harness', passed: false, error: error.message, adapterDiagnostics }); console.log(`FAIL harness: ${error.message} ${adapterDiagnostics.join('')}`); }
 finally {
   for (const client of clients) await client.close().catch(() => {});
   if (browser.pid) await runFile('taskkill.exe', ['/PID', String(browser.pid), '/T', '/F'], { windowsHide: true }).catch(() => {});

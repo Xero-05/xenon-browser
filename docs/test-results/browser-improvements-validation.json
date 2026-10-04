@@ -1,0 +1,249 @@
+{
+  "candidate": "Browser improvements, local alpha.18 source candidate",
+  "capturedAt": "2026-10-04T08:02:45.861Z",
+  "changes": [
+    "Scoped file discovery with query, honest truncation and opaque continuation",
+    "Native and adapter handle validation with scoped connection diagnostics",
+    "Official-MCP scoped worker/tab helper without retries",
+    "Combined inspected nodes, permitted PNG and broker control metadata",
+    "Opt-in private bounded public-MCP evidence export",
+    "Native queue/execution and per-step batch timings; compact worker instructions"
+  ],
+  "build": {
+    "configuration": "Full Windows x64 Release",
+    "passed": true,
+    "ordinaryUserRunner": true,
+    "log": "out/improvements-20261004-build-4.log"
+  },
+  "binaries": {
+    "production": {
+      "path": "build/app/Release/Xenon.dll",
+      "sha256": "f8d8f59316304adf44e4f1f052f74b50843811b4112b06c5e1e98fad7371fd2c"
+    },
+    "authenticationFixture": {
+      "path": "build/auth-fixture/Release/XenonAuthTest.dll",
+      "sha256": "1a54d6e20c7770e44e3f50a153165dd3d1d5690829cbed90f56ba3f1d32be52b",
+      "shipped": false
+    }
+  },
+  "validation": {
+    "typecheck": {
+      "command": "npm.cmd run typecheck",
+      "passed": true
+    },
+    "native": {
+      "command": "ctest --test-dir build -C Release --output-on-failure",
+      "groups": 11,
+      "passed": true,
+      "report": "out/improvements-20261004-native-final.xml"
+    },
+    "adapter": {
+      "command": "npm.cmd test",
+      "checks": 113,
+      "passed": true
+    },
+    "branding": {
+      "command": "node tests/branding-resources.mjs",
+      "checks": 5,
+      "passed": true
+    },
+    "diffCheck": {
+      "command": "git diff --check",
+      "passed": true
+    }
+  },
+  "live": {
+    "batch": {
+      "run": "batch-1791100525798-a303170d",
+      "capturedAt": "2026-10-04T07:55:39.269Z",
+      "passed": true,
+      "applicationDllSha256": "f8d8f59316304adf44e4f1f052f74b50843811b4112b06c5e1e98fad7371fd2c",
+      "checks": [
+        {
+          "name": "modern: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Separate calls comparison on the same eight-action plan",
+          "passed": true
+        },
+        {
+          "name": "Replaced target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Covered target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Navigation cancels original-document targets",
+          "passed": true
+        },
+        {
+          "name": "legacy: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Binary remained unchanged",
+          "passed": true
+        }
+      ]
+    },
+    "filesAndUploads": {
+      "run": "upload-entry-1791100617084-08daca5c",
+      "capturedAt": "2026-10-04T07:57:09.333Z",
+      "passed": true,
+      "applicationDllSha256": "f8d8f59316304adf44e4f1f052f74b50843811b4112b06c5e1e98fad7371fd2c",
+      "checks": [
+        {
+          "name": "File discovery retains truncation, later pages and scoped relative-path filters",
+          "passed": true
+        },
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true
+        },
+        {
+          "name": "A brightness-styled hover preserves the approved upload entry",
+          "passed": true
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true
+        }
+      ]
+    },
+    "protectedAuthentication": {
+      "run": "auth-integration-1791100749300",
+      "capturedAt": "2026-10-04T07:59:18.045Z",
+      "passed": true,
+      "applicationDllSha256": "1a54d6e20c7770e44e3f50a153165dd3d1d5690829cbed90f56ba3f1d32be52b",
+      "checks": [
+        {
+          "name": "Safe page screenshots remain available",
+          "passed": true
+        },
+        {
+          "name": "No raw eval, CDP, cookies or storage tools",
+          "passed": true
+        },
+        {
+          "name": "Synthetic password and OTP input events seal all observers through reveal and handoff",
+          "passed": true
+        },
+        {
+          "name": "Native folder grants persist and upload only approved opaque file handles",
+          "passed": true
+        },
+        {
+          "name": "Account rights remain per client across handoff",
+          "passed": true
+        },
+        {
+          "name": "Exact credential origin enforced",
+          "passed": true
+        },
+        {
+          "name": "GET and readonly forms reject credentials before input or submission",
+          "passed": true
+        },
+        {
+          "name": "Named login submitter advances the POST flow exactly once",
+          "passed": true
+        },
+        {
+          "name": "Opaque saved login authenticates without a model-visible credential",
+          "passed": true
+        },
+        {
+          "name": "Four-agent handoff preserves quarantine and sends no website input",
+          "passed": true
+        },
+        {
+          "name": "Username-first forms reuse only the exact-origin account",
+          "passed": true
+        }
+      ],
+      "logCanaryScan": {
+        "passed": true,
+        "filesScanned": 107
+      }
+    }
+  },
+  "batchNativeTimings": [
+    {
+      "sdk": "modern",
+      "timing": {
+        "executionMs": 1465.6675,
+        "queueMs": 1.773,
+        "totalMs": 1467.4405
+      },
+      "steps": 8,
+      "exactExportVerified": true
+    },
+    {
+      "sdk": "legacy",
+      "timing": {
+        "executionMs": 1397.6938,
+        "queueMs": 1.7051,
+        "totalMs": 1399.3989
+      },
+      "steps": 8,
+      "exactExportVerified": true
+    }
+  ],
+  "failedAttemptsRetained": [
+    {
+      "report": "out/batch-1791099636148-c4cdf112.json",
+      "outcome": "Discovery sibling consumed the eagerly-created export directory; connection closed before page actions."
+    },
+    {
+      "report": "out/batch-1791099688600-e3ba3fa9.json",
+      "outcome": "Same startup failure, with generic adapter diagnostics."
+    },
+    {
+      "report": "out/batch-1791099762043-09605794.json",
+      "outcome": "Safe EVIDENCE_DIRECTORY_EXISTS diagnostics isolated the issue. Export is now initialized on the first tool call."
+    },
+    {
+      "report": "out/upload-entry-integration-results.json",
+      "outcome": "All 11 scenarios passed, but the harness still expected 10. Count corrected; later reports use unique run names."
+    }
+  ],
+  "limitations": [
+    "All live work used disposable synthetic profiles, grants, files and loopback websites.",
+    "Protected authentication uses the unshipped fixture target, not physical human confirmation or real accounts.",
+    "Combined inspection validates a capture interval, not an atomic frozen page; scripts and canvas continue running.",
+    "No real-site, physical UI, installer, package or publication acceptance was performed for this candidate.",
+    "Timings exclude model/host work and do not establish a general parallel speedup.",
+    "Raw task exports and synthetic profile state remain ignored local data; this record includes only sanitized metadata."
+  ]
+}

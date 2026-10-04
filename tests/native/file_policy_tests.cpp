@@ -180,7 +180,26 @@ int main() {
     require(folder_contents.at("ok") && folder_contents.at("result").at("files").size() == 2, "Folder listing did not exclude sensitive exports, pairing configs and hardlinks");
     require(folder_contents.dump().find(scratch.root.string()) == std::string::npos, "Folder listing leaked absolute directory");
     require(files.list_files("workspace-a", folder_id, 1).at("result").at("truncated"), "Bounded folder listing did not report truncation");
+    const auto page = files.discover_files({"workspace-a"}, folder_id, 1, {}, {}, std::nullopt, "worker-a")["result"];
+    require(page["nextCursor"].is_string() && !page["scanIncomplete"].get<bool>(), "A capped result supplies an opaque continuation cursor");
+    const auto cursor = page["nextCursor"].get<std::string>();
+    const auto next = files.discover_files({"workspace-a"}, folder_id, 1, cursor, {}, std::nullopt, "worker-a")["result"];
+    require(next["files"].size() == 1 && next["files"][0]["fileId"] != page["files"][0]["fileId"] &&
+            next["nextCursor"].is_null() && !next["truncated"].get<bool>(), "Second page reaches files beyond the cap with honest final-page metadata");
+    require(files.discover_files({"workspace-a"}, folder_id, 1, cursor, {}, std::nullopt, "worker-a")["result"]["files"] == next["files"], "A repeated cursor returns the same discovery page");
+    require(!files.discover_files({"workspace-b"}, folder_id, 1, cursor, {}, std::nullopt, "worker-a")["ok"].get<bool>(), "Cursor cannot cross grant scopes");
+    require(!files.discover_files({"workspace-a"}, folder_id, 1, cursor, {}, std::nullopt, "worker-b")["ok"].get<bool>(), "Cursor cannot cross workers");
+    require(!files.discover_files({"workspace-a"}, folder_id, 1, cursor, "notes", std::nullopt, "worker-a")["ok"].get<bool>(), "Cursor cannot silently change its query");
+    const auto filtered = files.discover_files({"workspace-a"}, folder_id, 1, {}, "NESTED/NOTES.TXT")["result"];
+    require(filtered["files"].size() == 1 && filtered["files"][0]["name"] == "notes.txt" && !filtered["truncated"].get<bool>(), "Relative-path filtering finds later files before applying the page cap");
+    const auto singles_selected = files.discover_files({"workspace-a"}, {}, 1, {}, {}, std::set<std::string>{id})["result"];
+    require(singles_selected["files"].size() == 1 && singles_selected["files"][0]["fileId"] == id, "Resource selection is applied before the cap");
     const auto folder_file_id = folder_contents.at("result").at("files").at(0).at("fileId").get<std::string>();
+    const auto narrowed = files.discover_files({"workspace-a"}, folder_id, 1, {}, {}, std::set<std::string>{folder_file_id})["result"];
+    require(narrowed["files"].size() == 1 && narrowed["files"][0]["fileId"] == folder_file_id && !narrowed["truncated"].get<bool>(), "A selected derived file can be discovered without granting its entire folder");
+    write(inputs / "nested" / L"r\u00e9sum\u00e9.txt", "Synthetic Unicode filename");
+    const auto unicode = files.discover_files({"workspace-a"}, folder_id, 1, {}, "R\xc3\x89SUM\xc3\x89.TXT")["result"];
+    require(unicode["files"].size() == 1 && unicode["files"][0]["name"] == "r\xc3\xa9sum\xc3\xa9.txt", "Filename filtering uses Windows Unicode case-insensitive comparison");
     require(files.selected_grant("workspace-a", folder_file_id, {folder_id}), "Selected folder must include its derived opaque file handles");
     require(files.selected_grant("workspace-a", folder_file_id, {folder_file_id}), "A workspace can narrow inherited folders to an individual file");
     require(!files.selected_grant("workspace-a", folder_file_id, {}), "Empty inherited resource selection grants no file");
@@ -191,6 +210,7 @@ int main() {
       require(reopened.resolve_upload("workspace-a", folder_file_id).has_value(), "Derived folder file handle did not persist");
     }
     require(files.revoke_grant("workspace-a", folder_id).at("result").at("revoked"), "Native folder revocation failed");
+    require(!files.discover_files({"workspace-a"}, folder_id, 1, cursor, {}, std::nullopt, "worker-a")["ok"].get<bool>(), "Revocation invalidates retained discovery cursors");
     require(!files.resolve_upload("workspace-a", folder_file_id), "Folder revocation left a derived file capability");
     require(!files.selected_grant("workspace-a", folder_file_id, {folder_id, folder_file_id}), "Revoked inherited resources cannot be recovered by a retained selection");
     require(!files.list_files("workspace-a", folder_id).at("ok"), "Revoked folder could still be listed");

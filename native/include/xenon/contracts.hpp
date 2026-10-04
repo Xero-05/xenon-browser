@@ -44,11 +44,15 @@ class BrowserEngine {
 
 // Engine command names (native-private protocol):
 // workspace.ensure {workspaceId}; tabs.create {workspaceId, url};
-// tabs.close / tabs.list; page.navigate/back/forward/reload/observe/screenshot;
+// tabs.close / tabs.list; page.navigate/back/forward/reload/observe/screenshot/inspect;
 // page.click/fill/select/check/key/scroll/drag/hover/wait/dialog;
 // page.batch is broker-only: bounded sequential fill/select/check/click steps,
 // dispatched as existing guarded engine commands under one journal reservation.
-// files.upload/downloads; auth.accounts/login.
+// files.upload/downloads/folders/list (bounded query + opaque continuation); auth.accounts/login.
+// page.inspect brackets permitted capture with rendered evidence checks and
+// shares one observationId for elements and coordinates. Broker adds control.
+// Mutation replies include monotonic queue/execution/total timing; batch steps
+// include attempted durationMs. These do not prove website success.
 // Page commands include agentSessionId, workspaceId, tabId; mutating commands
 // also include operationId and ownershipGeneration. Observe returns observationId.
 // Engine owns opaque element references and validates freshness before input.

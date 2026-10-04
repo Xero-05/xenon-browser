@@ -2,6 +2,18 @@
 
 Xenon is a Windows x64 development alpha. The attached test records distinguish exercised behavior from inherited Chromium features and remaining manual coverage. They are not an independent security audit or a production reliability certification.
 
+## Alpha.19 release validation
+
+The [alpha.19 validation record](test-results/alpha19-validation.json) binds the full Windows x64 Release build, all 11 native groups, 113 adapter/fixed-script checks, typechecking, five branding checks and 47 isolated installer checks to the rebuilt release binaries. Serial synthetic CEF suites passed 28 scenarios plus a binary-integrity check: modern/legacy batches with shared node/image evidence, exact private exports and native timings; granted-file pagination and scoped path filters; and protected authentication withholding, including combined inspection. The authentication fixture remains unshipped, and its diagnostic credential-canary scan passed.
+
+The [original candidate record](test-results/browser-improvements-validation.json) retains earlier hashes and failed harness attempts. Physical UI and real-site acceptance remain unverified. Inspection validates a capture interval while page scripts/canvas continue running; native timings exclude model inference and establish no general speedup. Dependency pins are unchanged at the newest version-sorted Windows x64 stable CEF entry checked October 4, with the existing Chrome security-update lag. Package smoke and publication evidence are recorded separately after assembly.
+
+## Browser improvements candidate
+
+The [October 4 local validation record](test-results/browser-improvements-validation.json) covers paginated/filtered granted-file discovery, scoped handle diagnostics and client helpers, combined inspection, private opt-in evidence export, native timings and shorter worker instructions. The full Release build, all 11 native groups, adapter typechecking, 113 adapter/script checks and five branding checks passed. On the final production DLL, modern/legacy batch fixtures verified shared element/coordinate evidence, exact exported arguments/results, timing metadata and unchanged mutation deduplication. Eleven file/upload checks verified later-page discovery and scoped path filtering; eleven unshipped authentication-fixture checks also exercised inspection withholding across quarantine and handoff, with a clean credential-canary diagnostic scan.
+
+The record retains the export startup failures caused by modern stdio discovery and the upload harness's outdated total-count assertion. The fixed exporter starts only on an accepted tool call; reports now retain individual runs. All live data was synthetic. Inspection validates a capture interval while scripts/canvas continue running. Physical human UI, real sites, installer/package/publication and a controlled model speed comparison were not exercised for this candidate.
+
 ## Alpha.18 release validation
 
 Alpha.18 packages guarded simple-action batching. The [release validation record](test-results/alpha18-validation.json) binds the full Release build, all 11 native groups, adapter typechecking, 107 adapter/fixed-script checks, five branding checks, seven live batch/integrity checks and 47 isolated installer checks to the rebuilt release binaries. Modern and legacy clients verified the eight-action synthetic form sequence in one interaction call; separate calls required eight. Replaced/covered targets and navigation stopped the remaining steps.

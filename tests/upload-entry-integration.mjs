@@ -226,12 +226,34 @@ if (await alivePipe()) throw new Error('Randomly allocated private pipe already 
 try {
   await mkdir(profile, { recursive: true }); await writeFile(resolve(profile, 'SYNTHETIC_TEST_PROFILE'), 'XENON_SYNTHETIC_AUTH_FIXTURE\n');
   const seeded = JSON.parse((await runFile(resolve(root, 'build/Release/vault_fixture_seed.exe'), [profile], { windowsHide: true })).stdout.trim()); folderId = seeded.folderId;
+  await mkdir(resolve(uploadsRoot, 'nested'), { recursive: true });
+  for (let index = 0; index < 7; index++) await writeFile(resolve(uploadsRoot, 'nested', `page-${index}.txt`), `Synthetic discovery file ${index}\n`);
   const identity = { clientId: 'upload_' + randomBytes(8).toString('hex'), token: randomBytes(32).toString('hex'), pipe };
   await writeFile(resolve(profile, 'broker-state.json'), JSON.stringify({ version: 1,
     clients: [{ id: identity.clientId, name: 'Synthetic upload client', tokenHash: sha256(identity.token) }],
     workspaces: [{ id: workspaceId, clients: [identity.clientId] }], accountGrants: [], operations: [] }));
   await writePrivateConfig(resolve(profile, 'client-config.json'), identity);
   await prepareBenchmark(); await startFixtures(); applicationDllSha256 = await hashDll(); await launch();
+  await check('File discovery retains truncation, later pages and scoped relative-path filters', async () => {
+    const names = [], args = { ...workerScope(worker), folderId, limit: 2 };
+    let cursor, pages = 0;
+    do {
+      const page = await tool('files', { ...args, ...(cursor ? { cursor } : {}) });
+      assert.equal(typeof page.truncated, 'boolean'); assert.equal(page.scanIncomplete, false);
+      assert(page.files.length <= 2); names.push(...page.files.map(file => file.relativePath)); pages++;
+      assert(pages < 3000); cursor = page.nextCursor;
+      if (cursor) {
+        assert.equal(page.truncated, true);
+        const mismatch = await raw('files', { ...args, agentSessionId: otherWorker.agentSessionId, cursor });
+        assert.equal(mismatch.isError, true); assert.equal(mismatch.structuredContent.error.code, 'invalid_cursor');
+      } else assert.equal(page.truncated, false);
+    } while (cursor);
+    assert(names.length >= 8); assert.equal(new Set(names).size, names.length); assert(pages > 1);
+    for (let index = 0; index < 7; index++) assert(names.some(name => name.replaceAll('\\', '/') === `nested/page-${index}.txt`));
+    const filtered = await tool('files', { ...args, limit: 1, query: 'NESTED/PAGE-6.TXT' });
+    assert.equal(filtered.files.length, 1); assert.equal(filtered.files[0].name, 'page-6.txt'); assert.equal(filtered.truncated, false);
+    return { pages, uniqueFiles: names.length, laterPageFilterVerified: true };
+  });
   await check('Visible direct file input transfers only an approved opaque file', async () => {
     const tab = await open('direct', 'direct'), response = await upload(tab, 'Direct upload', fileId, 'INPUT');
     assert(!response.isError, JSON.stringify(response.structuredContent)); selectionFacts(response, 'not_attempted', 'selected'); await until(() => fixtureStates.get('direct').uploaded);
@@ -340,7 +362,7 @@ try {
   } catch (error) { results.push({ name: 'Source and binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe', profile,
     applicationDllSha256, applicationDllSha256AtEnd, mode: baseline ? 'baseline_failure_reproduction' : 'acceptance', benchmark: benchmarkMetadata ?? null,
-    passed: results.length === 6 + (baseline ? 0 : 4) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0) && results.every(result => result.passed), results };
-  await mkdir(resolve(root, 'out'), { recursive: true }); const reportPath = resolve(root, baseline ? 'out/upload-entry-baseline-results.json' : 'out/upload-entry-integration-results.json');
+    passed: results.length === 7 + (baseline ? 0 : 4) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0) && results.every(result => result.passed), results };
+  await mkdir(resolve(root, 'out'), { recursive: true }); const reportPath = resolve(root, 'out', `${run}${baseline ? '-baseline' : ''}.json`);
   await writeFile(reportPath, JSON.stringify(report, null, 2)); console.log('Report: ' + reportPath); process.exitCode = report.passed ? 0 : 1;
 }

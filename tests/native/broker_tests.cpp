@@ -98,7 +98,7 @@ struct FakeEngine final : BrowserEngine {
     if(command=="workspace.remove") { std::lock_guard lock(mutex); held_removals.emplace(params.at("workspaceId").get<std::string>(),std::move(reply)); return; }
     if(command==delay_create){held_creates.push_back({command,params,std::move(reply)});return;}
     if (command == "workspace.ensure" || command == "tabs.create") { reply(success(params)); return; }
-    if (command == "page.observe") {
+    if (command == "page.observe" || command == "page.inspect") {
       auto value = success({{"observationId", "snapshot_" + std::to_string(++observations)}, {"nodes", Json::array()}});
       if (delay_observe) { held_observation = std::move(reply); held_observation_value = std::move(value); } else reply(std::move(value)); return;
     }
@@ -201,15 +201,22 @@ void batch_operations(const std::filesystem::path& directory) {
   require(code(call(broker, a.connection, "page.batch", conflict)) == "OPERATION_CONFLICT", "Batch IDs bind the complete plan");
   auto single = params; single.erase("steps"); single["elementRef"] = "other-button"; single["operationId"] = "after-batch";
   auto queued = submit(broker, a, "page.click", single);
+  std::this_thread::sleep_for(std::chrono::milliseconds(25));
   require(engine.pending_params("batch-ordered")["text"] == "Synthetic draft", "First field is filled first");
   engine.complete("batch-ordered"); engine.wait_pending(1);
   require(engine.pending_params("batch-ordered")["checked"] == true, "Second step executes after first completion");
   engine.complete("batch-ordered"); engine.wait_pending(1);
   require(engine.pending_params("batch-ordered")["elementRef"] == "button", "Third step retains the original target");
   engine.complete("batch-ordered"); const auto result = await_result(final);
+  require(result["timing"]["queueMs"].get<double>() >= 0 && result["timing"]["executionMs"].get<double>() >= 0 &&
+          result["timing"]["totalMs"].get<double>() >= result["timing"]["executionMs"].get<double>(), "Native monotonic timing separates queue and execution");
+  for (const auto& step : result["result"]["steps"]) require(step["durationMs"].get<double>() >= 0, "Batch reports each attempted step duration");
   require(result["result"]["status"] == "completed" && result["result"]["steps"].size() == 3, "Batch reports all ordered outcomes");
   require(await_result(duplicate) == result, "In-flight duplicate shares outcomes without replay");
-  engine.wait_pending(1); engine.complete("after-batch"); require(await_result(queued).value("ok", false), "Other input cannot interleave with a batch");
+  engine.wait_pending(1); engine.complete("after-batch"); const auto queued_result = await_result(queued);
+  require(queued_result.value("ok", false), "Other input cannot interleave with a batch");
+  require(queued_result["timing"]["queueMs"].get<double>() >= 25 && result["result"]["steps"][0]["durationMs"].get<double>() >= 25,
+          "A held batch step contributes to execution duration and the following operation's queue duration");
   const auto completed_calls = engine.call_count();
   require(call(broker, a.connection, "page.batch", params) == result && engine.call_count() == completed_calls, "Completed duplicate does not repeat any step");
 
@@ -228,6 +235,31 @@ void batch_operations(const std::filesystem::path& directory) {
   engine.complete("batch-unknown-withheld", failure("input_uncertain", "Synthetic uncertain input"));
   require(code(await_result(unknown)) == "PERMISSION_CHANGED", "Revocation withholds uncertain batch page details");
   require(call(broker, a.connection, "operations.get", {{"operationId", "batch-unknown-withheld"}})["result"]["state"] == "outcome_unknown", "Withholding details cannot turn uncertainty into a known failure");
+}
+void scoped_diagnostics_and_inspection(const std::filesystem::path& directory) {
+  FakeEngine engine; Broker broker(engine, directory);
+  const auto principal = pair(broker, "scope", "Scope fixture");
+  auto a = worker(broker, "scope", "owner"), b = worker(broker, "scope", "other");
+  auto malformed = a.base(); malformed["agentSessionId"] = "not an opaque ID";
+  const auto calls = engine.call_count();
+  require(code(call(broker, "scope", "page.observe", malformed)) == "INVALID_HANDLE", "Native malformed handles are rejected clearly before engine access");
+  malformed = a.base(); malformed["tabId"] = 42;
+  require(code(call(broker, "scope", "page.observe", malformed)) == "INVALID_HANDLE", "Non-string IDs cannot silently substitute handles");
+  auto missing = a.base(); missing.erase("workspaceId");
+  require(code(call(broker, "scope", "page.observe", missing)) == "INVALID_SCOPE", "Missing scope is distinct from permission denial");
+  auto mixed = a.base(); mixed["tabId"] = b.tab["tabId"];
+  require(code(call(broker, "scope", "page.observe", mixed)) == "SCOPE_MISMATCH", "Authorized tab/workspace mismatch is diagnosed safely");
+  require(call(broker, "other-connection", "hello", principal).value("ok", false), "The same principal opens another connection");
+  require(code(call(broker, "other-connection", "page.observe", a.base())) == "SESSION_CONNECTION_MISMATCH", "Connected workers stay bound to their original connection");
+  require(engine.call_count() == calls, "Scope errors cause no engine operations");
+  const auto inspection = call(broker, "scope", "page.inspect", a.base());
+  require(inspection["result"]["control"]["ownerSessionId"] == a.session && inspection["result"]["control"]["tabId"] == a.tab["tabId"], "Inspection control metadata comes from the broker's checked tab");
+  engine.delay_observe = true;
+  std::promise<Json> result; auto future = result.get_future();
+  broker.dispatch("scope", {{"method", "page.inspect"}, {"params", a.base()}}, [&](Json value) { result.set_value(std::move(value)); });
+  broker.human_acquire(a.tab["tabId"]);
+  engine.complete_observation();
+  require(code(future.get()) == "OWNERSHIP_CHANGED", "A combined inspection withholds late evidence after ownership changes");
 }
 void batch_boundaries(const std::filesystem::path& directory) {
   for (const auto* boundary : {"handoff", "human", "navigation", "protection", "disconnect", "retire", "policy", "revoke", "remove"}) {
@@ -567,7 +599,7 @@ void concurrent_workers_and_disconnect(const std::filesystem::path& directory) {
   engine.wait_pending(12);
   broker.disconnect("host");
   auto hello = call(broker, "reconnected", "hello", credentials); require(hello.value("ok", false), "Paired client reconnects with persisted token");
-  require(code(call(broker, "reconnected", "page.observe", workers[0].base())) == "SESSION_DENIED", "Disconnected worker requires explicit resume");
+  require(code(call(broker, "reconnected", "page.observe", workers[0].base())) == "SESSION_DISCONNECTED", "Disconnected worker requires explicit resume");
   for (int i = 11; i >= 0; --i) engine.complete("parallel_" + std::to_string(i));
   for (size_t i = 0; i < results.size(); ++i) require(results[i].value("ok", false), "Already dispatched commands report their actual completion");
   auto journal = call(broker, "reconnected", "operations.get", {{"operationId", "parallel_0"}});
@@ -1062,6 +1094,7 @@ int main() {
     human_dialog_notices();
     const auto root = std::filesystem::absolute(std::filesystem::path("build") / "broker-test-data" / local_security::random_hex(8));
     batch_operations(root / "batch-operations");
+    scoped_diagnostics_and_inspection(root / "scope-inspection");
     batch_boundaries(root / "batch-boundaries");
     batch_recovery(root / "batch-recovery");
     worker_capacity_and_churn(root / "worker-churn");

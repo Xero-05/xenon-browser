@@ -8,9 +8,9 @@
 
 Xenon combines Chromium browsing with native controls for external agents to inspect pages, interact with websites, and hand off live tabs. You choose which MCP clients can connect, which workspaces they can use, and which saved accounts or local files they may access. Your MCP host supplies the model; Xenon has no built-in LLM and needs no model API key.
 
-**Current version: 0.1.0-alpha.18 · Windows 10/11 x64 · unsigned alpha.** Available as a per-user installer and a portable ZIP, with native update checks. See [release notes](docs/RELEASE_NOTES.md) and [validation scope](docs/TESTING.md).
+**Current version: 0.1.0-alpha.19 · Windows 10/11 x64 · unsigned alpha.** Available as a per-user installer and a portable ZIP, with native update checks. See [release notes](docs/RELEASE_NOTES.md) and [validation scope](docs/TESTING.md).
 
-[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.18) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent guide](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
+[Download the Windows release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.19) · [Get started](docs/GETTING_STARTED.md) · [User guide](docs/USER_GUIDE.md) · [Agent guide](docs/AGENT_GUIDE.md) · [MCP reference](docs/MCP.md)
 
 ## Screenshots
 

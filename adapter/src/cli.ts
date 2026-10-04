@@ -6,13 +6,15 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { BrokerError, DEFAULT_PIPE, PipeTransport, readClientConfig } from './ipc.js';
 import { createServer } from './server.js';
 import { writePrivateConfig } from './private-config.js';
+import { DeferredEvidenceExporter } from './evidence-export.js';
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   config: { type: 'string' }, pipe: { type: 'string' }, name: { type: 'string' }, output: { type: 'string' }, help: { type: 'boolean' },
+  'evidence-dir': { type: 'string' },
 }});
 async function main() {
   if (values.help) {
-    process.stderr.write('Xenon MCP\n  pair --name "Agent app" --output <private-config.json> [--pipe <local-pipe>]\n  serve --config <private-config.json>\nPairing requires approval in the native Xenon control window. Keep the configuration private.\n');
+    process.stderr.write('Xenon MCP\n  pair --name "Agent app" --output <private-config.json> [--pipe <local-pipe>]\n  serve --config <private-config.json> [--evidence-dir <new-private-directory>]\nPairing requires approval in the native Xenon control window. Evidence export is opt-in and bounded; captures task arguments and authorized results. Keep both private.\n');
     return;
   }
   if (positionals[0] === 'pair') {
@@ -36,12 +38,13 @@ async function main() {
   }
   if (!values.config) throw new BrokerError('ARGUMENT_REQUIRED', 'serve requires --config. Run pair first.');
   const config = await readClientConfig(values.config);
+  const evidence = values['evidence-dir'] ? new DeferredEvidenceExporter(values['evidence-dir']) : undefined;
   const transport = new PipeTransport(values.pipe ?? config.pipe ?? DEFAULT_PIPE);
   await transport.connect(config);
   process.on('SIGINT', () => { transport.close(); process.exit(0); });
   process.on('SIGTERM', () => { transport.close(); process.exit(0); });
   process.stdin.on('end', () => transport.close());
-  await serveStdio(({ era }) => createServer(transport, era), { legacy: 'serve' });
+  await serveStdio(({ era }) => createServer(transport, era, evidence), { legacy: 'serve' });
 }
 main().catch(error => {
   const safe = error instanceof BrokerError ? `${error.code}: ${error.message}` : 'STARTUP_ERROR: Xenon MCP could not start. Check configuration and browser availability.';
