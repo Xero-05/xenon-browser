@@ -10,6 +10,8 @@ Hosts can opt into `serve --evidence-dir <new-private-directory>` to save exact 
 
 Both Windows x64 formats remain unsigned prerelease artifacts. Restart Xenon and reconnect the adapter after upgrading so the host discovers the new tool. Runtime dependency pins remain unchanged, including the documented Chrome security-update lag. See the [MCP reference](MCP.md), [agent guide](AGENT_GUIDE.md) and [validation scope](TESTING.md).
 
+The [alpha.19 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.19) publishes the installer, portable ZIP and both checksums. All 1,293 extracted runtime hashes, six packaged-browser smoke checks and the merged source's Windows CI passed. [Package evidence](test-results/alpha19-package-smoke.json) and [publication evidence](test-results/alpha19-publication.json) bind the uploaded bytes and native updater download verification.
+
 ## 0.1.0-alpha.18
 
 Agents can use `xenon_batch` to fill multiple visible fields, select options, check boxes and click observed controls in one MCP call. Up to 16 simple actions run in order using the original observation and one operation ID. The eight-action synthetic form sequence uses one interaction call instead of eight; harness timings exclude model inference and do not establish a general model-speed improvement.

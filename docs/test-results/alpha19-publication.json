@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.0-alpha.19",
+  "publishedUtc": "2026-10-04T21:43:46Z",
+  "sourceCommit": "99814efd252c3783210e0cb4fe83ab73a3fdee55",
+  "url": "https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.19",
+  "draft": false,
+  "prerelease": true,
+  "windowsCi": {
+    "attempt": 1,
+    "headSha": "99814efd252c3783210e0cb4fe83ab73a3fdee55",
+    "url": "https://github.com/Xero-05/xenon-browser/actions/runs/37236696464",
+    "conclusion": "success"
+  },
+  "assets": [
+    {
+      "name": "Xenon-0.1.0-alpha.19-windows-x64-setup-unsigned.exe",
+      "size": 203470281,
+      "digest": "sha256:7084792ae124c82bab49d524b0335b2a3e37056328ebe2838b10659965f58060",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.19-windows-x64-setup-unsigned.exe.sha256",
+      "size": 118,
+      "digest": "sha256:d00709146d23a6ae07def79b6267529f485324e7e4cebd53a5f4ffcafd0ceb2f",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.19-windows-x64-unsigned.zip",
+      "size": 234110662,
+      "digest": "sha256:9214fa61b53d4a33ecb4ed65fab8ab33f6351eddd26ef33da64ad68b74dddc16",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.0-alpha.19-windows-x64-unsigned.zip.sha256",
+      "size": 112,
+      "digest": "sha256:4b0159edd5dcb3af80a7ff2f0448095b5948a0fe55d3178a8e750be4c664ac0b",
+      "state": "uploaded"
+    }
+  ],
+  "notes": "Uploaded assets match local sizes and SHA-256 digests; source tag and successful Windows CI verified. Unsigned hashes establish byte integrity, not publisher identity.",
+  "pullRequest": {
+    "number": 2,
+    "url": "https://github.com/Xero-05/xenon-browser/pull/2",
+    "originalHeadSha": "f5b1919ec06a951fd6a935957f211c7e5deb6900",
+    "mergedSourceCommit": "99814efd252c3783210e0cb4fe83ab73a3fdee55"
+  },
+  "packageVerification": {
+    "schemaVersion": 1,
+    "version": "0.1.0-alpha.19",
+    "sourceCommit": "99814efd252c3783210e0cb4fe83ab73a3fdee55",
+    "sourceTree": "e9554dcd965d6716ea1f226ea8cf15151f06f4a9",
+    "capturedUtc": "2026-10-04T21:35:17.038Z",
+    "passed": true,
+    "manifestFilesVerified": 1293,
+    "assets": [
+      {
+        "name": "Xenon-0.1.0-alpha.19-windows-x64-unsigned.zip",
+        "size": 234110662,
+        "sha256": "9214fa61b53d4a33ecb4ed65fab8ab33f6351eddd26ef33da64ad68b74dddc16"
+      },
+      {
+        "name": "Xenon-0.1.0-alpha.19-windows-x64-unsigned.zip.sha256",
+        "size": 112,
+        "sha256": "4b0159edd5dcb3af80a7ff2f0448095b5948a0fe55d3178a8e750be4c664ac0b"
+      },
+      {
+        "name": "Xenon-0.1.0-alpha.19-windows-x64-setup-unsigned.exe",
+        "size": 203470281,
+        "sha256": "7084792ae124c82bab49d524b0335b2a3e37056328ebe2838b10659965f58060"
+      },
+      {
+        "name": "Xenon-0.1.0-alpha.19-windows-x64-setup-unsigned.exe.sha256",
+        "size": 118,
+        "sha256": "d00709146d23a6ae07def79b6267529f485324e7e4cebd53a5f4ffcafd0ceb2f"
+      }
+    ],
+    "packagedBinaries": {
+      "executableSha256": "50819ebeb181a9fb77442f811874ec718188e0b4cd3767547a0ebdd24eb5be68",
+      "applicationDllSha256": "b1ca3f4afaaba4b127c5e9a0188a2c81a7662d0203759e2bcc0f344ba75f48c2",
+      "cefDllSha256": "e73aeafbd0c1f7169f3d0b2fb78f385cba7f00d7bf93b2cfbdcd82fe9980e6b6"
+    },
+    "smoke": {
+      "run": "package-smoke-1791149303338",
+      "capturedAt": "2026-10-04T21:28:27.476Z",
+      "applicationDllSha256": "b1ca3f4afaaba4b127c5e9a0188a2c81a7662d0203759e2bcc0f344ba75f48c2",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Packaged branding changes only permitted CEF bootstrap resources",
+          "passed": true
+        },
+        {
+          "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+          "passed": true
+        },
+        {
+          "name": "Packaged browser observes and performs a verified page action",
+          "passed": true
+        },
+        {
+          "name": "Packaged batch fills multiple fields and verifies website state",
+          "passed": true
+        },
+        {
+          "name": "Packaged scoped helper combines inspection, control and a verified batch",
+          "passed": true
+        },
+        {
+          "name": "Packaged opt-in export preserves exact public replies and permitted PNGs",
+          "passed": true
+        }
+      ]
+    },
+    "scope": "ZIP checksum/inventory and every extracted manifest file verified. Bundled Node/MCP adapter and packaged production browser verified a synthetic click and batch, scoped helper, combined inspection/control, native timing metadata and exact exported replies/PNG bytes. Installer assembled from this ZIP; 47 isolated lifecycle checks passed separately.",
+    "sourceBinding": "The packaged source tree exactly matches the merged release commit; version-bound production DLL matches the release validation record.",
+    "limits": [
+      "Unsigned hashes establish byte integrity, not publisher identity.",
+      "No production installer was run over the user copy.",
+      "Post-packaging record is separate from archive documentation."
+    ],
+    "privacy": "Disposable synthetic profiles only; no private tokens, raw calls, browsing logs, vault data or screenshots."
+  },
+  "nativeUpdateVerification": {
+    "simulatedCurrent": "0.1.0-alpha.18",
+    "available": "0.1.0-alpha.19",
+    "installerBytes": 203470281,
+    "expectedSha256": "7084792ae124c82bab49d524b0335b2a3e37056328ebe2838b10659965f58060",
+    "sizeAndSha256Verified": true,
+    "installerLaunched": false,
+    "method": "Release-built native updater runner; public metadata and download, disposable staging only."
+  }
+}
