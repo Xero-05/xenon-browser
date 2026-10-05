@@ -101,12 +101,12 @@ Closing the last tab keeps its saved workspace. Empty saved workspaces remain in
 
 Native **Remove workspace** requires confirmation, protects Personal, closes its tabs, cancels downloads, and revokes that workspace's grants. Shared vault accounts, completed downloads, and original upload files remain. Profile cleanup is bounded and can be deferred for locked or unsafe paths; it is not secure erasure or website logout. Worker retirement and tab closure are separate operations.
 
-## Alpha boundaries
+## Release boundaries
 
 - **Platform and hosts:** Windows x64 and external local stdio MCP hosts. Remote-only hosts need another transport; visual tasks need an image-capable client/model. There is no built-in model, cloud sync, or signed installer, and no guarantee of proprietary DRM or arbitrary extension compatibility.
 - **Credentials:** saved-account support covers a bounded set of HTTPS forms. MFA, passkeys, CAPTCHA, embedded login widgets, and unusual flows need human handling. Protected authentication withholds observations/screenshots; native Save/Fill/Resume confirmations cannot be accepted through MCP. Fixture coverage does not establish complete physical prompt acceptance or universal real-site compatibility.
 - **Files and outcomes:** directory uploads, File System Access API pickers, and cross-frame chooser delegation are unsupported. Selecting a file does not prove a server received it; a dispatched action does not prove website success. Inspect uncertain operations and the page before taking further action.
-- **Trust:** all website text, images, dialogs, and download names remain untrusted. Filtering hidden content cannot make a model immune to prompt injection or identify every visible secret. A workspace grant exposes permitted page sessions. DPAPI does not defend against malware running as the same Windows user. This alpha has not received an independent security audit. Read the [security boundaries](docs/SECURITY.md).
+- **Trust:** all website text, images, dialogs, and download names remain untrusted. Filtering hidden content cannot make a model immune to prompt injection or identify every visible secret. A workspace grant exposes permitted page sessions. DPAPI does not defend against malware running as the same Windows user. This release has not received an independent security audit. Read the [security boundaries](docs/SECURITY.md).
 - **Updates and validation:** updates require a human installation decision and a restart; they do not preserve live renderer state. Published hashes verify the download against release metadata, not publisher identity. Synthetic tests and native fixture drivers are documented separately from physical UI coverage; the complete menu/dialog, high-contrast, and multiple-DPI acceptance matrix remains unfinished. See [testing](docs/TESTING.md).
 
 ## Architecture, build, and contribution
