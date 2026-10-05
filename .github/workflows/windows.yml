@@ -1,4 +1,4 @@
-name: Windows alpha
+name: Windows release
 on:
   push:
     branches: ['**'] # Branch builds cover release commits; tags do not duplicate them.
@@ -60,7 +60,7 @@ jobs:
       - name: Build and run native and SDK tests
         shell: pwsh
         run: ./scripts/build.ps1 -Test
-      - name: Package unsigned Windows alpha
+      - name: Package unsigned Windows release
         shell: pwsh
         run: ./scripts/package.ps1
       - name: Verify release manifest and archive

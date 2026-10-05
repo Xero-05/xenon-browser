@@ -1,6 +1,6 @@
 # Get started with Xenon
 
-This guide uses **0.1.0-alpha.15**, an unsigned Windows x64 alpha with the native shell, reorganized Controls and read-only defaults for new paired clients. See [release notes](RELEASE_NOTES.md).
+This guide uses **0.1.1**, an unsigned Windows x64 release with the native shell, reorganized Controls and read-only defaults for new paired clients. See [release notes](RELEASE_NOTES.md).
 
 You need Windows 10 or 11 with a desktop session. Browsing needs no model account. Agent use additionally needs an MCP host that can launch a local stdio server; image support is needed for visual tasks.
 
@@ -8,24 +8,24 @@ The release includes the browser, its matching Chromium/CEF runtime, the MCP ada
 
 ## 1. Install Xenon
 
-Download these two assets from the [alpha.15 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.0-alpha.15):
+Download these two assets from the [0.1.1 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.1):
 
-- `Xenon-0.1.0-alpha.15-windows-x64-setup-unsigned.exe`
-- `Xenon-0.1.0-alpha.15-windows-x64-setup-unsigned.exe.sha256`
+- `Xenon-0.1.1-windows-x64-setup-unsigned.exe`
+- `Xenon-0.1.1-windows-x64-setup-unsigned.exe.sha256`
 
 Use the release asset, rather than GitHub's automatically generated **Source code** archive. Source archives require a [build](BUILD.md).
 
 In PowerShell, change to the folder containing both downloaded files and verify the checksum:
 
 ```powershell
-$installer = '.\Xenon-0.1.0-alpha.15-windows-x64-setup-unsigned.exe'
+$installer = '.\Xenon-0.1.1-windows-x64-setup-unsigned.exe'
 $expected = (Get-Content -LiteralPath ($installer + '.sha256') -Raw).Trim().Split(' ')[0]
 $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
 if ($actual -ine $expected) { throw 'Checksum mismatch. Do not run this installer.' }
 Write-Host 'Checksum matches.'
 ```
 
-This checks the installer against the published checksum; it is not a publisher signature. The alpha is unsigned, so Windows may show an unknown-publisher or reputation warning. Verify the release source before deciding to run it; normal use does not require administrator privileges or disabling Windows protection.
+This checks the installer against the published checksum; it is not a publisher signature. The release is unsigned, so Windows may show an unknown-publisher or reputation warning. Verify the release source before deciding to run it; normal use does not require administrator privileges or disabling Windows protection.
 
 Run the installer. On a fresh installation, choose an empty, dedicated folder on a local fixed drive that your Windows account can write to; the default is `%LOCALAPPDATA%\Programs\Xenon Browser`. Setup rejects network/removable drives, drive roots, linked folders and locations that contain or overlap Xenon's default browser-data folder. Review the destination shown before installing.
 

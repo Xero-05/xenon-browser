@@ -53,7 +53,7 @@ AppPublisherURL=https://github.com/Xero-05/xenon-browser
 AppSupportURL=https://github.com/Xero-05/xenon-browser/issues
 AppUpdatesURL=https://github.com/Xero-05/xenon-browser/releases
 VersionInfoVersion={#ReleaseNumericVersion}
-VersionInfoDescription={#ProductName} per-user installer (unsigned alpha)
+VersionInfoDescription={#ProductName} per-user installer (unsigned)
 DefaultDirName={#ProductDir}
 DefaultGroupName={#ProductName}
 DisableDirPage=no
@@ -314,7 +314,7 @@ end;
 
 procedure InitializeWizard;
 begin
-  WizardForm.WelcomeLabel2.Caption := 'Install Xenon for this Windows user. This is an unsigned alpha release.' + #13#10 + #13#10 +
+  WizardForm.WelcomeLabel2.Caption := 'Install Xenon for this Windows user. This is an unsigned release.' + #13#10 + #13#10 +
     'Choose a new or empty application folder. Updates retain the registered installation folder; to move it, uninstall and reinstall, then update your MCP client paths.' + #13#10 + #13#10 +
     'Browser profiles, saved accounts, and pairing permissions remain in your separate local application data folder. Uninstalling keeps that data.';
 end;

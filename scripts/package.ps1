@@ -43,7 +43,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Production dependency inventory failed.' }
   [IO.File]::WriteAllText((Join-Path $taskPackage 'npm-dependencies.json'), ($inventory -join "`n"), [Text.UTF8Encoding]::new($false))
 } finally { Pop-Location }
-$taskManifest = [ordered]@{ product='Xenon Browser';version=$Version;platform='windows-x64';signed=$false;stage='local alpha';createdUtc=[DateTime]::UtcNow.ToString('o');sandbox='CEF matching bootstrap enabled';files=@() }
+$taskReleaseStage = if ($Version.Contains('-')) { 'local prerelease' } else { 'local release' }
+$taskManifest = [ordered]@{ product='Xenon Browser';version=$Version;platform='windows-x64';signed=$false;stage=$taskReleaseStage;createdUtc=[DateTime]::UtcNow.ToString('o');sandbox='CEF matching bootstrap enabled';files=@() }
 foreach ($file in Get-ChildItem -LiteralPath $taskPackage -File -Recurse) {
   $relative = $file.FullName.Substring($taskPackage.Length + 1).Replace('\','/')
   $taskManifest.files += @{ path=$relative;bytes=$file.Length;sha256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -55,5 +56,5 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($taskStage, $taskZip, [IO.Compression.CompressionLevel]::Optimal, $false)
 $taskDigest = (Get-FileHash -LiteralPath $taskZip -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText(($taskZip + '.sha256'), "$taskDigest  $([IO.Path]::GetFileName($taskZip))`n", [Text.UTF8Encoding]::new($false))
-Write-Host "Unsigned alpha: $taskZip"
+Write-Host "Unsigned release package: $taskZip"
 Write-Host "SHA-256: $taskDigest"

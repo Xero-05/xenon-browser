@@ -1,6 +1,6 @@
-# Alpha validation
+# Validation
 
-Xenon is a Windows x64 development alpha. The attached test records distinguish exercised behavior from inherited Chromium features and remaining manual coverage. They are not an independent security audit or a production reliability certification.
+Xenon is an early Windows x64 release. The attached test records distinguish exercised behavior from inherited Chromium features and remaining manual coverage. They are not an independent security audit or a production reliability certification.
 
 ## Alpha.19 release validation
 

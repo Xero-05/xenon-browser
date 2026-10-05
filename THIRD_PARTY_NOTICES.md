@@ -4,7 +4,7 @@ Xenon source is Apache-2.0. This license does not replace the licenses of its de
 
 | Component | Pinned version | License and provenance |
 | --- | --- | --- |
-| Chromium Embedded Framework | 154.0.33+ga03e714, Chromium 154.0.8037.94 | BSD-style; [CEF project](https://github.com/chromiumembedded/cef), [license copy](third_party/licenses/CEF-LICENSE.txt). Copyright Marshall A. Greenblatt; portions copyright Google Inc. Runtime includes `CEF-LICENSE.txt`. |
+| Chromium Embedded Framework | 154.0.34+g14c5a08, Chromium 154.0.8037.98 | BSD-style; [CEF project](https://github.com/chromiumembedded/cef), [license copy](third_party/licenses/CEF-LICENSE.txt). Copyright Marshall A. Greenblatt; portions copyright Google Inc. Runtime includes `CEF-LICENSE.txt`. |
 | Chromium and bundled libraries | Matching CEF distribution | BSD-style Chromium license and multiple third-party licenses; [Chromium project](https://www.chromium.org/), [source](https://chromium.googlesource.com/chromium/src/). Runtime includes the complete `Chromium-CREDITS.html` supplied by CEF, including copyright notices and license texts. |
 | SQLite | 3.53.4 | [Public domain](https://www.sqlite.org/copyright.html); official amalgamation. |
 | nlohmann/json | 3.12.0 | [MIT](https://github.com/nlohmann/json/blob/v3.12.0/LICENSE.MIT); copyright Niels Lohmann. |

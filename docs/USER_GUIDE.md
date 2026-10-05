@@ -1,6 +1,6 @@
 # Using Xenon
 
-Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.0-alpha.15** and its [native interface overhaul](RELEASE_NOTES.md). Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
+Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.1** and its [native interface overhaul](RELEASE_NOTES.md). Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
 
 ## Browser and Controls
 
@@ -28,7 +28,7 @@ Sharing a workspace lets that paired client access its pages and existing websit
 
 Different workers can control different tabs in one workspace. Separate workspaces isolate browser state, but two sessions signed into the same remote account can still change the same online data.
 
-**Private workspace** is for native human browsing and uses memory-only profile storage. It cannot be shared with agents in this alpha. Downloads and anything explicitly saved outside the private profile can remain; private browsing does not hide activity from the destination website or network.
+**Private workspace** is for native human browsing and uses memory-only profile storage. It cannot be shared with agents in this release. Downloads and anything explicitly saved outside the private profile can remain; private browsing does not hide activity from the destination website or network.
 
 ### Blank startup and recovery
 
@@ -115,7 +115,7 @@ Protected login withholds detailed observations and screenshots. If protection r
 
 ### MFA and compatibility
 
-Complete MFA, CAPTCHA, passkeys, recovery-code prompts, cross-origin embedded login and unusual forms yourself. Reuse the same workspace when a service remembers your browser; a new workspace starts a separate session. Expiry, device trust and organization policies remain controlled by the service. An unsigned alpha may not meet a provider's approved-browser requirements.
+Complete MFA, CAPTCHA, passkeys, recovery-code prompts, cross-origin embedded login and unusual forms yourself. Reuse the same workspace when a service remembers your browser; a new workspace starts a separate session. Expiry, device trust and organization policies remain controlled by the service. An unsigned build may not meet a provider's approved-browser requirements.
 
 The credential implementation has synthetic script, native and HTTPS fixture tests. Physical-focus suggestions, clicking the native account picker/Save prompt end to end, and real-site CWL/Duo/PD Portal sign-in are not claimed as verified acceptance. See the [manual test matrix](TESTING.md).
 
@@ -143,7 +143,7 @@ The default data directory is `%LOCALAPPDATA%\Xenon Browser`; pairing files are 
 
 Choose **Menu → Check for updates**, or press **Ctrl+Shift+X**, then **Check for updates**. Xenon contacts its fixed GitHub repository over HTTPS and looks for a newer compatible installer. Alpha builds can receive newer alpha releases; stable builds exclude prereleases. Nothing is checked or installed in the background without opening this flow. A network error or missing verifiable installer cannot trigger installation.
 
-Download the offered update in the native Updates window, then choose to install it. Xenon checks its size and SHA-256 against GitHub's release metadata and checks again before starting setup. The alpha installer remains unsigned: this verification trusts GitHub and the repository maintainers, not an independent publisher certificate.
+Download the offered update in the native Updates window, then choose to install it. Xenon checks its size and SHA-256 against GitHub's release metadata and checks again before starting setup. The installer remains unsigned: this verification trusts GitHub and the repository maintainers, not an independent publisher certificate.
 
 Finish your website work and choose **Install and exit**, then confirm. Xenon reverifies setup, closes its tabs through normal application shutdown, disconnects its agents and starts setup after releasing its running marker. Close any other Xenon instances too; setup refuses installation while another instance is running. Xenon does not terminate external MCP hosts or adapters. Start Xenon again from the Start menu after installation. Updates require a normal application restart and do not preserve live renderer state as a handoff does. Profiles, saved accounts, grants and pairing configuration remain separate from the application files.
 
@@ -158,7 +158,7 @@ Portable ZIPs remain available for manual installation. Extract the complete pac
 | Symptom | What to check |
 | --- | --- |
 | Missing DLL, resources or startup failure | Extract the entire release ZIP again into a new folder. Keep matching EXE, DLLs, locales and resources together. Do not disable the sandbox. |
-| MCP connection cannot start | Start Xenon first; check absolute Node/adapter/config paths, the same Windows user, and that the host supports local stdio. Remote-only MCP hosts are outside this alpha. |
+| MCP connection cannot start | Start Xenon first; check absolute Node/adapter/config paths, the same Windows user, and that the host supports local stdio. Remote-only MCP hosts are outside this release. |
 | Pairing waits or times out | Open Controls, select the matching pending request and approve it within five minutes. Use a fresh output filename for a new pairing. |
 | Agent cannot see your logged-in page | Its worker may be in another workspace. Share the intended workspace with that client and have it use that workspace's ID. |
 | Agent is paused after your input | Release held inputs and finish any website dialog or composition. The agent must wait for current status to clear and observe again; elapsed time alone is insufficient. |

@@ -2002,19 +2002,32 @@ void CefEngine::fixture_autofill_focus(const std::string& id,Reply reply){on_ui(
   }
   const auto root=GetAncestor(t->browser->GetHost()->GetWindowHandle(),GA_ROOT);
   p->active_tab_=id;p->active_windows_[root]=id;ShowWindow(root,SW_SHOWNORMAL);SetForegroundWindow(root);
-  if(GetAncestor(GetForegroundWindow(),GA_ROOT)!=root){reply(failure("FIXTURE_FAILED","Synthetic window could not obtain foreground"));return;}
+  // This marked-profile, AuthTest-only driver needs a real foreground fixture
+  // window. A background test launcher can lack foreground activation rights;
+  // join input queues only while activating our own synthetic window, without
+  // injecting input. Production foreground checks and scheduling stay intact.
+  if(GetAncestor(GetForegroundWindow(),GA_ROOT)!=root){
+    const auto foreground_thread=GetWindowThreadProcessId(GetForegroundWindow(),nullptr);
+    const auto fixture_thread=GetCurrentThreadId();
+    if(foreground_thread&&foreground_thread!=fixture_thread&&AttachThreadInput(fixture_thread,foreground_thread,TRUE)){
+      SetForegroundWindow(root);
+      AttachThreadInput(fixture_thread,foreground_thread,FALSE);
+    }
+  }
+  if(GetAncestor(GetForegroundWindow(),GA_ROOT)!=root){reply(failure("FIXTURE_FOCUS_DENIED","Synthetic window could not obtain foreground"));return;}
+  t->browser->GetHost()->SetFocus(true);
   p->send(t,"Page.getFrameTree",Json::object(),[p,t,root,reply](Json tree){
-    if(!cdp_ok(tree)||!tree.contains("frameTree")){reply(failure("FIXTURE_FAILED","Missing fixture frame"));return;}
+    if(!cdp_ok(tree)||!tree.contains("frameTree")){reply(failure("FIXTURE_FRAME_MISSING","Missing fixture frame"));return;}
     p->send(t,"Page.createIsolatedWorld",{{"frameId",field(tree["frameTree"]["frame"],"id")},{"worldName","Xenon human autofill"},{"grantUniveralAccess",false}},[p,t,root,reply](Json world){
-      if(!cdp_ok(world)||!world.contains("executionContextId")){reply(failure("FIXTURE_FAILED","Missing fixture world"));return;}
+      if(!cdp_ok(world)||!world.contains("executionContextId")){reply(failure("FIXTURE_WORLD_MISSING","Missing fixture world"));return;}
       p->send(t,"Runtime.callFunctionOn",{{"executionContextId",world["executionContextId"]},
         {"functionDeclaration","function(){const field=document.querySelector('input[type=text],input:not([type]),input[type=password]');if(!field)return false;field.focus();return document.activeElement===field}"},{"returnByValue",true}},[p,t,root,reply](Json focused){
-        if(!cdp_ok(focused)||!focused.value("result",Json::object()).value("value",false)){reply(failure("FIXTURE_FAILED","Fixture field was not focused"));return;}
+        if(!cdp_ok(focused)||!focused.value("result",Json::object()).value("value",false)){reply(failure("FIXTURE_FIELD_FOCUS","Fixture field was not focused"));return;}
         // Simulated qualified input exercises production scheduling and the real
         // native popup. It does not establish physical mouse-hook acceptance.
         p->human_activity(t,true,true);
         later(350,[p,t,root,reply]{
-          for(const auto& [id,offer]:p->autofill_offers_)if(offer->tab==t){reply(failure("FIXTURE_FAILED","An offer appeared while input was held"));return;}
+          for(const auto& [id,offer]:p->autofill_offers_)if(offer->tab==t){reply(failure("FIXTURE_POPUP_EARLY","An offer appeared while input was held"));return;}
           p->human_activity(t,false,false);
           const auto released=std::chrono::steady_clock::now();
           auto poll=std::make_shared<std::function<void()>>();
@@ -2032,7 +2045,13 @@ void CefEngine::fixture_autofill_focus(const std::string& id,Reply reply){on_ui(
               *poll={};metadata["offerElapsedMs"]=elapsed;metadata["heldOfferSuppressed"]=true;metadata["humanPaused"]=t->human_busy;metadata["pickerShown"]=true;
               reply(success(std::move(metadata)));return;
             }
-            if(t->closed||elapsed>=1500){*poll={};reply(failure("FIXTURE_FAILED","Automatic native popup missed its bounded deadline"));return;}
+            if(t->closed||elapsed>=1500){
+              *poll={};
+              const auto active=p->active_windows_.find(root);
+              const auto code=GetAncestor(GetForegroundWindow(),GA_ROOT)!=root?"FIXTURE_FOCUS_LOST":
+                (active==p->active_windows_.end()||active->second!=t->id)?"FIXTURE_TAB_FOCUS_LOST":"FIXTURE_POPUP_LATE";
+              reply(failure(code,"Automatic native popup missed its bounded deadline"));return;
+            }
             later(25,[poll]{auto next=*poll;if(next)next();});
           };auto next=*poll;next();
         });

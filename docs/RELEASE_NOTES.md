@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.1
+
+0.1.1 promotes the browser functionality already published in alpha.19 to a regular GitHub release, marked latest. Native, MCP and package versions are aligned at 0.1.1. The complete matching CEF runtime is updated to `154.0.34+g14c5a08` (Chromium `154.0.8037.98`), matching Chrome's current Windows stable version checked October 5. Other dependency pins and Xenon's browser behavior are unchanged.
+
+The release includes isolated workspaces and parallel MCP workers, native ownership and human-input pauses, guarded action batches, scoped file discovery, combined page inspection, private opt-in evidence export, saved-account workflows, and the English/Simplified Chinese native UI. Both Windows x64 formats remain unsigned: a per-user installer and a portable ZIP, each with a SHA-256 checksum. Close Xenon and reconnect the MCP adapter after upgrading. Existing profiles and pairing configuration remain separate from application files.
+
+The regular release designation does not expand the documented validation scope. Physical UI and real-site acceptance gaps, unsigned publisher verification and credential-flow limitations remain documented in [testing](TESTING.md) and [security](SECURITY.md). Release checks and post-packaging/publication evidence are recorded separately for the rebuilt 0.1.1 binaries.
+
 ## 0.1.0-alpha.19
 
 Granted-file discovery supports filename/relative-path queries and opaque continuation cursors, with explicit truncation and incomplete-scan reporting. Native validation keeps every page bound to the original worker, workspace and grants. Malformed handles and authorized scope mismatches have clearer diagnostics; unknown or foreign handles retain conservative denials.

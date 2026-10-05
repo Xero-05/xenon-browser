@@ -266,7 +266,7 @@ try {
     for (const phase of ['unowned-username', 'unowned-password', 'explicit-username']) {
       const tab = await open(phase, phase);
       if (phase === 'unowned-username') {
-        const automatic = await native('focus_offer', { tabId: tab.tabId }); assert(automatic.ok);
+        const automatic = await native('focus_offer', { tabId: tab.tabId }); assert(automatic.ok, 'Unowned focus offer failed: ' + JSON.stringify(automatic));
         assert.equal(automatic.result.pickerShown, true); assert.equal(automatic.result.heldOfferSuppressed, true);
         details.push({ phase, offerElapsedMs: automatic.result.offerElapsedMs, automaticPickerShown: true });
       }
