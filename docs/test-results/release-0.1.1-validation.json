@@ -1,0 +1,652 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.1",
+  "capturedUtc": "2026-10-05T22:58:41.091Z",
+  "passed": true,
+  "sourceCommit": "e7e6d071552f7a8e192318ffbee228ec99b6ea24",
+  "sourceTree": "e3cf464328be22003b8a827e2f3c7b34c58c4a3a",
+  "binaryOrigin": {
+    "kind": "GitHub Actions",
+    "sourceCommit": "e7e6d071552f7a8e192318ffbee228ec99b6ea24",
+    "runId": 37383127246,
+    "runUrl": "https://github.com/Xero-05/xenon-browser/actions/runs/37383127246",
+    "conclusion": "success",
+    "artifactId": 11375478946,
+    "artifactDigest": "sha256:342f1a89751b6c1a07cd7aa1852039bdc2012f22f9eada018d23eae36c9def42",
+    "artifactBytes": 436225596,
+    "capturedUtc": "2026-10-05T22:51:07.9834612Z"
+  },
+  "binaries": {
+    "productionExecutableSha256": "737f0889a81a9afe47081062bb5c26c8db4f8b6192fb5e45c4a6a68357a11c8e",
+    "productionDllSha256": "8077329c29e280ac4036616d07bc49360ef9050f4e1e785291d290021709c483",
+    "cefDllSha256": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7",
+    "fixtureDllSha256": "b02cc8c49f26cfb18a62e6dd1a446308b3a39f249d6cf5039584a668347fcad0",
+    "fixtureShipped": false
+  },
+  "build": {
+    "command": "./scripts/build.ps1 -Test",
+    "producer": "GitHub Actions",
+    "runUrl": "https://github.com/Xero-05/xenon-browser/actions/runs/37383127246",
+    "passed": true,
+    "groups": [
+      {
+        "name": "native",
+        "passed": true,
+        "checks": 11
+      },
+      {
+        "name": "adapter",
+        "passed": true,
+        "checks": 20
+      },
+      {
+        "name": "login capture",
+        "passed": true,
+        "checks": 32
+      },
+      {
+        "name": "human autofill",
+        "passed": true,
+        "checks": 31
+      },
+      {
+        "name": "protected login",
+        "passed": true,
+        "checks": 10
+      },
+      {
+        "name": "form fill",
+        "passed": true,
+        "checks": 6
+      }
+    ],
+    "brandingChecks": 5
+  },
+  "localBuildValidation": {
+    "command": "./scripts/build.ps1 -Test -Jobs 6",
+    "sourceTree": "e3cf464328be22003b8a827e2f3c7b34c58c4a3a",
+    "passed": true,
+    "groups": [
+      {
+        "name": "native",
+        "passed": true,
+        "checks": 11
+      },
+      {
+        "name": "adapter",
+        "passed": true,
+        "checks": 20
+      },
+      {
+        "name": "login capture",
+        "passed": true,
+        "checks": 32
+      },
+      {
+        "name": "human autofill",
+        "passed": true,
+        "checks": 31
+      },
+      {
+        "name": "protected login",
+        "passed": true,
+        "checks": 10
+      },
+      {
+        "name": "form fill",
+        "passed": true,
+        "checks": 6
+      }
+    ],
+    "binaries": {
+      "productionExecutableSha256": "737f0889a81a9afe47081062bb5c26c8db4f8b6192fb5e45c4a6a68357a11c8e",
+      "productionDllSha256": "4cbf47c8bc84075a64dec148f9ad7305371cadb5ed24634843ca8b734fad04b8",
+      "cefDllSha256": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7",
+      "fixtureDllSha256": "b02cc8c49f26cfb18a62e6dd1a446308b3a39f249d6cf5039584a668347fcad0",
+      "fixtureShipped": false
+    },
+    "purpose": "Independent local source build; its unshipped AuthTest DLL exercises the synthetic authentication suites. Final production files come from the successful source CI artifact."
+  },
+  "typecheck": {
+    "command": "npm.cmd run typecheck",
+    "passed": true
+  },
+  "adapterAndScripts": {
+    "command": "npm.cmd test",
+    "passed": true,
+    "checks": 113
+  },
+  "live": {
+    "integration": {
+      "run": "integration-1791240774010-cc534d2b",
+      "capturedAt": "2026-10-05T22:53:24.518Z",
+      "passed": true,
+      "fixture": false,
+      "applicationDllSha256": "8077329c29e280ac4036616d07bc49360ef9050f4e1e785291d290021709c483",
+      "checks": [
+        {
+          "name": "Four separate adapters, three live tabs each",
+          "passed": true
+        },
+        {
+          "name": "Workspace and result isolation",
+          "passed": true
+        },
+        {
+          "name": "A pending wait does not block other adapters",
+          "passed": true
+        },
+        {
+          "name": "Page-only screenshots through real MCP image output",
+          "passed": true
+        },
+        {
+          "name": "Replaced nodes reject stale references",
+          "passed": true
+        },
+        {
+          "name": "Overlay hit testing rejects obscured input",
+          "passed": true
+        },
+        {
+          "name": "Same-origin and cross-origin frames expose usable references",
+          "passed": true
+        },
+        {
+          "name": "Shadow DOM actionability and semantics",
+          "passed": true
+        },
+        {
+          "name": "Visual coordinates require a current screenshot",
+          "passed": true
+        },
+        {
+          "name": "JavaScript dialogs are handled without blocking other tabs",
+          "passed": true
+        },
+        {
+          "name": "Website JavaScript links and logout confirmations remain usable",
+          "passed": true
+        },
+        {
+          "name": "Download namespace reports opaque scoped metadata",
+          "passed": true
+        },
+        {
+          "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+          "passed": true
+        },
+        {
+          "name": "Related popups transfer as one ownership group",
+          "passed": true
+        },
+        {
+          "name": "Mid-drag handoff waits for release before changing ownership",
+          "passed": true
+        },
+        {
+          "name": "Four workers behind one adapter, three tabs each",
+          "passed": true
+        },
+        {
+          "name": "Disconnect/reconnect preserves page and never replays mutations",
+          "passed": true
+        }
+      ]
+    },
+    "batch": {
+      "run": "batch-1791240805662-8b57382b",
+      "capturedAt": "2026-10-05T22:53:38.725Z",
+      "passed": true,
+      "fixture": false,
+      "applicationDllSha256": "8077329c29e280ac4036616d07bc49360ef9050f4e1e785291d290021709c483",
+      "checks": [
+        {
+          "name": "modern: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Separate calls comparison on the same eight-action plan",
+          "passed": true
+        },
+        {
+          "name": "Replaced target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Covered target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Navigation cancels original-document targets",
+          "passed": true
+        },
+        {
+          "name": "legacy: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Binary remained unchanged",
+          "passed": true
+        }
+      ]
+    },
+    "visibility": {
+      "run": "visibility-integration-1791240819215-23b9f7c1",
+      "capturedAt": "2026-10-05T22:53:47.845Z",
+      "passed": true,
+      "fixture": false,
+      "applicationDllSha256": "8077329c29e280ac4036616d07bc49360ef9050f4e1e785291d290021709c483",
+      "checks": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ]
+    },
+    "worker-lifecycle": {
+      "run": "worker-lifecycle-1791240828034-4f3defca",
+      "capturedAt": "2026-10-05T22:53:53.617Z",
+      "passed": true,
+      "fixture": false,
+      "applicationDllSha256": "8077329c29e280ac4036616d07bc49360ef9050f4e1e785291d290021709c483",
+      "checks": [
+        {
+          "name": "Modern and legacy clients cannot retire each other’s workers",
+          "passed": true
+        },
+        {
+          "name": "Twenty retired workers preserve one live drafted, selected and scrolled session",
+          "passed": true
+        },
+        {
+          "name": "Retirement cancels queued input and releases a started finite gesture honestly",
+          "passed": true
+        },
+        {
+          "name": "Configured global capacity spans clients and retirement frees a slot",
+          "passed": true
+        }
+      ]
+    },
+    "upload-entry": {
+      "run": "upload-entry-1791240833804-37726195",
+      "capturedAt": "2026-10-05T22:54:17.357Z",
+      "passed": true,
+      "fixture": false,
+      "applicationDllSha256": "8077329c29e280ac4036616d07bc49360ef9050f4e1e785291d290021709c483",
+      "checks": [
+        {
+          "name": "File discovery retains truncation, later pages and scoped relative-path filters",
+          "passed": true
+        },
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true
+        },
+        {
+          "name": "A brightness-styled hover preserves the approved upload entry",
+          "passed": true
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true
+        }
+      ]
+    },
+    "auth": {
+      "run": "auth-integration-1791240857608",
+      "capturedAt": "2026-10-05T22:54:51.468Z",
+      "passed": true,
+      "fixture": true,
+      "applicationDllSha256": "b02cc8c49f26cfb18a62e6dd1a446308b3a39f249d6cf5039584a668347fcad0",
+      "checks": [
+        {
+          "name": "Safe page screenshots remain available",
+          "passed": true
+        },
+        {
+          "name": "No raw eval, CDP, cookies or storage tools",
+          "passed": true
+        },
+        {
+          "name": "Synthetic password and OTP input events seal all observers through reveal and handoff",
+          "passed": true
+        },
+        {
+          "name": "Native folder grants persist and upload only approved opaque file handles",
+          "passed": true
+        },
+        {
+          "name": "Account rights remain per client across handoff",
+          "passed": true
+        },
+        {
+          "name": "Exact credential origin enforced",
+          "passed": true
+        },
+        {
+          "name": "GET and readonly forms reject credentials before input or submission",
+          "passed": true
+        },
+        {
+          "name": "Named login submitter advances the POST flow exactly once",
+          "passed": true
+        },
+        {
+          "name": "Opaque saved login authenticates without a model-visible credential",
+          "passed": true
+        },
+        {
+          "name": "Four-agent handoff preserves quarantine and sends no website input",
+          "passed": true
+        },
+        {
+          "name": "Username-first forms reuse only the exact-origin account",
+          "passed": true
+        }
+      ],
+      "logCanaryScan": {
+        "passed": true,
+        "filesScanned": 98
+      }
+    },
+    "human-autofill": {
+      "run": "human-autofill-1791241000624-e36405e5",
+      "capturedAt": "2026-10-05T22:56:56.604Z",
+      "passed": true,
+      "fixture": true,
+      "applicationDllSha256": "b02cc8c49f26cfb18a62e6dd1a446308b3a39f249d6cf5039584a668347fcad0",
+      "checks": [
+        {
+          "name": "Automatic native picker appears during cooldown after held input releases",
+          "passed": true
+        },
+        {
+          "name": "Human autofill fills a CWL-shaped form without submission or agent account grants",
+          "passed": true
+        },
+        {
+          "name": "Autofilled credentials remain protected from all clients through ownership handoff",
+          "passed": true
+        },
+        {
+          "name": "Saved accounts cannot autofill a different HTTPS origin",
+          "passed": true
+        },
+        {
+          "name": "Navigation invalidates an already offered native account selection",
+          "passed": true
+        },
+        {
+          "name": "Replacing the bound form cannot redirect an existing autofill offer",
+          "passed": true
+        },
+        {
+          "name": "Dismissing a native offer prevents subsequent filling",
+          "passed": true
+        },
+        {
+          "name": "Username-first and password-only steps fill only the current phase without advancing",
+          "passed": true
+        },
+        {
+          "name": "Google-shaped unowned login phases and explicit usernames in richer forms fill only bound credentials",
+          "passed": true
+        },
+        {
+          "name": "Locking the native vault invalidates pending offers and prevents new autofill",
+          "passed": true
+        },
+        {
+          "name": "Lock and unlock cannot revive an accepted fill waiting for a finite action to drain",
+          "passed": true
+        }
+      ],
+      "logCanaryScan": {
+        "passed": true,
+        "filesScanned": 107
+      }
+    },
+    "workspace-removal": {
+      "run": "workspace-removal-1791241016801-d8d12a2b",
+      "capturedAt": "2026-10-05T22:57:41.016Z",
+      "passed": true,
+      "fixture": true,
+      "applicationDllSha256": "b02cc8c49f26cfb18a62e6dd1a446308b3a39f249d6cf5039584a668347fcad0",
+      "checks": [
+        {
+          "name": "Two isolated workspaces have live data, popup, vault grant, approved file and download",
+          "passed": true
+        },
+        {
+          "name": "Native removal revokes access and pending reads while preserving unrelated live work",
+          "passed": true
+        },
+        {
+          "name": "Restart purges only the tombstoned profile and cannot recreate its grant",
+          "passed": true
+        },
+        {
+          "name": "Remaining workspace cookie and local storage survive while shared files remain",
+          "passed": true
+        }
+      ]
+    },
+    "persistence": {
+      "run": "persistence-integration-1791241061198-82df12a0",
+      "capturedAt": "2026-10-05T22:58:21.749Z",
+      "passed": true,
+      "fixture": false,
+      "applicationDllSha256": "8077329c29e280ac4036616d07bc49360ef9050f4e1e785291d290021709c483",
+      "checks": [
+        {
+          "name": "Distinct workspaces isolate persistent cookies and local storage before restart",
+          "passed": true
+        },
+        {
+          "name": "Stored state survives a forced process stop and a second launch",
+          "passed": true
+        },
+        {
+          "name": "A new workspace after restart does not inherit either saved session",
+          "passed": true
+        }
+      ]
+    }
+  },
+  "installer": {
+    "passed": true,
+    "checks": 47,
+    "method": "Isolated test identities and synthetic payloads; install/upgrade/uninstall, folder selection, profile retention and mutex checks.",
+    "productionUpgradeInstalled": false
+  },
+  "cefMaintenance": {
+    "checkedUtc": "2026-10-05T22:02:40.2487217Z",
+    "latestWindows64Stable": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "pinnedChromium": "154.0.8037.98",
+    "archive": {
+      "version": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+      "archive": "cef_binary_154.0.34+g14c5a08+chromium-154.0.8037.98_windows64_minimal.tar.bz2",
+      "bytes": 172752666,
+      "publisherSha1": "be54bbaf3222191dec59ffd9c9ec7e8a7f44a26d",
+      "sha256": "c81c34d048d87276f4a18f0b000206710a1709bb67dd658948b87100e1a538da",
+      "verifiedUtc": "2026-10-05T22:05:09.7845352Z"
+    },
+    "selection": "Highest stable modern CEF version in Windows x64 index; index order is not version order.",
+    "chromeDesktopStable": "154.0.8037.97/.98",
+    "dependenciesChanged": true,
+    "currentWindowsVersionMatched": true,
+    "licenseMatchesDistribution": true,
+    "sources": [
+      "https://cef-builds.spotifycdn.com/index.json",
+      "https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop.html"
+    ]
+  },
+  "preparationHistory": [
+    {
+      "phase": "Restricted build runner",
+      "passed": false,
+      "result": "MSBuild stopped before compilation; ordinary Windows runner used without product policy changes."
+    },
+    {
+      "phase": "First new-runtime build",
+      "passed": false,
+      "result": "CMake regeneration failed after a build label was edited during compilation; final source was held fixed for the successful rebuild."
+    },
+    {
+      "phase": "First CEF download",
+      "passed": false,
+      "result": "Connection reset; retry passed verified HTTPS, publisher size/SHA-1 and recorded SHA-256."
+    }
+  ],
+  "limits": [
+    "Synthetic CEF fixtures and native authentication drivers do not establish physical UI or real-site acceptance.",
+    "Regular-release designation does not establish an independent audit or production reliability certification.",
+    "Combined inspection validates an interval while page scripts/canvas continue running; timings exclude model inference.",
+    "Package and publication evidence is recorded separately after assembly. User installation remains intact."
+  ],
+  "privacy": "Disposable synthetic profiles only; no pairing tokens, raw calls, browsing logs, vault data or screenshots.",
+  "autofillFixtureHistory": [
+    {
+      "run": "human-autofill-1791238415964-b01681a6",
+      "capturedAt": "2026-10-05T22:13:38.263Z",
+      "applicationDllSha256": "e37dda24f844c1bf90f3005737fb120e36cecd3d366d323dfd578b21b7b331c4",
+      "passed": false,
+      "passedChecks": 0,
+      "failures": [
+        {
+          "name": "Automatic native picker appears during cooldown after held input releases",
+          "diagnosticCode": "FIXTURE_FAILED"
+        }
+      ],
+      "logCanaryScanPassed": true
+    },
+    {
+      "run": "human-autofill-1791238480187-7e83e28c",
+      "capturedAt": "2026-10-05T22:14:50.614Z",
+      "applicationDllSha256": "e37dda24f844c1bf90f3005737fb120e36cecd3d366d323dfd578b21b7b331c4",
+      "passed": false,
+      "passedChecks": 8,
+      "failures": [
+        {
+          "name": "Google-shaped unowned login phases and explicit usernames in richer forms fill only bound credentials",
+          "diagnosticCode": "ASSERTION_FAILED"
+        }
+      ],
+      "logCanaryScanPassed": true
+    },
+    {
+      "run": "human-autofill-1791238644485-ab511fad",
+      "capturedAt": "2026-10-05T22:17:39.565Z",
+      "applicationDllSha256": "ad808e1c4dd5d74f4a2160e5c6afc92b4b7a97109a5e95a2aceacf4496202db0",
+      "passed": false,
+      "passedChecks": 0,
+      "failures": [
+        {
+          "name": "Automatic native picker appears during cooldown after held input releases",
+          "diagnosticCode": "FIXTURE_FOCUS_DENIED"
+        }
+      ],
+      "logCanaryScanPassed": true
+    },
+    {
+      "run": "human-autofill-1791238747080-650ef9c0",
+      "capturedAt": "2026-10-05T22:19:13.623Z",
+      "applicationDllSha256": "6b7fe9c0b3c6c1ac944684f6497d177a06dea07180e46e652f27dad1d74a5221",
+      "passed": false,
+      "passedChecks": 0,
+      "failures": [
+        {
+          "name": "Automatic native picker appears during cooldown after held input releases",
+          "diagnosticCode": "FIXTURE_POPUP_LATE"
+        }
+      ],
+      "logCanaryScanPassed": true
+    },
+    {
+      "run": "human-autofill-1791240891776-2889ad1e",
+      "capturedAt": "2026-10-05T22:55:09.716Z",
+      "applicationDllSha256": "b02cc8c49f26cfb18a62e6dd1a446308b3a39f249d6cf5039584a668347fcad0",
+      "passed": false,
+      "passedChecks": 8,
+      "failures": [
+        {
+          "name": "Google-shaped unowned login phases and explicit usernames in richer forms fill only bound credentials",
+          "diagnosticCode": "FIXTURE_FOCUS_LOST"
+        }
+      ],
+      "logCanaryScanPassed": true
+    }
+  ],
+  "autofillFixtureFix": "Compile-time-gated, marked-profile AuthTest driver activates only its synthetic window and gives its CEF view native focus; fixed failure-stage codes retain diagnostics without page strings. Production input/autofill policies are unchanged.",
+  "autofillFixtureLimit": "A later validation attempt lost foreground focus at the unowned-phase picker. Its failed evidence is retained; a fresh isolated rerun is recorded above. Desktop focus remains an external test-runner dependency."
+}

@@ -8,6 +8,8 @@ The release includes isolated workspaces and parallel MCP workers, native owners
 
 The regular release designation does not expand the documented validation scope. Physical UI and real-site acceptance gaps, unsigned publisher verification and credential-flow limitations remain documented in [testing](TESTING.md) and [security](SECURITY.md). Release checks and post-packaging/publication evidence are recorded separately for the rebuilt 0.1.1 binaries.
 
+The [0.1.1 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.1) publishes both unsigned formats and their checksums as the latest regular release. All 1,295 runtime hashes, six extracted-package smoke checks and the merged source's Windows CI passed. [Validation](test-results/release-0.1.1-validation.json), [package evidence](test-results/release-0.1.1-package-smoke.json) and [publication evidence](test-results/release-0.1.1-publication.json) retain the final binary binding, earlier fixture failures, uploaded digests and native updater download verification.
+
 ## 0.1.0-alpha.19
 
 Granted-file discovery supports filename/relative-path queries and opaque continuation cursors, with explicit truncation and incomplete-scan reporting. Native validation keeps every page bound to the original worker, workspace and grants. Malformed handles and authorized scope mismatches have clearer diagnostics; unknown or foreign handles retain conservative denials.
