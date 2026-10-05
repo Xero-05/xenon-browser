@@ -115,7 +115,7 @@ Protected login withholds detailed observations and screenshots. If protection r
 
 ### MFA and compatibility
 
-Complete MFA, CAPTCHA, passkeys, recovery-code prompts, cross-origin embedded login and unusual forms yourself. Reuse the same workspace when a service remembers your browser; a new workspace starts a separate session. Expiry, device trust and organization policies remain controlled by the service. An unsigned alpha may not meet a provider's approved-browser requirements.
+Complete MFA, CAPTCHA, passkeys, recovery-code prompts, cross-origin embedded login and unusual forms yourself. Reuse the same workspace when a service remembers your browser; a new workspace starts a separate session. Expiry, device trust and organization policies remain controlled by the service. An unsigned build may not meet a provider's approved-browser requirements.
 
 The credential implementation has synthetic script, native and HTTPS fixture tests. Physical-focus suggestions, clicking the native account picker/Save prompt end to end, and real-site CWL/Duo/PD Portal sign-in are not claimed as verified acceptance. See the [manual test matrix](TESTING.md).
 

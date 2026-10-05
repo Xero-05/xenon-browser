@@ -1,8 +1,8 @@
-# Security boundary and alpha limitations
+# Security boundary and limitations
 
 Client policy is enforced natively as a ceiling over each workspace's client-specific permissions. New pairings are read-only and cannot create automatic workspaces until configured in native Controls. Interaction, upload, download and saved-account capabilities are checked at admission, dispatch and asynchronous continuation; late results are withheld after permission revocation. Client resources may be inherited live, with workspace restrictions narrowing that selection. Account inheritance preserves exact HTTPS-origin grants, and inherited files retain final-path and file-identity checks. CEF download callbacks also gate downloads caused indirectly by agent-owned pages. Native configuration is unavailable through MCP.
 
-Xenon is an unsigned, early Windows alpha. It separates MCP authorization, browser profiles and credential use, but it has not received an independent security audit. Its purpose is to prevent routine model/tool access to vault plaintext and to make browser authority explicit. It does not defend a Windows account from malware already running as that account, an administrator, a debugger or a compromised Chromium/CEF runtime.
+Xenon is an unsigned, early Windows release. It separates MCP authorization, browser profiles and credential use, but it has not received an independent security audit. Its purpose is to prevent routine model/tool access to vault plaintext and to make browser authority explicit. It does not defend a Windows account from malware already running as that account, an administrator, a debugger or a compromised Chromium/CEF runtime.
 
 ## Local client authority
 

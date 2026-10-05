@@ -18,7 +18,7 @@ try {
   if (-not $taskManifestEntry) { throw 'Release manifest missing.' }
   $taskReader = [IO.StreamReader]::new($taskManifestEntry.Open())
   try { $taskManifest = $taskReader.ReadToEnd() | ConvertFrom-Json } finally { $taskReader.Dispose() }
-  if ($taskManifest.signed -ne $false) { throw 'Alpha must be labelled unsigned.' }
+  if ($taskManifest.signed -ne $false) { throw 'Current releases must be labelled unsigned.' }
   $taskVersionEntry = $taskEntries[$taskPrefix + 'VERSION']
   if (-not $taskVersionEntry) { throw 'Release VERSION is missing.' }
   $taskVersionReader = [IO.StreamReader]::new($taskVersionEntry.Open())
