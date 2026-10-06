@@ -311,7 +311,8 @@ void BrowserShell::Impl::command(int id){try{
   else if(id==MenuPrint)engine.native_command(selected,"print");
   else if(id==MenuPdf){wchar_t path[32768]=L"Xenon page.pdf";OPENFILENAMEW picker{};picker.lStructSize=sizeof(picker);picker.hwndOwner=window;picker.lpstrFile=path;picker.nMaxFile=32768;picker.lpstrFilter=ui::pdf_filter();picker.lpstrDefExt=L"pdf";picker.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
     if(GetSaveFileNameW(&picker))engine.native_command(selected,"pdf",ui::utf8(path),[this](Json value){status=value.value("ok",false)?ui::tr(L"PDF saved."):ui::tr(L"PDF could not be saved.");InvalidateRect(window,nullptr,FALSE);});}
-  else if(id==MenuThemeSystem||id==MenuThemeLight||id==MenuThemeDark){if(!ui::save_theme(id==MenuThemeDark?ui::ThemeMode::dark:id==MenuThemeLight?ui::ThemeMode::light:ui::ThemeMode::system))status=ui::tr(L"Theme changed for this run; saving failed.");theme();}
+  else if(id==MenuThemeSystem||id==MenuThemeLight||id==MenuThemeDark){if(!ui::save_theme(id==MenuThemeDark?ui::ThemeMode::dark:id==MenuThemeLight?ui::ThemeMode::light:ui::ThemeMode::system))status=ui::tr(L"Theme changed for this run; saving failed.");
+    else status=ui::theme_mode==ui::web_theme_mode?std::wstring{}:ui::tr(L"Theme saved. Web pages use it after Xenon restarts.");theme();}
   else if(id==MenuSidebarNarrower||id==MenuSidebarWider||id==MenuSidebarReset){resize_sidebar(id==MenuSidebarReset?240:sidebar+(id==MenuSidebarWider?32:-32));save_sidebar();}
   else if(id==MenuLanguageEnglish||id==MenuLanguageChinese){
     if(!ui::save_language(id==MenuLanguageChinese?ui::Language::simplified_chinese:ui::Language::english))status=ui::tr(L"The language preference could not be saved. Try again.");

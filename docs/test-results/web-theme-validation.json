@@ -1,0 +1,32 @@
+{
+  "capturedAt": "2026-10-06T19:23:00Z",
+  "version": "0.1.1 source candidate",
+  "cef": "154.0.34+g14c5a08 (Chromium 154.0.8037.98)",
+  "applicationDllSha256": "646609097b275b66de08a2240d977e259bb5f17934d69cedd48485f203a4abf4",
+  "executableSha256": "737f0889a81a9afe47081062bb5c26c8db4f8b6192fb5e45c4a6a68357a11c8e",
+  "rootCause": "Xenon hosts Alloy-style browsers in native child windows. CEF attaches no Chrome theme to those WebContents, so Chromium derives prefers-color-scheme from the process-wide NativeTheme (the Windows app mode). CefRequestContext::SetChromeColorScheme changes only the profile ThemeService, which Chrome-style Views surfaces read.",
+  "passed": true,
+  "complete": false,
+  "checks": [
+    { "command": "./scripts/build.ps1 -Test", "passed": true, "coverage": "Full production and authentication-fixture build; 11 native groups; adapter, login-capture, human-autofill, protected-login and form-fill node suites (22, 32, 31, 10 and 6 tests); 5 branding checks" },
+    { "command": "node tests/theme-integration.mjs", "windowsAppMode": "dark", "passed": true, "tests": 4, "run": "theme-integration-1791314501241-1e73f32a",
+      "observations": [
+        "Theme Light: fixture reported light; fixture canvas and about:blank painted rgb(255,255,255)",
+        "Theme Dark: fixture reported dark; fixture canvas and about:blank painted rgb(18,18,18)",
+        "Theme System: fixture reported dark and about:blank painted rgb(18,18,18); native Theme: Light command saved light; pages opened before and after the switch kept dark",
+        "Restart after the runtime switch: fixture reported light; fixture canvas and about:blank painted rgb(255,255,255)"
+      ] },
+    { "command": "node tests/theme-integration.mjs", "windowsAppMode": "light", "passed": null, "note": "Not run yet: the suite never changes the Windows app mode. Theme Dark is the discriminating case in this mode." },
+    { "command": "node tests/theme-integration.mjs (baseline copy targeting the unfixed binary)", "windowsAppMode": "dark", "expectedFailure": true, "passed": false,
+      "applicationDllSha256": "3920a0c912e4c3da191f3233dcdac2270a57ef1009aa57af856193a21fccb0b2", "run": "theme-baseline-1791314570778-92766d8f",
+      "observation": "Reproduces the report: with Theme Light saved under Windows dark mode, the fixture reported prefers-color-scheme dark" },
+    { "command": "git diff --check", "passed": true }
+  ],
+  "limitations": [
+    "The theme menu is driven by native WM_COMMAND messages to the fixture's own shell window, not physical menu input.",
+    "Chromium reads force-light-mode and force-dark-mode once per process, so a runtime theme change reaches web content only after restart. A live update would need a per-page protocol override, which Xenon does not use for colors.",
+    "A Windows app-mode change while Xenon runs with Theme System was not exercised; the suite reads the Windows mode and never changes it.",
+    "The baseline binary was a snapshot of a concurrent local build of unrelated, uncommitted shell work with the same theme code as this change's base commit; it serves only to show the suite detects the reported failure.",
+    "Fixtures are synthetic loopback pages; no real website was loaded."
+  ]
+}

@@ -17,6 +17,11 @@ namespace xenon::ui {
 enum class ThemeMode { system,light,dark };
 struct Palette {COLORREF canvas,surface,ink,muted,border,teal,orange,gray;bool dark{},contrast{};bool operator==(const Palette&)const=default;};
 inline ThemeMode theme_mode=ThemeMode::system;
+// Native-hosted Alloy pages take prefers-color-scheme from Chromium's
+// process-wide NativeTheme, which reads these CEF switches once at startup.
+// Web content therefore keeps the theme this process started with.
+inline ThemeMode web_theme_mode=ThemeMode::system;
+inline const char* web_color_scheme_switch(ThemeMode mode) {return mode==ThemeMode::light?"force-light-mode":mode==ThemeMode::dark?"force-dark-mode":nullptr;}
 inline int sidebar_width=240;
 inline std::filesystem::path settings_path;
 inline bool introduction_completed{};

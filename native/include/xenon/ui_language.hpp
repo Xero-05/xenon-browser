@@ -33,6 +33,7 @@ inline constexpr Translation translations[]{
   {L"Bookmark saved.",L"书签已保存。"},{L"Bookmark could not be saved.",L"无法保存书签。"},
   {L"PDF saved.",L"PDF 已保存。"},{L"PDF could not be saved.",L"无法保存 PDF。"},
   {L"Theme changed for this run; saving failed.",L"主题已更改，但无法保存。"},
+  {L"Theme saved. Web pages use it after Xenon restarts.",L"主题已保存。重启 Xenon 后网页将使用此主题。"},
   {L"The browser action could not be completed. Existing data is preserved.",L"无法完成浏览器操作。现有数据已保留。"},
   {L"Restart Xenon to apply the selected language. Save unfinished website work before exiting.",L"重启 Xenon 后将应用所选语言。退出前请保存尚未完成的网页工作。"},
   {L"The language preference could not be saved. Try again.",L"无法保存语言设置。请重试。"},
