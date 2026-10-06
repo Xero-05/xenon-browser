@@ -1,7 +1,8 @@
 name: Windows release
 on:
   push:
-    branches: ['**'] # Branch builds cover release commits; tags do not duplicate them.
+    # Release commits on main are built; PR branches build once through pull_request, and tags do not duplicate them.
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -53,7 +54,12 @@ jobs:
       - name: Use bundled Node runtime
         shell: pwsh
         run: |
-          $nodeDistribution = Join-Path $PWD 'third_party/downloads/node-extracted/node-v24.16.0-win-x64'
+          $nodeVersion = (Get-Content -LiteralPath ./dependencies.lock.json -Raw | ConvertFrom-Json).node.version
+          $nodeDistribution = Join-Path $PWD "third_party/downloads/node-extracted/node-v$nodeVersion-win-x64"
+          # Fail here instead of letting npm fall back to the runner's preinstalled Node.
+          if (-not (Test-Path -LiteralPath (Join-Path $nodeDistribution 'node.exe') -PathType Leaf)) {
+            throw "Bundled Node $nodeVersion was not extracted to $nodeDistribution."
+          }
           $nodeDistribution | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install locked JavaScript dependencies
         run: npm ci
@@ -92,3 +98,23 @@ jobs:
             out/*results.json
             out/*tests.xml
           if-no-files-found: error
+  adapter-linux:
+    # Fast adapter feedback only; build-test remains the release build.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - name: Read pinned Node version
+        id: node-lock
+        run: |
+          version="$(jq -er '.node.version' dependencies.lock.json)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0, Node 24
+        with:
+          node-version: ${{ steps.node-lock.outputs.version }}
+      - name: Install locked JavaScript dependencies
+        run: npm ci
+      - name: Typecheck adapter
+        run: npm run typecheck
+      - name: Run adapter and SDK tests
+        run: npm test
