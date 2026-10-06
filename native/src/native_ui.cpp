@@ -226,11 +226,15 @@ struct NativeUi::Impl {
   }
   RECT content_bounds() const {RECT bounds{};GetClientRect(window,&bounds);return {ui::dip(window,208),ui::dip(window,20),bounds.right-ui::dip(window,20),bounds.bottom-ui::dip(window,20)};}
   void paint_surface(HWND target,HDC dc){RECT bounds{};GetClientRect(target,&bounds);const auto colors=ui::palette();ui::fill(dc,bounds,colors.canvas);
-    if(target==window&&font){auto panel=content_bounds();ui::rounded(dc,panel,colors.canvas,colors.gray,ui::dip(window,10));RECT nav{};GetWindowRect(controls.at(PageClients+page),&nav);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&nav),2);
-      RECT bridge{nav.right,nav.top+1,panel.left+ui::dip(window,1),nav.bottom-1};ui::fill(dc,bridge,GetPropW(controls.at(PageClients+page),L"XenonHover")?ui::hover_background():colors.canvas);ui::fill(dc,{bridge.left,bridge.top,bridge.right,bridge.top+ui::dip(window,1)},colors.gray);ui::fill(dc,{bridge.left,bridge.bottom-ui::dip(window,1),bridge.right,bridge.bottom},colors.gray);}
+    if(target==window&&font){const int line=ui::dip(window,1);auto panel=content_bounds();ui::rounded(dc,panel,colors.canvas,colors.gray,ui::dip(window,10),line);RECT nav{};GetWindowRect(controls.at(PageClients+page),&nav);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&nav),2);
+      RECT bridge{nav.right,nav.top+1,panel.left+line,nav.bottom-1};const auto fill=ui::mix(colors.canvas,ui::hover_background(),ui::hover_fade(controls.at(PageClients+page)).value(ui::hover_duration));ui::fill(dc,bridge,fill);
+      ui::fill(dc,{bridge.left,bridge.top,bridge.right,bridge.top+line},colors.gray);ui::fill(dc,{bridge.left,bridge.bottom-line,bridge.right,bridge.bottom},colors.gray);
+      for(const bool top:{true,false})ui::tab_junction(dc,panel.left,top?bridge.top:bridge.bottom,top,line,ui::dip(window,8),colors.canvas,fill,colors.gray);}
     if(target==update_window&&update_percent>=0){RECT track{26,236,bounds.right-26,244};ui::fill(dc,track,ui::palette().border);track.right=track.left+(track.right-track.left)*std::clamp(update_percent,0,100)/100;ui::fill(dc,track,ui::palette().ink);}}
   void draw_button(const DRAWITEMSTRUCT& item){auto face=reinterpret_cast<HFONT>(SendMessageW(item.hwndItem,WM_GETFONT,0,0));const bool active=GetParent(item.hwndItem)==window&&static_cast<int>(item.CtlID)==PageClients+page;
-    if(!active){ui::button(item,face?face:font);return;}auto rect=item.rcItem;const auto colors=ui::palette();ui::fill(item.hDC,rect,colors.canvas);InflateRect(&rect,-1,-1);auto shape=rect;shape.right+=ui::dip(window,16);const bool hover=ui::hovered(item);ui::rounded(item.hDC,shape,hover?ui::hover_background():colors.canvas,colors.gray,ui::dip(window,8));wchar_t caption[128]{};GetWindowTextW(item.hwndItem,caption,128);rect.left+=ui::dip(window,16);ui::text(item.hDC,rect,caption,heading_font,hover&&colors.contrast?ui::selection_ink():colors.ink);if(item.itemState&ODS_FOCUS){InflateRect(&rect,-3,-3);ui::focus_mark(item.hDC,rect,item.hwndItem);}}
+    if(!active){ui::button(item,face?face:font);return;}
+    ui::buffered(item,[&](const DRAWITEMSTRUCT& item){auto rect=item.rcItem;const auto colors=ui::palette();ui::fill(item.hDC,rect,colors.canvas);InflateRect(&rect,-1,-1);auto shape=rect;shape.right+=ui::dip(window,16);const double hover=ui::hover_amount(item);ui::rounded(item.hDC,shape,ui::mix(colors.canvas,ui::hover_background(),hover),colors.gray,ui::dip(window,8),ui::dip(window,1));if(item.itemState&ODS_FOCUS){auto ring=rect;InflateRect(&ring,-3,-3);ui::focus_mark(item.hDC,ring,item.hwndItem,5);}
+      wchar_t caption[128]{};GetWindowTextW(item.hwndItem,caption,128);rect.left+=ui::dip(window,16);ui::text(item.hDC,rect,caption,heading_font,hover>=0.5&&colors.contrast?ui::selection_ink():colors.ink);});}
   bool theme_message(HWND target,UINT message,WPARAM wp,LPARAM lp,LRESULT& result){
     if(message==WM_NCDESTROY){if(auto found=prompt_layouts.find(target);found!=prompt_layouts.end()){DeleteObject(found->second.face);prompt_layouts.erase(found);}return false;}
     if(target!=window&&message==WM_SIZE&&prompt_layouts.contains(target)){resize_prompt(target);result=0;return true;}
@@ -238,7 +242,11 @@ struct NativeUi::Impl {
     if(target!=window&&message==WM_GETMINMAXINFO){auto found=prompt_layouts.find(target);if(found!=prompt_layouts.end()){auto value=reinterpret_cast<MINMAXINFO*>(lp);value->ptMinTrackSize={found->second.original.cx+16,found->second.original.cy+40};result=0;return true;}}
     if(ui::list_draw(message,wp,lp,target,result))return true;
     if(message==WM_ERASEBKGND){result=1;return true;}
-    if(message==WM_PAINT){PAINTSTRUCT paint{};auto dc=BeginPaint(target,&paint);paint_surface(target,dc);EndPaint(target,&paint);result=0;return true;}
+    // Paint offscreen: hover fades repaint the frame every few milliseconds,
+    // and drawing it straight to the screen shows each erase as a flicker.
+    if(message==WM_PAINT){PAINTSTRUCT paint{};auto dc=BeginPaint(target,&paint);RECT bounds{};GetClientRect(target,&bounds);auto memory=CreateCompatibleDC(dc);auto bitmap=CreateCompatibleBitmap(dc,std::max<LONG>(1,bounds.right),std::max<LONG>(1,bounds.bottom));
+      if(memory&&bitmap){auto old=SelectObject(memory,bitmap);paint_surface(target,memory);BitBlt(dc,paint.rcPaint.left,paint.rcPaint.top,paint.rcPaint.right-paint.rcPaint.left,paint.rcPaint.bottom-paint.rcPaint.top,memory,paint.rcPaint.left,paint.rcPaint.top,SRCCOPY);SelectObject(memory,old);}else paint_surface(target,dc);
+      if(bitmap)DeleteObject(bitmap);if(memory)DeleteDC(memory);EndPaint(target,&paint);result=0;return true;}
     if(message==WM_DRAWITEM){const auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item&&item->CtlType==ODT_BUTTON){draw_button(*item);result=TRUE;return true;}}
     return ui::ctl_color(message,wp,lp,result);
   }
