@@ -1064,6 +1064,7 @@ void pipe_transport(const std::filesystem::path& directory) {
   FakeEngine engine; Broker broker(engine, directory);
   auto suffix = local_security::random_hex(8); auto name = L"xenon-test-" + std::wstring(suffix.begin(), suffix.end());
   PipeServer server(broker, name); server.start();
+  require(server.listening(), "Started server reports an available listener");
   bool duplicate_rejected{};
   try { PipeServer duplicate(broker, name); duplicate.start(); } catch (const std::exception&) { duplicate_rejected = true; }
   require(duplicate_rejected, "Another server cannot silently bind the existing pipe name");
@@ -1084,8 +1085,21 @@ void pipe_transport(const std::filesystem::path& directory) {
   busy.pop_back();
   PipeClient after_capacity(server.name());
   require(code(after_capacity.request(50, "workers.list")) == "UNAUTHORIZED", "Listener recovers after the connection budget is exhausted and a slot is freed");
+  busy.clear();
+  // Clients that close before ConnectNamedPipe (ERROR_NO_DATA) or while it is
+  // pending invalidate only that instance; the acceptor must keep listening.
+  unsigned opened{};
+  for (auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10); opened < 500 && std::chrono::steady_clock::now() < deadline;) {
+    HANDLE raw = CreateFileW(server.name().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (raw != INVALID_HANDLE_VALUE) { CloseHandle(raw); ++opened; }
+  }
+  require(opened == 500, "Listener keeps accepting while clients open and immediately close the pipe");
+  PipeClient after_churn(server.name());
+  require(code(after_churn.request(60, "workers.list")) == "UNAUTHORIZED", "Listener survives clients that abandon a pipe instance before it is accepted");
+  require(server.listening(), "Abandoned instances do not report the listener unavailable");
   auto started = std::chrono::steady_clock::now(); server.stop();
   require(std::chrono::steady_clock::now() - started < std::chrono::seconds(3), "Server stops idle blocked reads without deadlocking");
+  require(!server.listening(), "Stopped server reports no listener");
 }
 #endif
 }

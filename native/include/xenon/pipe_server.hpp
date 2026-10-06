@@ -14,6 +14,10 @@ class PipeServer {
   void start();
   void stop();
   std::wstring name() const;
+  // False before start(), after stop(), and while a listener instance cannot
+  // be created and the acceptor is retrying. Waiting at the connection budget
+  // is not reported as unavailable.
+  bool listening() const;
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;

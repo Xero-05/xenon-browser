@@ -1,12 +1,14 @@
 #include "xenon/pipe_server.hpp"
 #include "xenon/broker.hpp"
 #include "xenon/local_security.hpp"
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace xenon {
@@ -15,6 +17,7 @@ namespace {
 constexpr size_t max_request_bytes = 1024 * 1024;
 constexpr size_t max_response_bytes = 16 * 1024 * 1024;
 constexpr size_t max_queued_bytes = 32 * 1024 * 1024;
+constexpr DWORD min_retry_ms = 10, max_retry_ms = 1000;
 struct Handle {
   HANDLE value{INVALID_HANDLE_VALUE};
   explicit Handle(HANDLE handle = INVALID_HANDLE_VALUE) : value(handle) {}
@@ -118,7 +121,7 @@ struct PipeServer::Impl {
   Broker& broker;
   std::wstring pipe_name;
   Handle stop_event;
-  std::atomic<bool> running{};
+  std::atomic<bool> running{}, listening{};
   std::thread acceptor;
   std::mutex mutex;
   std::vector<std::shared_ptr<Connection>> connections;
@@ -135,50 +138,88 @@ struct PipeServer::Impl {
     if (handle == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot create private browser pipe (another instance may already own it)");
     return handle;
   }
+  HANDLE try_create() noexcept { try { return create(false); } catch (...) { return INVALID_HANDLE_VALUE; } }
+  // The client opened and closed this instance before or while it was being
+  // accepted. Only this instance is unusable.
+  static bool abandoned(DWORD error) { return error == ERROR_NO_DATA || error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED; }
   void start() {
     if (running.exchange(true)) return;
     ResetEvent(stop_event.value);
     HANDLE initial;
     try { initial = create(true); } catch (...) { running = false; throw; }
+    listening = true;
     acceptor = std::thread([this, initial] {
       HANDLE pending = initial;
+      DWORD delay = min_retry_ms;
+      // Bounded backoff for failures that clients did not cause; stop() ends it.
+      auto pause = [&] {
+        const bool stopping = WaitForSingleObject(stop_event.value, delay) == WAIT_OBJECT_0;
+        delay = (std::min)(delay * 2, max_retry_ms);
+        return running && !stopping;
+      };
       while (running) {
+        if (pending == INVALID_HANDLE_VALUE) {
+          // A listener that cannot be recreated now is retried, not abandoned
+          // until the next browser start.
+          pending = try_create(); listening = pending != INVALID_HANDLE_VALUE;
+          if (!listening) { if (!pause()) break; continue; }
+        }
         Handle event(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+        if (!event.value) { if (!pause()) break; continue; }
         OVERLAPPED overlapped{}; overlapped.hEvent = event.value;
         bool connected = ConnectNamedPipe(pending, &overlapped) != FALSE;
+        DWORD error{};
         if (!connected) {
-          auto error = GetLastError();
+          error = GetLastError();
           if (error == ERROR_PIPE_CONNECTED) connected = true;
           else if (error == ERROR_IO_PENDING) {
             HANDLE signals[]{stop_event.value, event.value};
-            if (WaitForMultipleObjects(2, signals, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) { DWORD count{}; connected = GetOverlappedResult(pending, &overlapped, &count, FALSE) != FALSE; }
+            if (WaitForMultipleObjects(2, signals, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) { DWORD count{}; connected = GetOverlappedResult(pending, &overlapped, &count, FALSE) != FALSE; if (!connected) error = GetLastError(); }
             else { CancelIoEx(pending, &overlapped); DWORD count{}; GetOverlappedResult(pending, &overlapped, &count, TRUE); }
           }
         }
-        if (!running || !connected) { CloseHandle(pending); break; }
+        if (!running) break;
+        if (!connected) {
+          // Replace only the failed instance. The replacement is created before
+          // the close so this process never releases the pipe name in between.
+          auto replacement = try_create();
+          CloseHandle(pending); pending = replacement;
+          if (!abandoned(error) && !pause()) break;
+          continue;
+        }
+        delay = min_retry_ms;
+        std::shared_ptr<Connection> connection;
         try {
-          auto connection = std::make_shared<Connection>(broker, pending); pending = INVALID_HANDLE_VALUE;
+          // Ownership moves before construction: a throwing constructor has
+          // already closed the handle through its member.
+          connection = std::make_shared<Connection>(broker, std::exchange(pending, INVALID_HANDLE_VALUE));
           { std::lock_guard lock(mutex);
             for (auto it = connections.begin(); it != connections.end();) { if ((*it)->reader_done && (*it)->writer_done) it = connections.erase(it); else ++it; }
             connections.push_back(connection);
           }
           connection->start();
+        } catch (...) {
+          // Drop only this client; the listener keeps accepting.
+          if (connection) { std::lock_guard lock(mutex); std::erase(connections, connection); }
           connection.reset();
-          // Reserve a listener only when an instance slot is available. Hitting
-          // the connection budget must not permanently terminate the acceptor.
-          while (running) {
-            size_t count{};
-            { std::lock_guard lock(mutex);
-              for (auto it = connections.begin(); it != connections.end();) { if ((*it)->reader_done && (*it)->writer_done) it = connections.erase(it); else ++it; }
-              count = connections.size();
-            }
-            if (count < 32) break;
-            if (WaitForSingleObject(stop_event.value, 100) == WAIT_OBJECT_0) break;
+          if (!pause()) break;
+          continue;
+        }
+        connection.reset();
+        // Reserve a listener only when an instance slot is available. Hitting
+        // the connection budget must not permanently terminate the acceptor.
+        while (running) {
+          size_t count{};
+          { std::lock_guard lock(mutex);
+            for (auto it = connections.begin(); it != connections.end();) { if ((*it)->reader_done && (*it)->writer_done) it = connections.erase(it); else ++it; }
+            count = connections.size();
           }
-          if (!running) break;
-          pending = create(false);
-        } catch (...) { if (pending != INVALID_HANDLE_VALUE) CloseHandle(pending); break; }
+          if (count < 32) break;
+          if (WaitForSingleObject(stop_event.value, 100) == WAIT_OBJECT_0) break;
+        }
       }
+      if (pending != INVALID_HANDLE_VALUE) CloseHandle(pending);
+      listening = false;
       running = false;
     });
   }
@@ -194,6 +235,7 @@ struct PipeServer::Impl {
 #else
 struct PipeServer::Impl {
   std::wstring pipe_name;
+  bool listening{};
   Impl(Broker&, std::wstring name) : pipe_name(std::move(name)) {}
   void start() { throw std::runtime_error("Windows named pipes are required"); }
   void stop() {}
@@ -204,4 +246,5 @@ PipeServer::~PipeServer() { stop(); }
 void PipeServer::start() { impl_->start(); }
 void PipeServer::stop() { impl_->stop(); }
 std::wstring PipeServer::name() const { return impl_->pipe_name; }
+bool PipeServer::listening() const { return impl_->listening; }
 }
