@@ -1,5 +1,6 @@
 #include "xenon/ui_theme.hpp"
 #include "xenon/introduction.hpp"
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <set>
@@ -47,12 +48,28 @@ int main(){try{
   require(GetWindowSubclass(button,ui::hover_proc,1,&data)!=FALSE,"Attach hover handler to the mixed-case Win32 Button class");
   SendMessageW(button,WM_UPDATEUISTATE,MAKEWPARAM(UIS_SET,UISF_HIDEFOCUS),0);require(!ui::keyboard_focus(button),"Mouse focus hides the keyboard-only focus mark");
   SendMessageW(button,WM_UPDATEUISTATE,MAKEWPARAM(UIS_CLEAR,UISF_HIDEFOCUS),0);require(ui::keyboard_focus(button),"Keyboard navigation retains a visible focus mark");
+  // Reduced motion paints the final hover state immediately.
+  ui::motion_override=0;
   for(const auto mode:{ui::ThemeMode::light,ui::ThemeMode::dark}){
     ui::theme_mode=mode;SendMessageW(button,WM_MOUSELEAVE,0,0);const auto normal=button_pixel(button);if(normal!=ui::palette().surface)throw std::runtime_error("Normal button uses themed surface: actual="+std::to_string(normal)+" expected="+std::to_string(ui::palette().surface));
     SendMessageW(button,WM_MOUSEMOVE,0,MAKELPARAM(20,15));require(GetPropW(button,L"XenonHover")!=nullptr,"Mouse movement enters hover state");
     const auto hovered=button_pixel(button);require(hovered==ui::hover_background()&&hovered!=normal,"Hover paints a distinct background in Light and Dark");
     SendMessageW(button,WM_MOUSELEAVE,0,0);require(GetPropW(button,L"XenonHover")==nullptr&&button_pixel(button)==normal,"Mouse leave restores normal background");
   }
+  require(ui::mix(RGB(0,0,0),RGB(255,255,255),0)==RGB(0,0,0)&&ui::mix(RGB(0,0,0),RGB(255,255,255),1)==RGB(255,255,255)&&ui::mix(RGB(10,200,30),RGB(30,100,30),0.5)==RGB(20,150,30),"Color mixing reaches both endpoints and the midpoint");
+  for(const double t:{0.0,0.2,0.5,0.9,1.0})require(std::abs(ui::ease(1-t)-(1-ui::ease(t)))<1e-9&&ui::ease(t)>=0&&ui::ease(t)<=1,"Easing is bounded and symmetric so reversals stay continuous");
+  // With animation effects on, hover fades both ways and reversal never jumps.
+  ui::motion_override=1;
+  {ui::Fade fade;fade.set(true,1000);Sleep(300);const auto shown=fade.value(1000);fade.set(false,1000);require(std::abs(fade.value(1000)-shown)<0.05&&fade.active(1000),"Reversing a fade resumes from the displayed value");
+    ui::motion_override=0;require(fade.value(1000)==0.0&&!fade.active(1000),"Reduced motion shows the target state immediately");ui::motion_override=1;}
+  for(const auto mode:{ui::ThemeMode::light,ui::ThemeMode::dark}){
+    ui::theme_mode=mode;const auto rest=ui::palette().surface;require(button_pixel(button)==rest,"Fade test starts at rest");
+    SendMessageW(button,WM_MOUSEMOVE,0,MAKELPARAM(20,15));require(GetPropW(button,L"XenonHover")!=nullptr&&button_pixel(button)!=ui::hover_background(),"Hover starts from the resting color when motion is enabled");
+    Sleep(ui::hover_duration+80);require(button_pixel(button)==ui::hover_background(),"Hover fade settles on the hover color");
+    SendMessageW(button,WM_MOUSELEAVE,0,0);require(button_pixel(button)!=rest,"Mouse leave fades out instead of jumping");
+    Sleep(ui::hover_duration+80);require(button_pixel(button)==rest,"Mouse leave fade settles on the resting color");
+  }
+  ui::motion_override=-1;
   auto list=CreateWindowExW(0,L"LISTBOX",L"",WS_CHILD|LBS_OWNERDRAWFIXED|LBS_HASSTRINGS,0,0,100,60,parent,nullptr,GetModuleHandleW(nullptr),nullptr);require(list!=nullptr,"Create real built-in listbox");ui::control_theme(list);
   require(SendMessageW(list,LB_GETITEMHEIGHT,0,0)==ui::dip(list,28),"Theme mixed-case Win32 ListBox at its physical DPI");DestroyWindow(parent);
 
@@ -100,5 +117,5 @@ int main(){try{
   {std::ofstream output(root/"ui-settings.json");output<<"{ invalid settings";}
   reset_preferences();ui::load_theme(root);require(ui::theme_mode==ui::ThemeMode::system&&ui::sidebar_width==240,"Malformed settings retain safe defaults");
   require(std::filesystem::canonical(root).parent_path()==fixture_directory,"Cleanup stays inside the generated fixture directory");std::filesystem::remove_all(root);
-  std::cout<<"Native UI tests passed: address commands, focus, hover, DPI, settings and language persistence, Unicode captions, Chinese font and unchanged user/site names\n";return 0;
+  std::cout<<"Native UI tests passed: address commands, focus, hover and hover fades, DPI, settings and language persistence, Unicode captions, Chinese font and unchanged user/site names\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
