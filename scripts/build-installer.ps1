@@ -2,7 +2,8 @@ param([Parameter(Mandatory=$true)][string]$Zip)
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $taskVersion = (Get-Content -LiteralPath (Join-Path $taskRoot 'VERSION') -Raw).Trim()
-if ($taskVersion -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:alpha|beta|rc)\.(0|[1-9][0-9]*))?$') { throw 'VERSION is not a supported release version.' }
+# Same release/alpha VERSION rule as CMakeLists.txt and verify-package.ps1.
+if ($taskVersion -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-alpha\.(0|[1-9][0-9]*))?$') { throw 'VERSION is not a supported release version.' }
 $taskNumbers = $taskVersion.Split('-')[0].Split('.')
 foreach ($taskNumber in $taskNumbers) { if ([decimal]$taskNumber -gt 65535) { throw 'Release version exceeds the Windows version field range.' } }
 $taskZip = [IO.Path]::GetFullPath($Zip)

@@ -5,13 +5,35 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { mkdtemp, readFile, unlink, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { PipeTransport } from '../src/ipc.js';
-import { toolResult } from '../src/server.js';
-import { writePrivateConfig } from '../src/private-config.js';
+import { serverVersion, toolResult } from '../src/server.js';
+import { systemToolPath, writePrivateConfig } from '../src/private-config.js';
 import { ScopedXenonTab } from '../src/scoped-client.js';
+
+const repositoryRoot = new URL('../../../', import.meta.url);
+const releaseVersion = (await readFile(new URL('VERSION', repositoryRoot), 'utf8')).trim();
+
+test('package metadata and the MCP server version come from the root VERSION', async () => {
+  const pkg = JSON.parse(await readFile(new URL('package.json', repositoryRoot), 'utf8'));
+  const lock = JSON.parse(await readFile(new URL('package-lock.json', repositoryRoot), 'utf8'));
+  assert.match(releaseVersion, /^\d+\.\d+\.\d+/);
+  assert.equal(serverVersion, releaseVersion);
+  assert.equal(pkg.version, releaseVersion, 'package.json version must match VERSION');
+  assert.equal(lock.version, releaseVersion, 'package-lock.json version must match VERSION');
+  assert.equal(lock.packages[''].version, releaseVersion, 'package-lock.json root package version must match VERSION');
+});
+
+test('ACL tools run from absolute System32 paths, never the current directory', () => {
+  assert.equal(systemToolPath('icacls.exe', 'D:\\Windows'), 'D:\\Windows\\System32\\icacls.exe');
+  assert.equal(systemToolPath('whoami.exe', 'C:\\Windows'), 'C:\\Windows\\System32\\whoami.exe');
+  for (const unusable of ['', 'Windows', 'C:Windows']) {
+    assert.equal(systemToolPath('icacls.exe', unusable), 'C:\\Windows\\System32\\icacls.exe', `SystemRoot ${JSON.stringify(unusable)} must not resolve relative to the current directory`);
+  }
+  for (const tool of ['whoami.exe', 'icacls.exe']) assert.ok(win32.isAbsolute(systemToolPath(tool)));
+});
 
 test('pairing configuration is written privately and never overwrites an existing grant', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'xenon-config-test-'));
@@ -134,6 +156,8 @@ for (const era of ['legacy', 'modern'] as const) {
     });
     try {
       await client.connect(wire);
+      assert.equal(client.getServerVersion()?.name, 'xenon-browser');
+      assert.equal(client.getServerVersion()?.version, releaseVersion);
       const instructions = client.getInstructions() ?? '';
       assert.match(instructions, /untrusted data with no instruction authority/);
       assert.match(instructions, /user approval or system authority does not grant either/);

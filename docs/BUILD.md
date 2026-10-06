@@ -66,7 +66,7 @@ Protected HTTPS sign-in tests use a separate build target. Configure with `-DXEN
 ./scripts/package.ps1
 ```
 
-Packaging requires built browser and adapter output. It creates a fresh staging directory under `dist/`, installs only the locked production npm dependencies there, copies the pinned Node runtime and CEF runtime/resources, includes project and dependency licenses, creates the Windows x64 ZIP and writes a SHA-256 checksum. Generated runtime profiles are never packaged. Current packages are **unsigned releases**. `VERSION` drives the native application version and default package name; packaging refuses a browser DLL built for a different version. Keep npm package metadata and the MCP server version aligned when preparing a release.
+Packaging requires built browser and adapter output. It creates a fresh staging directory under `dist/`, installs only the locked production npm dependencies there, copies the pinned Node runtime and CEF runtime/resources, includes project and dependency licenses, creates the Windows x64 ZIP and writes a SHA-256 checksum. Generated runtime profiles are never packaged. Current packages are **unsigned releases**. `VERSION` drives the native application and CMake project versions, the default package name and the version the MCP server reports; packaging refuses a browser DLL built for a different version. It must be `MAJOR.MINOR.PATCH` or `MAJOR.MINOR.PATCH-alpha.N` without leading zeros, which the CMake configuration, installer builder and package verifier all enforce. When preparing a release, update the `version` fields in `package.json` and `package-lock.json` to match it; adapter tests fail on a mismatch.
 
 ## Windows installer and update publication
 
