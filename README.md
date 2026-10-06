@@ -71,7 +71,7 @@ For the portable ZIP, verify its checksum, extract the **whole archive**, and ru
 
 ## MCP capabilities
 
-Xenon exposes **25 tools** through a strict TypeScript MCP stdio adapter. Tool replies include structured JSON and JSON text; screenshots additionally include MCP image content. The [agent guide](docs/AGENT_GUIDE.md) provides copyable host instructions, and the [MCP reference](docs/MCP.md) explains parameters, evidence, and errors.
+Xenon exposes **26 tools** through a strict TypeScript MCP stdio adapter. Tool replies include structured JSON and JSON text; screenshots additionally include MCP image content. The [agent guide](docs/AGENT_GUIDE.md) provides copyable host instructions, and the [MCP reference](docs/MCP.md) explains parameters, evidence, and errors.
 
 | Tools | Purpose |
 | --- | --- |
@@ -81,6 +81,7 @@ Xenon exposes **25 tools** through a strict TypeScript MCP stdio adapter. Tool r
 | `xenon_control_status`, `xenon_control` | Inspect ownership; acquire, release, or hand off control using its current generation. |
 | `xenon_activity` | Read trusted human-activity and pause metadata without typed values or page text. Supporting hosts can also subscribe to `xenon://control/activity`. |
 | `xenon_observe`, `xenon_screenshot` | Obtain bounded viewport evidence and page-only images, with document identity and freshness checks. |
+| `xenon_inspect` | Capture rendered nodes, a permitted page screenshot, and control status under one `observationId` for element or coordinate actions. Evidence that changes during capture is withheld; this is a validated capture interval, not an atomic snapshot. |
 | `xenon_navigate`, `xenon_interact`, `xenon_wait`, `xenon_dialog` | Navigate, perform finite gestures, wait for rendered text, and answer agent-controlled JavaScript dialogs. Native security prompts stay with the human. |
 | `xenon_batch` | Run up to 16 observed fill/select/check/click actions in one call, with guarded targets and per-step outcomes. |
 | `xenon_accounts`, `xenon_login` | List granted account metadata and request protected sign-in without returning vault usernames or passwords. |

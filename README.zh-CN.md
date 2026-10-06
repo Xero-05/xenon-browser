@@ -71,7 +71,7 @@ Xenon 把 Chromium 网页浏览和原生智能体控制结合起来。外部智�
 
 ## MCP 功能
 
-Xenon 通过严格校验参数的 TypeScript MCP stdio 适配器提供 **25 个工具**。工具响应包含结构化 JSON 和 JSON 文本，截图还会附带 MCP 图像内容。[智能体指南](docs/AGENT_GUIDE.md)提供可直接复制的宿主指令，[MCP 参考](docs/MCP.md)说明参数、页面证据和错误处理。
+Xenon 通过严格校验参数的 TypeScript MCP stdio 适配器提供 **26 个工具**。工具响应包含结构化 JSON 和 JSON 文本，截图还会附带 MCP 图像内容。[智能体指南](docs/AGENT_GUIDE.md)提供可直接复制的宿主指令，[MCP 参考](docs/MCP.md)说明参数、页面证据和错误处理。
 
 | 工具 | 用途 |
 | --- | --- |
@@ -81,6 +81,7 @@ Xenon 通过严格校验参数的 TypeScript MCP stdio 适配器提供 **25 个�
 | `xenon_control_status`, `xenon_control` | 查看控制权，并凭当前控制权版本号获取、释放或交接控制权。 |
 | `xenon_activity` | 读取可信的用户活动与暂停元数据，不含输入内容和页面文本。支持的宿主还可订阅 `xenon://control/activity`。 |
 | `xenon_observe`, `xenon_screenshot` | 获取有界视口证据和只含网页内容的图像，并检查文档身份与证据是否仍然有效。 |
+| `xenon_inspect` | 在同一个 `observationId` 下返回已渲染节点、允许的网页截图和控制状态，可用于元素操作或坐标操作。采集期间发生变化的证据不会返回；这是经过校验的采集区间，而非原子快照。 |
 | `xenon_batch` | 在一次调用中按顺序执行最多 16 个已观察到的填写、选择、勾选或点击操作，并报告每一步的结果。 |
 | `xenon_navigate`, `xenon_interact`, `xenon_wait`, `xenon_dialog` | 导航、执行有限时长的完整操作、等待已渲染文本，以及处理智能体控制的 JavaScript 对话框。原生安全提示仍由用户处理。 |
 | `xenon_accounts`, `xenon_login` | 列出已授权账号的元数据，并请求受保护登录；不会返回凭据库中的用户名或密码。 |

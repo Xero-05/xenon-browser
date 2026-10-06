@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { McpServer, ResourceNotFoundError } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { BrokerError, type BrokerTransport, type NativeReply } from './ipc.js';
@@ -26,6 +27,9 @@ const websiteContentTrust = Object.freeze({ classification: 'untrusted_website_c
 // whole values instead of silently changing the meaning of a name or message.
 const unsafeNonRendering = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u061C\u180E\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\uFEFF\u{E0000}-\u{E007F}]/u;
 const withheldText = '[text withheld: non-rendering characters]';
+// The root VERSION file versions the native build, release package and this
+// server. It sits beside adapter/ in both the source tree and the package.
+export const serverVersion = readFileSync(new URL('../../../VERSION', import.meta.url), 'utf8').trim();
 
 export function toolResult(reply: NativeReply, containsWebsiteContent = false, containsExternalText = containsWebsiteContent) {
   const operation = { ...(reply.operationId ? { operationId: reply.operationId } : {}), ...(reply.dispatchStatus ? { dispatchStatus: reply.dispatchStatus } : {}), ...(reply.timing ? { timing: reply.timing } : {}) };
@@ -61,7 +65,7 @@ export function toolResult(reply: NativeReply, containsWebsiteContent = false, c
 }
 
 export function createServer(transport: BrokerTransport, era: 'legacy' | 'modern' = 'legacy', evidence?: Pick<EvidenceExporter, 'begin' | 'finish'>): McpServer {
-  const server = new McpServer({ name: 'xenon-browser', version: '0.1.1' }, {
+  const server = new McpServer({ name: 'xenon-browser', version: serverVersion }, {
     instructions: `${description} Tabs created by a worker are owned by that worker automatically. Human page input keeps that owner and pauses agent input until about two seconds of inactivity, with longer pauses while an input gesture or human dialog remains active. ${ACTIVITY_MESSAGE} Read xenon_activity or ${ACTIVITY_URI} for current status. Clients can subscribe to that resource for change notifications.`,
     capabilities: { resources: { subscribe: true } },
   });
