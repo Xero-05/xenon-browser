@@ -69,6 +69,9 @@ int main(){try{
   ui::sidebar_width=340;require(ui::save_theme(ui::ThemeMode::light),"Save theme and sidebar atomically");reset_preferences();ui::load_theme(root);
   require(ui::theme_mode==ui::ThemeMode::light&&ui::sidebar_width==340,"Restore chosen width with saved theme");
   require(ui::language==ui::Language::simplified_chinese,"Theme and sidebar saves preserve the language choice");
+  require(std::string_view(ui::web_color_scheme_switch(ui::ThemeMode::light))=="force-light-mode"&&std::string_view(ui::web_color_scheme_switch(ui::ThemeMode::dark))=="force-dark-mode"
+    &&ui::web_color_scheme_switch(ui::ThemeMode::system)==nullptr,"Light and Dark force web content; System follows Windows");
+  require(ui::web_theme_mode==ui::ThemeMode::system,"Saving a theme leaves this run's web content theme unchanged");
   require(std::wstring(ui::tr(L"Xenon Controls"))==L"Xenon 控制中心"&&ui::tr8("New tab")=="新标签页","Translate native captions in Unicode");
   require(std::string(ui::language_tag(ui::language))=="zh-CN","Chinese uses the matching CEF locale");
   LOGFONTW chinese_font{};const auto face=ui::font(GetDesktopWindow());require(GetObjectW(face,sizeof(chinese_font),&chinese_font)!=0,"Inspect localized UI font");DeleteObject(face);

@@ -682,8 +682,9 @@ class CefEngine::Impl::ContextHandler final : public CefRequestContextHandler {
     return saved&&saved->GetType()==VTYPE_INT&&saved->GetInt()==setting;
   }
   void OnRequestContextInitialized(CefRefPtr<CefRequestContext> ctx) override {
-    // Brand native Chrome surfaces once per context. VIBRANT changes the accent
-    // palette without changing SYSTEM/LIGHT/DARK mode or website color-scheme.
+    // Keep the profile's Chrome theme in step for Chrome-themed surfaces. It
+    // does not change website color-scheme: native Alloy hosts follow the
+    // process NativeTheme, which main_win.cpp fixes from the startup theme.
     // Context initialization is independent of agent ownership and handoff.
     ctx->SetChromeColorScheme(ui::theme_mode==ui::ThemeMode::dark?CEF_COLOR_VARIANT_DARK:ui::theme_mode==ui::ThemeMode::light?CEF_COLOR_VARIANT_LIGHT:CEF_COLOR_VARIANT_SYSTEM,0);
     bool ready=false;

@@ -74,6 +74,11 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       // previously active workspace (including a tombstone) become that context.
       command->RemoveSwitch("profile-directory");
       command->AppendSwitchWithValue("profile-directory","Default");
+      // SetChromeColorScheme does not reach pages in native Alloy hosts. Force
+      // Light/Dark for web content here; System leaves Windows in control.
+      command->RemoveSwitch("force-light-mode");command->RemoveSwitch("force-dark-mode");
+      ui::web_theme_mode=ui::theme_mode;
+      if(const auto scheme=ui::web_color_scheme_switch(ui::web_theme_mode))command->AppendSwitch(scheme);
     }
     // Concurrent agent windows must keep painting while covered by another
     // window. This is a fixed startup policy, never an ownership/handoff change.
