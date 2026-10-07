@@ -44,7 +44,8 @@ let gestureDown=false;const gestureStart=document.querySelector('#gestureStart')
 gestureStart.onpointerdown=()=>{gestureDown=true;if(caseId)fetch('/gesture?id='+encodeURIComponent(caseId)+'&phase=down',{method:'POST'});};
 document.addEventListener('pointerup',e=>{if(gestureDown){gestureDown=false;document.querySelector('#gestureResult').textContent=e.target===gestureEnd?'Drag completed':'Drag released';if(caseId)fetch('/gesture?id='+encodeURIComponent(caseId)+'&phase=up',{method:'POST'});}});
 window.fixtureState=()=>({timeOrigin:performance.timeOrigin,draft:document.querySelector('#draft').value,active:document.activeElement?.id,selectionStart:document.querySelector('#draft').selectionStart,selectionEnd:document.querySelector('#draft').selectionEnd,scrollX,scrollY,count,events:fixtureEvents,stream:document.querySelector('#stream').textContent,cookie:document.cookie});
-// Ready only after DOMContentLoaded: Chromium invalidates DOM evidence at that point, and the handlers above are attached.
-document.addEventListener('DOMContentLoaded',()=>{document.querySelector('#ready').textContent='Ready for concurrent work'},{once:true});
+// Ready only after load. Chromium invalidates DOM evidence at this document's DOMContentLoaded and again when the
+// out-of-process cross-origin frame finishes parsing, which can be later; load waits for both frames.
+window.addEventListener('load',()=>{document.querySelector('#ready').textContent='Ready for concurrent work'},{once:true});
 setInterval(()=>{const snapshot=fixtureState();state.textContent=JSON.stringify({...snapshot,events:undefined},null,2);if(caseId)fetch('/telemetry?id='+encodeURIComponent(caseId),{method:'POST',body:JSON.stringify(snapshot)}).catch(()=>{});},500);
 </script></body></html>

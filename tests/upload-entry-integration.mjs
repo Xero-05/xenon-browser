@@ -67,7 +67,9 @@ async function observe(tab) {
   const deadline = Date.now() + 5000;
   for (;;) {
     const response = await raw('observe', { ...scope(tab), maxNodes: 1000 }); lastObservation = response;
-    if (response.isError && response.structuredContent?.error?.code === 'privacy_guard_initializing' && Date.now() < deadline) { await sleep(100); continue; }
+    // A cross-origin frame attaching or finishing its parse changes the tab's evidence. Retry only
+    // these explicitly transient reads; never replay a mutation.
+    if (response.isError && ['privacy_guard_initializing', 'page_changed'].includes(response.structuredContent?.error?.code) && Date.now() < deadline) { await sleep(100); continue; }
     assert(!response.isError, 'observe: ' + JSON.stringify(response.structuredContent ?? response.content)); return response.structuredContent;
   }
 }
@@ -98,7 +100,9 @@ async function upload(tab, name, grant = fileId, tag = 'BUTTON') {
 }
 async function open(caseId, mode, owner = worker) {
   const tab = { ...owner, ...await tool('tab_create', { ...workerScope(owner), url: origin + '/page?case=' + caseId + '&mode=' + mode }), caseId };
-  await until(async () => (await observe(tab)).nodes.some(node => node.name === 'Upload entry fixture ready'));
+  // A cross-origin child page has its own ready heading; also require the parent's loading marker to be gone.
+  await until(async () => { const { nodes } = await observe(tab);
+    return nodes.some(node => node.name === 'Upload entry fixture ready') && !nodes.some(node => node.name === 'Loading upload entry fixture'); });
   await until(() => fixtureStates.get(caseId)?.opened); return tab;
 }
 const alivePipe = () => new Promise(resolve => {
@@ -141,7 +145,9 @@ async function startFixtures() {
     if (url.pathname !== '/page') { response.writeHead(404).end(); return; }
     const mode = url.searchParams.get('mode'), frame = mode === 'frame';
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
-    if (frame) { response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}iframe{width:700px;height:270px;border:1px solid #777}</style><h1>Upload entry fixture ready</h1><iframe src="' + crossOrigin + '/page?case=' + caseId + '&mode=custom"></iframe>'); return; }
+    if (frame) { response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}iframe{width:700px;height:270px;border:1px solid #777}</style><h1 id="ready">Loading upload entry fixture</h1><iframe src="' + crossOrigin + '/page?case=' + caseId + '&mode=custom"></iframe>' +
+      // Ready only after the cross-origin frame has loaded and its document update has invalidated earlier evidence.
+      '<script>addEventListener("load",()=>{document.querySelector("#ready").textContent="Upload entry fixture ready"},{once:true})</script>'); return; }
     if (mode === 'delegate') {
       response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}button{font:inherit;background:white;color:#152235;padding:10px}iframe{display:block;width:650px;height:180px}</style><h1>Upload entry fixture ready</h1><button id="choose">Choose approved fixture</button><iframe id="child" src="/page?case=' + caseId + '-child&mode=child-hidden"></iframe><script>' +
         'const caseId=' + JSON.stringify(caseId) + ';function event(v){fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(v)})}event({type:"opened"});document.querySelector("#choose").onclick=e=>{event({type:"click",trusted:e.isTrusted});document.querySelector("#child").contentDocument.querySelector("#file").click()};</script>'); return;
