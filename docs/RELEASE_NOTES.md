@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.1.2
+
+**Theme: Light** and **Theme: Dark** now apply to web content as well as the native shell. Pages receive the matching `prefers-color-scheme`, and about:blank and Chromium-drawn page UI such as context menus follow the saved theme; **System** continues to follow Windows. Chromium reads the choice once per process, so a theme changed while Xenon runs updates the shell immediately and applies to web pages after restart; the status line says so. No CDP, page script or DOM change is used for colors.
+
+The native shell and Controls have keyboard focus rings, hover fades, a selected-tab highlight that glides between rows and crossfades between ownership colors, quieter inactive close buttons, an ownership dot beside the status text and a loading bar drawn in the shell strip above the page. The ⋯ menu now opens upward from the sidebar rail instead of extending outside the window. Animations follow the Windows **Animation effects** setting and are off in high contrast. Stale tab-list paint after widening the sidebar and hover flicker in Controls are fixed. All of this is shell paint: page windows are never moved, resized, focused or reconfigured by it, and ownership and handoff behavior are unchanged.
+
+The MCP pipe now keeps accepting connections after a failed connect, for example a client that opens and immediately closes the pipe. Previously one such failure stopped the acceptor, and no adapter could connect until Xenon restarted. Each replacement listener is created before the failed one closes, so recovery does not release the pipe name; the owner-only ACL, remote-client rejection and 32-connection limit are unchanged. Pairing and evidence-export files are now protected by running `whoami.exe` and `icacls.exe` from their absolute System32 paths, so a same-named program in the current folder cannot skip the ACL step. `VERSION` is the single source for the native, CMake and reported MCP server versions.
+
+Both Windows x64 formats remain unsigned: a per-user installer and a portable ZIP, each with a SHA-256 checksum. Dependency pins are unchanged; CEF `154.0.34+g14c5a08` (Chromium `154.0.8037.98`) was still the newest stable Windows x64 CEF build when checked on October 6. Close Xenon and reconnect the MCP adapter after upgrading. Existing profiles and pairing configuration remain separate from application files. Physical UI, high-contrast, non-100% DPI and real-site acceptance remain outside the validated scope; see [testing](TESTING.md).
+
 ## 0.1.1
 
 0.1.1 promotes the browser functionality already published in alpha.19 to a regular GitHub release, marked latest. Native, MCP and package versions are aligned at 0.1.1. The complete matching CEF runtime is updated to `154.0.34+g14c5a08` (Chromium `154.0.8037.98`), matching Chrome's current Windows stable version checked October 5. Other dependency pins and Xenon's browser behavior are unchanged.
