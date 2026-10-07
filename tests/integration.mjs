@@ -33,6 +33,14 @@ async function until(fn, ms = 15000) {
   while (Date.now() < end) { const value = await fn(); if (value) return value; await sleep(150); }
   throw new Error('Condition timed out');
 }
+// Wait for every concurrent tab flow before reporting the first failure, so a
+// failed check does not leave input running into the next check.
+async function settled(promises) {
+  const outcomes = await Promise.allSettled(promises);
+  const failure = outcomes.find(outcome => outcome.status === 'rejected');
+  if (failure) throw failure.reason;
+  return outcomes.map(outcome => outcome.value);
+}
 async function check(name, fn) {
   const start = Date.now();
   try { const detail = await fn(); results.push({ name, passed: true, elapsedMs: Date.now() - start, detail }); console.log(`PASS ${name}`); }
@@ -52,9 +60,10 @@ async function observe(client, tab) {
   while (true) {
     const response = await raw(client, 'observe', { ...scope(tab), maxNodes: 1000 });
     lastObservations.set(tab.tabId, response);
-    if (response.isError && response.structuredContent?.error?.code === 'privacy_guard_initializing' && Date.now() < deadline) {
-      // A newly attached frame can restart the document privacy guard. Retry
-      // only this explicitly transient read; never replay any mutation.
+    if (response.isError && ['privacy_guard_initializing', 'page_changed'].includes(response.structuredContent?.error?.code) && Date.now() < deadline) {
+      // A newly attached frame can restart the document privacy guard, and a
+      // frame's document update invalidates an observation in progress. Retry
+      // only these explicitly transient reads; never replay any mutation.
       await sleep(100); continue;
     }
     if (response.isError) throw new Error(`observe: ${JSON.stringify(response.structuredContent ?? response.content)}`);
@@ -118,9 +127,9 @@ try {
   const separate = await Promise.all(fixtures.map((_, i) => connect(i, i % 2 ? 'legacy' : 'modern')));
   const separateTabs = [];
   await check('Four separate adapters, three live tabs each', async () => {
-    await Promise.all(separate.map(async (client, i) => {
+    await settled(separate.map(async (client, i) => {
       const worker = await tool(client, 'worker_create', { name: `separate-${i}` });
-      const tabs = await Promise.all(Array.from({ length: 3 }, async (_, j) => {
+      const tabs = await settled(Array.from({ length: 3 }, async (_, j) => {
         const caseId = `${run}-separate-${i}-${j}`;
         const created = await tool(client, 'tab_create', { ...workspaceScope(worker), url: `${base}/?case=${caseId}` });
         const tab = { ...worker, ...created, caseId, client };
@@ -321,9 +330,9 @@ try {
     assert(result.nodes.some(n=>n.name==='Drag completed'));
   });
   await check('Four workers behind one adapter, three tabs each', async () => {
-    const multiplexed = await Promise.all(Array.from({ length: 4 }, async (_, i) => {
+    const multiplexed = await settled(Array.from({ length: 4 }, async (_, i) => {
       const worker = await tool(separate[2], 'worker_create', { name: `multiplexed-${i}` });
-      return Promise.all(Array.from({ length: 3 }, async (_, j) => {
+      return settled(Array.from({ length: 3 }, async (_, j) => {
         const caseId = `${run}-multiplexed-${i}-${j}`;
         const tab = { ...worker, ...await tool(separate[2], 'tab_create', { ...workspaceScope(worker), url: `${base}/?case=${caseId}` }) };
         await ready(separate[2], tab); await act(separate[2], tab, 'click', 'Increment count');
