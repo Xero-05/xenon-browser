@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.2",
+  "publishedUtc": "2026-10-07T07:40:02Z",
+  "sourceCommit": "743bdf399b12308cd65718b890f71b641ad2f806",
+  "tag": "v0.1.2",
+  "url": "https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.2",
+  "releaseId": 405502314,
+  "draft": false,
+  "prerelease": false,
+  "latest": true,
+  "windowsCi": {
+    "url": "https://github.com/Xero-05/xenon-browser/actions/runs/37586103573",
+    "headSha": "743bdf399b12308cd65718b890f71b641ad2f806",
+    "event": "push",
+    "conclusion": "success",
+    "attempt": 1,
+    "artifactId": 11466811540,
+    "artifactDigest": "sha256:599c15152077f7406dd91b493f2dab2d25835a41839ba7b32de0958b4589512d"
+  },
+  "pullRequests": [
+    {"number": 9, "url": "https://github.com/Xero-05/xenon-browser/pull/9", "mergeCommit": "4dd2fe09e4bd2eb804ef9ce0e7eadf7beea4d762", "purpose": "Version bump and release notes"},
+    {"number": 10, "url": "https://github.com/Xero-05/xenon-browser/pull/10", "mergeCommit": "b3853ae", "purpose": "Hosted package smoke and live suites"},
+    {"number": 11, "url": "https://github.com/Xero-05/xenon-browser/pull/11", "mergeCommit": "7873f97", "purpose": "Fixture readiness for hosted live suites"},
+    {"number": 12, "url": "https://github.com/Xero-05/xenon-browser/pull/12", "mergeCommit": "b047b22", "purpose": "Native-message-driver harness waits"},
+    {"number": 13, "url": "https://github.com/Xero-05/xenon-browser/pull/13", "mergeCommit": "743bdf3", "purpose": "Ownership color repaint fix"}
+  ],
+  "assets": [
+    {"name": "Xenon-0.1.2-windows-x64-setup-unsigned.exe", "size": 203506584, "digest": "sha256:5e3ffc02150bcf60330c5869c1c3f62e4b970e9c9d05f627ba015ac8b82db366", "state": "uploaded"},
+    {"name": "Xenon-0.1.2-windows-x64-setup-unsigned.exe.sha256", "size": 109, "digest": "sha256:ad7a87faee0e0dfc66dc262c1491d2f6647f4ec2d2eab682354591d99477aa30", "state": "uploaded"},
+    {"name": "Xenon-0.1.2-windows-x64-unsigned.zip", "size": 234122678, "digest": "sha256:f59f42f06e6e0d82f5245e83d8e1e89e7ad5b7a26d5e54b1dfb2727405e22025", "state": "uploaded"},
+    {"name": "Xenon-0.1.2-windows-x64-unsigned.zip.sha256", "size": 103, "digest": "sha256:7eed1036a8d4c102cf5153440abeea0097ace61ec6bac95934a586a757de01cb", "state": "uploaded"}
+  ],
+  "assetUpload": {
+    "method": "gh release upload from a local copy of the CI artifact, to a draft, before publication.",
+    "verification": "Before publishing, each draft asset's size, uploaded state and GitHub SHA-256 digest matched the downloaded CI file. Both .sha256 files match their assets, and verify-package.ps1 passed all 1,299 manifest hashes in the ZIP."
+  },
+  "nativeUpdateVerification": {
+    "simulatedCurrent": "0.1.1",
+    "available": "0.1.2",
+    "installerBytes": 203506584,
+    "expectedSha256": "5e3ffc02150bcf60330c5869c1c3f62e4b970e9c9d05f627ba015ac8b82db366",
+    "sizeAndSha256Verified": true,
+    "installerLaunched": false,
+    "runnerSha256": "8626f0b806f405c4914cd32d3cbcedb7be3658b4692a9f6613833796d57506e9",
+    "method": "Unshipped runner linked against the locally built xenon_core: check_for_update from a simulated 0.1.1, then the fixed-origin HTTPS download into a disposable staging folder and verify_installer_file. Nothing was installed."
+  },
+  "notes": "Unsigned hashes establish byte integrity, not publisher identity. The user's production installation was not replaced."
+}
