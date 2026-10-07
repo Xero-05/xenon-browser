@@ -3,7 +3,7 @@
 <style>
 body{font:16px system-ui;background:#eef1f5;color:#18212d;margin:32px;max-width:1000px}section{background:white;padding:24px;margin:18px 0;border-radius:12px}button,input,select,textarea{font:inherit;padding:10px;margin:6px}button{cursor:pointer}#target{width:80px;height:60px;background:#4169e1;color:white}#drop{width:160px;height:70px;border:2px dashed #4169e1;margin:15px}#overlay{display:none;position:fixed;inset:0;background:#2229;z-index:20}#spacer{height:1000px}canvas{border:1px solid #888}pre{white-space:pre-wrap;overflow-wrap:anywhere}
 </style></head><body>
-<h1>Xenon integration workbench</h1><p id="ready">Ready for concurrent work</p>
+<h1>Xenon integration workbench</h1><p id="ready">Loading workbench</p>
 <section><h2>Editing and handoff</h2><label>Draft<input id="draft" aria-label="Draft" value="Unsent draft"></label>
 <label>Notes<textarea id="notes" aria-label="Notes">Keep this text across handoffs.</textarea></label>
 <button id="increment">Increment count</button><output id="count">Count: 0</output>
@@ -44,5 +44,7 @@ let gestureDown=false;const gestureStart=document.querySelector('#gestureStart')
 gestureStart.onpointerdown=()=>{gestureDown=true;if(caseId)fetch('/gesture?id='+encodeURIComponent(caseId)+'&phase=down',{method:'POST'});};
 document.addEventListener('pointerup',e=>{if(gestureDown){gestureDown=false;document.querySelector('#gestureResult').textContent=e.target===gestureEnd?'Drag completed':'Drag released';if(caseId)fetch('/gesture?id='+encodeURIComponent(caseId)+'&phase=up',{method:'POST'});}});
 window.fixtureState=()=>({timeOrigin:performance.timeOrigin,draft:document.querySelector('#draft').value,active:document.activeElement?.id,selectionStart:document.querySelector('#draft').selectionStart,selectionEnd:document.querySelector('#draft').selectionEnd,scrollX,scrollY,count,events:fixtureEvents,stream:document.querySelector('#stream').textContent,cookie:document.cookie});
+// Ready only after DOMContentLoaded: Chromium invalidates DOM evidence at that point, and the handlers above are attached.
+document.addEventListener('DOMContentLoaded',()=>{document.querySelector('#ready').textContent='Ready for concurrent work'},{once:true});
 setInterval(()=>{const snapshot=fixtureState();state.textContent=JSON.stringify({...snapshot,events:undefined},null,2);if(caseId)fetch('/telemetry?id='+encodeURIComponent(caseId),{method:'POST',body:JSON.stringify(snapshot)}).catch(()=>{});},500);
 </script></body></html>
