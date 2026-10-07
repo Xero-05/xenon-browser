@@ -8,6 +8,24 @@ The [web theme validation record](test-results/web-theme-validation.json) covers
 
 The suite has not yet run under Windows light mode. Runtime theme changes reach web content only after restart. The menu is driven by native messages, not physical input, and fixtures are synthetic loopback pages.
 
+## 0.1.2 release validation
+
+0.1.2 is a regular GitHub release, marked latest. It adds the web-content theme, native shell polish, MCP pipe recovery after failed connects and System32 ACL tool paths. Dependency pins are unchanged.
+
+The [release validation record](test-results/release-0.1.2-validation.json) binds the four release files to the successful push CI run for merged commit `743bdf399b12308cd65718b890f71b641ad2f806`. That run built and tested 11 native groups, 101 adapter and fixed-script checks, 5 branding checks and 47 isolated installer checks, and verified all 1,299 ZIP manifest hashes. It then extracted the ZIP, passed the 6 package smoke checks, and ran the seven hosted live suites on the packaged DLL: 57 checks, with the theme suite in Windows light mode.
+
+The same release DLL then ran locally in Windows dark mode. The theme (4), language (6) and first-run (6) driver suites passed. Computer Use drove the fixture windows' operator steps: shell tabs (8), Windows input pause with a website dialog (3) and workspace removal with the native confirmation (4). The unshipped AuthTest build of the same native sources passed protected sign-in (11), human autofill (11) and driver-mode workspace removal (4). Startup with a native Exit (7) passed only on the earlier candidate DLL.
+
+Hands-on testing of that candidate found an unreleased regression: during human pauses, the selected tab kept the previous ownership color while the page frame faded to the new one. #13 repaints the tab tree for the whole fade. A pixel check on the release DLL saw the frame and tab match in every settled state. The record keeps the earlier failures:
+
+- the first hosted fixture-readiness failures, fixed in #10 and #11;
+- the language and introduction harness races, which also occur on 0.1.1 and were fixed in #12;
+- one human-autofill attempt that stopped on a harness file-rename error and passed on rerun.
+
+The [publication record](test-results/release-0.1.2-publication.json) binds the tag, regular/latest status and all four uploaded asset digests to the tested files. Native update code discovered 0.1.2 from a simulated 0.1.1 and downloaded and verified the 203,506,584-byte installer without launching it.
+
+Computer Use sends synthesized OS input; it is not a person at the device. High contrast, non-100% DPI, real sites and real accounts remain unverified. The user's production installation was not replaced. Downloads remain unsigned: published hashes establish byte integrity, not publisher identity.
+
 ## 0.1.1 release validation
 
 0.1.1 is a regular GitHub release, marked latest, with the browser functionality from alpha.19 and the complete matching CEF distribution updated to `154.0.34+g14c5a08` (Chromium `154.0.8037.98`). The October 5 stable-index check, publisher archive size/SHA-1 and recorded SHA-256 verified; the existing CEF license matches the distribution, and notices/pins remain aligned. Chromium now matches Chrome's current Windows stable version checked that day. Other dependency pins are unchanged.

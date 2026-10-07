@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.2",
+  "capturedUtc": "2026-10-07T07:41:00Z",
+  "passed": true,
+  "sourceCommit": "743bdf399b12308cd65718b890f71b641ad2f806",
+  "sourceTree": "70b011af2e80934ffd331d40d7ca474754492ce4",
+  "binaryOrigin": {
+    "kind": "GitHub Actions",
+    "sourceCommit": "743bdf399b12308cd65718b890f71b641ad2f806",
+    "runId": 37586103573,
+    "runUrl": "https://github.com/Xero-05/xenon-browser/actions/runs/37586103573",
+    "event": "push",
+    "attempt": 1,
+    "conclusion": "success",
+    "artifactId": 11466811540,
+    "artifactDigest": "sha256:599c15152077f7406dd91b493f2dab2d25835a41839ba7b32de0958b4589512d",
+    "artifactBytes": 436270225,
+    "liveResultsArtifactId": 11467516230,
+    "liveResultsArtifactDigest": "sha256:4fb7c23274379ab8d579bf15b8fe2401d2dfa77aa53ab00c545f19e5cfa61ab7"
+  },
+  "binaries": {
+    "productionExecutableSha256": "afec31ed4c2f4ef9836865e76186466b9ec5f92173772d6ede1d8edf5e6fb2f6",
+    "productionDllSha256": "3e3b088a7aa3effad7c2c2de74e5d52bfab43f0cd45968cecc1194ef9c12869b",
+    "cefDllSha256": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7",
+    "fixtureDllSha256": "c211a15b32b3c18d30ca2dbb80d8aa2be7b7e5aa0689a3911521375ccb41b357",
+    "fixtureShipped": false,
+    "fixtureOrigin": "Local XenonAuthTest build from the #13 fix branch, whose native sources match the release commit."
+  },
+  "hostedCi": {
+    "runUrl": "https://github.com/Xero-05/xenon-browser/actions/runs/37586103573",
+    "runner": "windows-2022, Windows light app mode",
+    "build": {"command": "./scripts/build.ps1 -Test", "passed": true, "nativeGroups": 11, "adapter": 22, "loginCapture": 32, "humanAutofill": 31, "protectedLogin": 10, "formFill": 6, "brandingChecks": 5},
+    "packageVerification": {"command": "./scripts/verify-package.ps1", "passed": true, "manifestFilesVerified": 1299},
+    "installerLifecycle": {"command": "./tests/installer-tests.ps1", "passed": true, "checks": 47},
+    "packageSmoke": {"command": "node tests/package-smoke.mjs <extracted ZIP>", "passed": true, "checks": 6, "applicationDllSha256": "3e3b088a7aa3effad7c2c2de74e5d52bfab43f0cd45968cecc1194ef9c12869b"},
+    "liveSuites": {
+      "binding": "build/app/Release/Xenon.dll required to equal the packaged manifest's Xenon.dll before the suites ran.",
+      "applicationDllSha256": "3e3b088a7aa3effad7c2c2de74e5d52bfab43f0cd45968cecc1194ef9c12869b",
+      "passed": true,
+      "suites": [
+        {"name": "integration", "checks": 17, "passed": true},
+        {"name": "batch-integration", "checks": 7, "passed": true},
+        {"name": "visibility-integration", "checks": 11, "passed": true},
+        {"name": "worker-lifecycle-integration", "checks": 4, "passed": true},
+        {"name": "upload-entry-integration", "checks": 11, "passed": true},
+        {"name": "persistence-integration", "checks": 3, "passed": true},
+        {"name": "theme-integration", "checks": 4, "passed": true, "windowsAppMode": "light"}
+      ]
+    }
+  },
+  "localOnReleaseDll": {
+    "binding": "The CI-built Xenon.dll was copied into build/app/Release; all other runtime files there already matched the packaged manifest byte for byte.",
+    "applicationDllSha256": "3e3b088a7aa3effad7c2c2de74e5d52bfab43f0cd45968cecc1194ef9c12869b",
+    "machine": "Windows 11 x64, Windows dark app mode, 100% DPI, high contrast off, two monitors",
+    "suites": [
+      {"name": "theme-integration", "checks": 4, "passed": true, "windowsAppMode": "dark", "coverage": "native message driver"},
+      {"name": "ui-language-integration", "checks": 6, "passed": true, "coverage": "native message driver"},
+      {"name": "introduction-integration", "checks": 6, "passed": true, "coverage": "native message driver"},
+      {"name": "native-input-smoke --dialog", "checks": 3, "passed": true, "coverage": "Computer Use click, typing and website-dialog Dismiss in the fixture window"},
+      {"name": "workspace-removal-integration --manual", "checks": 4, "passed": true, "coverage": "Computer Use selected only the named fixture workspace in its Controls, chose Remove and confirmed Yes"},
+      {"name": "shell-tabs-integration", "checks": 8, "passed": true, "coverage": "Computer Use clicked the tab X, middle-clicked, chose workspaces, pressed Ctrl+W and used Menu > Exit twice"}
+    ],
+    "authFixtureSuites": {
+      "fixtureDllSha256": "c211a15b32b3c18d30ca2dbb80d8aa2be7b7e5aa0689a3911521375ccb41b357",
+      "suites": [
+        {"name": "auth-integration", "checks": 11, "passed": true},
+        {"name": "human-autofill-integration", "checks": 11, "passed": true, "attempts": 2},
+        {"name": "workspace-removal-integration (driver)", "checks": 4, "passed": true}
+      ]
+    },
+    "ownershipColorCheck": {
+      "method": "native-input-smoke with a script sampling the fixture window's page-frame border and selected-tab border about every 130 ms.",
+      "passed": true,
+      "result": "Frame and tab matched in every settled state through the click and typing pauses; differing samples occurred only mid-fade, within the 240 ms transition. Samples while Controls covered the shell during the dialog were not used."
+    },
+    "earlierCandidate": {
+      "applicationDllSha256": "8875f25939794f0f759f1be6afa0d3f49aef59d1d8dc96d15931ca868154da8f",
+      "sourceCommit": "7873f97c7a53fead7e07a7296d275c5bc171dc7e",
+      "note": "startup-integration (7/7, Computer Use Menu > Exit) ran only on this pre-fix CI DLL; it was not repeated on the release DLL. Shell tabs (8/8) and native input with dialog (3/3) also passed on it before being repeated on the release DLL."
+    }
+  },
+  "preparationHistory": [
+    {"step": "First hosted live-suite run", "commit": "915f4ff", "runUrl": "https://github.com/Xero-05/xenon-browser/actions/runs/37575719278", "result": "integration 14/17: stale_element after a static ready marker; fixed in #10 (DOMContentLoaded) and #11 (load event and read-only page_changed retry)."},
+    {"step": "First push run with hosted live suites", "commit": "b3853ae", "runUrl": "https://github.com/Xero-05/xenon-browser/actions/runs/37577833868", "result": "integration and upload-entry failed with page_changed before #11; the next main run passed."},
+    {"step": "Native-message-driver flakiness", "dll": "8875f25939794f0f759f1be6afa0d3f49aef59d1d8dc96d15931ca868154da8f", "result": "ui-language and introduction failed 7 of 10 runs at varying steps by reading windows before setup finished; the 0.1.1 DLL failed the tour modal check in 2 of 3 runs. #12 made the checks wait; 10/10 runs then passed."},
+    {"step": "Ownership color mismatch", "dll": "8875f25939794f0f759f1be6afa0d3f49aef59d1d8dc96d15931ca868154da8f", "result": "Reported during hands-on testing. The tab tree was not repainted during the accent fade: frame orange/tab teal for 1.8 s after a click, frame teal/tab orange for 7.5 s after the pause ended, frame gray/tab orange until close. Fixed in #13 and rechecked on the release DLL."},
+    {"step": "Human autofill first attempt", "dll": "c211a15b32b3c18d30ca2dbb80d8aa2be7b7e5aa0689a3911521375ccb41b357", "result": "1 check passed, then the harness failed with EPERM renaming native-autofill-request.tmp over native-autofill-request.json in the fixture profile. The immediate rerun passed 11/11."}
+  ],
+  "cefMaintenance": "Dependency pins unchanged. CEF 154.0.34+g14c5a08 (Chromium 154.0.8037.98) was the newest stable Windows x64 entry in the CEF build index checked October 6.",
+  "limits": [
+    "Computer Use input is OS-level synthesized mouse and keyboard input, not a person at the device.",
+    "High contrast, non-100% DPI, Light theme for the ownership-color check, real sites and real accounts were not exercised.",
+    "Startup was not repeated on the release DLL; the only native change after that run is the shell repaint fix.",
+    "The AuthTest fixture is a local build of the same native sources and is never shipped.",
+    "Downloads are unsigned; hashes establish byte integrity, not publisher identity."
+  ],
+  "privacy": "Disposable synthetic profiles and fixtures only. The user's installed browser and profile were not tested, modified or replaced; no tokens, raw calls, browsing logs, vault data or screenshots are recorded."
+}
