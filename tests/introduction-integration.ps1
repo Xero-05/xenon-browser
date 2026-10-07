@@ -106,7 +106,7 @@ function Capture([string]$Name) {
 }
 try {
   Launch-Fixture;Find-Tour
-  Require ([XenonIntroductionFixture]::Caption($taskTour,10) -eq 'Welcome to Xenon') 'First step is language selection'
+  Wait-Until {[XenonIntroductionFixture]::Caption($taskTour,10) -eq 'Welcome to Xenon'} 'First step is language selection' | Out-Null
   Require ([XenonIntroductionFixture]::Find($taskProcess.Id,'XenonBrowserShell') -eq [IntPtr]::Zero) 'CEF must wait for language selection'
   Capture 'english-language'
   $profileArgument='--user-data-dir="'+$taskProfile+'"'
@@ -140,12 +140,13 @@ try {
 
   $before=Get-Content -LiteralPath (Join-Path $taskProfile 'ui-settings.json') -Raw
   [XenonIntroductionFixture]::Command($taskShell,2123);Find-Tour
-  Require ([XenonIntroductionFixture]::Caption($taskTour,10) -eq '快速了解浏览器') 'Menu reopens the quick tour'
-  Require (-not [XenonIntroductionFixture]::Enabled($taskShell)) 'Tour supports native modal navigation'
+  # The tour window is findable before its text is set and before it disables the shell.
+  Wait-Until {[XenonIntroductionFixture]::Caption($taskTour,10) -eq '快速了解浏览器'} 'Menu reopens the quick tour' | Out-Null
+  Wait-Until {-not [XenonIntroductionFixture]::Enabled($taskShell)} 'Tour supports native modal navigation' | Out-Null
   Page 1 '组织工作，掌握控制权';Page 1 '开始浏览吧'
   [XenonIntroductionFixture]::Command($taskTour,5)
   Wait-Until {[XenonIntroductionFixture]::Caption($taskShell,2004) -eq $taskDocs} 'documentation in a new native browser tab' | Out-Null
-  Require ([XenonIntroductionFixture]::Enabled($taskShell)) 'Browser is enabled after the tour'
+  Wait-Until {[XenonIntroductionFixture]::Enabled($taskShell)} 'Browser is enabled after the tour' | Out-Null
   Require ((Get-Content -LiteralPath (Join-Path $taskProfile 'ui-settings.json') -Raw) -eq $before) 'Replaying the tour does not change preferences'
   [XenonIntroductionFixture]::Command($taskShell,2118)
   Wait-Until {[XenonIntroductionFixture]::Text($taskShell) -eq '新标签页 — Xenon'} 'original blank tab survives documentation' | Out-Null
