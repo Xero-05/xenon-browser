@@ -58,6 +58,10 @@ int main(){try{
   }
   require(ui::mix(RGB(0,0,0),RGB(255,255,255),0)==RGB(0,0,0)&&ui::mix(RGB(0,0,0),RGB(255,255,255),1)==RGB(255,255,255)&&ui::mix(RGB(10,200,30),RGB(30,100,30),0.5)==RGB(20,150,30),"Color mixing reaches both endpoints and the midpoint");
   for(const double t:{0.0,0.2,0.5,0.9,1.0})require(std::abs(ui::ease(1-t)-(1-ui::ease(t)))<1e-9&&ui::ease(t)>=0&&ui::ease(t)<=1,"Easing is bounded and symmetric so reversals stay continuous");
+  {const auto accent=ui::shell_repaint(false,false,true,false);require(accent.tree&&accent.window,"An ownership color fade repaints the tab pill with the page frame");
+    const auto focus=ui::shell_repaint(false,false,false,true);require(!focus.tree&&focus.window,"An address focus fade repaints only the window");
+    const auto rows=ui::shell_repaint(true,false,false,false);require(rows.tree&&!rows.window,"A row hover fade repaints only the tab tree");
+    const auto glide=ui::shell_repaint(false,true,false,false);require(glide.tree&&glide.window,"A selection glide repaints the tab tree and the window");}
   // With animation effects on, hover fades both ways and reversal never jumps.
   ui::motion_override=1;
   {ui::Fade fade;fade.set(true,1000);Sleep(300);const auto shown=fade.value(1000);fade.set(false,1000);require(std::abs(fade.value(1000)-shown)<0.05&&fade.active(1000),"Reversing a fade resumes from the displayed value");
