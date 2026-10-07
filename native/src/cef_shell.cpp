@@ -167,7 +167,8 @@ struct BrowserShell::Impl {
   void animate(){track_accent();
     std::erase_if(row_fades,[](const auto& entry){return !entry.second.on&&!entry.second.active(ui::hover_duration);});
     const bool rows=std::any_of(row_fades.begin(),row_fades.end(),[](const auto& entry){return entry.second.active(ui::hover_duration);});
-    const bool tree_now=rows||gliding(),window_now=gliding()||elapsed(accent_start,AccentDuration)<1||address_focus.active(FocusDuration),loading_now=loading();
+    const auto repaint=ui::shell_repaint(rows,gliding(),elapsed(accent_start,AccentDuration)<1,address_focus.active(FocusDuration));
+    const bool tree_now=repaint.tree,window_now=repaint.window,loading_now=loading();
     // Repaint once more after motion stops so the settled frame is exact.
     if(tree_now||tree_moving)InvalidateRect(tree,nullptr,FALSE);
     if(window_now||window_moving)InvalidateRect(window,nullptr,FALSE);else if(loading_now||was_loading){auto strip=loading_strip();InvalidateRect(window,&strip,FALSE);}

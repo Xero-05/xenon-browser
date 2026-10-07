@@ -85,6 +85,13 @@ struct Fade {
   void set(bool next,int duration){if(next==on)return;const auto done=progress(duration);start=GetTickCount64()-static_cast<ULONGLONG>((1-done)*duration);on=next;}
 };
 constexpr int hover_duration=140;
+// Surfaces a shell motion frame repaints. The tab tree paints the selected pill
+// in the same ownership accent as the page frame, so an accent fade repaints
+// both; otherwise the pill keeps the color it had when the fade began.
+struct ShellRepaint {bool tree{},window{};};
+inline ShellRepaint shell_repaint(bool rows_fading,bool gliding,bool accent_fading,bool focus_fading) {
+  return {rows_fading||gliding||accent_fading,gliding||accent_fading||focus_fading};
+}
 // Draw vectors at the window's physical DPI. Keep native HWNDs for input and
 // accessibility; no raster assets or scaled copies of the interface are used.
 inline ULONG_PTR vector_token{};
