@@ -98,6 +98,44 @@ jobs:
             out/*results.json
             out/*tests.xml
           if-no-files-found: error
+      - name: Smoke test the extracted release archive
+        id: package-smoke
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          # Extract the archive bytes rather than reusing the staging directory they were zipped from.
+          $version = (Get-Content ./VERSION -Raw).Trim()
+          $name = "Xenon-$version-windows-x64-unsigned"
+          $extract = Join-Path $env:RUNNER_TEMP 'xenon-release'
+          Expand-Archive -LiteralPath "./dist/$name.zip" -DestinationPath $extract
+          node tests/package-smoke.mjs (Join-Path $extract $name)
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted release smoke test failed.' }
+      - name: Run live browser suites on the packaged build
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          # The suites launch build/app/Release, so require the DLL that was packaged.
+          $version = (Get-Content ./VERSION -Raw).Trim()
+          $manifestPath = Join-Path $env:RUNNER_TEMP "xenon-release/Xenon-$version-windows-x64-unsigned/release-manifest.json"
+          $packaged = ((Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).files | Where-Object path -eq 'Xenon.dll').sha256
+          $built = (Get-FileHash -LiteralPath ./build/app/Release/Xenon.dll -Algorithm SHA256).Hash.ToLowerInvariant()
+          if (-not $packaged -or $built -ne $packaged) { throw 'build/app/Release/Xenon.dll is not the packaged DLL.' }
+          # Serial, never concurrent; each suite uses its own generated profile and private pipe.
+          $failed = @()
+          foreach ($suite in 'integration', 'batch-integration', 'visibility-integration', 'worker-lifecycle-integration',
+                             'upload-entry-integration', 'persistence-integration', 'theme-integration') {
+            Write-Host "::group::$suite"
+            node "tests/$suite.mjs"
+            if ($LASTEXITCODE -ne 0) { $failed += $suite }
+            Write-Host '::endgroup::'
+          }
+          if ($failed) { throw "Live browser suites failed: $($failed -join ', ')" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always() && steps.package-smoke.outcome != 'skipped'
+        with:
+          name: xenon-live-results
+          path: out/*.json
+          if-no-files-found: warn
   adapter-linux:
     # Fast adapter feedback only; build-test remains the release build.
     runs-on: ubuntu-latest
