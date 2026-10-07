@@ -64,6 +64,11 @@ function Wait-Until([scriptblock]$Action, [string]$Description) {
   throw "Timed out waiting for $Description"
 }
 function Require([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
+# A window is findable before its child controls exist, and the reload button
+# reads Stop until the blank tab finishes loading, so wait for the caption.
+function Wait-Caption([IntPtr]$Window, [string]$Caption, [string]$Description) {
+  Wait-Until { [XenonLanguageFixture]::Captions($Window) -contains $Caption } $Description | Out-Null
+}
 function Record([string]$Name) {
   $taskResults.Add(@{name=$Name;passed=$true})
   Write-Host "PASS $Name"
@@ -94,15 +99,14 @@ function Set-FixtureLanguage([int]$Command, [string]$Tag) {
 }
 try {
   Launch-Fixture
-  Require ([XenonLanguageFixture]::Captions($taskShell) -contains 'Back') 'Existing profiles default to English'
+  Wait-Caption $taskShell 'Back' 'Existing profiles default to English'
   Set-FixtureLanguage 2201 'zh-CN'
   Require ([XenonLanguageFixture]::Captions($taskShell) -contains 'Back') 'Current process keeps its active language until restart'
   Exit-Fixture
   Record 'English preference switches to zh-CN on the next normal launch'
   Launch-Fixture
-  $captions=[XenonLanguageFixture]::Captions($taskShell)
   foreach ($caption in @('后退','前进','刷新','打开地址','控制中心','菜单','新标签页','上一个匹配','下一个匹配','关闭查找')) {
-    Require ($captions -contains $caption) "Missing Chinese shell caption: $caption"
+    Wait-Caption $taskShell $caption "Chinese shell caption: $caption"
   }
   Require ([XenonLanguageFixture]::Text($taskShell) -eq '新标签页 — Xenon') 'Chinese blank-tab title'
   Wait-Until {
@@ -112,29 +116,28 @@ try {
   Record 'Real shell HWNDs, blank-tab title and CEF locale use Simplified Chinese'
   [XenonLanguageFixture]::Command($taskShell,2006)
   $controls=Wait-Until { $w=[XenonLanguageFixture]::Find($taskProcess.Id,'XenonControlCenter','Xenon 控制中心');if ($w -ne [IntPtr]::Zero) {$w} } 'Chinese Controls'
-  $captions=[XenonLanguageFixture]::Captions($controls)
   foreach ($caption in @('客户端','工作区','密码','创建工作区','配置','接管控制权','交给代理','导入 CSV','保存账号','用户名','密码','检查更新')) {
-    Require ($captions -contains $caption) "Missing Chinese Controls caption: $caption"
+    Wait-Caption $controls $caption "Chinese Controls caption: $caption"
   }
   Record 'Real Controls sections, ownership and saved-account buttons are translated'
   [XenonLanguageFixture]::Command($controls,[XenonLanguageFixture]::Button($controls,'创建工作区'))
   $configuration=Wait-Until { $w=[XenonLanguageFixture]::Find($taskProcess.Id,'XenonConfiguration','创建工作区');if ($w -ne [IntPtr]::Zero) {$w} } 'workspace configuration'
-  Require ([XenonLanguageFixture]::Captions($configuration) -contains '工作区名称') 'Chinese workspace configuration caption'
+  Wait-Caption $configuration '工作区名称' 'Chinese workspace configuration caption'
   [XenonLanguageFixture]::Close($configuration)
   [XenonLanguageFixture]::Command($controls,[XenonLanguageFixture]::Button($controls,'文件'))
   $files=Wait-Until { $w=[XenonLanguageFixture]::Find($taskProcess.Id,'XenonFilePermissions','Xenon 文件权限 — native-default');if ($w -ne [IntPtr]::Zero) {$w} } 'file permissions'
-  Require ([XenonLanguageFixture]::Captions($files) -contains '授权文件夹') 'Chinese file permission caption'
+  Wait-Caption $files '授权文件夹' 'Chinese file permission caption'
   [XenonLanguageFixture]::Close($files)
   Record 'Workspace configuration and file-permission windows are translated'
   [XenonLanguageFixture]::Command($taskShell,2114)
   $about=Wait-Until { $w=[XenonLanguageFixture]::Find($taskProcess.Id,'XenonBrowserPanel','关于 Xenon');if ($w -ne [IntPtr]::Zero) {$w} } 'About panel'
-  Require ([XenonLanguageFixture]::Captions($about) -contains '关闭') 'Chinese panel close caption'
+  Wait-Caption $about '关闭' 'Chinese panel close caption'
   [XenonLanguageFixture]::Close($about)
   Record 'Native browser panels are translated'
   Set-FixtureLanguage 2200 'en-US'
   Exit-Fixture
   Launch-Fixture
-  Require ([XenonLanguageFixture]::Captions($taskShell) -contains 'Back') 'English restored after switching back'
+  Wait-Caption $taskShell 'Back' 'English restored after switching back'
   Require ([XenonLanguageFixture]::Text($taskShell) -eq 'New tab — Xenon') 'English blank-tab title restored'
   Exit-Fixture
   Record 'Switching back restores English after restart'
