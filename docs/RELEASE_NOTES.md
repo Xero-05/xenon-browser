@@ -10,9 +10,17 @@
 
 **Saved accounts.** The human account picker is now a Chrome-style list directly under the focused login field: click an account, or use the arrow keys and **Enter**, to fill without submitting. Each account shows which agents have access through an opaque account handle, with **Manage passwords…** and **Agent access…** rows that open Controls. The toolbar key requests the list for the current page. The Save/Update offer is a bubble under the key. Filling and saving remain explicit native actions; vault plaintext still never reaches MCP.
 
+**Saving and filling Google-style sign-in.** Xenon can now offer to save logins from sign-in pages that work through script rather than an HTML form submission, such as Google's two-step page. Pressing **Enter** or the sign-in button after typing a password creates a pending offer that appears only once the page moves on (navigates or removes the password box); a password box that stays put is treated as a failed attempt. When the password step does not repeat the account, Xenon uses the account typed on the previous step of the same site in that tab. Forms that cancel the browser's submission and send it from script are handled the same way. The saved-account list now appears each time you click an eligible login field, as in Chrome and Edge, rather than once per page.
+
+**Updates.** Xenon now checks for a newer release about 20 seconds after start and every six hours, unless turned off in the Updates window. An available update puts a blue dot on the Controls button, adds **Update Xenon to …** at the top of the ⋮ menu and labels the Controls update button with the version. Checking never downloads or installs anything.
+
+**Shell polish.** The page outline has rounded corners on all four sides. The tab sidebar's scrollbar is on its outer edge so it no longer separates the selected tab from the page, and a new tab scrolls into view. A workspace heading's **+** keeps its place with **…** appearing beside it on hover, and a quick second click on **+** opens another tab instead of collapsing the workspace; adding a tab to a collapsed workspace expands it. Title changes no longer rebuild the sidebar, which removes flicker and scroll jumps while pages load, and the toolbar no longer shifts (leaving a stale bookmark star) while a new tab opens.
+
+**Passkeys** still do not work in Xenon tabs: a WebAuthn request fails with `NotAllowedError` before Windows Hello is shown. See [testing](TESTING.md#desktop-shell-tabs-credentials-and-extensions-candidate).
+
 **Extensions.** **Controls → Extensions** adds unpacked Manifest V3 Chromium extensions, which Xenon copies into its data directory and loads into persistent workspaces at the next start. Extensions can be turned off, removed, and their options or popup pages opened in a human tab. Chrome Web Store installation and extension toolbar popups are not supported. Extensions can read and change the sites they run on, including pages agents use; see [security](SECURITY.md#extensions).
 
-The broker's cleanup and move rules, the extension store and the passive-shortcut policy have new native tests. Physical UI, live browser suites and real extension loading have not yet been run on these changes; see [testing](TESTING.md#desktop-shell-tabs-credentials-and-extensions-candidate).
+The broker's cleanup and move rules, the extension store, the passive-shortcut policy, script-driven capture and the update preference have new tests. Physical UI checks, real Google sign-in and real extension loading have not yet been run on these changes; see [testing](TESTING.md#desktop-shell-tabs-credentials-and-extensions-candidate).
 
 ## 0.1.2
 
