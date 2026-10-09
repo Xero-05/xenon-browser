@@ -2,6 +2,7 @@
 #include "xenon/broker.hpp"
 #include "xenon/cef_engine.hpp"
 #include "xenon/vault.hpp"
+#include "xenon/extension_store.hpp"
 #include "xenon/file_policy.hpp"
 #include "xenon/dialog_notices.hpp"
 #include "xenon/branding.hpp"
@@ -11,6 +12,7 @@
 #include <commctrl.h>
 #include <windows.h>
 #include <commdlg.h>
+#include <windowsx.h>
 #include <wtsapi32.h>
 #include <shobjidl.h>
 #include <algorithm>
@@ -33,11 +35,16 @@ std::string utf8(const std::wstring& s){if(s.empty())return {};int n=WideCharToM
 std::string str(const Json& j,const char* key){auto i=j.find(key);return i!=j.end()&&i->is_string()?i->get<std::string>():"";}
 std::string compact(const std::string& text,size_t limit){if(text.size()<=limit)return text;while(limit&&(static_cast<unsigned char>(text[limit])&0xc0)==0x80)--limit;return text.substr(0,limit)+"…";}
 enum Id { Pairings=101,Approve,Deny,Clients,Workspaces,Share,Tabs,Take,Workers,Give,Stop,ResumeAuth,
-          Origin,Username,Password,Label,Save,Import,Accounts,DeleteAccount,Grant,NewWorkspace,UploadGrant,Status,Revoke,PrivateWorkspace,RestoreSession,DialogAccept,DialogDismiss,DialogText,RemoveWorkspace,FillSavedAccount,CheckUpdates,PageClients,PageWorkspaces,PagePasswords,ConfigureClient,ConfigureWorkspace,ClientFiles,ClientAccountGrant,AccountRevoke,DialogMessage,SectionTitle,Brand };
+          Origin,Username,Password,Label,Save,Import,Accounts,DeleteAccount,Grant,NewWorkspace,UploadGrant,Status,Revoke,PrivateWorkspace,RestoreSession,DialogAccept,DialogDismiss,DialogText,RemoveWorkspace,FillSavedAccount,CheckUpdates,PageClients,PageWorkspaces,PagePasswords,ConfigureClient,ConfigureWorkspace,ClientFiles,ClientAccountGrant,AccountRevoke,DialogMessage,SectionTitle,Brand,
+          PageExtensions,ExtensionList,ExtensionLoad,ExtensionToggle,ExtensionRemove,ExtensionOptions,ExtensionPopup,CloseWorkspaceTabs };
 constexpr UINT LoginNotice=WM_APP+41;
 constexpr UINT DialogNotice=WM_APP+42;
 constexpr UINT RemovalNotice=WM_APP+43;
 constexpr UINT AutofillNotice=WM_APP+44;
+constexpr UINT StatusNotice=WM_APP+45;
+// Section buttons; Extensions was added after the original three.
+int page_button(int page){return page==3?PageExtensions:PageClients+page;}
+int button_page(int id){return id==PageExtensions?3:id>=PageClients&&id<=PagePasswords?id-PageClients:-1;}
 enum class TextTone : INT_PTR { normal=0, muted=1, heading=2, brand=3, brand_muted=4, status=5 };
 enum class ButtonTone : INT_PTR { normal=0, primary=1, caution=2 };
 constexpr wchar_t TextToneProperty[]=L"Xenon.TextTone";
@@ -47,7 +54,11 @@ constexpr COLORREF Navy=RGB(9,37,50),Teal=RGB(5,119,125),Border=RGB(206,222,226)
 bool high_contrast(){HIGHCONTRASTW value{sizeof(value)};return SystemParametersInfoW(SPI_GETHIGHCONTRAST,sizeof(value),&value,0)&&(value.dwFlags&HCF_HIGHCONTRASTON);}
 }
 struct NativeUi::Impl {
-  Broker& broker;CefEngine& engine;Vault& vault;FilePolicy& files;
+  Broker& broker;CefEngine& engine;Vault& vault;FilePolicy& files;ExtensionStore& extensions;
+  // Replies that may arrive on a broker or engine thread post status here.
+  struct StatusQueue {std::mutex mutex;std::deque<std::wstring> values;};
+  std::shared_ptr<StatusQueue> status_queue=std::make_shared<StatusQueue>();
+  std::vector<Json> extension_rows;
   HWND window{};HFONT font{},heading_font{},brand_font{},small_font{};
   HBRUSH canvas_brush=CreateSolidBrush(Canvas),surface_brush=CreateSolidBrush(Surface),navy_brush=CreateSolidBrush(Navy);
   std::map<int,HWND> controls;std::map<int,std::vector<Json>> rows;
@@ -64,9 +75,10 @@ struct NativeUi::Impl {
   std::string login_candidate;
   struct AutofillNoticeEntry {Json offer;HWND owner{};bool manual{};};
   std::deque<AutofillNoticeEntry> autofill_notices;
-  std::set<std::string> manual_autofill_tabs;
-  HWND autofill_window{},autofill_list{},autofill_accept{},autofill_status{};
+  std::set<std::string> manual_autofill_tabs,toolbar_autofill_tabs;
+  HWND autofill_window{};
   Json autofill_offer=Json::object();bool autofill_pending=false;
+  int autofill_hot=-1,autofill_pressed=-1,autofill_keyboard=-1;ULONGLONG autofill_shown{};std::vector<std::wstring> autofill_agents;
   struct AutofillResult {std::string offer_id,tab_id;bool request{};Json value;};
   struct AutofillResults {std::mutex mutex;bool alive=true;std::deque<AutofillResult> values;};
   std::shared_ptr<AutofillResults> autofill_results=std::make_shared<AutofillResults>();
@@ -207,7 +219,7 @@ struct NativeUi::Impl {
   HWND update_window{},update_latest{},update_message{},update_progress{};
   HWND update_check{},update_download{},update_install{},update_cancel{};
   uint64_t update_shown_revision=~uint64_t{};int update_percent=-1;
-  Impl(Broker& b,CefEngine& e,Vault& v,FilePolicy& f):broker(b),engine(e),vault(v),files(f){}
+  Impl(Broker& b,CefEngine& e,Vault& v,FilePolicy& f,ExtensionStore& x):broker(b),engine(e),vault(v),files(f),extensions(x){}
   void text_style(HWND control,TextTone tone,HFONT face=nullptr){
     SetPropW(control,TextToneProperty,reinterpret_cast<HANDLE>(static_cast<INT_PTR>(tone)));
     if(face)SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(face),TRUE);
@@ -226,12 +238,13 @@ struct NativeUi::Impl {
   }
   RECT content_bounds() const {RECT bounds{};GetClientRect(window,&bounds);return {ui::dip(window,208),ui::dip(window,20),bounds.right-ui::dip(window,20),bounds.bottom-ui::dip(window,20)};}
   void paint_surface(HWND target,HDC dc){RECT bounds{};GetClientRect(target,&bounds);const auto colors=ui::palette();ui::fill(dc,bounds,colors.canvas);
-    if(target==window&&font){const int line=ui::dip(window,1);auto panel=content_bounds();ui::rounded(dc,panel,colors.canvas,colors.gray,ui::dip(window,10),line);RECT nav{};GetWindowRect(controls.at(PageClients+page),&nav);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&nav),2);
-      RECT bridge{nav.right,nav.top+1,panel.left+line,nav.bottom-1};const auto fill=ui::mix(colors.canvas,ui::hover_background(),ui::hover_fade(controls.at(PageClients+page)).value(ui::hover_duration));ui::fill(dc,bridge,fill);
+    if(target==window&&font){const int line=ui::dip(window,1);auto panel=content_bounds();ui::rounded(dc,panel,colors.canvas,colors.gray,ui::dip(window,10),line);RECT nav{};GetWindowRect(controls.at(page_button(page)),&nav);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&nav),2);
+      RECT bridge{nav.right,nav.top+1,panel.left+line,nav.bottom-1};const auto fill=ui::mix(colors.canvas,ui::hover_background(),ui::hover_fade(controls.at(page_button(page))).value(ui::hover_duration));ui::fill(dc,bridge,fill);
       ui::fill(dc,{bridge.left,bridge.top,bridge.right,bridge.top+line},colors.gray);ui::fill(dc,{bridge.left,bridge.bottom-line,bridge.right,bridge.bottom},colors.gray);
       for(const bool top:{true,false})ui::tab_junction(dc,panel.left,top?bridge.top:bridge.bottom,top,line,ui::dip(window,8),colors.canvas,fill,colors.gray);}
+    if(target==login_window)ui::outline(dc,bounds,colors.border,0,1);
     if(target==update_window&&update_percent>=0){RECT track{26,236,bounds.right-26,244};ui::fill(dc,track,ui::palette().border);track.right=track.left+(track.right-track.left)*std::clamp(update_percent,0,100)/100;ui::fill(dc,track,ui::palette().ink);}}
-  void draw_button(const DRAWITEMSTRUCT& item){auto face=reinterpret_cast<HFONT>(SendMessageW(item.hwndItem,WM_GETFONT,0,0));const bool active=GetParent(item.hwndItem)==window&&static_cast<int>(item.CtlID)==PageClients+page;
+  void draw_button(const DRAWITEMSTRUCT& item){auto face=reinterpret_cast<HFONT>(SendMessageW(item.hwndItem,WM_GETFONT,0,0));const bool active=GetParent(item.hwndItem)==window&&static_cast<int>(item.CtlID)==page_button(page);
     if(!active){ui::button(item,face?face:font);return;}
     ui::buffered(item,[&](const DRAWITEMSTRUCT& item){auto rect=item.rcItem;const auto colors=ui::palette();ui::fill(item.hDC,rect,colors.canvas);InflateRect(&rect,-1,-1);auto shape=rect;shape.right+=ui::dip(window,16);const double hover=ui::hover_amount(item);ui::rounded(item.hDC,shape,ui::mix(colors.canvas,ui::hover_background(),hover),colors.gray,ui::dip(window,8),ui::dip(window,1));if(item.itemState&ODS_FOCUS){auto ring=rect;InflateRect(&ring,-3,-3);ui::focus_mark(item.hDC,ring,item.hwndItem,5);}
       wchar_t caption[128]{};GetWindowTextW(item.hwndItem,caption,128);rect.left+=ui::dip(window,16);ui::text(item.hDC,rect,caption,heading_font,hover>=0.5&&colors.contrast?ui::selection_ink():colors.ink);});}
@@ -436,8 +449,8 @@ struct NativeUi::Impl {
   }
   void close_autofill(bool dismiss){
     const auto id=str(autofill_offer,"offerId");
-    auto h=std::exchange(autofill_window,nullptr);autofill_list=nullptr;autofill_accept=nullptr;autofill_status=nullptr;
-    autofill_offer=Json::object();autofill_pending=false;
+    auto h=std::exchange(autofill_window,nullptr);
+    autofill_offer=Json::object();autofill_pending=false;autofill_hot=autofill_pressed=autofill_keyboard=-1;autofill_agents.clear();
     if(dismiss&&!id.empty())engine.dismiss_autofill(id);
     if(h&&IsWindow(h))DestroyWindow(h);
   }
@@ -463,83 +476,154 @@ struct NativeUi::Impl {
       queue->values.push_back({offer_id,tab_id,request,std::move(value)});PostMessageW(target,AutofillNotice,0,0);
     };
   }
-  void request_autofill(){
-    const auto tab=str(selected(Tabs),"tabId");
+  // Native human UI only: the Controls button and the browser toolbar's key.
+  void request_autofill(const std::string& tab){
     if(tab.empty()){status(ui::tr(L"Select the login tab before filling a saved account."));return;}
     if(vault.locked()){status(ui::tr(L"Unlock Windows before using saved accounts."));return;}
     if(manual_autofill_tabs.contains(tab)){status(ui::tr(L"The selected login tab is still being checked…"));return;}
     if(autofill_window&&autofill_pending){status(ui::tr(L"A saved-account fill is already in progress."));return;}
     if(autofill_window&&str(autofill_offer,"tabId")==tab&&engine.autofill_offer_valid(str(autofill_offer,"offerId"))){
-      remember_prompt(autofill_window);
-    SetWindowPos(autofill_window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);return;
+      SetWindowPos(autofill_window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);return;
     }
     if(autofill_window)close_autofill(true);
     manual_autofill_tabs.insert(tab);
     status(ui::tr(L"Checking the selected tab for a supported HTTPS login form…"));
     engine.request_autofill(tab,autofill_reply({},tab,true));
   }
-  void autofill_command(int id){
-    if(autofill_pending)return;
-    if(id==2){close_autofill(true);PostMessageW(window,AutofillNotice,0,0);return;}
-    if(id!=1||autofill_offer.empty())return;
-    const auto offer=str(autofill_offer,"offerId"),tab=str(autofill_offer,"tabId");
+  void request_autofill(){request_autofill(str(selected(Tabs),"tabId"));}
+  // The account list mirrors Chromium's autofill dropdown: one row per saved
+  // account for this exact origin, then management rows. Rows are native UI;
+  // pages cannot click or read them. One click fills without submitting.
+  size_t autofill_accounts() const {return autofill_offer.contains("accounts")?autofill_offer["accounts"].size():0;}
+  int autofill_row_count() const {return static_cast<int>(autofill_accounts())+2;}
+  RECT autofill_row(int index) const {
+    RECT client{};GetClientRect(autofill_window,&client);const auto d=[&](int value){return ui::dip(autofill_window,value);};
+    const int accounts=static_cast<int>(autofill_accounts());
+    if(index<accounts)return {d(4),d(6)+index*d(48),client.right-d(4),d(6)+(index+1)*d(48)};
+    const int top=d(6)+accounts*d(48)+d(9)+(index-accounts)*d(36);
+    return {d(4),top,client.right-d(4),top+d(36)};
+  }
+  int autofill_row_at(POINT point) const {for(int n=0;n<autofill_row_count();++n){const auto row=autofill_row(n);if(PtInRect(&row,point))return n;}return -1;}
+  void autofill_activate(int row){
+    if(autofill_pending||row<0||row>=autofill_row_count())return;
+    const auto offer=str(autofill_offer,"offerId"),tab=str(autofill_offer,"tabId"),origin=str(autofill_offer,"origin");
+    const int accounts=static_cast<int>(autofill_accounts());
+    if(row>=accounts){
+      close_autofill(true);
+      if(row==accounts+1)status(ui::tr(L"To let an agent sign in with an account without seeing its password, select the client in Clients, then choose Grant to client or Grant in workspace."));
+      show_section(2,origin);return;
+    }
     if(vault.locked()||!engine.autofill_offer_valid(offer)){close_autofill(true);status(ui::tr(L"That login page changed. Open saved accounts again on the current login form."));return;}
-    const auto index=SendMessageW(autofill_list,LB_GETCURSEL,0,0);
-    const auto& accounts=autofill_offer["accounts"];
-    if(index<0||static_cast<size_t>(index)>=accounts.size()){SetWindowTextW(autofill_status,ui::tr(L"Choose a saved account first."));return;}
-    const auto account=str(accounts[static_cast<size_t>(index)],"accountId");
+    const auto account=str(autofill_offer["accounts"][static_cast<size_t>(row)],"accountId");
     if(account.empty())return;
-    autofill_pending=true;EnableWindow(autofill_accept,FALSE);EnableWindow(GetDlgItem(autofill_window,2),FALSE);
-    EnableMenuItem(GetSystemMenu(autofill_window,FALSE),SC_CLOSE,MF_BYCOMMAND|MF_GRAYED);
-    SetWindowTextW(autofill_status,ui::tr(L"Filling the selected account…"));
+    autofill_pending=true;autofill_keyboard=row;InvalidateRect(autofill_window,nullptr,FALSE);
     try{engine.fill_saved_account(offer,account,autofill_reply(offer,tab,false));}
     catch(...){close_autofill(true);status(ui::tr(L"Filling could not be confirmed. Check the login page before trying again."));}
+  }
+  void paint_autofill(HDC dc){
+    RECT client{};GetClientRect(autofill_window,&client);const auto colors=ui::palette();const auto d=[&](int value){return ui::dip(autofill_window,value);};
+    ui::fill(dc,client,colors.surface);
+    auto outline=client;ui::outline(dc,outline,colors.border,0,1);
+    const auto& accounts=autofill_offer["accounts"];const int count=static_cast<int>(accounts.size());
+    for(int n=0;n<autofill_row_count();++n){
+      auto row=autofill_row(n);const bool active=n==autofill_hot||n==autofill_keyboard;
+      if(active&&!autofill_pending){auto highlight=row;ui::rounded(dc,highlight,ui::hover_background(),ui::hover_background(),d(6));}
+      const auto ink=active&&colors.contrast&&!autofill_pending?ui::selection_ink():colors.ink;
+      if(n<count){
+        const auto& account=accounts[static_cast<size_t>(n)];auto label=str(account,"label");if(label.empty())label=ui::tr8("Saved account");
+        RECT glyph{row.left+d(6),row.top,row.left+d(34),row.bottom};ui::icon(dc,glyph,ui::Icon::key,colors.muted,autofill_window);
+        RECT title{row.left+d(42),row.top+d(6),row.right-d(10),row.top+d(26)};
+        ui::text(dc,title,autofill_pending&&n==autofill_keyboard?ui::tr(L"Filling…"):wide(compact(label,100)),font,ink);
+        RECT detail{row.left+d(42),row.top+d(25),row.right-d(10),row.bottom-d(4)};
+        const auto agents=static_cast<size_t>(n)<autofill_agents.size()?autofill_agents[static_cast<size_t>(n)]:std::wstring{};
+        ui::text(dc,detail,agents.empty()?ui::tr(L"Agents: no access"):ui::format(ui::tr(L"Agents: {0}"),{agents}),small_font,colors.muted);
+      }else{
+        if(n==count){RECT separator{client.left+d(12),row.top-d(5),client.right-d(12),row.top-d(4)};ui::fill(dc,separator,colors.border);}
+        RECT glyph{row.left+d(6),row.top,row.left+d(34),row.bottom};ui::icon(dc,glyph,n==count?ui::Icon::key:ui::Icon::controls,colors.muted,autofill_window);
+        RECT caption{row.left+d(42),row.top,row.right-d(10),row.bottom};
+        ui::text(dc,caption,n==count?ui::tr(L"Manage passwords…"):ui::tr(L"Agent access…"),font,ink);
+      }
+    }
   }
   static LRESULT CALLBACK autofill_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){
     auto self=reinterpret_cast<Impl*>(GetWindowLongPtrW(h,GWLP_USERDATA));
     if(message==WM_NCCREATE){self=static_cast<Impl*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}
-    if(!self)return DefWindowProcW(h,message,wp,lp);
-    LRESULT painted{};if(self->theme_message(h,message,wp,lp,painted))return painted;
-    if(message==WM_COMMAND&&HIWORD(wp)==BN_CLICKED){self->autofill_command(LOWORD(wp));return 0;}
-    if(message==WM_CLOSE||(message==WM_KEYDOWN&&wp==VK_ESCAPE)){if(!self->autofill_pending){self->close_autofill(true);PostMessageW(self->window,AutofillNotice,0,0);}return 0;}
-    if(message==WM_DESTROY&&self->autofill_window==h){
-      const auto id=str(self->autofill_offer,"offerId");self->autofill_window=nullptr;self->autofill_list=nullptr;self->autofill_accept=nullptr;self->autofill_status=nullptr;
-      self->autofill_offer=Json::object();self->autofill_pending=false;if(!id.empty())self->engine.dismiss_autofill(id);
-      PostMessageW(self->window,AutofillNotice,0,0);return 0;
-    }
+    if(!self||self->autofill_window!=h){if(message==WM_PAINT){PAINTSTRUCT paint{};BeginPaint(h,&paint);EndPaint(h,&paint);return 0;}return DefWindowProcW(h,message,wp,lp);}
+    try{
+      switch(message){
+        // The page keeps keyboard focus, as in Chromium's autofill dropdown.
+        case WM_MOUSEACTIVATE:return MA_NOACTIVATE;
+        case WM_ERASEBKGND:return 1;
+        case WM_PAINT:{PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT bounds{};GetClientRect(h,&bounds);auto memory=CreateCompatibleDC(dc);auto bitmap=CreateCompatibleBitmap(dc,std::max<LONG>(1,bounds.right),std::max<LONG>(1,bounds.bottom));
+          if(memory&&bitmap){auto old=SelectObject(memory,bitmap);self->paint_autofill(memory);BitBlt(dc,0,0,bounds.right,bounds.bottom,memory,0,0,SRCCOPY);SelectObject(memory,old);}else self->paint_autofill(dc);
+          if(bitmap)DeleteObject(bitmap);if(memory)DeleteDC(memory);EndPaint(h,&paint);return 0;}
+        case WM_SETCURSOR:if(LOWORD(lp)==HTCLIENT){SetCursor(LoadCursorW(nullptr,self->autofill_pending?IDC_WAIT:IDC_HAND));return TRUE;}break;
+        case WM_MOUSEMOVE:{const auto row=self->autofill_row_at({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});if(row!=self->autofill_hot){self->autofill_hot=row;self->autofill_keyboard=-1;InvalidateRect(h,nullptr,FALSE);}
+          TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,h,0};TrackMouseEvent(&track);return 0;}
+        case WM_MOUSELEAVE:if(self->autofill_hot>=0){self->autofill_hot=-1;InvalidateRect(h,nullptr,FALSE);}return 0;
+        case WM_LBUTTONDOWN:self->autofill_pressed=self->autofill_row_at({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});return 0;
+        case WM_LBUTTONUP:{const auto row=self->autofill_row_at({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});const auto pressed=std::exchange(self->autofill_pressed,-1);
+          // Ignore a click that began before the list appeared under the pointer.
+          if(row>=0&&row==pressed&&GetTickCount64()-self->autofill_shown>=500)self->autofill_activate(row);return 0;}
+        case WM_TIMER:if(wp==1){const auto owner=GetWindow(h,GW_OWNER);const auto foreground=GetAncestor(GetForegroundWindow(),GA_ROOT);
+            if(!self->autofill_pending&&(!engine_valid(*self)||!IsWindow(owner)||!IsWindowVisible(owner)||IsIconic(owner)||(foreground!=owner&&foreground!=h))){self->close_autofill(true);PostMessageW(self->window,AutofillNotice,0,0);}}return 0;
+        case WM_CLOSE:if(!self->autofill_pending){self->close_autofill(true);PostMessageW(self->window,AutofillNotice,0,0);}return 0;
+        case WM_DESTROY:{KillTimer(h,1);const auto id=str(self->autofill_offer,"offerId");self->autofill_window=nullptr;self->autofill_offer=Json::object();self->autofill_pending=false;self->autofill_agents.clear();
+          if(!id.empty())self->engine.dismiss_autofill(id);PostMessageW(self->window,AutofillNotice,0,0);return 0;}
+      }
+    }catch(...){}
     return DefWindowProcW(h,message,wp,lp);
   }
-  void show_autofill(const Json& offer,HWND owner){
-    WNDCLASSW wc{};wc.lpfnWndProc=autofill_proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonFillSavedAccount";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
-    constexpr DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_CLIPCHILDREN,extended=WS_EX_TOOLWINDOW;
-    RECT bounds{0,0,480,390};AdjustWindowRectEx(&bounds,style,FALSE,extended);
-    const int width=bounds.right-bounds.left,height=bounds.bottom-bounds.top;
-    RECT source{};GetWindowRect(owner,&source);MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST),&monitor);
-    const int x=std::clamp(source.right-width-18,monitor.rcWork.left,std::max(monitor.rcWork.left,monitor.rcWork.right-width));
-    const int y=std::clamp(source.top+80,monitor.rcWork.top,std::max(monitor.rcWork.top,monitor.rcWork.bottom-height));
-    autofill_offer=offer;autofill_pending=false;
-    autofill_window=CreateWindowExW(extended,wc.lpszClassName,ui::tr(L"Fill saved account"),style,x,y,width,height,owner,nullptr,wc.hInstance,this);
-    if(!autofill_window){engine.dismiss_autofill(str(offer,"offerId"));autofill_offer=Json::object();return;}
-    window_icon(autofill_window);
-    auto add=[&](int id,const wchar_t* type,const wchar_t* title,int x,int y,int w,int h,DWORD extra=0){
-      auto control=CreateWindowExW(0,type,title,WS_CHILD|WS_VISIBLE|ui::styles(type,extra),x,y,w,h,autofill_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);ui::control_theme(control);if(std::wstring(type)==L"BUTTON")button_style(control,id==1?ButtonTone::primary:ButtonTone::normal);return control;
-    };
-    text_style(add(0,L"STATIC",ui::tr(L"Xenon  /  Saved accounts"),60,16,394,27),TextTone::brand,heading_font);
-    text_style(add(0,L"STATIC",ui::tr(L"Choose an account for this login website"),26,80,428,24),TextTone::heading,heading_font);
-    const auto origin=wide(str(offer,"origin"));add(10,L"EDIT",origin.c_str(),26,112,428,50,WS_BORDER|ES_READONLY|ES_MULTILINE|WS_TABSTOP);
-    autofill_list=add(11,L"LISTBOX",L"",26,174,428,80,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
+  static bool engine_valid(Impl& self){return !self.vault.locked()&&self.engine.autofill_offer_valid(str(self.autofill_offer,"offerId"));}
+  // Clients granted each offered account for the offer's workspace. Grants
+  // are native decisions; agents receive an opaque handle, never the secret.
+  std::vector<std::wstring> account_agents(const Json& offer){
+    std::vector<std::wstring> result;const auto state=broker.state();std::map<std::string,std::string> names;
+    for(const auto& client:state["clients"])names[str(client,"clientId")]=str(client,"name");
+    const auto workspace=str(offer,"workspaceId");
     for(const auto& account:offer["accounts"]){
-      auto label=str(account,"label");if(label.empty())label=ui::tr8("Saved account");
-      const auto row=wide(compact(label,100)+"  ·  "+str(account,"accountId").substr(0,8));
-      SendMessageW(autofill_list,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(row.c_str()));
+      std::set<std::string> granted;
+      for(const auto& grant:state["accountGrants"])if(str(grant,"accountId")==str(account,"accountId")&&(str(grant,"workspaceId").empty()||str(grant,"workspaceId")==workspace)&&names.contains(str(grant,"clientId")))granted.insert(names[str(grant,"clientId")]);
+      std::string joined;for(const auto& name:granted){if(!joined.empty())joined+=", ";joined+=name;}
+      result.push_back(wide(compact(joined,80)));
     }
-    if(!offer["accounts"].empty())SendMessageW(autofill_list,LB_SETCURSEL,0,0);
-    text_style(add(0,L"STATIC",ui::tr(L"Fills this form without submitting. You finish signing in. Agent observations stay protected during login."),26,268,428,38),TextTone::muted,small_font);
-    autofill_status=add(0,L"STATIC",L"",26,331,190,48);text_style(autofill_status,TextTone::status,small_font);
-    autofill_accept=add(1,L"BUTTON",ui::tr(L"Fill"),230,335,104,34,WS_TABSTOP|BS_PUSHBUTTON);
-    add(2,L"BUTTON",ui::tr(L"Not now"),346,335,108,34,WS_TABSTOP|BS_PUSHBUTTON);
+    return result;
+  }
+  void show_autofill(const Json& offer,HWND owner){
+    WNDCLASSW wc{};wc.style=CS_DROPSHADOW;wc.lpfnWndProc=autofill_proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonFillSavedAccount";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
+    autofill_offer=offer;autofill_pending=false;autofill_hot=autofill_pressed=autofill_keyboard=-1;autofill_agents=account_agents(offer);
+    const auto d=[&](int value){return ui::dip(owner,value);};
+    const int accounts=static_cast<int>(offer["accounts"].size());
+    const int height=d(6)+accounts*d(48)+d(9)+2*d(36)+d(6);
+    RECT anchor{};GetWindowRect(owner,&anchor);bool fielded=false;
+    if(const auto value=offer.find("anchor");value!=offer.end()&&value->is_array()&&value->size()==4&&std::all_of(value->begin(),value->end(),[](const Json& n){return n.is_number_integer();})){
+      anchor={(*value)[0].get<LONG>(),(*value)[1].get<LONG>(),(*value)[2].get<LONG>(),(*value)[3].get<LONG>()};fielded=anchor.right>anchor.left&&anchor.bottom>anchor.top;
+    }
+    MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromRect(&anchor,MONITOR_DEFAULTTONEAREST),&monitor);
+    const int width=std::clamp(fielded?static_cast<int>(anchor.right-anchor.left):d(360),d(320),d(440));
+    int x=fielded?anchor.left:anchor.right-width-d(24),y=fielded?anchor.bottom+d(2):anchor.top+d(96);
+    if(fielded&&y+height>monitor.rcWork.bottom&&anchor.top-height-d(2)>=monitor.rcWork.top)y=anchor.top-height-d(2);
+    x=std::clamp(x,static_cast<int>(monitor.rcWork.left),std::max(static_cast<int>(monitor.rcWork.left),static_cast<int>(monitor.rcWork.right)-width));
+    y=std::clamp(y,static_cast<int>(monitor.rcWork.top),std::max(static_cast<int>(monitor.rcWork.top),static_cast<int>(monitor.rcWork.bottom)-height));
+    autofill_window=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,wc.lpszClassName,ui::tr(L"Saved accounts"),WS_POPUP,x,y,width,height,owner,nullptr,wc.hInstance,this);
+    if(!autofill_window){engine.dismiss_autofill(str(offer,"offerId"));autofill_offer=Json::object();return;}
+    ui::frame(autofill_window);ui::popup_corners(autofill_window);
+    autofill_shown=GetTickCount64();SetTimer(autofill_window,1,100,nullptr);
     SetWindowPos(autofill_window,HWND_TOP,x,y,width,height,SWP_NOACTIVATE|SWP_NOOWNERZORDER|SWP_SHOWWINDOW);
-    ShowWindow(autofill_window,SW_SHOWNOACTIVATE);
+  }
+  // Keys typed into the page while the list is open, as in Chromium: arrows
+  // move, Enter fills the highlighted account, Escape closes. Other typing
+  // closes the list and reaches the page normally.
+  bool autofill_key(const MSG& message){
+    if(!autofill_window||message.message!=WM_KEYDOWN||GetAncestor(message.hwnd,GA_ROOT)!=GetWindow(autofill_window,GW_OWNER))return false;
+    if(autofill_pending)return message.wParam==VK_RETURN||message.wParam==VK_UP||message.wParam==VK_DOWN;
+    const int count=autofill_row_count();
+    if(message.wParam==VK_DOWN||message.wParam==VK_UP){const int current=autofill_keyboard>=0?autofill_keyboard:autofill_hot;
+      autofill_keyboard=current<0?(message.wParam==VK_DOWN?0:count-1):(current+(message.wParam==VK_DOWN?1:count-1))%count;autofill_hot=-1;InvalidateRect(autofill_window,nullptr,FALSE);return true;}
+    if(message.wParam==VK_RETURN&&autofill_keyboard>=0){autofill_activate(autofill_keyboard);return true;}
+    if(message.wParam==VK_ESCAPE){close_autofill(true);return true;}
+    if(message.wParam==VK_SHIFT||message.wParam==VK_CONTROL||message.wParam==VK_MENU)return false;
+    close_autofill(true);return false;
   }
   void poll_autofill(){
     try{
@@ -550,7 +634,11 @@ struct NativeUi::Impl {
         if(outcome.request){
           // Success may be delivered before its native notice. Keep the manual
           // marker until notify_autofill consumes it, whichever arrives first.
-          if(!ok){manual_autofill_tabs.erase(outcome.tab_id);status(ui::tr(L"Saved-account fill is unavailable for this tab. Use an HTTPS login form with an account saved for this exact website."));}
+          if(!ok){manual_autofill_tabs.erase(outcome.tab_id);status(ui::tr(L"Saved-account fill is unavailable for this tab. Use an HTTPS login form with an account saved for this exact website."));
+            // The toolbar key on a page without a fillable form opens this
+            // site's saved accounts instead, as Chromium's key bubble does.
+            if(toolbar_autofill_tabs.erase(outcome.tab_id)){std::string origin;for(const auto& tab:engine.native_tabs())if(str(tab,"tabId")==outcome.tab_id)origin=Vault::normalize_https_origin(str(tab,"url")).value_or(std::string{});show_section(2,origin);}}
+          else toolbar_autofill_tabs.erase(outcome.tab_id);
         }else{
           if(outcome.offer_id==str(autofill_offer,"offerId"))close_autofill(false);
           const auto phase=str(outcome.value.value("result",Json::object()),"phase");
@@ -563,7 +651,7 @@ struct NativeUi::Impl {
       if(vault.locked()){clear_autofill();return;}
       if(autofill_window){
         // A fill consumes its offer before its asynchronous completion arrives.
-        // Keep the disabled picker until then; lock/owner destruction still close.
+        // Keep the list until then; lock/owner destruction still close.
         if(!autofill_pending&&!engine.autofill_offer_valid(str(autofill_offer,"offerId")))close_autofill(false);
         else return;
       }
@@ -646,31 +734,32 @@ struct NativeUi::Impl {
     }
     return DefWindowProcW(h,message,wp,lp);
   }
+  // A Chromium-style bubble under the toolbar's key button. It never takes
+  // focus when shown; Save/Update stays an explicit native click.
   void show_login_prompt(const PendingCredential& candidate,HWND owner){
-    WNDCLASSW wc{};wc.lpfnWndProc=login_proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonSavePassword";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
-    constexpr DWORD style=WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MAXIMIZEBOX|WS_CLIPCHILDREN;
-    constexpr DWORD extended=WS_EX_TOOLWINDOW;
-    RECT bounds{0,0,480,362};AdjustWindowRectEx(&bounds,style,FALSE,extended);
-    const int width=bounds.right-bounds.left,height=bounds.bottom-bounds.top;
-    RECT source{};GetWindowRect(owner,&source);MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST),&monitor);
-    const int x=std::clamp(source.right-width-18,monitor.rcWork.left,std::max(monitor.rcWork.left,monitor.rcWork.right-width));
-    const int y=std::clamp(source.top+80,monitor.rcWork.top,std::max(monitor.rcWork.top,monitor.rcWork.bottom-height));
+    WNDCLASSW wc{};wc.style=CS_DROPSHADOW;wc.lpfnWndProc=login_proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonSavePassword";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
+    const auto d=[&](int value){return ui::dip(owner,value);};
+    const int width=d(372),height=d(236);
+    RECT source{};GetWindowRect(owner,&source);int x=source.right-width-d(14),y=source.top+d(52);
+    if(const auto key=GetDlgItem(owner,ui::password_anchor_id);key&&IsWindowVisible(key)){RECT anchor{};GetWindowRect(key,&anchor);x=anchor.right-width+d(8);y=anchor.bottom+d(6);}
+    MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST),&monitor);
+    x=std::clamp(x,static_cast<int>(monitor.rcWork.left),std::max(static_cast<int>(monitor.rcWork.left),static_cast<int>(monitor.rcWork.right)-width));
+    y=std::clamp(y,static_cast<int>(monitor.rcWork.top),std::max(static_cast<int>(monitor.rcWork.top),static_cast<int>(monitor.rcWork.bottom)-height));
     login_candidate=candidate.candidate_id;
-    login_window=CreateWindowExW(extended,wc.lpszClassName,candidate.update?ui::tr(L"Update saved password?"):ui::tr(L"Save password in Xenon?"),style,x,y,width,height,owner,nullptr,wc.hInstance,this);
+    login_window=CreateWindowExW(WS_EX_TOOLWINDOW,wc.lpszClassName,candidate.update?ui::tr(L"Update saved password?"):ui::tr(L"Save password in Xenon?"),WS_POPUP|WS_CLIPCHILDREN,x,y,width,height,owner,nullptr,wc.hInstance,this);
     if(!login_window){vault.dismiss_login(login_candidate);login_candidate.clear();return;}
-    window_icon(login_window);
+    window_icon(login_window);ui::popup_corners(login_window);
     auto add=[&](int id,const wchar_t* type,const wchar_t* title,int x,int y,int w,int h,DWORD extra=0){
-      auto c=CreateWindowExW(0,type,title,WS_CHILD|WS_VISIBLE|ui::styles(type,extra),x,y,w,h,login_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);ui::control_theme(c);if(std::wstring(type)==L"BUTTON")button_style(c,id==1?ButtonTone::primary:ButtonTone::normal);return c;
+      auto c=CreateWindowExW(0,type,title,WS_CHILD|WS_VISIBLE|ui::styles(type,extra),d(x),d(y),d(w),d(h),login_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);ui::control_theme(c);if(std::wstring(type)==L"BUTTON")button_style(c,id==1?ButtonTone::primary:ButtonTone::normal);return c;
     };
-    text_style(add(0,L"STATIC",ui::tr(L"Xenon  /  Saved accounts"),60,16,394,27),TextTone::brand,heading_font);
-    text_style(add(0,L"STATIC",candidate.update?ui::tr(L"Update with the password you just submitted?"):ui::tr(L"Save the password you just submitted?"),26,80,428,42),TextTone::heading,heading_font);
-    text_style(add(0,L"STATIC",ui::tr(L"Login website — this account will be saved for this origin"),26,122,428,21),TextTone::muted,small_font);
-    auto origin=wide(candidate.origin);add(10,L"EDIT",origin.c_str(),26,149,428,55,WS_BORDER|WS_VSCROLL|ES_READONLY|ES_MULTILINE|ES_AUTOVSCROLL|WS_TABSTOP);
-    auto account=wide(ui::tr8("Account: ")+candidate.username_label);add(0,L"STATIC",account.c_str(),26,214,428,22);
-    text_style(add(0,L"STATIC",ui::tr(L"Sign-in may still require verification. Save only if this password is correct. Saving does not grant agent access."),26,243,428,36),TextTone::muted,small_font);
-    login_accept=add(1,L"BUTTON",candidate.update?ui::tr(L"Update"):ui::tr(L"Save"),230,308,104,34,WS_TABSTOP|BS_PUSHBUTTON);
-    add(2,L"BUTTON",ui::tr(L"Not now"),346,308,108,34,WS_TABSTOP|BS_PUSHBUTTON);
-    login_status=add(0,L"STATIC",L"",26,300,190,54);text_style(login_status,TextTone::status,small_font);
+    text_style(add(0,L"STATIC",candidate.update?ui::tr(L"Update password?"):ui::tr(L"Save password?"),20,16,330,26),TextTone::heading,heading_font);
+    auto origin=wide(candidate.origin);text_style(add(10,L"STATIC",origin.c_str(),20,44,330,20,SS_ENDELLIPSIS|SS_NOPREFIX),TextTone::muted,small_font);
+    text_style(add(0,L"STATIC",ui::tr(L"Username"),20,76,96,20),TextTone::muted,small_font);add(0,L"STATIC",wide(candidate.username_label).c_str(),120,76,230,20,SS_ENDELLIPSIS|SS_NOPREFIX);
+    text_style(add(0,L"STATIC",ui::tr(L"Password"),20,100,96,20),TextTone::muted,small_font);add(0,L"STATIC",L"••••••••",120,100,230,20);
+    text_style(add(0,L"STATIC",ui::tr(L"Save only if this password is correct. Saving does not give agents access; grant it in Controls → Passwords."),20,130,332,36),TextTone::muted,small_font);
+    login_status=add(0,L"STATIC",L"",20,172,140,48);text_style(login_status,TextTone::status,small_font);
+    login_accept=add(1,L"BUTTON",candidate.update?ui::tr(L"Update"):ui::tr(L"Save"),168,186,88,32,WS_TABSTOP|BS_PUSHBUTTON);
+    add(2,L"BUTTON",ui::tr(L"Not now"),264,186,88,32,WS_TABSTOP|BS_PUSHBUTTON);
     // Appearance changes neither browser focus nor agent ownership. Clicking a
     // native button later is an explicit human action.
     remember_prompt(login_window);
@@ -743,6 +832,7 @@ struct NativeUi::Impl {
       for(int id:{ConfigureClient,ClientFiles,Revoke})EnableWindow(controls.at(id),client);
       for(int id:{ConfigureWorkspace,UploadGrant})EnableWindow(controls.at(id),workspace);
       EnableWindow(controls.at(Share),client&&workspace);EnableWindow(controls.at(RemoveWorkspace),workspace&&str(selected(Workspaces),"workspaceId")!="native-default");
+      EnableWindow(controls.at(CloseWorkspaceTabs),workspace&&!rows[Tabs].empty());refresh_extensions();
       const auto tab=selected(Tabs);const bool has_tab=!str(tab,"tabId").empty(),dialog=tab.contains("dialog");
       EnableWindow(controls.at(Take),has_tab);EnableWindow(controls.at(Give),has_tab&&str(tab,"ownerSessionId")=="human"&&selected(Workers).value("canControl",false));
       const auto dialog_info=tab.value("dialog",Json::object());const auto dialog_message=dialog?ui::tr8(str(dialog_info,"type").c_str())+ui::tr8(" from ")+str(dialog_info,"origin")+"\r\n"+str(dialog_info,"message"):std::string(ui::tr8("No website dialog waiting."));
@@ -757,11 +847,11 @@ struct NativeUi::Impl {
     ofn.lpstrFilter=ui::file_filter(csv);
     ofn.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;return GetOpenFileNameW(&ofn)?std::filesystem::path(path):std::filesystem::path{};
   }
-  std::filesystem::path pick_folder(){
+  std::filesystem::path pick_folder(HWND owner=nullptr){
     IFileOpenDialog* dialog=nullptr;std::filesystem::path path;
     if(FAILED(CoCreateInstance(CLSID_FileOpenDialog,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&dialog))))return path;
     DWORD options{};dialog->GetOptions(&options);dialog->SetOptions(options|FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM|FOS_PATHMUSTEXIST);
-    if(SUCCEEDED(dialog->Show(file_window))){IShellItem* item=nullptr;if(SUCCEEDED(dialog->GetResult(&item))){PWSTR name=nullptr;if(SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH,&name))){path=name;CoTaskMemFree(name);}item->Release();}}
+    if(SUCCEEDED(dialog->Show(owner?owner:file_window))){IShellItem* item=nullptr;if(SUCCEEDED(dialog->GetResult(&item))){PWSTR name=nullptr;if(SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH,&name))){path=name;CoTaskMemFree(name);}item->Release();}}
     dialog->Release();return path;
   }
   void refresh_files(){
@@ -841,9 +931,71 @@ struct NativeUi::Impl {
       PostMessageW(target,RemovalNotice,0,0);
     });
   }
+  // Thread-safe status for replies from the broker's I/O worker or CEF.
+  Reply status_reply(std::wstring success_text){
+    auto queue=status_queue;const auto target=window;
+    return [queue,target,success_text=std::move(success_text)](Json value){
+      const auto message=value.value("ok",false)?success_text:ui::error_text(str(value.value("error",Json::object()),"message"));
+      {std::lock_guard lock(queue->mutex);queue->values.push_back(message);}PostMessageW(target,StatusNotice,0,0);
+    };
+  }
+  void poll_status(){std::deque<std::wstring> values;{std::lock_guard lock(status_queue->mutex);values.swap(status_queue->values);}if(!values.empty()){status(values.back());refresh();}}
+  Json selected_extension(){const int n=ListView_GetNextItem(controls.at(ExtensionList),-1,LVNI_SELECTED);return n>=0&&static_cast<size_t>(n)<extension_rows.size()?extension_rows[static_cast<size_t>(n)]:Json::object();}
+  void refresh_extensions(){
+    std::vector<Json> next;for(const auto& record:extensions.list()){auto row=record.json();row["active"]=extensions.active(record.id);next.push_back(std::move(row));}
+    if(next==extension_rows){extension_buttons();return;}
+    const auto previous=str(selected_extension(),"id");auto list=controls.at(ExtensionList);ListView_DeleteAllItems(list);extension_rows=std::move(next);int match=-1;
+    for(size_t n=0;n<extension_rows.size();++n){const auto& row=extension_rows[n];auto name=wide(str(row,"name"));LVITEMW item{};item.mask=LVIF_TEXT;item.iItem=static_cast<int>(n);item.pszText=name.data();ListView_InsertItem(list,&item);
+      auto version=wide(str(row,"version"));ListView_SetItemText(list,static_cast<int>(n),1,version.data());
+      const bool enabled=row.value("enabled",false),active=row.value("active",false);
+      std::wstring state=enabled?(active?ui::tr(L"On"):ui::tr(L"On after restart")):(active?ui::tr(L"Off after restart"):ui::tr(L"Off"));ListView_SetItemText(list,static_cast<int>(n),2,state.data());
+      auto id=wide(str(row,"id"));ListView_SetItemText(list,static_cast<int>(n),3,id.data());if(str(row,"id")==previous)match=static_cast<int>(n);}
+    if(match<0&&!extension_rows.empty())match=0;if(match>=0)ListView_SetItemState(list,match,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+    extension_buttons();
+  }
+  void extension_buttons(){
+    const auto row=selected_extension();const bool chosen=!str(row,"id").empty(),active=row.value("active",false)&&row.value("enabled",false);
+    for(int id:{static_cast<int>(ExtensionToggle),static_cast<int>(ExtensionRemove)})EnableWindow(controls.at(id),chosen);
+    EnableWindow(controls.at(ExtensionOptions),active&&!str(row,"optionsPage").empty());EnableWindow(controls.at(ExtensionPopup),active&&!str(row,"popupPage").empty());
+    const auto caption=row.value("enabled",true)?ui::tr(L"Disable"):ui::tr(L"Enable");if(ui::text(controls.at(ExtensionToggle))!=ui::utf8(caption))SetWindowTextW(controls.at(ExtensionToggle),caption);
+  }
+  // Opens an active extension's own page in a new human-owned tab. Agents
+  // cannot read or operate non-web pages; private workspaces load none.
+  void open_extension_page(const std::string& id,const std::string& page){
+    auto workspace=str(selected(Workspaces),"workspaceId");if(workspace.empty()||selected(Workspaces).value("private",false))workspace="native-default";
+    const auto url="chrome-extension://"+id+"/"+page;auto& owner=engine;const auto report=status_reply(ui::tr(L"Extension page opened in a new tab."));
+    broker.open_human_tab(workspace,"about:blank",[&owner,url,report](Json value){
+      if(!value.value("ok",false)){report(std::move(value));return;}
+      owner.native_command(str(value.value("result",Json::object()),"tabId"),"extension-page",url,report);
+    });
+  }
+  void extension_command(int id){
+    try{
+      if(id==ExtensionLoad){
+        const auto folder=pick_folder(window);if(folder.empty())return;
+        const auto record=extensions.install_unpacked(folder);
+        status(ui::format(ui::tr(L"{0} added. Restart Xenon to load it."),{wide(record.name)}));
+      }else{
+        const auto row=selected_extension();const auto extension=str(row,"id");if(extension.empty()){status(ui::tr(L"Select an extension first."));return;}
+        if(id==ExtensionToggle){const bool enable=!row.value("enabled",true);
+          status(extensions.set_enabled(extension,enable)?(enable?ui::tr(L"Extension turned on. Restart Xenon to load it."):ui::tr(L"Extension turned off. Restart Xenon to stop it completely.")):ui::tr(L"The extension setting could not be saved."));}
+        else if(id==ExtensionRemove){
+          if(MessageBoxW(window,ui::format(ui::tr(L"Remove {0} from Xenon?\n\nIts files are deleted now, or when Xenon next starts if it is running. Data it saved inside websites' workspaces may remain."),{wide(str(row,"name"))}).c_str(),ui::tr(L"Remove extension"),MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)!=IDYES)return;
+          status(extensions.remove(extension)?ui::tr(L"Extension removed."):ui::tr(L"The extension could not be removed."));}
+        else if(id==ExtensionOptions||id==ExtensionPopup)open_extension_page(extension,str(row,id==ExtensionOptions?"optionsPage":"popupPage"));
+      }
+      engine.set_extension_ids(extensions.active_ids());refresh_extensions();
+    }catch(const std::runtime_error& error){status(ui::error_text(error.what()));}
+  }
+  void show_section(int target,const std::string& select){
+    page=std::clamp(target,0,3);layout_main();refresh();
+    if(page==1&&!select.empty())for(size_t n=0;n<rows[Workspaces].size();++n)if(str(rows[Workspaces][n],"workspaceId")==select){SendMessageW(controls.at(Workspaces),LB_SETCURSEL,n,0);refresh();break;}
+    if(page==2&&!select.empty())for(size_t n=0;n<rows[Accounts].size();++n)if(str(rows[Accounts][n],"origin")==select){SendMessageW(controls.at(Accounts),LB_SETCURSEL,n,0);refresh();break;}
+    apply_theme();ShowWindow(window,SW_SHOWNORMAL);SetForegroundWindow(window);
+  }
   void command(int id){
     try {
-      if(id==PageClients||id==PageWorkspaces||id==PagePasswords){page=id-PageClients;layout_main();}
+      if(button_page(id)>=0){page=button_page(id);layout_main();}
       else if(id==ConfigureClient)show_configuration(false);
       else if(id==ConfigureWorkspace)show_configuration(true);
       else if(id==ClientFiles)show_files(str(selected(Clients),"clientId"));
@@ -906,6 +1058,10 @@ struct NativeUi::Impl {
       else if(id==Grant){auto a=selected(Accounts);status(broker.grant_account(str(selected(Clients),"clientId"),str(selected(Workspaces),"workspaceId"),str(a,"accountId"),str(a,"origin"))?ui::tr(L"Selected account allowed for this client, workspace, and exact origin."):ui::tr(L"Select an account, a paired client, and a shared workspace."));}
       else if(id==NewWorkspace){show_configuration(true,true);}
       else if(id==RemoveWorkspace)remove_selected_workspace();
+      else if(id==CloseWorkspaceTabs){const auto chosen=selected(Workspaces);const auto workspace=str(chosen,"workspaceId");
+        if(!workspace.empty()&&ui::confirm_close_tabs(window,rows[Tabs].size(),ui::workspace_label(workspace,str(chosen,"displayName"),chosen.value("private",false)))){
+          status(ui::tr(L"Closing the workspace's tabs after active agent input finishes…"));broker.close_workspace_tabs(workspace,status_reply(ui::tr(L"Workspace tabs closed. The workspace and its data were kept.")));}}
+      else if(id>=ExtensionLoad&&id<=ExtensionPopup)extension_command(id);
       else if(id==PrivateWorkspace){broker.open_human_workspace("about:blank",[this](Json r){result(r);},true);}
       else if(id==RestoreSession){
         auto state=broker.state();std::vector<std::string> allowed;for(const auto& workspace:state["workspaces"])if(!workspace.value("private",false))allowed.push_back(str(workspace,"workspaceId"));
@@ -920,18 +1076,18 @@ struct NativeUi::Impl {
     for(const auto& entry:placements){const auto r=entry.bounds;const int id=GetDlgCtrlID(entry.control);if(id==Brand)MoveWindow(entry.control,d(24),d(30),d(168),d(34),TRUE);
       else if(id==SectionTitle)MoveWindow(entry.control,left,d(36),std::max(100,width-d(220)),d(36),TRUE);
       else if(id==CheckUpdates)MoveWindow(entry.control,panel.right-d(190),d(38),d(166),d(30),TRUE);
-      else if(id>=PageClients&&id<=PagePasswords)MoveWindow(entry.control,d(20),d(102+(id-PageClients)*52),d(176),d(40),TRUE);
+      else if(button_page(id)>=0)MoveWindow(entry.control,d(20),d(102+button_page(id)*52),d(176),d(40),TRUE);
       else MoveWindow(entry.control,left+MulDiv(r.left-24,width,912),body_top+MulDiv(r.top-116,height,553),MulDiv(r.right-r.left,width,912),MulDiv(r.bottom-r.top,height,553),TRUE);
-      ShowWindow(entry.control,entry.page<0||entry.page==page?SW_SHOW:SW_HIDE);if(id>=PageClients&&id<=PagePasswords)InvalidateRect(entry.control,nullptr,TRUE);}
-    SetWindowTextW(controls.at(SectionTitle),page==0?ui::tr(L"Clients"):page==1?ui::tr(L"Workspaces"):ui::tr(L"Passwords"));InvalidateRect(window,nullptr,TRUE);}
-  void apply_theme(){ui::icons(window);for(const auto& entry:placements)ui::control_theme(entry.control);const auto colors=ui::palette();applied_palette=colors;auto table=controls.at(Tabs);ListView_SetBkColor(table,colors.canvas);ListView_SetTextBkColor(table,colors.canvas);ListView_SetTextColor(table,colors.ink);InvalidateRect(window,nullptr,TRUE);
+      ShowWindow(entry.control,entry.page<0||entry.page==page?SW_SHOW:SW_HIDE);if(button_page(id)>=0)InvalidateRect(entry.control,nullptr,TRUE);}
+    SetWindowTextW(controls.at(SectionTitle),page==0?ui::tr(L"Clients"):page==1?ui::tr(L"Workspaces"):page==2?ui::tr(L"Passwords"):ui::tr(L"Extensions"));InvalidateRect(window,nullptr,TRUE);}
+  void apply_theme(){ui::icons(window);for(const auto& entry:placements)ui::control_theme(entry.control);const auto colors=ui::palette();applied_palette=colors;for(int id:{static_cast<int>(Tabs),static_cast<int>(ExtensionList)}){auto table=controls.at(id);ListView_SetBkColor(table,colors.canvas);ListView_SetTextBkColor(table,colors.canvas);ListView_SetTextColor(table,colors.ink);}InvalidateRect(window,nullptr,TRUE);
     for(const auto& [prompt,layout]:prompt_layouts){ui::icons(prompt);for(const auto& [child,bounds]:layout.children)ui::control_theme(child);InvalidateRect(prompt,nullptr,TRUE);}
     for(auto& config:configurations)if(config->window){ui::icons(config->window);ListView_SetBkColor(config->resources,colors.canvas);ListView_SetTextBkColor(config->resources,colors.canvas);ListView_SetTextColor(config->resources,colors.ink);InvalidateRect(config->window,nullptr,TRUE);}}
   void build(){
     font=ui::font(window);heading_font=ui::font(window,16,FW_SEMIBOLD);brand_font=ui::font(window,24,FW_SEMIBOLD);small_font=ui::font(window,13);window_icon(window);building_page=-1;
     text_style(add(Brand,L"STATIC",L"Xenon",24,17,168,34),TextTone::normal,brand_font);text_style(add(SectionTitle,L"STATIC",ui::tr(L"Clients"),232,36,500,36),TextTone::normal,brand_font);button(CheckUpdates,ui::tr(L"Check for updates"),770,20,166);
-    button(PageClients,ui::tr(L"Clients"),24,68,150);button(PageWorkspaces,ui::tr(L"Workspaces"),186,68,150);button(PagePasswords,ui::tr(L"Passwords"),348,68,150);
-    for(int id:{PageClients,PageWorkspaces,PagePasswords})SetPropW(controls.at(id),L"XenonConnected",reinterpret_cast<HANDLE>(1));
+    button(PageClients,ui::tr(L"Clients"),24,68,150);button(PageWorkspaces,ui::tr(L"Workspaces"),186,68,150);button(PagePasswords,ui::tr(L"Passwords"),348,68,150);button(PageExtensions,ui::tr(L"Extensions"),510,68,150);
+    for(int id:{PageClients,PageWorkspaces,PagePasswords,PageExtensions})SetPropW(controls.at(id),L"XenonConnected",reinterpret_cast<HANDLE>(1));
     building_page=0;
     label(ui::tr(L"Pairing requests"),24,118,500,TextTone::heading);label(ui::tr(L"Approve only clients you recognize."),24,146,870,TextTone::muted);
     add(Pairings,L"LISTBOX",L"",24,177,912,110,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);button(Approve,ui::tr(L"Approve"),24,301);button(Deny,ui::tr(L"Deny"),161,301);
@@ -941,7 +1097,7 @@ struct NativeUi::Impl {
     label(ui::tr(L"Workspaces"),24,116,425,TextTone::heading);label(ui::tr(L"Connected agents in selected workspace"),490,116,440,TextTone::heading);
     add(Workspaces,L"LISTBOX",L"",24,145,445,110,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);add(Workers,L"LISTBOX",L"",490,145,446,110,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
     button(NewWorkspace,ui::tr(L"Create workspace"),24,267,155);button(ConfigureWorkspace,ui::tr(L"Configure"),187,267,110);button(RemoveWorkspace,ui::tr(L"Remove"),305,267,85);button(PrivateWorkspace,ui::tr(L"Private workspace"),398,267,142);button(RestoreSession,ui::tr(L"Restore last session"),548,267,164);button(UploadGrant,ui::tr(L"Files"),720,267,70);button(Share,ui::tr(L"Share read-only"),798,267,138);
-    label(ui::tr(L"Tabs in selected workspace"),24,317,880,TextTone::heading);add(Tabs,WC_LISTVIEWW,L"",24,346,912,110,WS_BORDER|LVS_REPORT|LVS_SINGLESEL|WS_TABSTOP);auto table=controls.at(Tabs);ListView_SetExtendedListViewStyle(table,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER);int column=0;for(const auto& [title,width]:std::vector<std::pair<const wchar_t*,int>>{{ui::tr(L"Title"),330},{ui::tr(L"Agent"),165},{ui::tr(L"Status"),175},{ui::tr(L"Tab ID"),225}}){LVCOLUMNW value{};value.mask=LVCF_TEXT|LVCF_WIDTH;value.cx=ui::dip(window,width);value.pszText=const_cast<LPWSTR>(title);ListView_InsertColumn(table,column++,&value);}
+    label(ui::tr(L"Tabs in selected workspace"),24,317,700,TextTone::heading);button(CloseWorkspaceTabs,ui::tr(L"Close all tabs…"),756,311,180,ButtonTone::caution);add(Tabs,WC_LISTVIEWW,L"",24,346,912,110,WS_BORDER|LVS_REPORT|LVS_SINGLESEL|WS_TABSTOP);auto table=controls.at(Tabs);ListView_SetExtendedListViewStyle(table,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER);int column=0;for(const auto& [title,width]:std::vector<std::pair<const wchar_t*,int>>{{ui::tr(L"Title"),330},{ui::tr(L"Agent"),165},{ui::tr(L"Status"),175},{ui::tr(L"Tab ID"),225}}){LVCOLUMNW value{};value.mask=LVCF_TEXT|LVCF_WIDTH;value.cx=ui::dip(window,width);value.pszText=const_cast<LPWSTR>(title);ListView_InsertColumn(table,column++,&value);}
     add(DialogMessage,L"EDIT",ui::tr(L"No website dialog waiting."),24,466,912,67,WS_BORDER|ES_MULTILINE|ES_READONLY|WS_VSCROLL|WS_TABSTOP);
     button(Take,ui::tr(L"Take ownership"),24,545,145);button(Give,ui::tr(L"Give to agent"),181,545,140);button(ResumeAuth,ui::tr(L"Resume after login"),333,545,175);button(DialogAccept,ui::tr(L"Accept dialog"),520,545,135);button(DialogDismiss,ui::tr(L"Dismiss"),667,545,100);add(DialogText,L"EDIT",L"",779,545,157,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
     building_page=2;
@@ -950,6 +1106,14 @@ struct NativeUi::Impl {
     label(ui::tr(L"Selected client/workspace come from the other sections. Grants use exact HTTPS origins."),24,356,912,TextTone::muted);button(ClientAccountGrant,ui::tr(L"Grant to client"),24,388,190);button(AccountRevoke,ui::tr(L"Revoke client grant"),226,388,190);button(Grant,ui::tr(L"Grant in workspace"),428,388,195);
     label(ui::tr(L"HTTPS origin"),24,439,430,TextTone::muted);label(ui::tr(L"Account label"),490,439,446,TextTone::muted);add(Origin,L"EDIT",L"",24,464,445,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);add(Label,L"EDIT",L"",490,464,446,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
     label(ui::tr(L"Username"),24,507,445,TextTone::muted);label(ui::tr(L"Password"),490,507,446,TextTone::muted);add(Username,L"EDIT",L"",24,532,445,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);add(Password,L"EDIT",L"",490,532,446,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL|ES_PASSWORD);button(Save,ui::tr(L"Save account"),24,582,165);
+    building_page=3;
+    label(ui::tr(L"Extensions"),24,116,870,TextTone::heading);
+    text_style(add(0,L"STATIC",ui::tr(L"Extensions run in every non-private workspace. They can read and change websites, including pages agents use, and can see what you type there. Add only extensions you trust."),24,144,912,40),TextTone::muted,small_font);
+    add(ExtensionList,WC_LISTVIEWW,L"",24,192,912,250,WS_BORDER|LVS_REPORT|LVS_SINGLESEL|LVS_SHOWSELALWAYS|WS_TABSTOP);{auto list=controls.at(ExtensionList);ListView_SetExtendedListViewStyle(list,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER);int column=0;
+      for(const auto& [title,width]:std::vector<std::pair<const wchar_t*,int>>{{ui::tr(L"Name"),330},{ui::tr(L"Version"),110},{ui::tr(L"Status"),240},{ui::tr(L"Extension ID"),230}}){LVCOLUMNW value{};value.mask=LVCF_TEXT|LVCF_WIDTH;value.cx=ui::dip(window,width);value.pszText=const_cast<LPWSTR>(title);ListView_InsertColumn(list,column++,&value);}}
+    button(ExtensionLoad,ui::tr(L"Load unpacked…"),24,456,170,ButtonTone::primary);button(ExtensionToggle,ui::tr(L"Disable"),206,456,130);button(ExtensionRemove,ui::tr(L"Remove"),348,456,110,ButtonTone::caution);
+    button(ExtensionOptions,ui::tr(L"Open options"),470,456,160);button(ExtensionPopup,ui::tr(L"Open popup page"),642,456,180);
+    text_style(add(0,L"STATIC",ui::tr(L"Choose an unpacked Manifest V3 folder; Xenon keeps its own copy. Chrome Web Store installs and toolbar popups are not available. Changes apply after Xenon restarts."),24,504,912,40),TextTone::muted,small_font);
     building_page=-1;text_style(add(Status,L"STATIC",ui::tr(L"Choose a section to manage clients, workspaces or saved passwords."),24,635,912,34),TextTone::status,small_font);SetTimer(window,1,750,nullptr);WTSRegisterSessionNotification(window,NOTIFY_FOR_THIS_SESSION);refresh();apply_theme();layout_main();
   }
   static LRESULT CALLBACK proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){try{return dispatch_proc(h,msg,wp,lp);}catch(...){return msg==WM_NCCREATE?FALSE:msg==WM_CREATE?-1:0;}}
@@ -974,6 +1138,8 @@ struct NativeUi::Impl {
       case DialogNotice:self->poll_dialog_notices();return 0;
       case RemovalNotice:self->poll_removal_results();return 0;
       case AutofillNotice:self->poll_autofill();return 0;
+      case StatusNotice:self->poll_status();return 0;
+      case WM_NOTIFY:{const auto notice=reinterpret_cast<NMHDR*>(lp);const auto list=self->controls.find(ExtensionList);if(notice&&notice->code==LVN_ITEMCHANGED&&list!=self->controls.end()&&notice->hwndFrom==list->second)self->extension_buttons();return 0;}
       case WM_CLOSE:ShowWindow(h,SW_HIDE);return 0;
       case WM_WTSSESSION_CHANGE:if(wp==WTS_SESSION_LOCK){self->clear_login_prompts();self->clear_autofill();self->vault.set_locked(true);self->engine.cancel_login_prompts();self->broker.stop_all();self->status(ui::tr(L"Windows session locked. Agent control stopped."));}else if(wp==WTS_SESSION_UNLOCK)self->vault.set_locked(false);return 0;
       case WM_DESTROY:KillTimer(h,1);WTSUnRegisterSessionNotification(h);return 0;
@@ -981,7 +1147,7 @@ struct NativeUi::Impl {
     }
   }
 };
-NativeUi::NativeUi(Broker& b,CefEngine& e,Vault& v,FilePolicy& f):impl_(std::make_unique<Impl>(b,e,v,f)){
+NativeUi::NativeUi(Broker& b,CefEngine& e,Vault& v,FilePolicy& f,ExtensionStore& x):impl_(std::make_unique<Impl>(b,e,v,f,x)){
   INITCOMMONCONTROLSEX common{sizeof(common),ICC_LISTVIEW_CLASSES};InitCommonControlsEx(&common);
   WNDCLASSW wc{};wc.lpfnWndProc=Impl::proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonControlCenter";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
   CreateWindowExW(WS_EX_CONTROLPARENT,wc.lpszClassName,ui::tr(L"Xenon Controls"),WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,ui::dip(GetDesktopWindow(),1220),ui::dip(GetDesktopWindow(),810),nullptr,nullptr,wc.hInstance,impl_.get());
@@ -1001,9 +1167,15 @@ NativeUi::~NativeUi(){
 }
 void NativeUi::show(){impl_->apply_theme();impl_->refresh();ShowWindow(impl_->window,SW_SHOWNORMAL);SetForegroundWindow(impl_->window);}
 void NativeUi::show_updates(){impl_->show_updates();}
+void NativeUi::show_section(Section section,const std::string& select){impl_->show_section(static_cast<int>(section),select);}
+void NativeUi::request_autofill(const std::string& tab){impl_->toolbar_autofill_tabs.insert(tab);impl_->request_autofill(tab);}
 void NativeUi::set_update_install_callback(std::function<void(std::shared_ptr<updates::InstallerLaunch>)> callback){impl_->update_install_callback=std::move(callback);}
 bool NativeUi::pretranslate(MSG& message){
+  // A click outside the account list closes it, as in Chromium.
+  if(impl_->autofill_window&&!impl_->autofill_pending&&(message.message==WM_LBUTTONDOWN||message.message==WM_RBUTTONDOWN||message.message==WM_MBUTTONDOWN||message.message==WM_NCLBUTTONDOWN)&&message.hwnd!=impl_->autofill_window)
+    impl_->close_autofill(true);
   if(message.message<WM_KEYFIRST||message.message>WM_KEYLAST)return false;
+  if(impl_->autofill_key(message))return true;
   const auto root=GetAncestor(message.hwnd,GA_ROOT);
   bool belongs=root==impl_->window||root==impl_->file_window||root==impl_->login_window||root==impl_->autofill_window||root==impl_->update_window;
   for(const auto& config:impl_->configurations)belongs=belongs||root==config->window;

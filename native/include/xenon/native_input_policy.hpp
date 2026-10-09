@@ -22,7 +22,8 @@ inline bool native_modifier_key(unsigned key) noexcept {
 }
 inline bool native_browser_focus_shortcut(unsigned key,bool control,bool alt) noexcept {
   return key==0x75 || // F6: focus browser UI.
-    (control&&(key=='L'||key=='T'||key=='N'||key=='W'||key==0x09)) ||
+    // Tab selection and window shortcuts: Ctrl+Tab, Ctrl+PgUp/PgDn, Ctrl+1-9.
+    (control&&(key=='L'||key=='T'||key=='N'||key=='W'||key==0x09||key==0x21||key==0x22||(key>='1'&&key<='9'))) ||
     (alt&&(key==0x09||key==0x1b||key=='D'));
 }
 

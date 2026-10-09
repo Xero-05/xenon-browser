@@ -2,6 +2,7 @@
 #include "xenon/contracts.hpp"
 #include <filesystem>
 #include <memory>
+#include <set>
 #include <vector>
 #include "include/cef_client.h"
 #include "include/cef_request_context_handler.h"
@@ -26,7 +27,8 @@ class CefEngine final : public BrowserEngine {
   void set_updates_callback(std::function<void()> callback);
   void set_dialog_callback(std::function<void(const std::string&)> callback);
   void set_private_workspace_callback(std::function<void()> callback);
-  void set_host_callbacks(std::function<HWND(const std::string&,const std::string&,bool)> create,
+  // create(workspace, tab, human, openerTab) returns the native tab host.
+  void set_host_callbacks(std::function<HWND(const std::string&,const std::string&,bool,const std::string&)> create,
                           std::function<void(const std::string&,HWND)> created,
                           std::function<void(const std::string&)> closed);
   void set_download_callback(std::function<bool(const std::string&)> allowed);
@@ -34,6 +36,12 @@ class CefEngine final : public BrowserEngine {
   void native_pointer(HWND page,POINT screen,bool substantive=false);
   void select_native_tab(const std::string& tab_id);
   void native_command(const std::string& tab_id,const std::string& command,const std::string& value={},Reply reply={});
+  // A human chose a page context-menu link command (tab, url, new window).
+  void set_open_link_callback(std::function<void(const std::string&,const std::string&,bool)> callback);
+  // Human-installed, enabled extensions whose own pages native UI may open.
+  void set_extension_ids(std::set<std::string> ids);
+  // Count of vault accounts for the tab's exact HTTPS origin; metadata only.
+  size_t saved_account_count(const std::string& tab_id);
   void set_save_prompt_callback(std::function<void(const std::string&, CefWindowHandle)> callback);
   // Native human UI only. These capabilities are never exposed by execute/MCP.
   void set_autofill_prompt_callback(std::function<void(const Json&, CefWindowHandle)> callback);
