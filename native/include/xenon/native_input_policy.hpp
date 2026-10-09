@@ -22,7 +22,8 @@ inline bool native_modifier_key(unsigned key) noexcept {
 }
 inline bool native_browser_focus_shortcut(unsigned key,bool control,bool alt) noexcept {
   return key==0x75 || // F6: focus browser UI.
-    (control&&(key=='L'||key=='T'||key=='N'||key=='W'||key==0x09)) ||
+    // Tab selection and window shortcuts: Ctrl+Tab, Ctrl+PgUp/PgDn, Ctrl+1-9.
+    (control&&(key=='L'||key=='T'||key=='N'||key=='W'||key==0x09||key==0x21||key==0x22||(key>='1'&&key<='9'))) ||
     (alt&&(key==0x09||key==0x1b||key=='D'));
 }
 
@@ -48,7 +49,9 @@ class ThreadPointerHistory {
 class NativeInputPolicy {
  public:
   using Window=std::uintptr_t;
-  struct Activity {Window window{};bool busy{};bool credential_input{};bool substantive{};};
+  // primary_click marks a left-button press; the engine may then offer saved
+  // accounts again for a login field clicked in the same document.
+  struct Activity {Window window{};bool busy{};bool credential_input{};bool substantive{};bool primary_click{};};
   void seed_pointer(long x,long y) noexcept {pointer_.seed(x,y);}
   bool tracking() const noexcept {return !held_.empty()||!compositions_.empty();}
   bool busy(Window page) const {

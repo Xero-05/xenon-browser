@@ -37,7 +37,7 @@ The portable ZIP and its checksum remain available on the same release. To use t
 
 When upgrading alpha.13 or earlier, close all Xenon instances and stop their MCP adapters, then run the verified installer. The corrected **Install and exit** flow becomes available after alpha.14 is installed; it cannot alter the older installed updater code.
 
-Once this release is installed, future releases can be downloaded through **Menu → Check for updates** or **Xenon Controls → Check for updates**. You do not need to manually download and unpack another ZIP. See [updates and local data](USER_GUIDE.md#updates-and-local-data).
+Once this release is installed, future releases can be downloaded through **Menu → Help → Check for updates** or **Xenon Controls → Check for updates**. You do not need to manually download and unpack another ZIP. See [updates and local data](USER_GUIDE.md#updates-and-local-data).
 
 ## 2. Open the browser
 
@@ -45,7 +45,7 @@ Open **Xenon Browser** from the Start menu, or run `Xenon.exe` in its installati
 
 With a new, empty browser-data folder, Xenon first asks you to choose **English** or **简体中文**. The selected language applies when the browser opens, without a restart. A short introduction covers navigation, sidebar tabs, workspaces and agent controls. Choose **Next** to continue, **Previous** to go back, or **Skip tour** to start browsing. **Start browsing** opens the blank Personal tab; the final **GitHub documentation** link opens this guide in Xenon instead. Closing the introduction cancels startup so you can return to setup next time.
 
-Existing browser profiles keep their normal startup. Open **Menu → Quick tour** to revisit the introduction, or **Menu → GitHub documentation** to open the guide in a new Personal tab. Later language changes use **Menu → Language / 语言** and apply after restarting Xenon.
+Existing browser profiles keep their normal startup. Open **Menu → Help → Quick tour** to revisit the introduction, or **Menu → Help → GitHub documentation** to open the guide in a new Personal tab. Later language changes use **Menu → Language / 语言** and apply after restarting Xenon.
 
 Press **Ctrl+Shift+X** while a Xenon browser window is active to open **Xenon Controls**, or use its toolbar button or webpage context-menu item. Its Clients, Workspaces and Passwords sections manage pairings, access, control ownership, saved accounts and file permissions.
 

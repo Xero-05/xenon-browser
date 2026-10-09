@@ -17,6 +17,7 @@
 #include "xenon/removal_fixture.hpp"
 #include "xenon/autofill_fixture.hpp"
 #include "xenon/updater.hpp"
+#include "xenon/extension_store.hpp"
 #include <windows.h>
 #include <shlobj.h>
 #include <charconv>
@@ -65,7 +66,10 @@ void cleanup_removed_profiles(const std::filesystem::path& root,std::vector<std:
 }
 class App final : public CefApp,public CefBrowserProcessHandler {
  public:
-  App(std::filesystem::path root,Broker::Limits limits,std::wstring pipe,bool test_removal=false,bool test_autofill=false,bool open_documentation=false):root_(std::move(root)),limits_(limits),pipe_name_(std::move(pipe)),test_removal_enabled_(test_removal),test_autofill_enabled_(test_autofill),open_documentation_(open_documentation){}
+  App(std::filesystem::path root,Broker::Limits limits,std::wstring pipe,std::unique_ptr<ExtensionStore> extensions,bool test_removal=false,bool test_autofill=false,bool open_documentation=false):root_(std::move(root)),limits_(limits),pipe_name_(std::move(pipe)),extensions_(std::move(extensions)),test_removal_enabled_(test_removal),test_autofill_enabled_(test_autofill),open_documentation_(open_documentation){
+    // Read once, before Chromium starts. Later changes apply after restart.
+    try{extension_paths_=extensions_->startup_paths();}catch(const std::exception&){extension_paths_.clear();}
+  }
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler()override{return this;}
   void OnBeforeCommandLineProcessing(const CefString& process_type,CefRefPtr<CefCommandLine> command)override{
     if(process_type.empty()){
@@ -79,6 +83,15 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       command->RemoveSwitch("force-light-mode");command->RemoveSwitch("force-dark-mode");
       ui::web_theme_mode=ui::theme_mode;
       if(const auto scheme=ui::web_color_scheme_switch(ui::web_theme_mode))command->AppendSwitch(scheme);
+      // Human-installed unpacked extensions from Xenon's managed copies. They
+      // load into every persistent workspace profile; MCP cannot change them.
+      command->RemoveSwitch("load-extension");
+      if(!extension_paths_.empty()){
+        std::wstring folders;for(const auto& path:extension_paths_){if(!folders.empty())folders+=L",";folders+=path.wstring();}
+        command->AppendSwitchWithValue("load-extension",folders);
+        auto features=command->GetSwitchValue("disable-features").ToWString();
+        command->RemoveSwitch("disable-features");command->AppendSwitchWithValue("disable-features",(features.empty()?std::wstring{}:features+L",")+L"DisableLoadExtensionCommandLineSwitch");
+      }
     }
     // Concurrent agent windows must keep painting while covered by another
     // window. This is a fixed startup policy, never an ownership/handoff change.
@@ -109,9 +122,11 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       // OnContextInitialized runs only after CEF acquired this data root's
       // single-instance ownership, and before Xenon opens workspace contexts.
       cleanup_removed_profiles(root_,removed);
-      native_=std::make_unique<NativeUi>(*broker_,*engine_,*vault_,*files_);
-      shell_=std::make_unique<BrowserShell>(*broker_,*engine_,root_);
-      engine_->set_host_callbacks([this](const std::string& workspace,const std::string& tab,bool human){return shell_->create_host(workspace,tab,human);},
+      engine_->set_extension_ids(extensions_->active_ids());
+      native_=std::make_unique<NativeUi>(*broker_,*engine_,*vault_,*files_,*extensions_);
+      shell_=std::make_unique<BrowserShell>(*broker_,*engine_,*native_,*extensions_,root_);
+      engine_->set_open_link_callback([this](const std::string& tab,const std::string& url,bool window){if(shell_)shell_->open_link(tab,url,window);});
+      engine_->set_host_callbacks([this](const std::string& workspace,const std::string& tab,bool human,const std::string& opener){return shell_->create_host(workspace,tab,human,opener);},
         [this](const std::string& tab,HWND browser){shell_->tab_created(tab,browser);},[this](const std::string& tab){shell_->tab_closed(tab);});
       engine_->set_download_callback([this](const std::string& tab){return broker_->allow_download(tab);});
       engine_->set_permission_callback([this](const std::string& tab,const std::string& origin,const std::string& description,std::function<void(bool)> answer){shell_->permission(tab,origin,description,std::move(answer));});
@@ -150,7 +165,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     active_=nullptr;if(hook_){UnhookWindowsHookEx(hook_);hook_=nullptr;}
     if(input_timer_){KillTimer(nullptr,input_timer_);input_timer_=0;}
     if(engine_)engine_->set_native_key_callback({});
-    if(engine_){engine_->set_controls_callback({});engine_->set_updates_callback({});engine_->set_private_workspace_callback({});}
+    if(engine_){engine_->set_controls_callback({});engine_->set_updates_callback({});engine_->set_private_workspace_callback({});engine_->set_open_link_callback({});}
     if(broker_)broker_->set_ui_state_callback({});
     if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_permission_callback({});}
     if(server_)server_->stop();server_.reset();native_.reset();shell_.reset();broker_.reset();engine_.reset();files_.reset();vault_.reset();
@@ -199,7 +214,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     return nullptr;
   }
   void emit_input(const std::optional<NativeInputPolicy::Activity>& activity){
-    if(activity&&engine_)engine_->native_input(reinterpret_cast<HWND>(activity->window),activity->busy,activity->credential_input,activity->substantive);
+    if(activity&&engine_)engine_->native_input(reinterpret_cast<HWND>(activity->window),activity->busy,activity->credential_input,activity->substantive,activity->primary_click);
   }
   void emit_input(const std::vector<NativeInputPolicy::Activity>& activities){
     for(const auto& activity:activities)emit_input(std::optional{activity});
@@ -262,7 +277,9 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     const auto press=[&](unsigned button){
       const auto page=page_for_mouse();
       if(!page)keyboard_pages_.erase(root);
-      emit_input(input_policy_.press(page,button,true,button==VK_LBUTTON||button==VK_RBUTTON,held_modifiers()));
+      auto activity=input_policy_.press(page,button,true,button==VK_LBUTTON||button==VK_RBUTTON,held_modifiers());
+      if(activity)activity->primary_click=button==VK_LBUTTON;
+      emit_input(activity);
     };
     switch(message.message){
       case WM_LBUTTONDOWN:case WM_LBUTTONDBLCLK:press(VK_LBUTTON);break;
@@ -309,7 +326,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     }
   }
   static inline App* active_=nullptr;
-  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{};HHOOK hook_{};
+  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;std::unique_ptr<ExtensionStore> extensions_;std::vector<std::filesystem::path> extension_paths_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{};HHOOK hook_{};
   NativeInputPolicy input_policy_;
   struct KeyboardPage {HWND page{};ULONGLONG observed_at{};};
   std::map<HWND,KeyboardPage> keyboard_pages_;
@@ -409,7 +426,7 @@ int run(HINSTANCE instance,void* sandbox_info){
   test_removal=command->HasSwitch("test-native-removal");
   test_autofill=command->HasSwitch("test-native-autofill");
 #endif
-  CefRefPtr<App> app=new App(root,limits,pipe_name,test_removal,test_autofill,open_documentation);
+  CefRefPtr<App> app=new App(root,limits,pipe_name,std::make_unique<ExtensionStore>(root),test_removal,test_autofill,open_documentation);
   if(!CefInitialize(args,settings,app,sandbox_info))return CefGetExitCode();
   startup_gate.release();
   CefRunMessageLoop();auto installer=app->pending_update();app->stop();app=nullptr;CefShutdown();

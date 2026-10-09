@@ -45,6 +45,20 @@ class Broker {
   std::vector<std::string> removed_workspaces() const;
   void human_acquire(const std::string& tab_id);
   void human_release(const std::string& tab_id, const std::string& to_session);
+  // Native human actions only; never MCP methods. Closing cancels each tab's
+  // queued agent mutations and refuses new ones. A control group closed in
+  // full is first claimed for the human. The engine closes only after
+  // accepted finite input drains. Workspaces, profiles and grants remain.
+  void close_tabs(const std::vector<std::string>& tab_ids, Reply reply);
+  void close_workspace_tabs(const std::string& workspace_id, Reply reply);
+  // Empty when a native human may move this tab to another workspace: no
+  // agent owner, pending handoff or accepted input in its control group, not
+  // protected, and both workspaces persistent and available. Otherwise a code.
+  std::string tab_move_blocker(const std::string& tab_id, const std::string& workspace_id) const;
+  // Profiles cannot share a live page: this opens url as a human tab in the
+  // target workspace, then closes the original only if it is still movable.
+  void move_tab_to_workspace(const std::string& tab_id, const std::string& workspace_id,
+                             const std::string& url, Reply reply);
   void open_human_workspace(const std::string& url, Reply reply, bool private_mode = false, const std::string& name = {});
   void open_initial_human_workspace(const std::string& url, Reply reply);
   void open_human_tab(const std::string& workspace_id, const std::string& url, Reply reply);

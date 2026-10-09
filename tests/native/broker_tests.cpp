@@ -73,6 +73,7 @@ struct FakeEngine final : BrowserEngine {
   std::map<std::string, Guarded> guards;
   std::map<std::string, Reply> held_metadata;
   std::map<std::string, Reply> held_removals;
+  std::vector<Pending> held_closes;
   Reply held_observation;
   Json held_observation_value;
   void set_event_sink(EventSink target) override { sink = std::move(target); }
@@ -96,6 +97,7 @@ struct FakeEngine final : BrowserEngine {
     { std::lock_guard lock(mutex); calls.push_back(command); }
     if(command==throw_command)throw std::runtime_error("Synthetic engine failure");
     if(command=="workspace.remove") { std::lock_guard lock(mutex); held_removals.emplace(params.at("workspaceId").get<std::string>(),std::move(reply)); return; }
+    if(command=="tabs.close_native") { std::lock_guard lock(mutex); held_closes.push_back({command,params,std::move(reply)}); return; }
     if(command==delay_create){held_creates.push_back({command,params,std::move(reply)});return;}
     if (command == "workspace.ensure" || command == "tabs.create") { reply(success(params)); return; }
     if (command == "page.observe" || command == "page.inspect") {
@@ -115,6 +117,9 @@ struct FakeEngine final : BrowserEngine {
   void complete_removal(const std::string& workspace,Json result=success()) {
     Reply reply; {std::lock_guard lock(mutex);auto found=held_removals.find(workspace);require(found!=held_removals.end(),"Expected a workspace closure request");reply=std::move(found->second);held_removals.erase(found);}reply(std::move(result));
   }
+  size_t close_count() { std::lock_guard lock(mutex); return held_closes.size(); }
+  Json wait_close() { for(unsigned i=0;i<1000;++i){{std::lock_guard lock(mutex);if(!held_closes.empty())return held_closes.front().params;}std::this_thread::sleep_for(std::chrono::milliseconds(5));}throw std::runtime_error("Timed out waiting for native tab closure"); }
+  void complete_close(Json result) { Reply reply; {std::lock_guard lock(mutex);require(!held_closes.empty(),"Expected a native tab closure");reply=std::move(held_closes.front().reply);held_closes.erase(held_closes.begin());} reply(std::move(result)); }
   size_t pending_count() { std::lock_guard lock(mutex); return pending.size(); }
   void wait_pending(size_t count) { for (unsigned i = 0; i < 1000; ++i) { if (pending_count() == count) return; std::this_thread::sleep_for(std::chrono::milliseconds(5)); } throw std::runtime_error("Timed out waiting for concurrent engine dispatch"); }
   void complete(const std::string& id, Json result = success()) {
@@ -867,6 +872,80 @@ void workspace_removal_boundary(const std::filesystem::path& directory) {
   require(call(broker,a.connection,"operations.get",{{"operationId","remove-active"}})["result"]["state"]=="completed","Operation outcome survives workspace removal");
   broker.remove_workspace(a.workspace,[&](Json value){denied=std::move(value);});require(denied["result"]["status"]=="removed","Repeated completed removal is idempotent");
 }
+void workspace_tab_cleanup(const std::filesystem::path& directory) {
+  FakeEngine engine; Broker broker(engine, directory); const auto principal = pair(broker, "cleanup", "Cleanup");
+  auto a = worker(broker, "cleanup", "cleanup-agent"), keep = worker(broker, "cleanup", "other-workspace");
+  Json opened; broker.open_human_tab(a.workspace, "https://example.test/human", [&](Json value) { opened = std::move(value); });
+  require(opened.value("ok", false), "Human tab opens beside the agent's tab");
+  const std::string human_tab = opened["result"]["tabId"];
+  auto params = action_params(broker, a, "cleanup-active"); Json active, queued;
+  broker.dispatch(a.connection, {{"method", "page.drag"}, {"params", params}}, [&](Json value) { active = std::move(value); }); engine.wait_pending(1);
+  auto next = params; next["operationId"] = "cleanup-queued";
+  broker.dispatch(a.connection, {{"method", "page.click"}, {"params", next}}, [&](Json value) { queued = std::move(value); });
+  Json missing; broker.close_workspace_tabs("missing-workspace", [&](Json value) { missing = std::move(value); });
+  require(code(missing) == "WORKSPACE_UNAVAILABLE", "Cleanup of an unknown workspace is refused honestly");
+  auto closed = std::make_shared<std::promise<Json>>(); auto final = closed->get_future();
+  broker.close_workspace_tabs(a.workspace, [closed](Json value) { closed->set_value(std::move(value)); });
+  require(queued["dispatchStatus"] == "not_dispatched", "Cleanup cancels queued agent work before closing");
+  auto late = params; late["operationId"] = "cleanup-late";
+  require(code(call(broker, a.connection, "page.click", late)) == "NOT_OWNER", "Cleanup refuses new agent work for closing tabs");
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  require(engine.close_count() == 0 && final.wait_for(std::chrono::milliseconds(0)) == std::future_status::timeout, "Tabs close only after accepted finite input drains");
+  engine.complete("cleanup-active");
+  require(active.value("ok", false) && active["dispatchStatus"] == "dispatched", "The accepted gesture keeps its factual outcome");
+  const auto request = engine.wait_close();
+  require(request["tabIds"].size() == 2 && !request.contains("force"), "One native closure covers every tab in the workspace");
+  for (const auto& id : {a.tab["tabId"].get<std::string>(), human_tab}) require(std::find(request["tabIds"].begin(), request["tabIds"].end(), id) != request["tabIds"].end(), "Cleanup lists the workspace's agent and human tabs");
+  require(call(broker, a.connection, "control.status", a.base())["result"]["ownerSessionId"] == "human", "A fully closed control group is claimed for the human first");
+  require(call(broker, keep.connection, "control.status", keep.base())["result"]["ownerSessionId"] == keep.session, "Another workspace keeps its agent owner");
+  engine.complete_close(success({{"closed", 2}}));
+  require(await_result(final)["result"]["closed"] == 2, "Cleanup reports the engine's closure result");
+  require(!workspace_row(broker, a.workspace).is_null() && broker.state()["clients"].size() == 1, "Cleanup keeps the workspace and its client pairing");
+  require(call(broker, a.connection, "workspaces.list")["result"]["workspaces"].size() == 2, "Cleanup keeps workspace grants");
+  // Closing part of a popup group keeps the opener's owner; only the closing
+  // member refuses new work.
+  engine.event("tab.created", {{"tabId", "cleanup-popup"}, {"workspaceId", keep.workspace}, {"openerTabId", keep.tab["tabId"]}});
+  auto popup = keep; popup.tab = {{"tabId", "cleanup-popup"}};
+  auto popup_params = action_params(broker, popup, "cleanup-popup-click");
+  Json partial; broker.close_tabs({"cleanup-popup"}, [&](Json value) { partial = std::move(value); });
+  require(code(call(broker, keep.connection, "page.click", popup_params)) == "TAB_CLOSING", "A closing popup refuses new agent work");
+  require(engine.wait_close()["tabIds"] == Json::array({"cleanup-popup"}), "Only the requested popup is closed");
+  require(call(broker, keep.connection, "control.status", keep.base())["result"]["ownerSessionId"] == keep.session, "Closing part of a group keeps the opener's owner");
+  engine.complete_close(success({{"closed", 1}})); require(partial.value("ok", false), "Partial close completes");
+  Json none; broker.close_tabs({"not-a-tab"}, [&](Json value) { none = std::move(value); });
+  require(none["result"]["closed"] == 0 && engine.close_count() == 0, "Unknown tabs never reach the engine");
+}
+void tab_workspace_move(const std::filesystem::path& directory) {
+  FakeEngine engine; Broker broker(engine, directory); pair(broker, "move", "Mover");
+  Json value; broker.open_initial_human_workspace("about:blank", [&](Json result) { value = std::move(result); });
+  const std::string personal_tab = value["result"]["tabId"];
+  auto a = worker(broker, "move", "move-agent");
+  require(broker.tab_move_blocker(a.tab["tabId"], "native-default") == "AGENT_CONNECTED", "An agent-owned tab cannot change workspace");
+  const auto creates = engine.command_count("tabs.create");
+  broker.move_tab_to_workspace(a.tab["tabId"], "native-default", "https://example.test/", [&](Json result) { value = std::move(result); });
+  require(code(value) == "AGENT_CONNECTED" && engine.command_count("tabs.create") == creates, "A refused move opens nothing");
+  require(broker.tab_move_blocker(personal_tab, "native-default") == "SAME_WORKSPACE", "Moving within a workspace is not a workspace move");
+  require(broker.tab_move_blocker(personal_tab, "missing") == "WORKSPACE_UNAVAILABLE", "Unknown targets are refused");
+  broker.open_human_workspace("about:blank", [&](Json result) { value = std::move(result); }, true);
+  const std::string private_workspace = value["result"]["workspaceId"], private_tab = value["result"]["tabId"];
+  require(broker.tab_move_blocker(personal_tab, private_workspace) == "PRIVATE_WORKSPACE" && broker.tab_move_blocker(private_tab, "native-default") == "PRIVATE_WORKSPACE", "Private workspace tabs never cross workspaces");
+  engine.event("auth.protected", {{"tabId", personal_tab}, {"protected", true}});
+  require(broker.tab_move_blocker(personal_tab, a.workspace) == "PROTECTED_AUTH", "Protected sign-in tabs stay put");
+  engine.event("auth.protected", {{"tabId", personal_tab}, {"protected", false}});
+  require(broker.tab_move_blocker(personal_tab, a.workspace).empty(), "A human-owned tab may move to an available workspace");
+  broker.move_tab_to_workspace(personal_tab, a.workspace, "javascript:alert(1)", [&](Json result) { value = std::move(result); });
+  require(code(value) == "URL_DENIED", "Only ordinary web addresses are reopened");
+  broker.move_tab_to_workspace(personal_tab, a.workspace, "https://example.test/moved", [&](Json result) { value = std::move(result); });
+  require(value.value("ok", false) && value["result"]["originalClosed"] == true && value["result"]["workspaceId"] == a.workspace, "The page reopens in the target and the original closes");
+  const auto close = engine.wait_close();
+  require(close["tabIds"] == Json::array({personal_tab}) && close["force"] == false, "The original closes normally so the page can warn about unsaved work");
+  engine.complete_close(success({{"closed", 1}}));
+  // An agent that disconnects leaves its tab ownerless, which is movable.
+  broker.disconnect(a.connection);
+  require(broker.tab_move_blocker(a.tab["tabId"], "native-default").empty(), "A tab with no agent owner may move");
+  broker.human_acquire(a.tab["tabId"]);
+  require(broker.tab_move_blocker(a.tab["tabId"], "native-default").empty(), "Taking ownership makes an agent tab movable");
+}
 void workspace_removal_pending_creates(const std::filesystem::path& directory) {
   for(const auto& method:{std::string("workspace.ensure"),std::string("tabs.create")}) {
     FakeEngine engine;Broker broker(engine,directory/method);pair(broker,"create","Pending creation");
@@ -1130,6 +1209,8 @@ int main() {
     workspace_removal_pending_creates(root / "workspace-remove-creates");
     workspace_removal_reads_and_human_input(root / "workspace-remove-reads");
     workspace_removal_engine_queue(root / "workspace-remove-queue");
+    workspace_tab_cleanup(root / "workspace-tab-cleanup");
+    tab_workspace_move(root / "tab-workspace-move");
     uncertain_outcomes(root / "uncertain-outcomes");
 #ifdef _WIN32
     workspace_removal_persistence(root / "workspace-remove-persistence");

@@ -96,6 +96,15 @@ bool web_url(const std::string& s) {
          CefString(&parts.username).empty() && CefString(&parts.password).empty();
 }
 std::string clip(const std::string& s, size_t n = 2048) { return s.substr(0, n); }
+// Places a human-chosen web address on the clipboard. Never used for page text.
+void copy_text(HWND owner,const std::string& value) {
+  const auto text=ui::wide(value);if(!OpenClipboard(owner))return;EmptyClipboard();
+  if(auto memory=GlobalAlloc(GMEM_MOVEABLE,(text.size()+1)*sizeof(wchar_t))){
+    if(auto target=static_cast<wchar_t*>(GlobalLock(memory))){std::copy(text.begin(),text.end(),target);target[text.size()]=0;GlobalUnlock(memory);
+      if(!SetClipboardData(CF_UNICODETEXT,memory))GlobalFree(memory);}else GlobalFree(memory);
+  }
+  CloseClipboard();
+}
 std::string field(const Json& j, const char* k, const std::string& fallback = "") {
   auto i = j.find(k); return i != j.end() && i->is_string() ? i->get<std::string>() : fallback;
 }
@@ -139,6 +148,8 @@ struct Tab {
   size_t guarded_actions = 0;
   uint64_t autofill_requested = 0,autofill_auto_epoch = 0;
   bool autofill_human_qualified = false;
+  // The latest qualifying input was a left click, as on a login field.
+  bool autofill_click = false;
   std::set<std::string> guards;
   std::set<std::pair<std::string,int>> guard_contexts;
   std::map<std::pair<std::string,int>,std::string> guard_frames;
@@ -211,10 +222,10 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       (!current_action_->permit||current_action_->permit())));
   }
   void defer(int ms,std::function<void()> fn){auto guard=current_action_;later(ms,[self=shared_from_this(),guard,fn=std::move(fn)]{ActionScope scope(*self,guard);fn();});}
-  void human_activity(const std::shared_ptr<Tab>& t,bool held,bool credential) {
+  void human_activity(const std::shared_ptr<Tab>& t,bool held,bool credential,bool click=false) {
     t->human_busy=true;t->human_gesture=held;
     t->elements.clear();t->observation.clear();t->screenshot.clear();
-    if(credential){t->login.physical_input(std::chrono::steady_clock::now());t->autofill_human_qualified=true;}
+    if(credential){t->login.physical_input(std::chrono::steady_clock::now());t->autofill_human_qualified=true;t->autofill_click=click;}
     const auto seq=++t->human_input;
     const bool waiting=held||t->human_dialog||t->native_fill;
     const auto deadline=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()+2000;
@@ -222,7 +233,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     // Showing a native account choice does not dispatch agent input. Wait for
     // physical releases/focus to settle, independently of the agent cooldown.
     const auto offer_epoch=t->epoch,offer_request=t->autofill_requested;
-    if(!waiting&&t->autofill_human_qualified)later(250,[self=shared_from_this(),t,seq,offer_epoch,offer_request]{
+    if(!waiting&&t->autofill_human_qualified)later(150,[self=shared_from_this(),t,seq,offer_epoch,offer_request]{
       if(t->human_input==seq&&t->epoch==offer_epoch&&t->autofill_requested==offer_request&&!t->closed&&!t->human_gesture&&!t->human_dialog&&!t->native_fill&&t->autofill_human_qualified){
         t->autofill_human_qualified=false;self->autofill_request(t,true,[](Json){});
       }
@@ -240,7 +251,24 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   std::function<void(CefWindowHandle,UINT,WPARAM)> native_key_;
   std::function<void(const std::string&)> dialog_opened_;
   std::function<void()> private_workspace_;
-  std::function<HWND(const std::string&,const std::string&,bool)> create_host_;
+  std::function<HWND(const std::string&,const std::string&,bool,const std::string&)> create_host_;
+  std::function<void(const std::string&,const std::string&,bool)> open_link_;
+  // Installed, enabled extension IDs whose own pages a human may open natively.
+  std::set<std::string> extension_ids_;
+  bool extension_url(const std::string& url) const {
+    constexpr std::string_view scheme="chrome-extension://";if(url.size()>4096||!url.starts_with(scheme))return false;
+    const auto id=url.substr(scheme.size(),32);return id.size()==32&&extension_ids_.contains(id)&&(url.size()==scheme.size()+32||url[scheme.size()+32]=='/');
+  }
+  // Native human cleanup. The broker has already drained accepted agent input;
+  // also wait out any engine-guarded gesture still balancing its keys/buttons.
+  void close_native(std::vector<std::string> ids,bool force,Reply reply,int attempts=0){
+    std::vector<std::shared_ptr<Tab>> targets;
+    for(const auto& id:ids)if(auto found=tabs_.find(id);found!=tabs_.end()&&!found->second->closed)targets.push_back(found->second);
+    const bool busy=std::any_of(targets.begin(),targets.end(),[](const auto& t){return t->guarded_actions>0||t->human_gesture;});
+    if(busy&&attempts<100){later(50,[self=shared_from_this(),ids=std::move(ids),force,reply,attempts]{self->close_native(ids,force,reply,attempts+1);});return;}
+    for(const auto& t:targets)t->browser->GetHost()->CloseBrowser(force);
+    reply(success({{"closed",targets.size()}}));
+  }
   std::function<void(const std::string&,HWND)> host_created_;
   std::function<void(const std::string&)> host_closed_;
   std::function<bool(const std::string&)> download_allowed_;
@@ -315,7 +343,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   bool shutting_down_ = false;
 
   void clear_login_edit(const std::shared_ptr<Tab>& t) {
-    t->login.clear_edit();
+    t->login.clear_edit();t->login.forget_account();
   }
   void dismiss_login_id(const std::string& candidate) {
     if(vault_&&!candidate.empty())vault_->dismiss_login(candidate);
@@ -344,22 +372,40 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     SensitiveJson data{Json::parse(bytes,nullptr,false)};if(!data.value.is_object())return;
     const auto origin=Vault::normalize_https_origin(t->browser->GetMainFrame()->GetURL().ToString());
     if(!origin||field(data.value,"origin")!=*origin)return;
-    const auto kind=field(data.value,"kind"),form=field(data.value,"form");if(form.empty()||form.size()>80)return;
-    const auto now=std::chrono::steady_clock::now();
+    const auto kind=field(data.value,"kind");const auto now=std::chrono::steady_clock::now();
+    if(kind=="username") {
+      if(data.value.contains("username")&&data.value["username"].is_string())t->login.account_entered(*origin,data.value["username"].get<std::string>(),now);
+      return;
+    }
+    const auto form=field(data.value,"form");if(form.empty()||form.size()>80)return;
     if(kind=="edit") {
       if(auto canceled=t->login.password_edited(form,context,t->epoch,now))dismiss_login_id(*canceled);
       return;
     }
-    if(kind!="submit"||!t->login.consume_submission(form,context,t->epoch,now))return;
+    if(kind=="gone") {
+      if(t->login.field_gone(form,context,t->epoch))notify_login(t,t->login.candidate());
+      return;
+    }
+    // Script-driven attempts keep their edit provenance for a retry and are
+    // offered only after the page navigates or removes the password field.
+    const bool deferred=data.value.value("deferred",false);
+    if(kind!="submit"||!(deferred?t->login.attempted(form,context,t->epoch,now):t->login.consume_submission(form,context,t->epoch,now)))return;
     if(!data.value.contains("username")||!data.value["username"].is_string()||!data.value.contains("password")||!data.value["password"].is_string())return;
+    // A password step that does not repeat its account uses the account typed
+    // on an earlier step of this origin. Without one, a password-only form for
+    // an origin with saved accounts is a re-authentication, not a new login.
+    const bool missing=data.value.value("usernameMissing",false);
+    const auto remembered=missing?t->login.account(*origin,now):std::string{};
+    if(missing&&remembered.empty()){const auto saved=vault_->list_accounts(*origin);if(!saved.value("ok",false)||!saved["result"]["accounts"].empty())return;}
+    const auto& username=missing?remembered:data.value["username"].get_ref<const std::string&>();
     discard_login(t);
     t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
     event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
-    const auto candidate=vault_->propose_login(*origin,data.value["username"].get_ref<const std::string&>(),data.value["password"].get_ref<const std::string&>());
-    if(candidate){
-      t->login.proposed(candidate->candidate_id,*origin);
-      notify_login(t,candidate->candidate_id);
-    }
+    const auto candidate=vault_->propose_login(*origin,username,data.value["password"].get_ref<const std::string&>());
+    if(!candidate)return;
+    if(!deferred){t->login.proposed(candidate->candidate_id,*origin);notify_login(t,candidate->candidate_id);return;}
+    t->login.proposed_deferred(candidate->candidate_id,*origin,form,context,t->epoch);
+    later(30000,[self=shared_from_this(),t,id=candidate->candidate_id]{if(t->login.candidate()==id&&t->login.deferred())self->discard_login(t);});
   }
 
   void event(const std::string& type, Json value) {
@@ -379,7 +425,10 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     std::vector<std::string> offers;for(const auto& [id,offer]:autofill_offers_)if(offer->tab==t)offers.push_back(id);
     for(const auto& id:offers)autofill_discard(id);
     const auto origin=Vault::normalize_https_origin(t->last_url);
+    const bool deferred=t->login.deferred();
     dismiss_login_id(t->login.navigated(origin.has_value()));
+    // Navigation after a script-driven sign-in attempt readies its offer.
+    if(deferred&&!t->login.candidate().empty())notify_login(t,t->login.candidate());
     ++t->epoch; t->document = nonce(); t->elements.clear(); t->observation.clear();t->screenshot.clear();
     if(t->upload)finish_upload(t,t->upload,failure("upload_interrupted","The document changed during file selection. Observe before deciding what to do next."));
     event("tab.navigated", {{"tabId",t->id},{"workspaceId",t->workspace},{"documentId",t->document}});
@@ -485,6 +534,9 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     } else if (method=="Page.frameNavigated" && session.empty()) {
       const auto f=p.value("frame",Json::object());
       if (!f.contains("parentId")){t->main_frame=field(f,"id");t->last_url=field(f,"url");invalidate(t);persist_session();}
+    } else if (method=="Page.navigatedWithinDocument" && session.empty()) {
+      // A single-page sign-in that moves on after a script-driven attempt.
+      if(field(p,"frameId")==t->main_frame&&t->login.navigated_within_document())notify_login(t,t->login.candidate());
     } else if (method=="DOM.documentUpdated") {
       ++t->epoch;t->elements.clear(); t->observation.clear();t->screenshot.clear();
       if(t->upload)finish_upload(t,t->upload,failure("upload_interrupted","The document changed during file selection. Observe before deciding what to do next."));
@@ -768,7 +820,7 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
       if(o->removed_workspaces_.contains(t->workspace))return true;
       const auto id=nonce();client=new Client(owner_,t->workspace,id,t->id);
       if(o->create_host_){
-        const auto parent=o->create_host_(t->workspace,id,t->human_busy);
+        const auto parent=o->create_host_(t->workspace,id,t->human_busy,t->id);
         if(!parent)return true;std::erase_if(pending_popups_,[&](const auto& pending){return o->tabs_.contains(pending.second);});pending_popups_[popup_id]=id;RECT rect{};GetClientRect(parent,&rect);
         window_info.SetAsChild(parent,CefRect(0,0,rect.right,rect.bottom));window_info.runtime_style=CEF_RUNTIME_STYLE_ALLOY;
       }
@@ -798,7 +850,12 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
     }
     // Website-authored JavaScript links are ordinary page behavior. Native
     // navigation and MCP still accept only HTTP(S) and about:blank.
-    if(!web_url(url)&&url.rfind("javascript:",0)!=0)return true;
+    if(!web_url(url)&&url.rfind("javascript:",0)!=0){
+      // A human-installed extension's own pages are allowed; agent reads and
+      // input refuse every non-web page in exec().
+      if(auto o=owner_.lock();o&&o->extension_url(url))return false;
+      return true;
+    }
     return false;
   }
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
@@ -837,11 +894,23 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
     return true;
   }
   void OnDialogClosed(CefRefPtr<CefBrowser> b)override{if(auto o=owner_.lock())if(auto t=o->find(b)){t->dialog=nullptr;t->dialog_type.clear();t->dialog_message.clear();t->dialog_origin.clear();if(t->human_dialog){t->human_dialog=false;o->human_activity(t,t->human_gesture,false);}}}
-  void OnBeforeContextMenu(CefRefPtr<CefBrowser>,CefRefPtr<CefFrame>,CefRefPtr<CefContextMenuParams>,CefRefPtr<CefMenuModel> menu)override {
-    menu->Remove(MENU_ID_VIEW_SOURCE);menu->AddSeparator();menu->AddItem(26501,ui::tr(L"Xenon Controls"));
+  void OnBeforeContextMenu(CefRefPtr<CefBrowser>,CefRefPtr<CefFrame>,CefRefPtr<CefContextMenuParams> params,CefRefPtr<CefMenuModel> menu)override {
+    menu->Remove(MENU_ID_VIEW_SOURCE);
+    // Link commands open ordinary web addresses as new human-owned tabs.
+    if(params&&web_url(params->GetLinkUrl().ToString())&&params->GetLinkUrl().ToString()!="about:blank"){
+      menu->InsertItemAt(0,26502,ui::tr(L"Open link in new tab"));menu->InsertItemAt(1,26503,ui::tr(L"Open link in new window"));
+      menu->InsertItemAt(2,26504,ui::tr(L"Copy link address"));menu->InsertSeparatorAt(3);
+    }
+    menu->AddSeparator();menu->AddItem(26501,ui::tr(L"Xenon Controls"));
   }
-  bool OnContextMenuCommand(CefRefPtr<CefBrowser>,CefRefPtr<CefFrame>,CefRefPtr<CefContextMenuParams>,int command,EventFlags)override {
-    if(command!=26501)return false;if(auto o=owner_.lock())if(o->controls_)o->controls_();return true;
+  bool OnContextMenuCommand(CefRefPtr<CefBrowser> b,CefRefPtr<CefFrame>,CefRefPtr<CefContextMenuParams> params,int command,EventFlags)override {
+    auto o=owner_.lock();if(!o)return false;
+    if(command==26501){if(o->controls_)o->controls_();return true;}
+    if(command<26502||command>26504||!params)return false;
+    const auto link=params->GetLinkUrl().ToString();if(!web_url(link))return true;
+    if(command==26504){copy_text(GetAncestor(b->GetHost()->GetWindowHandle(),GA_ROOT),link);return true;}
+    if(auto t=o->find(b);t&&o->open_link_)o->open_link_(t->id,link,command==26503);
+    return true;
   }
   bool OnBeforeDownload(CefRefPtr<CefBrowser> b,CefRefPtr<CefDownloadItem>,const CefString& name,CefRefPtr<CefBeforeDownloadCallback> cb)override {
     if(auto o=owner_.lock())if(auto t=o->find(b))if(o->files_&&!t->protected_auth&&!o->removed_workspaces_.contains(t->workspace)&&o->download_allowed_&&o->download_allowed_(t->id)) {
@@ -976,7 +1045,7 @@ void CefEngine::Impl::create_ready(const PendingCreate& request) {
     }
     CefWindowInfo wi;
     if(!create_host_){fail_create(request.id,"native_shell_unavailable","The Xenon browser shell is unavailable.");return;}
-    const auto parent=create_host_(request.workspace,request.id,request.human);
+    const auto parent=create_host_(request.workspace,request.id,request.human,{});
     if(!parent){fail_create(request.id,"native_shell_unavailable","The Xenon browser shell could not create a tab host.");return;}
     RECT rect{};GetClientRect(parent,&rect);wi.SetAsChild(parent,CefRect(0,0,rect.right,rect.bottom));wi.runtime_style=CEF_RUNTIME_STYLE_ALLOY;
     CefBrowserSettings settings;
@@ -1368,8 +1437,10 @@ void CefEngine::Impl::autofill_request(const std::shared_ptr<Tab>& t,bool automa
   if(!origin){unavailable();return;}
   const auto root=GetAncestor(t->browser->GetHost()->GetWindowHandle(),GA_ROOT);
   if(automatic){
+    // As in Chromium, each click on an eligible login field offers accounts
+    // again. Typing alone offers them at most once per document.
     const auto active=active_windows_.find(root);
-    if(t->autofill_auto_epoch==t->epoch||!root||IsIconic(root)||GetAncestor(GetForegroundWindow(),GA_ROOT)!=root||
+    if((t->autofill_auto_epoch==t->epoch&&!t->autofill_click)||!root||IsIconic(root)||GetAncestor(GetForegroundWindow(),GA_ROOT)!=root||
        active==active_windows_.end()||active->second!=t->id){unavailable();return;}
   }
   const auto accounts=vault_->list_accounts(*origin);
@@ -1402,7 +1473,9 @@ void CefEngine::Impl::autofill_request(const std::shared_ptr<Tab>& t,bool automa
             if(!current()||!cdp_ok(inspected)||object.empty()){discard();unavailable();return;}
             // Only fixed eligibility metadata crosses back to native code. The
             // retained object holds exact nodes; values never enter the UI/MCP.
-            send(t,"Runtime.callFunctionOn",{{"objectId",object},{"functionDeclaration","function(){return {eligible:this.eligible===true,phase:this.phase}}"},{"returnByValue",true}},
+            // The anchor is the focused credential field's viewport rectangle,
+            // used only to place the native account list beside it.
+            send(t,"Runtime.callFunctionOn",{{"objectId",object},{"functionDeclaration","function(){const f=[this.user,this.password].find(e=>e&&e===document.activeElement)||this.user||this.password;const r=f?f.getBoundingClientRect():null;return {eligible:this.eligible===true,phase:this.phase,anchor:r?[r.left,r.top,r.right,r.bottom]:null}}"},{"returnByValue",true}},
               [this,t,automatic,reply,unavailable,current,origin,accounts,epoch,human,root,object,discard](Json metadata){
                 const auto value=metadata.value("result",Json::object()).value("value",Json::object());
                 const auto phase=field(value,"phase");
@@ -1410,7 +1483,13 @@ void CefEngine::Impl::autofill_request(const std::shared_ptr<Tab>& t,bool automa
                    (phase!="credentials"&&phase!="username"&&phase!="password")){discard();unavailable();return;}
                 auto offer=std::make_shared<AutofillOffer>();offer->tab=t;offer->id=nonce();offer->object=object;offer->origin=*origin;
                 offer->epoch=epoch;offer->human=human;offer->phase=phase;offer->expires=std::chrono::steady_clock::now()+std::chrono::minutes(2);
-                offer->metadata={{"offerId",offer->id},{"tabId",t->id},{"documentId",t->document},{"origin",*origin},{"phase",phase},{"accounts",accounts["result"]["accounts"]}};
+                offer->metadata={{"offerId",offer->id},{"tabId",t->id},{"workspaceId",t->workspace},{"documentId",t->document},{"origin",*origin},{"phase",phase},{"accounts",accounts["result"]["accounts"]}};
+                if(const auto anchor=value.find("anchor");anchor!=value.end()&&anchor->is_array()&&anchor->size()==4&&std::all_of(anchor->begin(),anchor->end(),[](const Json& n){return n.is_number()&&std::isfinite(n.get<double>());})){
+                  const auto view=t->browser->GetHost()->GetWindowHandle();const double scale=GetDpiForWindow(view)/96.0*std::pow(1.2,t->browser->GetHost()->GetZoomLevel());
+                  RECT client{};GetClientRect(view,&client);const auto edge=[&](size_t n,LONG limit){return static_cast<LONG>(std::clamp((*anchor)[n].get<double>()*scale,0.0,static_cast<double>(limit)));};
+                  POINT corners[2]{{edge(0,client.right),edge(1,client.bottom)},{edge(2,client.right),edge(3,client.bottom)}};MapWindowPoints(view,nullptr,corners,2);
+                  offer->metadata["anchor"]={corners[0].x,corners[0].y,corners[1].x,corners[1].y};
+                }
                 autofill_offers_[offer->id]=offer;if(automatic)t->autofill_auto_epoch=epoch;
                 if(autofill_prompt_)autofill_prompt_(offer->metadata,root);
                 reply(success(offer->metadata));
@@ -1663,6 +1742,10 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   if(removed_workspaces_.contains(field(p,"workspaceId"))){reply(failure("workspace_removed","This workspace was removed."));return;}
   if(command=="workspace.ensure"){if(p.value("private",false))private_workspaces_.insert(field(p,"workspaceId"));reply(success({{"workspaceId",field(p,"workspaceId")}}));return;}
   if(command=="tabs.create"){create(p,reply,std::move(continuation));return;}
+  if(command=="tabs.close_native"){
+    std::vector<std::string> ids;for(const auto& id:p.value("tabIds",Json::array()))if(id.is_string()&&ids.size()<256)ids.push_back(id.get<std::string>());
+    close_native(std::move(ids),p.value("force",true),std::move(reply));return;
+  }
   if(command=="tabs.list"){
     Json list=Json::array();for(const auto& [id,t]:tabs_)if(field(p,"workspaceId",t->workspace)==t->workspace)
       list.push_back({{"tabId",id},{"workspaceId",t->workspace},{"title",t->protected_auth||!web_url(t->browser->GetMainFrame()->GetURL().ToString())?"[protected]":t->title},{"url",t->protected_auth||!web_url(t->browser->GetMainFrame()->GetURL().ToString())?"[protected]":t->browser->GetMainFrame()->GetURL().ToString()},{"protected",t->protected_auth}});
@@ -1942,8 +2025,15 @@ void CefEngine::set_updates_callback(std::function<void()> f){impl_->updates_=st
 void CefEngine::set_native_key_callback(std::function<void(CefWindowHandle,UINT,WPARAM)> f){impl_->native_key_=std::move(f);}
 void CefEngine::set_dialog_callback(std::function<void(const std::string&)> f){impl_->dialog_opened_=std::move(f);}
 void CefEngine::set_private_workspace_callback(std::function<void()> f){impl_->private_workspace_=std::move(f);}
-void CefEngine::set_host_callbacks(std::function<HWND(const std::string&,const std::string&,bool)> create,
+void CefEngine::set_host_callbacks(std::function<HWND(const std::string&,const std::string&,bool,const std::string&)> create,
   std::function<void(const std::string&,HWND)> created,std::function<void(const std::string&)> closed){impl_->create_host_=std::move(create);impl_->host_created_=std::move(created);impl_->host_closed_=std::move(closed);}
+void CefEngine::set_open_link_callback(std::function<void(const std::string&,const std::string&,bool)> f){impl_->open_link_=std::move(f);}
+void CefEngine::set_extension_ids(std::set<std::string> ids){on_ui([p=impl_,ids=std::move(ids)]{p->extension_ids_=ids;});}
+size_t CefEngine::saved_account_count(const std::string& id){
+  const auto found=impl_->tabs_.find(id);if(found==impl_->tabs_.end()||found->second->closed||!impl_->vault_||impl_->vault_->locked())return 0;
+  const auto origin=Vault::normalize_https_origin(found->second->browser->GetMainFrame()->GetURL().ToString());if(!origin)return 0;
+  const auto accounts=impl_->vault_->list_accounts(*origin);return accounts.value("ok",false)?accounts["result"]["accounts"].size():0;
+}
 void CefEngine::set_download_callback(std::function<bool(const std::string&)> allowed){impl_->download_allowed_=std::move(allowed);}
 void CefEngine::set_permission_callback(std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> callback){impl_->permission_=std::move(callback);}
 void CefEngine::select_native_tab(const std::string& id){
@@ -1963,6 +2053,12 @@ void CefEngine::native_command(const std::string& id,const std::string& command,
     if(command=="focus"){if(owner->active_tab_==id)host->SetFocus(true);return;}
     if(command=="close"){host->CloseBrowser(false);return;}
     if(command=="find-close"){host->StopFinding(true);return;}
+    if(command=="mute"||command=="unmute"){host->SetAudioMuted(command=="mute");if(reply)reply(success());return;}
+    // The tab host moved to another native window. Chromium dismisses popups
+    // anchored to the old position; the page itself is not reloaded or resized.
+    if(command=="reparented"){host->NotifyMoveOrResizeStarted();if(reply)reply(success());return;}
+    if(command=="extension-page"){if(!owner->extension_url(value)||tab->private_mode){if(reply)reply(failure("extension_unavailable","This extension page is unavailable."));return;}
+      browser->GetMainFrame()->LoadURL(value);if(reply)reply(success({{"status","dispatched"}}));return;}
     if(command=="site-reset"){auto context=host->GetRequestContext();auto origin=Vault::normalize_https_origin(browser->GetMainFrame()->GetURL().ToString());
       if(!origin){if(reply)reply(failure("https_required","Select an HTTPS website."));return;}
       for(auto kind:{CEF_CONTENT_SETTING_TYPE_GEOLOCATION,CEF_CONTENT_SETTING_TYPE_NOTIFICATIONS,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC})context->SetContentSetting(*origin,*origin,kind,CEF_CONTENT_SETTING_VALUE_DEFAULT);
@@ -1973,6 +2069,7 @@ void CefEngine::native_command(const std::string& id,const std::string& command,
     else if(command=="back"){if(browser->CanGoBack())browser->GoBack();}
     else if(command=="forward"){if(browser->CanGoForward())browser->GoForward();}
     else if(command=="reload")browser->Reload();
+    else if(command=="reload-hard")browser->ReloadIgnoreCache();
     else if(command=="stop")browser->StopLoad();
     else if(command=="find"||command=="find-next"||command=="find-previous")host->Find(value,command!="find-previous",false,command!="find");
     else if(command=="zoom") {const auto factor=std::clamp(std::stod(value),.25,5.0);host->SetZoomLevel(std::log(factor)/std::log(1.2));}
@@ -2083,13 +2180,13 @@ Json CefEngine::native_tabs(){Json result=Json::array();for(const auto& [id,t]:i
   {"canGoBack",t->browser->CanGoBack()},{"canGoForward",t->browser->CanGoForward()},{"private",t->private_mode},{"protected",t->protected_auth},
   {"pointerKnown",t->pointer_known},{"pointerX",t->pointer.x},{"pointerY",t->pointer.y},{"pointerRevision",t->pointer_revision},
   {"agentPointerRevision",t->agent_pointer_revision},{"pointerSyncRevision",t->pointer_sync_revision},{"humanPointerRevision",t->human_pointer_revision},
-  {"privacyReady",t->guards.size()>=t->sessions.size()+1},
+  {"privacyReady",t->guards.size()>=t->sessions.size()+1},{"muted",t->browser->GetHost()->IsAudioMuted()},
   {"zoom",std::pow(1.2,t->browser->GetHost()->GetZoomLevel())}});return result;}
 void CefEngine::answer_native_dialog(const std::string& id,bool accept,const std::string& text){on_ui([p=impl_,id,accept,text]{auto i=p->tabs_.find(id);if(i==p->tabs_.end()||!i->second->dialog)return;auto t=i->second;auto callback=t->dialog;t->dialog=nullptr;t->dialog_type.clear();t->dialog_message.clear();t->dialog_origin.clear();t->human_dialog=false;p->human_activity(t,t->human_gesture,false);callback->Continue(accept,text);});}
 CefRefPtr<CefClient> CefEngine::default_client(){return new Impl::Client(impl_,"human-default");}
 CefRefPtr<CefRequestContextHandler> CefEngine::default_context_handler(){return new Impl::ContextHandler;}
-void CefEngine::native_input(CefWindowHandle window,bool busy,bool credential_input,bool substantive){
-  on_ui([p=impl_,window,busy,credential_input,substantive]{
+void CefEngine::native_input(CefWindowHandle window,bool busy,bool credential_input,bool substantive,bool primary_click){
+  on_ui([p=impl_,window,busy,credential_input,substantive,primary_click]{
     const auto root=GetAncestor(window,GA_ROOT);if(!root)return;
     std::vector<std::string> previous,current;bool known_active=false;
     if(auto held=p->human_gestures_.find(window);held!=p->human_gestures_.end())
@@ -2108,7 +2205,7 @@ void CefEngine::native_input(CefWindowHandle window,bool busy,bool credential_in
     else p->human_gestures_[window]=routing.retained;
     for(const auto& id:routing.affected)if(auto tab=p->tabs_.find(id);tab!=p->tabs_.end()){
       const bool qualified=credential_input&&known_active&&routing.credential_targets.size()==1&&routing.credential_targets.front()==id;
-      p->human_activity(tab->second,busy,qualified);
+      p->human_activity(tab->second,busy,qualified,qualified&&primary_click);
     }
   });
 }

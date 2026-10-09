@@ -111,7 +111,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   struct Command { std::string operation, session, method; uint64_t generation{}, attachment{}, human_epoch{}; Json params; std::string document; };
   struct Tab {
     std::string workspace, owner, document, group;
-    uint64_t generation{1}, state_epoch{}, human_epoch{}; bool frozen{}, human_busy{}, protected_auth{};
+    uint64_t generation{1}, state_epoch{}, human_epoch{}; bool frozen{}, human_busy{}, protected_auth{}, closing{};
     std::optional<int64_t> human_pause_until;
     std::optional<std::string> pending_owner;
     std::string active, dialog_active;
@@ -139,6 +139,10 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   std::map<std::string, Workspace> workspaces;
   std::set<std::string> removed_workspaces;
   bool removal_check_queued{};
+  // Native human closes wait for accepted finite input on their tabs, then
+  // reach the engine once. They never cross an MCP method boundary.
+  struct CloseRequest { std::set<std::string> tabs; Reply reply; bool active{}; };
+  std::vector<std::shared_ptr<CloseRequest>> close_requests;
   std::map<std::string, Worker> workers;
   std::map<std::string, Tab> tabs;
   std::map<std::string, Operation> operations;
@@ -365,17 +369,28 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     schedule_removals_locked();
   }
   void schedule_removals_locked() {
-    if (stopping || removal_check_queued || std::none_of(workspaces.begin(), workspaces.end(), [](const auto& item) { return item.second.removing && !item.second.removal_active && !item.second.removal_retry; })) return;
+    const bool removals = !stopping && std::any_of(workspaces.begin(), workspaces.end(), [](const auto& item) { return item.second.removing && !item.second.removal_active && !item.second.removal_retry; });
+    const bool closes = std::any_of(close_requests.begin(), close_requests.end(), [](const auto& request) { return !request->active; });
+    if (removal_check_queued || (!removals && !closes)) return;
     removal_check_queued = true;
     std::weak_ptr<Impl> weak = shared_from_this();
     if (!post_io([weak] { if (auto self = weak.lock()) self->progress_removals(); })) removal_check_queued = false;
   }
   void progress_removals() {
     std::vector<std::string> ready;
+    std::vector<std::shared_ptr<CloseRequest>> closing;
     {
       std::lock_guard lock(mutex); removal_check_queued = false;
-      if (stopping) return;
+      for (auto& request : close_requests) {
+        if (request->active) continue;
+        std::erase_if(request->tabs, [&](const auto& id) { return !tabs.contains(id); });
+        const bool busy = std::any_of(request->tabs.begin(), request->tabs.end(), [&](const auto& id) {
+          const auto& tab = tabs.at(id); return !tab.active.empty() || !tab.dialog_active.empty();
+        });
+        if (!busy) { request->active = true; closing.push_back(request); }
+      }
       for (auto& [id, workspace] : workspaces) {
+        if (stopping) break;
         if (!workspace.removing || workspace.removal_active || workspace.removal_retry || workspace.pending_creates) continue;
         const bool busy = std::any_of(tabs.begin(), tabs.end(), [&](const auto& item) {
           const auto& tab = item.second;
@@ -384,6 +399,16 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         if (busy) continue;
         workspace.removal_active = true; ready.push_back(id);
       }
+    }
+    for (const auto& request : closing) {
+      auto self = shared_from_this();
+      Json ids = Json::array(); for (const auto& id : request->tabs) ids.push_back(id);
+      auto finish = [self, request](Json result) {
+        { std::lock_guard lock(self->mutex); std::erase(self->close_requests, request); }
+        if (request->reply) { try { request->reply(std::move(result)); } catch (...) {} }
+      };
+      if (ids.empty()) finish(success({{"closed", 0}}));
+      else execute_safe("tabs.close_native", {{"tabIds", ids}}, finish);
     }
     for (const auto& id : ready) {
       auto self = shared_from_this();
@@ -440,6 +465,34 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       }
       begin_transfer_locked(tab,recipient,output,retire?"SESSION_RETIRED":"CLIENT_DISCONNECTED");break;
     }
+  }
+  // Profiles cannot move a live page, so a cross-workspace move reopens its
+  // URL. Only a tab with no agent owner, handoff or accepted input may move.
+  std::string move_blocker_locked(const std::string& tab_id, const std::string& target) const {
+    const auto tab = tabs.find(tab_id);
+    if (tab == tabs.end()) return "TAB_UNAVAILABLE";
+    const auto& source = tab->second;
+    if (source.workspace == target) return "SAME_WORKSPACE";
+    const auto from = workspaces.find(source.workspace), to = workspaces.find(target);
+    if (from == workspaces.end() || to == workspaces.end() || from->second.removing || to->second.removing ||
+        removed_workspaces.contains(source.workspace) || removed_workspaces.contains(target)) return "WORKSPACE_UNAVAILABLE";
+    if (from->second.private_mode || to->second.private_mode) return "PRIVATE_WORKSPACE";
+    if (source.protected_auth) return "PROTECTED_AUTH";
+    if (source.closing) return "TAB_CLOSING";
+    for (const auto& [id, member] : tabs) if (member.group == source.group &&
+        ((!member.owner.empty() && member.owner != "human") || member.pending_owner || !member.active.empty() || !member.dialog_active.empty())) return "AGENT_CONNECTED";
+    if (tabs.size() >= max_tabs) return "CAPACITY_EXCEEDED";
+    return {};
+  }
+  static std::string move_blocker_message(const std::string& code) {
+    if (code == "SAME_WORKSPACE") return "The tab is already in that workspace";
+    if (code == "WORKSPACE_UNAVAILABLE") return "Select an available workspace";
+    if (code == "PRIVATE_WORKSPACE") return "Private workspace tabs cannot move between workspaces";
+    if (code == "PROTECTED_AUTH") return "Finish signing in before moving this tab";
+    if (code == "TAB_CLOSING") return "This tab is closing";
+    if (code == "AGENT_CONNECTED") return "An agent controls this tab. Take ownership before moving it to another workspace";
+    if (code == "CAPACITY_EXCEEDED") return "Tab limit reached";
+    return "This tab is no longer open";
   }
   bool fresh_after_human_locked(const Tab& tab, const std::string& session) const {
     const auto observed = tab.observations.find(session);
@@ -542,7 +595,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       std::lock_guard lock(mutex);
       auto it = tabs.find(tab_id); if (it == tabs.end()) return;
       auto& tab = it->second;
-      if (stopping || tab.frozen || !tab.active.empty() || !tab.dialog_active.empty() || tab.human_busy) return;
+      if (stopping || tab.frozen || tab.closing || !tab.active.empty() || !tab.dialog_active.empty() || tab.human_busy) return;
       while (!tab.queue.empty()) {
         command = std::move(tab.queue.front()); tab.queue.pop_front();
         auto worker = workers.find(command.session);
@@ -994,6 +1047,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     existing->second.waiters.push_back(std::move(reply)); return;
   }
   if (tab.owner != session_id || tab.frozen) { respond(failure("NOT_OWNER", "Acquire this tab before acting")); return; }
+  if (tab.closing) { respond(failure("TAB_CLOSING", "The person using Xenon is closing this tab")); return; }
   if (tab.human_busy) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input temporarily paused this tab; ownership is unchanged. Wait for idle, then observe again")); return; }
   if (!params.contains("ownershipGeneration") || !params["ownershipGeneration"].is_number_unsigned() || params["ownershipGeneration"].get<uint64_t>() != tab.generation) { respond(failure("OWNERSHIP_CHANGED", "Read control status and observe again")); return; }
   if (method == "auth.login" && self->locked) { respond(failure("VAULT_LOCKED", "Unlock the vault in the native browser")); return; }
@@ -1228,6 +1282,68 @@ void Broker::human_release(const std::string& id, const std::string& session) {
   std::vector<Delivery> output; { std::lock_guard lock(impl_->mutex); auto found = impl_->tabs.find(id); auto target = impl_->workers.find(session);
   if (found == impl_->tabs.end() || found->second.owner != "human" || target == impl_->workers.end() || !target->second.connected || target->second.retiring || !impl_->granted(target->second.client, found->second.workspace)||!impl_->effective(target->second.client,found->second.workspace).interaction) return;
   impl_->begin_transfer_locked(found->second, session, output, "OWNERSHIP_CHANGED"); } deliver(std::move(output));
+}
+void Broker::close_tabs(const std::vector<std::string>& ids, Reply reply) {
+  Impl::UiChange notification{impl_.get()};
+  auto self = impl_; std::vector<Delivery> output; bool empty{};
+  auto request = std::make_shared<Impl::CloseRequest>(); request->reply = std::move(reply);
+  {
+    std::lock_guard lock(self->mutex);
+    for (const auto& id : ids) { auto found = self->tabs.find(id); if (found != self->tabs.end() && !self->removed_workspaces.contains(found->second.workspace)) request->tabs.insert(id); }
+    std::set<std::string> groups; for (const auto& id : request->tabs) groups.insert(self->tabs.at(id).group);
+    for (const auto& group : groups) {
+      // A control group closed in full is claimed for the human, so its agent
+      // input drains and nothing new dispatches. A partly closed group keeps
+      // its owner; only the closing members drop and refuse queued work.
+      const bool whole = std::all_of(self->tabs.begin(), self->tabs.end(), [&](const auto& item) { return item.second.group != group || request->tabs.contains(item.first); });
+      for (auto& [id, tab] : self->tabs) if (tab.group == group && request->tabs.contains(id)) { tab.closing = true; self->cancel_queued_locked(tab, output, "TAB_CLOSED"); }
+      if (whole) for (auto& [id, tab] : self->tabs) if (tab.group == group) { self->begin_transfer_locked(tab, "human", output, "TAB_CLOSED"); break; }
+    }
+    empty = request->tabs.empty();
+    if (!empty) { self->close_requests.push_back(request); self->schedule_removals_locked(); }
+  }
+  deliver(std::move(output));
+  if (empty && request->reply) request->reply(success({{"closed", 0}}));
+}
+void Broker::close_workspace_tabs(const std::string& workspace, Reply reply) {
+  std::vector<std::string> ids; bool available{};
+  {
+    std::lock_guard lock(impl_->mutex);
+    const auto found = impl_->workspaces.find(workspace);
+    available = found != impl_->workspaces.end() && !found->second.removing && !impl_->removed_workspaces.contains(workspace);
+    if (available) for (const auto& [id, tab] : impl_->tabs) if (tab.workspace == workspace) ids.push_back(id);
+  }
+  if (!available) { reply(failure("WORKSPACE_UNAVAILABLE", "Select an available workspace")); return; }
+  close_tabs(ids, std::move(reply));
+}
+std::string Broker::tab_move_blocker(const std::string& tab_id, const std::string& workspace) const {
+  std::lock_guard lock(impl_->mutex);
+  return impl_->move_blocker_locked(tab_id, workspace);
+}
+void Broker::move_tab_to_workspace(const std::string& tab_id, const std::string& workspace, const std::string& url, Reply reply) {
+  if (!safe_web_url(url)) { reply(failure("URL_DENIED", "Only ordinary web pages can move between workspaces")); return; }
+  {
+    std::lock_guard lock(impl_->mutex);
+    const auto blocker = impl_->move_blocker_locked(tab_id, workspace);
+    if (!blocker.empty()) { reply(failure(blocker, Impl::move_blocker_message(blocker))); return; }
+  }
+  std::weak_ptr<Impl> weak = impl_;
+  open_human_tab(workspace, url, [weak, tab_id, workspace, reply](Json opened) {
+    auto self = weak.lock();
+    if (!self || !opened.value("ok", false)) { reply(std::move(opened)); return; }
+    bool close{};
+    {
+      // The person or an agent may have changed the original while the copy
+      // opened. Close it only if moving is still permitted; never close a tab
+      // an agent has started controlling.
+      std::lock_guard lock(self->mutex);
+      close = self->move_blocker_locked(tab_id, workspace).empty();
+    }
+    auto result = opened.value("result", Json::object());
+    result["movedFromTabId"] = tab_id; result["originalClosed"] = close;
+    if (close) self->execute_safe("tabs.close_native", {{"tabIds", Json::array({tab_id})}, {"force", false}}, [](Json) {});
+    reply(success(std::move(result)));
+  });
 }
 void Broker::disconnect(const std::string& connection) {
   Impl::UiChange notification{impl_.get()};
