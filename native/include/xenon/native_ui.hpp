@@ -18,6 +18,8 @@ class NativeUi {
   ~NativeUi();
   void show();
   void show_updates();
+  // The newer release found by a check (manual or automatic), or empty.
+  std::string available_update() const;
   // Opens Controls on a section, selecting a workspace ID or account origin.
   void show_section(Section section,const std::string& select={});
   // The browser toolbar's saved-password key: offer accounts for this tab.

@@ -50,8 +50,8 @@ uint32_t seed(){return static_cast<uint32_t>(std::stoul(local_security::random_h
 // Native chrome motion timings in milliseconds. Website pixels and geometry
 // never animate; these only change how the shell around the page is painted.
 constexpr int GlideDuration=200,AccentDuration=240,FocusDuration=160,LoadingCycle=1300;
-// Desktop toolbar height and row heights, in DIPs.
-constexpr int ToolbarHeight=44,TabRow=34;
+// Desktop toolbar height, row heights and the page frame's corner radius, in DIPs.
+constexpr int ToolbarHeight=44,TabRow=34,FrameRadius=8;
 double elapsed(ULONGLONG start,int duration){return start&&ui::motion()?std::clamp(static_cast<double>(GetTickCount64()-start)/duration,0.0,1.0):1.0;}
 bool web_address(const std::string& url){return url.rfind("http://",0)==0||url.rfind("https://",0)==0;}
 std::string origin_of(const std::string& url){if(!web_address(url))return {};const auto start=url.find("://")+3;return url.substr(0,url.find_first_of("/?#",start));}
@@ -79,14 +79,14 @@ struct BrowserShell::Impl {
 
   struct Frame {
     Impl& shell;HWND window{},tree{},address{},find_bar{},find_text{},cursor{},tooltips{};HFONT font{},bold{};std::map<int,HWND> controls;
-    std::string selected;std::vector<std::pair<std::string,bool>> tree_keys;Json tree_signature;bool rebuilding{},find_visible{},closing{};ULONGLONG closing_since{};
+    std::string selected;std::vector<std::pair<std::string,bool>> tree_keys;Json tree_signature,tree_titles;bool rebuilding{},find_visible{},closing{};ULONGLONG closing_since{};
     RECT page{},panel_bounds{},omnibox{},chip{};std::wstring status,chip_text;ULONGLONG status_until{};
     int sidebar{240},drag_origin{},drag_width{};bool resizing_sidebar{},sidebar_hover{};
     bool address_dirty{},setting_address{};HTREEITEM hovered_row{};std::string pressed_close,hovered_close;
     // Sampled while painting; animate() only invalidates what is still moving.
     ui::Fade address_focus;std::map<HTREEITEM,ui::Fade> row_fades;RECT glide_from{},pill{};ULONGLONG glide_start{},accent_start{};
     COLORREF accent_from{},accent_to{};bool accent_ready{},pill_valid{},tree_moving{},window_moving{},was_loading{};
-    size_t saved_accounts{};bool bookmarked{};std::string checked_url,last_find;
+    size_t saved_accounts{};bool bookmarked{};std::string checked_url,last_find,update_version;
     explicit Frame(Impl& owner):shell(owner){}
     int d(int value) const {return ui::dip(window,value);}
     HWND add(int id,const wchar_t* type,const wchar_t* caption,DWORD style=0,HWND parent=nullptr){
@@ -105,6 +105,9 @@ struct BrowserShell::Impl {
       find_text=add(FindText,L"EDIT",L"",WS_TABSTOP|ES_AUTOHSCROLL,find_bar);
       tree=add(Tree,WC_TREEVIEWW,ui::tr(L"Workspace tabs"),WS_TABSTOP|TVS_HASBUTTONS|TVS_LINESATROOT|TVS_SHOWSELALWAYS|TVS_FULLROWSELECT|TVS_NOHSCROLL);
       SetWindowSubclass(tree,tree_proc,3,reinterpret_cast<DWORD_PTR>(this));TreeView_SetExtendedStyle(tree,TVS_EX_DOUBLEBUFFER,TVS_EX_DOUBLEBUFFER);TreeView_SetItemHeight(tree,d(TabRow));
+      // The scrollbar sits on the sidebar's outer edge, so it never separates
+      // the selected tab from the page frame it joins.
+      SetWindowLongPtrW(tree,GWL_EXSTYLE,GetWindowLongPtrW(tree,GWL_EXSTYLE)|WS_EX_LEFTSCROLLBAR);SetWindowPos(tree,nullptr,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
       SetWindowSubclass(address,edit_proc,1,reinterpret_cast<DWORD_PTR>(this));SetWindowSubclass(find_text,edit_proc,2,reinterpret_cast<DWORD_PTR>(this));
       cursor=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,L"XenonAgentCursor",ui::tr(L"Agent pointer"),WS_POPUP,0,0,25,30,window,nullptr,branding_module(),this);
       SetLayeredWindowAttributes(cursor,RGB(255,0,255),255,LWA_COLORKEY);
@@ -114,8 +117,10 @@ struct BrowserShell::Impl {
       SetWindowTheme(tooltips,L"",L"");SendMessageW(tooltips,TTM_SETTIPBKCOLOR,colors.surface,0);SendMessageW(tooltips,TTM_SETTIPTEXTCOLOR,colors.ink,0);
       for(const auto& [id,control]:controls){ui::control_theme(control);InvalidateRect(control,nullptr,TRUE);}InvalidateRect(window,nullptr,TRUE);InvalidateRect(find_bar,nullptr,TRUE);}
     void place(int id,int x,int y,int width,int height){MoveWindow(controls.at(id),d(x),d(y),d(width),d(height),TRUE);}
-    // Chip text: a transient status message, otherwise the selected tab's owner.
-    std::wstring current_chip() const {return !status.empty()&&GetTickCount64()<status_until?status:shell.hosts.contains(selected)?state_text(selected):std::wstring{};}
+    // Chip text: a transient status message, otherwise the selected tab's owner
+    // once the broker reports it. A tab that is still opening shows no chip, so
+    // the omnibox does not shrink and regrow for every new tab.
+    std::wstring current_chip() const {return !status.empty()&&GetTickCount64()<status_until?status:shell.hosts.contains(selected)&&shell.states.contains(selected)?state_text(selected):std::wstring{};}
     int text_width(const std::wstring& text) const {auto dc=GetDC(window);auto old=SelectObject(dc,font);SIZE size{};GetTextExtentPoint32W(dc,text.c_str(),static_cast<int>(text.size()),&size);SelectObject(dc,old);ReleaseDC(window,dc);return MulDiv(size.cx,96,GetDpiForWindow(window));}
     void layout(){RECT rect{};GetClientRect(window,&rect);const int scale=GetDpiForWindow(window);const int width=MulDiv(rect.right,96,scale),height=MulDiv(rect.bottom,96,scale);
       sidebar=std::clamp(ui::sidebar_width,180,std::max(180,std::min(480,width-400)));
@@ -131,14 +136,18 @@ struct BrowserShell::Impl {
       const bool key=saved_accounts>0&&!is_private();ShowWindow(controls.at(Passwords),key?SW_SHOWNA:SW_HIDE);
       place(BookmarkStar,omni_right-33,8,28,28);place(Passwords,omni_right-63,8,28,28);
       place(Address,omni_left+16,13,std::max(60,omni_right-(key?68:38)-(omni_left+16)),19);
+      // A widened address edit can cover where a moved button was drawn; the
+      // edit does not repaint that newly covered strip on its own.
+      if(address)RedrawWindow(address,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_FRAME);
       place(NewTab,8,ToolbarHeight+4,sidebar-16,32);place(Tree,6,ToolbarHeight+42,sidebar-12,std::max(60,height-ToolbarHeight-50));
       // The tree view repaints only newly exposed pixels on resize, but each
       // row's close button and pill are positioned from its full width.
       InvalidateRect(tree,nullptr,FALSE);
-      // The page stays rectangular inside the frame's straight edges; the
-      // curved footer is reserved instead of masking website pixels.
+      // Every frame corner is rounded. The page stays rectangular inside the
+      // straight edges: equal strips above and below it clear the curves
+      // instead of masking website pixels.
       panel_bounds={d(sidebar),d(ToolbarHeight),rect.right-d(8),rect.bottom-d(8)};
-      page={panel_bounds.left,panel_bounds.top,panel_bounds.right,panel_bounds.bottom-d(8)};
+      page={panel_bounds.left,panel_bounds.top+d(FrameRadius),panel_bounds.right,panel_bounds.bottom-d(FrameRadius)};
       RECT inner=page;InflateRect(&inner,-d(2),-d(2));
       for(auto& [id,host]:shell.hosts)if(host.frame==this){SetWindowPos(host.window,nullptr,inner.left,inner.top,std::max<int>(1,inner.right-inner.left),std::max<int>(1,inner.bottom-inner.top),SWP_NOACTIVATE|SWP_NOZORDER);
         if(host.browser)SetWindowPos(host.browser,nullptr,0,0,std::max<int>(1,inner.right-inner.left),std::max<int>(1,inner.bottom-inner.top),SWP_NOACTIVATE|SWP_NOZORDER);}
@@ -167,15 +176,21 @@ struct BrowserShell::Impl {
     }
     void open_workspace(const std::string& id){if(!shell.workspace_names.contains(id)||!empty_workspace(id))return;open_tab(id,"about:blank");}
     RECT close_rect(HTREEITEM item) const {RECT rect{};if(!TreeView_GetItemRect(tree,item,&rect,FALSE))return {};RECT bounds{};GetClientRect(tree,&bounds);rect.left=bounds.right-d(32);rect.right=bounds.right-d(8);rect.top+=d(5);rect.bottom-=d(5);return rect;}
-    // Workspace rows show "+" (new tab) and "…" (workspace menu) buttons.
-    RECT group_button(HTREEITEM item,int index) const {auto rect=close_rect(item);if(index==1)OffsetRect(&rect,-d(26),0);return rect;}
+    // Workspace rows keep "+" (new tab, slot 0) in the outer slot at all times;
+    // hovering adds "…" (workspace menu, slot 1) beside it. Neither moves.
+    enum GroupButton {GroupPlus=0,GroupMore=1};
+    RECT group_button(HTREEITEM item,int index) const {auto rect=close_rect(item);if(index==GroupMore)OffsetRect(&rect,-d(26),0);return rect;}
     std::pair<std::string,bool> key_of(HTREEITEM item) const {TVITEMW value{};value.hItem=item;value.mask=TVIF_PARAM;if(!item||!TreeView_GetItem(tree,&value)||value.lParam<=0||static_cast<size_t>(value.lParam)>tree_keys.size())return {};return tree_keys[value.lParam-1];}
     HTREEITEM item_at(POINT point) const {TVHITTESTINFO hit{};hit.pt=point;return TreeView_HitTest(tree,&hit);}
     std::string close_at(POINT point) const {const auto item=item_at(point);const auto [id,group]=key_of(item);if(id.empty()||group)return {};const auto host=shell.hosts.find(id);if(host!=shell.hosts.end()&&host->second.pinned)return {};auto rect=close_rect(item);return PtInRect(&rect,point)?id:std::string{};}
+    // Only buttons that are drawn can be hit: "…" exists while its row is hovered.
     int group_button_at(POINT point,std::string& group) const {const auto item=item_at(point);const auto [id,is_group]=key_of(item);if(id.empty()||!is_group)return -1;
-      for(int index:{0,1}){auto rect=group_button(item,index);if(PtInRect(&rect,point)){group=id;return index;}}return -1;}
+      for(int index:{GroupPlus,GroupMore}){if(index==GroupMore&&item!=hovered_row)continue;auto rect=group_button(item,index);if(PtInRect(&rect,point)){group=id;return index;}}return -1;}
     void choose(const std::string& id,bool focus){auto found=shell.hosts.find(id);if(found==shell.hosts.end()||found->second.frame!=this)return;
-      if(selected!=id){RECT from{};const bool visible=pill_rect(from);glide_from=from;glide_start=visible&&ui::motion()?GetTickCount64():0;address_dirty=false;set_address(str(found->second.metadata,"url"));}selected=id;
+      if(selected!=id){RECT from{};const bool visible=pill_rect(from);glide_from=from;glide_start=visible&&ui::motion()?GetTickCount64():0;address_dirty=false;set_address(str(found->second.metadata,"url"));
+        // Keyboard tab switching can choose a row outside the visible sidebar.
+        // A scrolled sidebar has no meaningful glide origin.
+        if(auto item=item_of(id)){const auto top=TreeView_GetFirstVisible(tree);TreeView_EnsureVisible(tree,item);if(TreeView_GetFirstVisible(tree)!=top)glide_start=0;}}selected=id;
       status.clear();track_accent();
       SetWindowPos(found->second.window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);if(find_visible)SetWindowPos(find_bar,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
       // Only the foreground window's tab is Chromium's focus target.
@@ -209,7 +224,11 @@ struct BrowserShell::Impl {
       retitle(Reload,metadata.value("loading",false)?ui::tr(L"Stop"):ui::tr(L"Reload"));
       retitle(BookmarkStar,bookmarked?ui::tr(L"Remove bookmark"):ui::tr(L"Bookmark this tab"));
       auto title=found==shell.hosts.end()?ui::tr(L"Xenon Browser"):short_title(ui::tab_title(str(metadata,"title"),str(metadata,"url")),100)+L" — Xenon";if(ui::text(window)!=ui::utf8(title))SetWindowTextW(window,title.c_str());
-      auto caption=ui::tr(L"Controls")+(shell.pairing_count?L" ("+std::to_wstring(shell.pairing_count)+L")":std::wstring{});if(ui::text(controls.at(Controls))!=ui::utf8(caption))retitle(Controls,caption.c_str());
+      // An available update marks Controls with a blue dot until it is installed.
+      if(auto version=shell.native.available_update();version!=update_version){update_version=std::move(version);InvalidateRect(controls.at(Controls),nullptr,FALSE);}
+      auto caption=ui::tr(L"Controls")+(shell.pairing_count?L" ("+std::to_wstring(shell.pairing_count)+L")":std::wstring{});
+      if(!update_version.empty())caption+=L" · "+ui::format(ui::tr(L"Xenon {0} is available"),{ui::wide(update_version)});
+      if(ui::text(controls.at(Controls))!=ui::utf8(caption))retitle(Controls,caption.c_str());
       if(current_chip()!=chip_text)layout();
       if(str(metadata,"url")!=checked_url)refresh_page_state();
     }
@@ -242,8 +261,8 @@ struct BrowserShell::Impl {
       if(target==accent_to)return;accent_from=accent();accent_to=target;accent_start=ui::motion()?GetTickCount64():0;}
     double row_hover(HTREEITEM item) const {auto found=row_fades.find(item);return found!=row_fades.end()?found->second.value(ui::hover_duration):item==hovered_row?1.0:0.0;}
     bool loading() const {auto found=shell.hosts.find(selected);return found!=shell.hosts.end()&&found->second.metadata.value("loading",false);}
-    // The page frame's top edge doubles as the loading bar.
-    RECT loading_strip() const {return {page.left+d(2),page.top,page.right-d(2),page.top+d(2)};}
+    // The straight part of the page frame's top edge doubles as the loading bar.
+    RECT loading_strip() const {return {panel_bounds.left+d(FrameRadius),panel_bounds.top,panel_bounds.right-d(FrameRadius),panel_bounds.top+d(2)};}
     void paint_loading(HDC dc,COLORREF tint) const {if(!loading())return;const auto strip=loading_strip();const LONG width=strip.right-strip.left;if(width<=0)return;
       if(!ui::motion()){ui::fill(dc,strip,ui::mix(tint,ui::palette().ink,0.35));return;}
       ui::fill(dc,strip,ui::mix(ui::palette().surface,tint,0.2));const double phase=static_cast<double>(GetTickCount64()%LoadingCycle)/LoadingCycle;
@@ -273,9 +292,8 @@ struct BrowserShell::Impl {
         if(drop_here&&drag.group==item)ui::rounded(dc,background,ui::hover_background(),drag.blocked?colors.gray:colors.teal,d(6),d(2));
         else if(hover>0)ui::rounded(dc,background,hover_fill,hover_fill,d(6));glide();
         TVITEMW value{};value.hItem=item;value.mask=TVIF_STATE;value.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&value);RECT arrow=label;arrow.left=d(2);arrow.right=d(22);ui::icon(dc,arrow,value.state&TVIS_EXPANDED?ui::Icon::down:ui::Icon::chevron_right,emphasized?ui::selection_ink():colors.muted,window);
-        // Hover shows "…" (workspace menu) and "+"; an empty group keeps "+".
-        const bool hovered=item==hovered_row;std::vector<std::pair<int,ui::Icon>> buttons;
-        if(hovered)buttons={{0,ui::Icon::more},{1,ui::Icon::plus}};else if(empty_workspace(id))buttons={{0,ui::Icon::plus}};
+        const bool hovered=item==hovered_row;std::vector<std::pair<int,ui::Icon>> buttons{{GroupPlus,ui::Icon::plus}};
+        if(hovered)buttons.push_back({GroupMore,ui::Icon::more});
         for(const auto& [button,glyph]:buttons){auto target=group_button(item,button);if(hovered&&PtInRect(&target,pointer))ui::rounded(dc,target,ui::hover_background(),ui::hover_background(),d(5));
           ui::icon(dc,target,glyph,colors.muted,window);label.right=std::min(label.right,target.left-d(4));}
         label.left=d(24);ui::text(dc,label,ui::wide(shell.workspace_names.contains(id)?shell.workspace_names.at(id):ui::tr8("Workspace")),bold,emphasized?ui::selection_ink():colors.muted);return;}
@@ -302,11 +320,8 @@ struct BrowserShell::Impl {
       if(const auto focus=address_focus.value(FocusDuration);focus>0)ui::outline(dc,omnibox,ui::mix(colors.surface,tint,focus),d(16),d(2));
       // Ownership reads as a dot in the frame's color, then the owner or status.
       if(chip.right>chip.left){auto text_rect=chip;const int radius=d(4);ui::dot(dc,{chip.left+d(10),(chip.top+chip.bottom)/2},radius,tint);text_rect.left+=d(20);text_rect.right-=d(4);ui::text(dc,text_rect,chip_text,font,colors.muted);}
-      ui::rounded(dc,panel_bounds,colors.surface,tint,d(8),d(2));
-      // Square top corners join the page frame to the toolbar.
-      const int thickness=d(2),radius=d(8);
-      for(const bool left:{true,false}){const LONG x=left?panel_bounds.left:panel_bounds.right-radius;ui::fill(dc,{x,panel_bounds.top,x+radius,panel_bounds.top+radius},colors.surface);
-        ui::fill(dc,{x,panel_bounds.top,x+radius,panel_bounds.top+thickness},tint);const LONG edge=left?panel_bounds.left:panel_bounds.right-thickness;ui::fill(dc,{edge,panel_bounds.top,edge+thickness,panel_bounds.top+radius},tint);}
+      const int thickness=d(2),radius=d(FrameRadius);
+      ui::rounded(dc,panel_bounds,colors.surface,tint,radius,thickness);
       paint_loading(dc,tint);
       RECT row{};if(pill_rect(row)){MapWindowPoints(tree,window,reinterpret_cast<POINT*>(&row),2);RECT rail{};GetWindowRect(tree,&rail);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&rail),2);RECT bridge{rail.right,row.top,panel_bounds.left+d(2),row.bottom};
         if(bridge.top>panel_bounds.top+radius){ui::fill(dc,bridge,colors.surface);
@@ -319,23 +334,48 @@ struct BrowserShell::Impl {
       RECT glyph{rect.left+d(4),rect.top,rect.left+d(28),rect.bottom};ui::icon(copy.hDC,glyph,ui::Icon::plus,colors.ink,copy.hwndItem);
       RECT caption{rect.left+d(32),rect.top,rect.right-d(8),rect.bottom};ui::text(copy.hDC,caption,ui::tr(L"New tab"),font,colors.ink);
       if(copy.itemState&ODS_FOCUS){auto ring=rect;ui::focus_mark(copy.hDC,ring,copy.hwndItem,8);}});}
-    void rebuild_tree(){Json signature=Json::array();for(const auto& [id,name]:shell.workspace_names)signature.push_back({id,name});
-      for(const auto& id:shell.order)if(auto found=shell.hosts.find(id);found!=shell.hosts.end()&&found->second.frame==this)signature.push_back({id,found->second.workspace,str(found->second.metadata,"title"),found->second.pinned});
-      if(signature==tree_signature)return;tree_signature=signature;std::set<std::string> expanded;
+    HTREEITEM item_for(const std::pair<std::string,bool>& key) const {
+      if(!key.second)return item_of(key.first);
+      for(auto group=TreeView_GetRoot(tree);group;group=TreeView_GetNextSibling(tree,group))if(key_of(group)==key)return group;
+      return nullptr;
+    }
+    static std::wstring row_label(const Host& host){return short_title(ui::tab_title(str(host.metadata,"title"),str(host.metadata,"url")),37);}
+    // Loading pages change titles often. Relabel rows in place rather than
+    // rebuilding, so the sidebar neither flashes nor loses its scroll position.
+    void relabel_tree(){
+      for(auto group=TreeView_GetRoot(tree);group;group=TreeView_GetNextSibling(tree,group))for(auto item=TreeView_GetChild(tree,group);item;item=TreeView_GetNextSibling(tree,item)){
+        const auto [id,is_group]=key_of(item);const auto found=shell.hosts.find(id);if(is_group||found==shell.hosts.end())continue;
+        auto label=row_label(found->second);TVITEMW value{};value.hItem=item;value.mask=TVIF_TEXT;value.pszText=label.data();TreeView_SetItem(tree,&value);}
+      InvalidateRect(tree,nullptr,FALSE);
+    }
+    void rebuild_tree(){Json signature=Json::array(),titles=Json::array();for(const auto& [id,name]:shell.workspace_names)signature.push_back({id,name});
+      for(const auto& id:shell.order)if(auto found=shell.hosts.find(id);found!=shell.hosts.end()&&found->second.frame==this){signature.push_back({id,found->second.workspace,found->second.pinned});titles.push_back(ui::utf8(row_label(found->second)));}
+      if(signature==tree_signature){if(titles!=tree_titles){tree_titles=std::move(titles);relabel_tree();}return;}
+      tree_signature=signature;tree_titles=std::move(titles);std::set<std::string> expanded;
+      // Structural rebuilds keep the row that was at the top of the sidebar.
+      const auto anchor=key_of(TreeView_GetFirstVisible(tree));
       for(auto item=TreeView_GetRoot(tree);item;item=TreeView_GetNextSibling(tree,item)){TVITEMW entry{};entry.hItem=item;entry.mask=TVIF_PARAM|TVIF_STATE;entry.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&entry);
         if(entry.lParam>0&&static_cast<size_t>(entry.lParam)<=tree_keys.size()&&((entry.state&TVIS_EXPANDED)||!TreeView_GetChild(tree,item)))expanded.insert(tree_keys[entry.lParam-1].first);}
-      std::set<std::string> known;for(const auto& [id,group]:tree_keys)if(group)known.insert(id);
+      std::set<std::string> known,previous_tabs;for(const auto& [id,group]:tree_keys)(group?known:previous_tabs).insert(id);
+      // A newly opened, selected tab reveals its workspace even if it was
+      // collapsed, and scrolls into view. Other rebuilds keep the scroll position.
+      const bool fresh=!selected.empty()&&!previous_tabs.contains(selected)&&shell.hosts.contains(selected);
+      if(fresh)expanded.insert(shell.hosts.at(selected).workspace);
       const bool first=tree_keys.empty();rebuilding=true;hovered_row=nullptr;hovered_close.clear();row_fades.clear();SendMessageW(tree,WM_SETREDRAW,FALSE,0);TreeView_DeleteAllItems(tree);tree_keys.clear();std::map<std::string,HTREEITEM> groups;HTREEITEM current=nullptr;
       auto add_group=[&](const std::string& id){if(groups.contains(id))return;auto label=ui::wide(shell.workspace_names.contains(id)?shell.workspace_names.at(id):ui::tr8("Workspace"));tree_keys.emplace_back(id,true);TVINSERTSTRUCTW entry{};entry.hParent=TVI_ROOT;entry.hInsertAfter=TVI_LAST;entry.item.mask=TVIF_TEXT|TVIF_PARAM;entry.item.pszText=label.data();entry.item.lParam=static_cast<LPARAM>(tree_keys.size());groups[id]=TreeView_InsertItem(tree,&entry);};
       if(shell.workspace_names.contains("native-default"))add_group("native-default");for(const auto& [id,name]:shell.workspace_names)add_group(id);
       // Pinned tabs lead their workspace group, then tabs in window order.
       for(const bool pinned:{true,false})for(const auto& id:shell.order)if(auto found=shell.hosts.find(id);found!=shell.hosts.end()&&found->second.frame==this&&found->second.pinned==pinned){
         auto& host=found->second;add_group(host.workspace);
-        auto label=short_title(ui::tab_title(str(host.metadata,"title"),str(host.metadata,"url")),37);tree_keys.emplace_back(id,false);
+        auto label=row_label(host);tree_keys.emplace_back(id,false);
         TVINSERTSTRUCTW entry{};entry.hParent=groups[host.workspace];entry.hInsertAfter=TVI_LAST;entry.item.mask=TVIF_TEXT|TVIF_PARAM;entry.item.pszText=label.data();entry.item.lParam=static_cast<LPARAM>(tree_keys.size());auto item=TreeView_InsertItem(tree,&entry);if(id==selected)current=item;
       }
       for(const auto& [id,group]:groups)if(first||!known.contains(id)||expanded.contains(id))TreeView_Expand(tree,group,TVE_EXPAND);
-      if(current&&(first||expanded.contains(shell.hosts.at(selected).workspace)||!known.contains(shell.hosts.at(selected).workspace)))TreeView_SelectItem(tree,current);SendMessageW(tree,WM_SETREDRAW,TRUE,0);InvalidateRect(tree,nullptr,TRUE);rebuilding=false;
+      if(current&&(first||expanded.contains(shell.hosts.at(selected).workspace)||!known.contains(shell.hosts.at(selected).workspace)))TreeView_SelectItem(tree,current);SendMessageW(tree,WM_SETREDRAW,TRUE,0);
+      if(const auto first_row=anchor.first.empty()?nullptr:item_for(anchor))TreeView_SelectSetFirstVisible(tree,first_row);
+      if(fresh&&current){const auto top=TreeView_GetFirstVisible(tree);TreeView_EnsureVisible(tree,current);if(TreeView_GetFirstVisible(tree)!=top)glide_start=0;}
+      // Every row and the empty area are painted in full; erasing first would flash.
+      InvalidateRect(tree,nullptr,FALSE);rebuilding=false;
     }
     PointerPoint parked(const Host& host) const {RECT rect{};GetClientRect(host.window,&rect);const double scale=GetDpiForWindow(host.window)/96.0*host.metadata.value("zoom",1.0);const auto random=seed();return {rect.right/scale*(.76+(random%100)/1000.0),rect.bottom/scale*(.76+((random/100)%100)/1000.0)};}
     void update_cursor(){auto found=shell.hosts.find(selected);if(found==shell.hosts.end()||found->second.frame!=this||!found->second.agent||!IsWindowVisible(window)||IsIconic(window)){ShowWindow(cursor,SW_HIDE);return;}auto& host=found->second;
@@ -358,6 +398,8 @@ struct BrowserShell::Impl {
     void focus_address(){SetFocus(address);SendMessageW(address,EM_SETSEL,0,-1);}
     void popup(HMENU menu,int id){RECT rect{};GetWindowRect(controls.at(id),&rect);const auto chosen=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_RIGHTALIGN|TPM_TOPALIGN,rect.right,rect.bottom+d(2),0,window,nullptr);DestroyMenu(menu);if(chosen)command(chosen);}
     void menu(){auto popup_menu=CreatePopupMenu();auto item=[&](HMENU target,int id,const wchar_t* caption,bool enabled=true){AppendMenuW(target,MF_STRING|(enabled?0:MF_GRAYED),id,caption);};const auto separator=[&](HMENU target){AppendMenuW(target,MF_SEPARATOR,0,nullptr);};
+      // As in Chromium, an available update leads the menu.
+      if(!update_version.empty()){const auto caption=ui::format(ui::tr(L"Update Xenon to {0}…"),{ui::wide(update_version)});item(popup_menu,MenuUpdates,caption.c_str());separator(popup_menu);}
       item(popup_menu,MenuNewTab,ui::tr(L"New tab\tCtrl+T"));item(popup_menu,MenuNewWindow,ui::tr(L"New window\tCtrl+N"));item(popup_menu,MenuPrivate,ui::tr(L"New private workspace\tCtrl+Shift+N"));separator(popup_menu);
       item(popup_menu,MenuHistory,ui::tr(L"History\tCtrl+H"));item(popup_menu,MenuDownloads,ui::tr(L"Downloads\tCtrl+J"));item(popup_menu,MenuBookmarks,ui::tr(L"Bookmarks"));item(popup_menu,MenuPasswords,ui::tr(L"Passwords"));item(popup_menu,MenuManageExtensions,ui::tr(L"Extensions"));separator(popup_menu);
       item(popup_menu,MenuReopenTab,ui::tr(L"Reopen closed tab\tCtrl+Shift+T"),!shell.closed_tabs.empty());item(popup_menu,MenuCloseWorkspaceTabs,ui::tr(L"Close all tabs in this workspace…"),shell.workspace_tab_count(workspace())>0);separator(popup_menu);
@@ -422,10 +464,13 @@ struct BrowserShell::Impl {
     static LRESULT CALLBACK tree_proc(HWND control,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR owner){auto self=reinterpret_cast<Frame*>(owner);auto& shell=self->shell;
       if(message==WM_KEYDOWN&&wp==VK_ESCAPE&&shell.drag.active){shell.drag_cancel();return 0;}
       if(message==WM_KEYDOWN&&(wp==VK_DELETE||wp==VK_RETURN)){const auto [id,group]=self->key_of(TreeView_GetSelection(control));if(!id.empty()){if(wp==VK_DELETE&&!group){shell.engine.native_command(id,"close");return 0;}if(wp==VK_RETURN&&group&&self->empty_workspace(id)){self->open_workspace(id);return 0;}}}
-      if(message==WM_LBUTTONDOWN){const POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
+      // A quick second click arrives as a double-click. On a row button it is
+      // another press of that button; the tree would otherwise toggle the
+      // workspace's expansion.
+      if(message==WM_LBUTTONDOWN||message==WM_LBUTTONDBLCLK){const POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
         self->pressed_close=self->close_at(point);if(!self->pressed_close.empty()){SetCapture(control);return 0;}
         std::string group;const int button=self->group_button_at(point,group);
-        if(button>=0){POINT screen=point;ClientToScreen(control,&screen);if(button==0)self->group_menu(group,screen);else self->open_tab(group,"about:blank");return 0;}}
+        if(button>=0){POINT screen=point;ClientToScreen(control,&screen);if(button==GroupMore)self->group_menu(group,screen);else self->open_tab(group,"about:blank");return 0;}}
       if(message==WM_LBUTTONUP&&!self->pressed_close.empty()){auto id=std::exchange(self->pressed_close,{});if(GetCapture()==control)ReleaseCapture();if(id==self->close_at({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)}))shell.engine.native_command(id,"close");return 0;}
       if(message==WM_CAPTURECHANGED||message==WM_CANCELMODE)self->pressed_close.clear();
       if(message==WM_MBUTTONUP){const auto [id,group]=self->key_of(self->item_at({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)}));if(!id.empty()&&!group)shell.engine.native_command(id,"close");return 0;}
@@ -702,8 +747,11 @@ struct BrowserShell::Impl {
 #endif
         if(item->CtlID==NewTab){self->draw_new_tab(*item);return TRUE;}
         ui::button(*item,self->font,self->button_icon(static_cast<int>(item->CtlID)));
-        // A pending pairing request marks Controls with a small orange dot.
-        if(item->CtlID==Controls&&shell.pairing_count){const int radius=self->d(4);ui::dot(item->hDC,{item->rcItem.right-self->d(7),item->rcItem.top+self->d(7)},radius,ui::palette().orange);}
+        // Controls carries small dots: orange for a pending pairing request,
+        // blue for an available update (below the orange one when both show).
+        if(item->CtlID==Controls){const int radius=self->d(4);const LONG x=item->rcItem.right-self->d(7);
+          if(shell.pairing_count)ui::dot(item->hDC,{x,item->rcItem.top+self->d(7)},radius,ui::palette().orange);
+          if(!self->update_version.empty())ui::dot(item->hDC,{x,shell.pairing_count?item->rcItem.bottom-self->d(7):item->rcItem.top+self->d(7)},radius,ui::notice_blue());}
         return TRUE;}break;}
       case WM_NOTIFY:{auto notice=reinterpret_cast<NMHDR*>(lp);
         if(notice->hwndFrom!=self->tree)break;

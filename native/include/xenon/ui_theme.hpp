@@ -27,6 +27,9 @@ inline const char* web_color_scheme_switch(ThemeMode mode) {return mode==ThemeMo
 inline int sidebar_width=240;
 inline std::filesystem::path settings_path;
 inline bool introduction_completed{};
+// Metadata-only release checks in the background. Downloading and installing
+// always remain explicit native actions.
+inline bool automatic_update_checks=true;
 inline bool high_contrast() {HIGHCONTRASTW value{sizeof(value)};return SystemParametersInfoW(SPI_GETHIGHCONTRAST,sizeof(value),&value,0)&&(value.dwFlags&HCF_HIGHCONTRASTON);}
 inline Palette palette() {
   if(high_contrast())return {GetSysColor(COLOR_WINDOW),GetSysColor(COLOR_WINDOW),GetSysColor(COLOR_WINDOWTEXT),GetSysColor(COLOR_WINDOWTEXT),GetSysColor(COLOR_WINDOWFRAME),GetSysColor(COLOR_HIGHLIGHT),GetSysColor(COLOR_HIGHLIGHT),GetSysColor(COLOR_WINDOWFRAME),false,true};
@@ -38,19 +41,24 @@ inline Palette palette() {
 inline void load_theme(const std::filesystem::path& root) {
   settings_path=root/"ui-settings.json";
   language=preferred_language=Language::english;
-  introduction_completed=false;
+  introduction_completed=false;automatic_update_checks=true;
   try{if(std::filesystem::exists(settings_path)&&std::filesystem::file_size(settings_path)<4096){Json value;std::ifstream(settings_path)>>value;
     const auto mode=value.value("theme",std::string("system"));theme_mode=mode=="dark"?ThemeMode::dark:mode=="light"?ThemeMode::light:ThemeMode::system;
     if(auto locale=value.find("language");locale!=value.end()&&locale->is_string())
       language=preferred_language=*locale=="zh-CN"?Language::simplified_chinese:Language::english;
     if(auto completed=value.find("introductionCompleted");completed!=value.end()&&completed->is_boolean())introduction_completed=completed->get<bool>();
+    if(auto updates=value.find("automaticUpdateChecks");updates!=value.end()&&updates->is_boolean())automatic_update_checks=updates->get<bool>();
     if(auto width=value.find("sidebarWidth");width!=value.end()&&width->is_number_integer())sidebar_width=std::clamp(width->get<int>(),180,480);}}catch(...){}
 }
 inline bool save_settings() {
-  try{auto temporary=settings_path;temporary+=L".tmp";{std::ofstream stream(temporary);stream<<Json{{"version",1},{"theme",theme_mode==ThemeMode::dark?"dark":theme_mode==ThemeMode::light?"light":"system"},{"sidebarWidth",sidebar_width},{"language",language_tag(preferred_language)},{"introductionCompleted",introduction_completed}};stream.flush();if(!stream)return false;}
+  try{auto temporary=settings_path;temporary+=L".tmp";{std::ofstream stream(temporary);stream<<Json{{"version",1},{"theme",theme_mode==ThemeMode::dark?"dark":theme_mode==ThemeMode::light?"light":"system"},{"sidebarWidth",sidebar_width},{"language",language_tag(preferred_language)},{"introductionCompleted",introduction_completed},{"automaticUpdateChecks",automatic_update_checks}};stream.flush();if(!stream)return false;}
     local_security::restrict_path(temporary);return MoveFileExW(temporary.c_str(),settings_path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE;}catch(...){return false;}
 }
 inline bool save_theme(ThemeMode mode) {theme_mode=mode;return save_settings();}
+inline bool save_automatic_update_checks(bool enabled) {
+  const auto previous=automatic_update_checks;automatic_update_checks=enabled;
+  if(save_settings())return true;automatic_update_checks=previous;return false;
+}
 inline bool save_language(Language value) {
   const auto previous=preferred_language;preferred_language=value;
   if(save_settings())return true;preferred_language=previous;return false;
@@ -69,6 +77,9 @@ inline void fill(HDC dc,RECT rect,COLORREF color) {auto brush=CreateSolidBrush(c
 inline COLORREF selection() {const auto colors=palette();return colors.contrast?GetSysColor(COLOR_HIGHLIGHT):colors.dark?RGB(65,65,65):RGB(228,228,228);}
 inline COLORREF hover_background() {const auto colors=palette();return colors.contrast?GetSysColor(COLOR_HIGHLIGHT):colors.dark?RGB(80,80,80):RGB(226,226,226);}
 inline COLORREF selection_ink() {return palette().contrast?GetSysColor(COLOR_HIGHLIGHTTEXT):palette().ink;}
+// The notification dot for an available update, distinct from the ownership
+// accents (teal/orange) used for agents and pairing requests.
+inline COLORREF notice_blue() {const auto colors=palette();return colors.contrast?GetSysColor(COLOR_HOTLIGHT):colors.dark?RGB(96,165,250):RGB(0,103,192);}
 // Native chrome motion follows the Windows "Animation effects" setting and is
 // off in high contrast. Website geometry never animates; only shell paint does.
 inline int motion_override=-1;

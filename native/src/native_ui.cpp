@@ -217,8 +217,12 @@ struct NativeUi::Impl {
     SendMessageW(handle,WM_SIZE,0,0);ShowWindow(handle,SW_SHOWNORMAL);SetForegroundWindow(handle);configurations.push_back(std::move(config));
   }
   HWND update_window{},update_latest{},update_message{},update_progress{};
-  HWND update_check{},update_download{},update_install{},update_cancel{};
+  HWND update_check{},update_download{},update_install{},update_cancel{},update_automatic{};
   uint64_t update_shown_revision=~uint64_t{};int update_percent=-1;
+  // Automatic checks fetch release metadata only: shortly after start, then
+  // every six hours. They never download or install.
+  static constexpr ULONGLONG first_update_check=20000,update_check_interval=6ull*60*60*1000;
+  ULONGLONG next_update_check{};std::string shown_update_version;
   Impl(Broker& b,CefEngine& e,Vault& v,FilePolicy& f,ExtensionStore& x):broker(b),engine(e),vault(v),files(f),extensions(x){}
   void text_style(HWND control,TextTone tone,HFONT face=nullptr){
     SetPropW(control,TextToneProperty,reinterpret_cast<HANDLE>(static_cast<INT_PTR>(tone)));
@@ -355,7 +359,7 @@ struct NativeUi::Impl {
   }
   void close_updates(){
     cancel_update();auto target=std::exchange(update_window,nullptr);
-    update_latest=nullptr;update_message=nullptr;update_progress=nullptr;update_check=nullptr;update_download=nullptr;update_install=nullptr;update_cancel=nullptr;
+    update_latest=nullptr;update_message=nullptr;update_progress=nullptr;update_check=nullptr;update_download=nullptr;update_install=nullptr;update_cancel=nullptr;update_automatic=nullptr;
     update_shown_revision=~uint64_t{};update_percent=-1;if(target&&IsWindow(target))DestroyWindow(target);
   }
   void poll_updates(){
@@ -389,6 +393,8 @@ struct NativeUi::Impl {
   void update_command(int id){
     if(id==1)begin_update_check();else if(id==2)begin_update_download();else if(id==3)begin_update_install();
     else if(id==4){bool busy;{std::lock_guard lock(update_state->mutex);busy=update_busy(update_state->phase);}if(busy){cancel_update();poll_updates();}else close_updates();}
+    else if(id==5){const bool enabled=SendMessageW(update_automatic,BM_GETCHECK,0,0)==BST_CHECKED;
+      if(!ui::save_automatic_update_checks(enabled)){SendMessageW(update_automatic,BM_SETCHECK,ui::automatic_update_checks?BST_CHECKED:BST_UNCHECKED,0);SetWindowTextW(update_message,ui::tr(L"The update preference could not be saved. Try again."));}}
   }
   static LRESULT CALLBACK update_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){
     auto self=reinterpret_cast<Impl*>(GetWindowLongPtrW(h,GWLP_USERDATA));
@@ -417,10 +423,13 @@ struct NativeUi::Impl {
       window_icon(update_window);
       auto add_update=[&](int id,const wchar_t* type,const wchar_t* caption,int x,int y,int width,int height,DWORD extra=0){
         auto control=CreateWindowExW(0,type,caption,WS_CHILD|WS_VISIBLE|ui::styles(type,extra),x,y,width,height,update_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);
-        SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);if(std::wstring(type)==L"BUTTON")button_style(control,id==3?ButtonTone::primary:ButtonTone::normal);return control;
+        SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);
+        if(std::wstring(type)==L"BUTTON"){if((extra&BS_TYPEMASK)==BS_AUTOCHECKBOX)ui::control_theme(control);else button_style(control,id==3?ButtonTone::primary:ButtonTone::normal);}
+        return control;
       };
       text_style(add_update(0,L"STATIC",ui::tr(L"Xenon  /  Updates"),60,16,252,27),TextTone::brand,heading_font);
-      text_style(add_update(0,L"STATIC",ui::tr(L"Automatic checks are off"),327,21,286,20,SS_RIGHT),TextTone::brand_muted,small_font);
+      update_automatic=add_update(5,L"BUTTON",ui::tr(L"Check for updates automatically"),367,19,246,24,BS_AUTOCHECKBOX|WS_TABSTOP);
+      SendMessageW(update_automatic,BM_SETCHECK,ui::automatic_update_checks?BST_CHECKED:BST_UNCHECKED,0);
       text_style(add_update(0,L"STATIC",wide(ui::tr8("Current version: ")+std::string(kVersion)).c_str(),26,84,588,24),TextTone::heading,heading_font);
       update_latest=add_update(0,L"STATIC",ui::tr(L"Available version: —"),26,117,588,22);
       update_message=add_update(0,L"STATIC",L"",26,155,588,46);
@@ -434,8 +443,35 @@ struct NativeUi::Impl {
       update_shown_revision=~uint64_t{};
     }
     poll_updates();ShowWindow(update_window,SW_SHOWNORMAL);SetForegroundWindow(update_window);
-    bool first;{std::lock_guard lock(update_state->mutex);first=update_state->phase==UpdatePhase::idle;}
-    if(first)begin_update_check();
+    // Opening Updates refreshes an old or unsuccessful result. A known update
+    // and running operations are kept.
+    if(refreshable_update_phase())begin_update_check();
+  }
+  bool refreshable_update_phase() const {
+    std::lock_guard lock(update_state->mutex);const auto phase=update_state->phase;
+    return phase==UpdatePhase::idle||phase==UpdatePhase::current||phase==UpdatePhase::failed||phase==UpdatePhase::canceled;
+  }
+  // Background checks follow the saved preference and never replace a known
+  // update, a download or an installation.
+  void automatic_update_check(){
+#if !defined(XENON_TEST_FIXTURE_CERT_SHA256) // Synthetic live suites never contact the release service on their own.
+    const auto now=GetTickCount64();
+    if(!next_update_check){next_update_check=now+first_update_check;return;}
+    if(now<next_update_check)return;
+    next_update_check=now+update_check_interval;
+    if(ui::automatic_update_checks&&refreshable_update_phase())begin_update_check();
+#endif
+  }
+  std::string available_update() const {
+    std::lock_guard lock(update_state->mutex);
+    return update_state->release&&update_state->phase!=UpdatePhase::checking?update_state->release->version:std::string{};
+  }
+  // Controls' update button names an available release.
+  void sync_update_button(){
+    auto found=controls.find(CheckUpdates);if(found==controls.end())return;
+    const auto version=available_update();if(version==shown_update_version)return;shown_update_version=version;
+    SetWindowTextW(found->second,version.empty()?ui::tr(L"Check for updates"):ui::format(ui::tr(L"Update to {0}"),{wide(version)}).c_str());
+    button_style(found->second,version.empty()?ButtonTone::normal:ButtonTone::primary);InvalidateRect(found->second,nullptr,TRUE);
   }
   void close_login_prompt(bool dismiss){
     auto id=std::exchange(login_candidate,{});auto h=std::exchange(login_window,nullptr);login_accept=nullptr;login_status=nullptr;
@@ -1133,7 +1169,7 @@ struct NativeUi::Impl {
         for(const auto& placement:self->placements){const auto face=reinterpret_cast<HFONT>(SendMessageW(placement.control,WM_GETFONT,0,0));for(int n=0;n<4;++n)if(face==previous[n]){SendMessageW(placement.control,WM_SETFONT,reinterpret_cast<WPARAM>(current[n]),TRUE);break;}}
         for(auto face:previous)DeleteObject(face);for(const auto& placement:self->placements)ui::control_theme(placement.control);SetWindowPos(h,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOACTIVATE|SWP_NOZORDER);self->layout_main();return 0;}
       case WM_GETMINMAXINFO:{auto value=reinterpret_cast<MINMAXINFO*>(lp);value->ptMinTrackSize={ui::dip(h,1160),ui::dip(h,750)};return 0;}
-      case WM_TIMER:if(!self->applied_palette||*self->applied_palette!=ui::palette())self->apply_theme();self->poll_login_prompts();self->poll_autofill();self->poll_dialog_notices();self->poll_removal_results();self->poll_updates();self->refresh();return 0;
+      case WM_TIMER:if(!self->applied_palette||*self->applied_palette!=ui::palette())self->apply_theme();self->poll_login_prompts();self->poll_autofill();self->poll_dialog_notices();self->poll_removal_results();self->poll_updates();self->automatic_update_check();self->sync_update_button();self->refresh();return 0;
       case LoginNotice:self->poll_login_prompts();return 0;
       case DialogNotice:self->poll_dialog_notices();return 0;
       case RemovalNotice:self->poll_removal_results();return 0;
@@ -1167,6 +1203,7 @@ NativeUi::~NativeUi(){
 }
 void NativeUi::show(){impl_->apply_theme();impl_->refresh();ShowWindow(impl_->window,SW_SHOWNORMAL);SetForegroundWindow(impl_->window);}
 void NativeUi::show_updates(){impl_->show_updates();}
+std::string NativeUi::available_update() const {return impl_->available_update();}
 void NativeUi::show_section(Section section,const std::string& select){impl_->show_section(static_cast<int>(section),select);}
 void NativeUi::request_autofill(const std::string& tab){impl_->toolbar_autofill_tabs.insert(tab);impl_->request_autofill(tab);}
 void NativeUi::set_update_install_callback(std::function<void(std::shared_ptr<updates::InstallerLaunch>)> callback){impl_->update_install_callback=std::move(callback);}

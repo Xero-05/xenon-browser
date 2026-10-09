@@ -118,6 +118,14 @@ int main(){try{
   reset_preferences();ui::load_theme(root);require(ui::introduction_completed&&ui::language==ui::Language::simplified_chinese&&ui::sidebar_width==310&&ui::theme_mode==ui::ThemeMode::light,"Completion restores language and preserves other preferences");
   require(ui::save_language(ui::Language::english)&&ui::save_theme(ui::ThemeMode::dark),"Later settings changes succeed");
   reset_preferences();ui::load_theme(root);require(ui::introduction_completed,"Later theme and language changes preserve completed introduction");
+  require(ui::automatic_update_checks,"Automatic update checks default on for existing settings");
+  require(ui::save_automatic_update_checks(false),"Save the automatic update preference");reset_preferences();ui::load_theme(root);
+  require(!ui::automatic_update_checks&&ui::introduction_completed&&ui::theme_mode==ui::ThemeMode::dark,"Restore a disabled automatic update preference with other settings");
+  require(ui::save_theme(ui::ThemeMode::light),"Later settings changes keep the update preference");reset_preferences();ui::load_theme(root);
+  require(!ui::automatic_update_checks,"Other saves preserve a disabled automatic update preference");
+  ui::settings_path=root/"missing"/"ui-settings.json";require(!ui::save_automatic_update_checks(true)&&!ui::automatic_update_checks,"Failed update preference save keeps the previous choice");
+  ui::settings_path=root/"ui-settings.json";require(ui::save_automatic_update_checks(true),"Re-enable automatic update checks");
+  require(ui::palette().contrast||(ui::notice_blue()!=ui::palette().teal&&ui::notice_blue()!=ui::palette().orange),"The update dot is distinct from ownership and pairing accents");
   for(const auto width:{-1000,10000}){{std::ofstream output(root/"ui-settings.json");output<<Json{{"theme","system"},{"sidebarWidth",width}};}
     reset_preferences();ui::load_theme(root);require(ui::sidebar_width==(width<0?180:480),"Bound persisted sidebar widths");}
   {std::ofstream output(root/"ui-settings.json");output<<"{ invalid settings";}
