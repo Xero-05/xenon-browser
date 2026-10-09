@@ -19,7 +19,8 @@ class CefEngine final : public BrowserEngine {
   void execute(const std::string&, const Json&, Reply) override;
   void execute_guarded(const std::string&, const Json&, std::function<bool()>, Reply) override;
   void set_event_sink(EventSink) override;
-  void native_input(CefWindowHandle window, bool busy, bool credential_input = false, bool substantive = true);
+  void native_input(CefWindowHandle window, bool busy, bool credential_input = false, bool substantive = true,
+                    bool primary_click = false);
   void set_native_key_callback(std::function<void(CefWindowHandle, UINT, WPARAM)> callback);
   void show_controls();
   void show_updates();

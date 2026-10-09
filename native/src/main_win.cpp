@@ -214,7 +214,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     return nullptr;
   }
   void emit_input(const std::optional<NativeInputPolicy::Activity>& activity){
-    if(activity&&engine_)engine_->native_input(reinterpret_cast<HWND>(activity->window),activity->busy,activity->credential_input,activity->substantive);
+    if(activity&&engine_)engine_->native_input(reinterpret_cast<HWND>(activity->window),activity->busy,activity->credential_input,activity->substantive,activity->primary_click);
   }
   void emit_input(const std::vector<NativeInputPolicy::Activity>& activities){
     for(const auto& activity:activities)emit_input(std::optional{activity});
@@ -277,7 +277,9 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     const auto press=[&](unsigned button){
       const auto page=page_for_mouse();
       if(!page)keyboard_pages_.erase(root);
-      emit_input(input_policy_.press(page,button,true,button==VK_LBUTTON||button==VK_RBUTTON,held_modifiers()));
+      auto activity=input_policy_.press(page,button,true,button==VK_LBUTTON||button==VK_RBUTTON,held_modifiers());
+      if(activity)activity->primary_click=button==VK_LBUTTON;
+      emit_input(activity);
     };
     switch(message.message){
       case WM_LBUTTONDOWN:case WM_LBUTTONDBLCLK:press(VK_LBUTTON);break;

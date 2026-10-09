@@ -148,6 +148,8 @@ struct Tab {
   size_t guarded_actions = 0;
   uint64_t autofill_requested = 0,autofill_auto_epoch = 0;
   bool autofill_human_qualified = false;
+  // The latest qualifying input was a left click, as on a login field.
+  bool autofill_click = false;
   std::set<std::string> guards;
   std::set<std::pair<std::string,int>> guard_contexts;
   std::map<std::pair<std::string,int>,std::string> guard_frames;
@@ -220,10 +222,10 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       (!current_action_->permit||current_action_->permit())));
   }
   void defer(int ms,std::function<void()> fn){auto guard=current_action_;later(ms,[self=shared_from_this(),guard,fn=std::move(fn)]{ActionScope scope(*self,guard);fn();});}
-  void human_activity(const std::shared_ptr<Tab>& t,bool held,bool credential) {
+  void human_activity(const std::shared_ptr<Tab>& t,bool held,bool credential,bool click=false) {
     t->human_busy=true;t->human_gesture=held;
     t->elements.clear();t->observation.clear();t->screenshot.clear();
-    if(credential){t->login.physical_input(std::chrono::steady_clock::now());t->autofill_human_qualified=true;}
+    if(credential){t->login.physical_input(std::chrono::steady_clock::now());t->autofill_human_qualified=true;t->autofill_click=click;}
     const auto seq=++t->human_input;
     const bool waiting=held||t->human_dialog||t->native_fill;
     const auto deadline=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()+2000;
@@ -231,7 +233,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     // Showing a native account choice does not dispatch agent input. Wait for
     // physical releases/focus to settle, independently of the agent cooldown.
     const auto offer_epoch=t->epoch,offer_request=t->autofill_requested;
-    if(!waiting&&t->autofill_human_qualified)later(250,[self=shared_from_this(),t,seq,offer_epoch,offer_request]{
+    if(!waiting&&t->autofill_human_qualified)later(150,[self=shared_from_this(),t,seq,offer_epoch,offer_request]{
       if(t->human_input==seq&&t->epoch==offer_epoch&&t->autofill_requested==offer_request&&!t->closed&&!t->human_gesture&&!t->human_dialog&&!t->native_fill&&t->autofill_human_qualified){
         t->autofill_human_qualified=false;self->autofill_request(t,true,[](Json){});
       }
@@ -341,7 +343,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   bool shutting_down_ = false;
 
   void clear_login_edit(const std::shared_ptr<Tab>& t) {
-    t->login.clear_edit();
+    t->login.clear_edit();t->login.forget_account();
   }
   void dismiss_login_id(const std::string& candidate) {
     if(vault_&&!candidate.empty())vault_->dismiss_login(candidate);
@@ -370,22 +372,40 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     SensitiveJson data{Json::parse(bytes,nullptr,false)};if(!data.value.is_object())return;
     const auto origin=Vault::normalize_https_origin(t->browser->GetMainFrame()->GetURL().ToString());
     if(!origin||field(data.value,"origin")!=*origin)return;
-    const auto kind=field(data.value,"kind"),form=field(data.value,"form");if(form.empty()||form.size()>80)return;
-    const auto now=std::chrono::steady_clock::now();
+    const auto kind=field(data.value,"kind");const auto now=std::chrono::steady_clock::now();
+    if(kind=="username") {
+      if(data.value.contains("username")&&data.value["username"].is_string())t->login.account_entered(*origin,data.value["username"].get<std::string>(),now);
+      return;
+    }
+    const auto form=field(data.value,"form");if(form.empty()||form.size()>80)return;
     if(kind=="edit") {
       if(auto canceled=t->login.password_edited(form,context,t->epoch,now))dismiss_login_id(*canceled);
       return;
     }
-    if(kind!="submit"||!t->login.consume_submission(form,context,t->epoch,now))return;
+    if(kind=="gone") {
+      if(t->login.field_gone(form,context,t->epoch))notify_login(t,t->login.candidate());
+      return;
+    }
+    // Script-driven attempts keep their edit provenance for a retry and are
+    // offered only after the page navigates or removes the password field.
+    const bool deferred=data.value.value("deferred",false);
+    if(kind!="submit"||!(deferred?t->login.attempted(form,context,t->epoch,now):t->login.consume_submission(form,context,t->epoch,now)))return;
     if(!data.value.contains("username")||!data.value["username"].is_string()||!data.value.contains("password")||!data.value["password"].is_string())return;
+    // A password step that does not repeat its account uses the account typed
+    // on an earlier step of this origin. Without one, a password-only form for
+    // an origin with saved accounts is a re-authentication, not a new login.
+    const bool missing=data.value.value("usernameMissing",false);
+    const auto remembered=missing?t->login.account(*origin,now):std::string{};
+    if(missing&&remembered.empty()){const auto saved=vault_->list_accounts(*origin);if(!saved.value("ok",false)||!saved["result"]["accounts"].empty())return;}
+    const auto& username=missing?remembered:data.value["username"].get_ref<const std::string&>();
     discard_login(t);
     t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
     event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
-    const auto candidate=vault_->propose_login(*origin,data.value["username"].get_ref<const std::string&>(),data.value["password"].get_ref<const std::string&>());
-    if(candidate){
-      t->login.proposed(candidate->candidate_id,*origin);
-      notify_login(t,candidate->candidate_id);
-    }
+    const auto candidate=vault_->propose_login(*origin,username,data.value["password"].get_ref<const std::string&>());
+    if(!candidate)return;
+    if(!deferred){t->login.proposed(candidate->candidate_id,*origin);notify_login(t,candidate->candidate_id);return;}
+    t->login.proposed_deferred(candidate->candidate_id,*origin,form,context,t->epoch);
+    later(30000,[self=shared_from_this(),t,id=candidate->candidate_id]{if(t->login.candidate()==id&&t->login.deferred())self->discard_login(t);});
   }
 
   void event(const std::string& type, Json value) {
@@ -405,7 +425,10 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     std::vector<std::string> offers;for(const auto& [id,offer]:autofill_offers_)if(offer->tab==t)offers.push_back(id);
     for(const auto& id:offers)autofill_discard(id);
     const auto origin=Vault::normalize_https_origin(t->last_url);
+    const bool deferred=t->login.deferred();
     dismiss_login_id(t->login.navigated(origin.has_value()));
+    // Navigation after a script-driven sign-in attempt readies its offer.
+    if(deferred&&!t->login.candidate().empty())notify_login(t,t->login.candidate());
     ++t->epoch; t->document = nonce(); t->elements.clear(); t->observation.clear();t->screenshot.clear();
     if(t->upload)finish_upload(t,t->upload,failure("upload_interrupted","The document changed during file selection. Observe before deciding what to do next."));
     event("tab.navigated", {{"tabId",t->id},{"workspaceId",t->workspace},{"documentId",t->document}});
@@ -511,6 +534,9 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     } else if (method=="Page.frameNavigated" && session.empty()) {
       const auto f=p.value("frame",Json::object());
       if (!f.contains("parentId")){t->main_frame=field(f,"id");t->last_url=field(f,"url");invalidate(t);persist_session();}
+    } else if (method=="Page.navigatedWithinDocument" && session.empty()) {
+      // A single-page sign-in that moves on after a script-driven attempt.
+      if(field(p,"frameId")==t->main_frame&&t->login.navigated_within_document())notify_login(t,t->login.candidate());
     } else if (method=="DOM.documentUpdated") {
       ++t->epoch;t->elements.clear(); t->observation.clear();t->screenshot.clear();
       if(t->upload)finish_upload(t,t->upload,failure("upload_interrupted","The document changed during file selection. Observe before deciding what to do next."));
@@ -1411,8 +1437,10 @@ void CefEngine::Impl::autofill_request(const std::shared_ptr<Tab>& t,bool automa
   if(!origin){unavailable();return;}
   const auto root=GetAncestor(t->browser->GetHost()->GetWindowHandle(),GA_ROOT);
   if(automatic){
+    // As in Chromium, each click on an eligible login field offers accounts
+    // again. Typing alone offers them at most once per document.
     const auto active=active_windows_.find(root);
-    if(t->autofill_auto_epoch==t->epoch||!root||IsIconic(root)||GetAncestor(GetForegroundWindow(),GA_ROOT)!=root||
+    if((t->autofill_auto_epoch==t->epoch&&!t->autofill_click)||!root||IsIconic(root)||GetAncestor(GetForegroundWindow(),GA_ROOT)!=root||
        active==active_windows_.end()||active->second!=t->id){unavailable();return;}
   }
   const auto accounts=vault_->list_accounts(*origin);
@@ -2157,8 +2185,8 @@ Json CefEngine::native_tabs(){Json result=Json::array();for(const auto& [id,t]:i
 void CefEngine::answer_native_dialog(const std::string& id,bool accept,const std::string& text){on_ui([p=impl_,id,accept,text]{auto i=p->tabs_.find(id);if(i==p->tabs_.end()||!i->second->dialog)return;auto t=i->second;auto callback=t->dialog;t->dialog=nullptr;t->dialog_type.clear();t->dialog_message.clear();t->dialog_origin.clear();t->human_dialog=false;p->human_activity(t,t->human_gesture,false);callback->Continue(accept,text);});}
 CefRefPtr<CefClient> CefEngine::default_client(){return new Impl::Client(impl_,"human-default");}
 CefRefPtr<CefRequestContextHandler> CefEngine::default_context_handler(){return new Impl::ContextHandler;}
-void CefEngine::native_input(CefWindowHandle window,bool busy,bool credential_input,bool substantive){
-  on_ui([p=impl_,window,busy,credential_input,substantive]{
+void CefEngine::native_input(CefWindowHandle window,bool busy,bool credential_input,bool substantive,bool primary_click){
+  on_ui([p=impl_,window,busy,credential_input,substantive,primary_click]{
     const auto root=GetAncestor(window,GA_ROOT);if(!root)return;
     std::vector<std::string> previous,current;bool known_active=false;
     if(auto held=p->human_gestures_.find(window);held!=p->human_gestures_.end())
@@ -2177,7 +2205,7 @@ void CefEngine::native_input(CefWindowHandle window,bool busy,bool credential_in
     else p->human_gestures_[window]=routing.retained;
     for(const auto& id:routing.affected)if(auto tab=p->tabs_.find(id);tab!=p->tabs_.end()){
       const bool qualified=credential_input&&known_active&&routing.credential_targets.size()==1&&routing.credential_targets.front()==id;
-      p->human_activity(tab->second,busy,qualified);
+      p->human_activity(tab->second,busy,qualified,qualified&&primary_click);
     }
   });
 }

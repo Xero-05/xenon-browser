@@ -23,9 +23,17 @@ function fixture({ protocol = 'https:', subframe = false } = {}) {
     getAttribute(name) { return this.attributes.get(name) ?? null; }
     hasAttribute(name) { return this.attributes.has(name); }
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    matches() { return false; }
+    closest() { return null; }
   }
   class Input extends Element {
     constructor({ type = 'text', autocomplete = '', value = '' } = {}) { super(); this.type = type; this.autocomplete = autocomplete; this.value = value; this.form = null; inputs.push(this); }
+  }
+  // A <button> (role "button" when its form is null and it is a plain element).
+  class Button extends Element {
+    constructor(text, { form = null, role = false } = {}) { super(); this.textContent = text; if (role) { this.setAttribute('role', 'button'); this.owner = form; } else this.form = form; }
+    matches() { return true; }
+    closest() { return this.owner ?? null; }
   }
   class Form extends Element {
     constructor() { super(); this.method = 'post'; this.target = ''; this.action = `${protocol}//capture.example.invalid/login`; this.elements = []; }
@@ -40,7 +48,7 @@ function fixture({ protocol = 'https:', subframe = false } = {}) {
     addEventListener(name, callback) { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(callback); },
   };
   const context = vm.createContext({
-    document, HTMLInputElement: Input, HTMLFormElement: Form, URL,
+    document, Element, HTMLInputElement: Input, HTMLFormElement: Form, URL,
     location: { protocol, origin: `${protocol}//capture.example.invalid`, href: `${protocol}//capture.example.invalid/login` },
     crypto: { randomUUID: () => `synthetic-form-${++tokenId}` },
     getComputedStyle: element => ({ ...element.style, visibility: element.form?.style.visibility === 'hidden' ? 'hidden' : element.style.visibility }),
@@ -55,8 +63,8 @@ function fixture({ protocol = 'https:', subframe = false } = {}) {
   const username = form.add(new Input({ autocomplete: 'username', value: canaryUser }));
   const password = form.add(new Input({ type: 'password', autocomplete: 'current-password', value: canaryPassword }));
   function install() { vm.runInContext(source, context, { timeout: 1000 }); }
-  function dispatch(type, target, { trusted = true, submitter = null } = {}) {
-    for (const listener of listeners.get(type) || []) listener({ isTrusted: trusted, target, submitter, composedPath: () => [target] });
+  function dispatch(type, target, { trusted = true, submitter = null, key = '', prevented = false, composing = false } = {}) {
+    for (const listener of listeners.get(type) || []) listener({ isTrusted: trusted, target, submitter, key, isComposing: composing, defaultPrevented: prevented, composedPath: () => [target] });
   }
   function mutate(fn) { fn(); for (const observer of observers) observer([]); }
   function advance(ms) {
@@ -71,7 +79,7 @@ function fixture({ protocol = 'https:', subframe = false } = {}) {
   function error({ invalid = false, text = 'Sign-in failed' } = {}) {
     const node = new Element(); node.textContent = text; node.setAttribute(invalid ? 'aria-invalid' : 'role', invalid ? 'true' : 'alert'); nodes.push(node); return node;
   }
-  return { context, form, username, password, Input, Form, Element, messages, calls, listeners, install, dispatch, mutate, advance, error };
+  return { context, form, username, password, Input, Button, Form, Element, messages, calls, listeners, install, dispatch, mutate, advance, error };
 }
 
 test('capture installs only once in a top-level HTTPS document', () => {
@@ -118,6 +126,8 @@ test('synthetic website input and submit never emit credentials', () => {
   assert.deepEqual(f.messages, []); assert.deepEqual(f.calls, []);
 });
 
+// Browser-handled submissions that would send credentials elsewhere, and forms
+// that are not a single-password sign-in, never emit a credential.
 const invalidForms = {
   'GET method': f => { f.form.method = 'get'; },
   'cross-origin action': f => { f.form.action = 'https://other.example.invalid/login'; },
@@ -127,21 +137,32 @@ const invalidForms = {
   'disconnected form': f => { f.form.isConnected = false; },
   'readonly password': f => { f.password.readOnly = true; },
   'disabled password': f => { f.password.disabled = true; },
-  'readonly username': f => { f.username.readOnly = true; },
   'hidden password': f => { f.password.style.display = 'none'; },
   'new password': f => { f.password.autocomplete = 'section-login new-password'; },
   'one-time code': f => { f.form.add(new f.Input({ autocomplete: 'one-time-code' })); },
   'multiple passwords': f => { f.form.add(new f.Input({ type: 'password' })); },
-  'missing username': f => { f.username.type = 'hidden'; },
   'ambiguous username': f => { f.form.add(new f.Input({ autocomplete: 'username' })); },
 };
 for (const [name, change] of Object.entries(invalidForms)) {
   test(`capture refuses ${name}`, () => {
     const f = fixture(); change(f); f.install(); f.dispatch('input', f.password); f.dispatch('submit', f.form);
     f.mutate(() => { f.form.isConnected = false; }); f.advance(5000);
-    assert.deepEqual(f.messages, []); assert.deepEqual(f.calls, []);
+    assert.ok(!f.messages.some(message => 'password' in message || message.kind === 'gone'), 'No credential or completion is emitted');
+    assert.ok(!f.calls.includes('protected'));
+    assert.ok(!JSON.stringify(f.messages).includes(canaryPassword));
   });
 }
+
+test('a read-only account field names the account for its password step', () => {
+  const f = fixture(); f.username.readOnly = true; f.install(); f.dispatch('input', f.password); f.dispatch('submit', f.form);
+  assert.deepEqual(f.messages[1], { kind: 'submit', form: f.messages[0].form, origin: 'https://capture.example.invalid', username: canaryUser, password: canaryPassword });
+});
+
+test('a password-only form asks native code to resolve the account', () => {
+  const f = fixture(); f.username.type = 'hidden'; f.install(); f.dispatch('input', f.password); f.dispatch('submit', f.form);
+  assert.deepEqual(f.messages[1], { kind: 'submit', form: f.messages[0].form, origin: 'https://capture.example.invalid', username: '', password: canaryPassword, usernameMissing: true });
+  assert.ok(!JSON.stringify(f.messages).includes(canaryUser), 'A type=hidden value is never treated as the account');
+});
 
 test('submission refuses all submitter action, method, and target overrides', () => {
   for (const attribute of ['formaction', 'formmethod', 'formtarget']) {
@@ -224,4 +245,109 @@ test('a new trusted password edit emits a distinct cancellation opportunity befo
   f.password.value = 'NEW_SYNTHETIC_PASSWORD'; f.dispatch('input', f.password); f.dispatch('submit', f.form);
   assert.deepEqual(f.messages.map(message => message.kind), ['edit', 'submit', 'edit', 'submit']);
   assert.ok(!('password' in f.messages[2])); assert.equal(f.messages[3].password, 'NEW_SYNTHETIC_PASSWORD');
+});
+
+// Script-driven sign-in: pages that never submit a form natively.
+
+// Mirrors the anonymous Google identifier page structure inspected for this
+// change: no <form>, a visible `username webauthn` text field, a hidden
+// password input and a `type=button` Next control. Values are synthetic.
+function scriptedSignIn() {
+  const f = fixture();
+  f.mutate(() => { f.form.isConnected = false; });
+  const identifier = new f.Input({ autocomplete: 'username webauthn', value: canaryUser });
+  const decoy = new f.Input({ type: 'password' }); decoy.style.display = 'none';
+  return { f, identifier, next: new f.Button('Next') };
+}
+function passwordStep(f, { repeat = true } = {}) {
+  const password = new f.Input({ type: 'password', autocomplete: 'current-password', value: canaryPassword });
+  if (repeat) { const hidden = new f.Input({ type: 'email', autocomplete: 'username', value: canaryUser }); hidden.style.display = 'none'; }
+  return password;
+}
+
+test('an account typed on a username step is reported without a password field', () => {
+  for (const finish of [s => s.f.dispatch('keydown', s.identifier, { key: 'Enter' }), s => s.f.dispatch('change', s.identifier), s => s.f.dispatch('click', s.next)]) {
+    const s = scriptedSignIn(); s.f.install(); finish(s);
+    assert.deepEqual(s.f.messages, [{ kind: 'username', origin: 'https://capture.example.invalid', username: canaryUser }]);
+    assert.deepEqual(s.f.calls, ['capture'], 'An account alone is not a credential event');
+  }
+});
+
+test('account steps ignore untrusted events, unmarked fields and steps with a password', () => {
+  const s = scriptedSignIn(); s.f.install();
+  s.f.dispatch('keydown', s.identifier, { key: 'Enter', trusted: false }); s.f.dispatch('change', s.identifier, { trusted: false });
+  s.f.dispatch('keydown', s.identifier, { key: 'Enter', composing: true }); s.f.dispatch('keydown', s.identifier, { key: 'a' });
+  const search = new s.f.Input({ value: 'PUBLIC_SEARCH_CANARY' }); s.f.dispatch('keydown', search, { key: 'Enter' });
+  assert.deepEqual(s.f.messages, []);
+  passwordStep(s.f, { repeat: false }).value = ''; s.f.dispatch('change', s.identifier);
+  assert.deepEqual(s.f.messages, [], 'A visible password field makes this a sign-in form, not an account step');
+});
+
+test('a formless password step submitted with Enter is deferred until the field leaves', () => {
+  const s = scriptedSignIn(); s.f.install(); s.f.mutate(() => { s.identifier.isConnected = false; });
+  const password = passwordStep(s.f);
+  s.f.dispatch('input', password); s.f.dispatch('keydown', password, { key: 'Enter' }); s.f.advance(0);
+  assert.deepEqual(s.f.calls, ['capture', 'protected', 'capture']);
+  assert.deepEqual(s.f.messages[1], { kind: 'submit', form: s.f.messages[0].form, origin: 'https://capture.example.invalid', username: canaryUser, password: canaryPassword, deferred: true });
+  s.f.advance(5000); assert.equal(s.f.messages.length, 2, 'A password field still on the page is not a completed attempt');
+  s.f.mutate(() => { password.isConnected = false; }); s.f.advance(250);
+  assert.deepEqual(s.f.messages[2], { kind: 'gone', form: s.f.messages[0].form, origin: 'https://capture.example.invalid' });
+  s.f.advance(30000); assert.equal(s.f.messages.length, 3, 'Completion is reported once');
+});
+
+test('a password step that does not repeat its account asks native code for the typed account', () => {
+  const s = scriptedSignIn(); s.f.install(); s.f.mutate(() => { s.identifier.isConnected = false; });
+  const password = passwordStep(s.f, { repeat: false }); s.f.dispatch('input', password); s.f.dispatch('click', s.next); s.f.advance(0);
+  assert.equal(s.f.messages[1].username, ''); assert.equal(s.f.messages[1].usernameMissing, true); assert.equal(s.f.messages[1].deferred, true);
+});
+
+test('auxiliary, toggle and untrusted button presses are not sign-in attempts', () => {
+  const s = scriptedSignIn(); s.f.install(); s.f.mutate(() => { s.identifier.isConnected = false; });
+  const password = passwordStep(s.f); s.f.dispatch('input', password);
+  for (const button of [new s.f.Button('Forgot password?'), new s.f.Button('Show password'), new s.f.Button('Try another way')]) s.f.dispatch('click', button);
+  const toggle = new s.f.Button(''); toggle.setAttribute('aria-pressed', 'false'); s.f.dispatch('click', toggle);
+  const disabled = new s.f.Button('Next'); disabled.disabled = true; s.f.dispatch('click', disabled);
+  s.f.dispatch('click', s.next, { trusted: false }); s.f.dispatch('keydown', password, { key: 'Enter', trusted: false });
+  s.f.advance(5000); assert.deepEqual(s.f.messages.map(message => message.kind), ['edit']);
+  s.f.dispatch('click', s.next); s.f.advance(0); assert.deepEqual(s.f.messages.map(message => message.kind), ['edit', 'submit']);
+});
+
+test('a role=button control submits the form that contains it', () => {
+  const f = fixture(); f.form.method = 'get'; f.install(); f.dispatch('input', f.password);
+  f.dispatch('click', new f.Button('Sign in', { form: f.form, role: true })); f.advance(0);
+  assert.equal(f.messages[1].kind, 'submit'); assert.equal(f.messages[1].deferred, true); assert.equal(f.messages[1].form, f.messages[0].form);
+  assert.equal(f.messages[1].username, canaryUser);
+});
+
+test('a script-handled form submission is deferred; a browser-handled GET is refused', () => {
+  for (const prevented of [true, false]) {
+    const f = fixture(); f.form.method = 'get'; f.install(); f.dispatch('input', f.password);
+    f.dispatch('submit', f.form, { prevented }); f.advance(0);
+    if (prevented) assert.deepEqual(f.messages[1], { kind: 'submit', form: f.messages[0].form, origin: 'https://capture.example.invalid', username: canaryUser, password: canaryPassword, deferred: true });
+    else { assert.deepEqual(f.messages.map(message => message.kind), ['edit']); assert.ok(!f.calls.includes('protected')); }
+  }
+});
+
+test('Enter or a submit button followed by a conventional submission emits one immediate offer', () => {
+  for (const press of [f => f.dispatch('keydown', f.password, { key: 'Enter' }), f => f.dispatch('click', new f.Button('Sign in', { form: f.form }))]) {
+    const f = fixture(); f.install(); f.dispatch('input', f.password); press(f); f.dispatch('submit', f.form); f.advance(5000);
+    assert.deepEqual(f.messages.map(message => message.kind), ['edit', 'submit']);
+    assert.ok(!('deferred' in f.messages[1]));
+  }
+});
+
+test('a type=button press in a conventional form is a deferred attempt that a retry supersedes', () => {
+  const f = fixture(); f.install(); f.dispatch('input', f.password);
+  const button = new f.Button('Continue', { form: f.form }); f.dispatch('click', button); f.advance(0);
+  f.password.value = 'RETRY_SYNTHETIC_PASSWORD'; f.dispatch('input', f.password); f.dispatch('click', button); f.advance(0);
+  assert.deepEqual(f.messages.map(message => message.kind), ['edit', 'submit', 'edit', 'submit']);
+  assert.equal(f.messages[3].password, 'RETRY_SYNTHETIC_PASSWORD'); assert.equal(f.messages[3].deferred, true);
+});
+
+test('script-driven attempts never emit empty, oversized or new-password values', () => {
+  for (const change of [f => { f.password.value = ''; }, f => { f.password.value = 'x'.repeat(65537); }, f => { f.password.autocomplete = 'new-password'; }]) {
+    const f = fixture(); f.form.method = 'get'; change(f); f.install();
+    f.dispatch('keydown', f.password, { key: 'Enter' }); f.dispatch('click', new f.Button('Next', { form: f.form })); f.advance(5000);
+    assert.ok(!f.messages.some(message => 'password' in message)); assert.ok(!f.calls.includes('protected'));
+  }
 });

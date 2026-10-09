@@ -49,7 +49,9 @@ class ThreadPointerHistory {
 class NativeInputPolicy {
  public:
   using Window=std::uintptr_t;
-  struct Activity {Window window{};bool busy{};bool credential_input{};bool substantive{};};
+  // primary_click marks a left-button press; the engine may then offer saved
+  // accounts again for a login field clicked in the same document.
+  struct Activity {Window window{};bool busy{};bool credential_input{};bool substantive{};bool primary_click{};};
   void seed_pointer(long x,long y) noexcept {pointer_.seed(x,y);}
   bool tracking() const noexcept {return !held_.empty()||!compositions_.empty();}
   bool busy(Window page) const {
