@@ -99,6 +99,8 @@ int main(){try{
   require(std::wstring(chinese_font.lfFaceName)==L"Microsoft YaHei UI","Choose a font that supports Chinese controls");
   std::set<std::wstring_view> translated_keys;
   for(const auto& entry:ui::translations){require(translated_keys.insert(entry.english).second,"Translation keys are unique");require(std::wstring_view(entry.chinese).size()!=0,"Translations cannot be empty");}
+  require(ui::format(L"{0} moved to {1}; {0} reloads",{L"Tab",L"工作区"})==L"Tab moved to 工作区; Tab reloads"&&ui::format(L"{1}",{L"a"})==L"{1}","Placeholders fill every occurrence and leave unknown ones");
+  require(std::wstring(ui::tr(L"Close all {0} tabs…"))==L"关闭全部 {0} 个标签页…"&&ui::format(ui::tr(L"Close all {0} tabs…"),{L"3"})==L"关闭全部 3 个标签页…","Translated templates keep their placeholders");
   require(ui::workspace_label("native-default","Personal")=="个人"&&ui::workspace_label("custom","Personal")=="Personal","Translate built-in workspace labels without changing user names");
   require(ui::tab_title("New tab","about:blank")=="新标签页"&&ui::tab_title("New tab","https://example.test")=="New tab","Translate blank-tab labels without translating website titles");
   require(ui::tab_title("New tab","")=="新标签页","Translate the initial blank-tab label before its first URL callback");
