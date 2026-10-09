@@ -2,6 +2,20 @@
 
 Xenon is an early Windows x64 release. The attached test records distinguish exercised behavior from inherited Chromium features and remaining manual coverage. They are not an independent security audit or a production reliability certification.
 
+## Desktop shell, tabs, credentials and extensions candidate
+
+This candidate replaces the shell layout with a Chromium-style toolbar and multiple windows, adds tab drag and drop, tab and workspace menus, workspace cleanup, cross-workspace moves, a field-anchored saved-account list, a toolbar-anchored save bubble and unpacked extension loading.
+
+What ran:
+
+- `broker_tests` gained `workspace_tab_cleanup` and `tab_workspace_move`. They check that cleanup cancels and refuses queued agent work, waits for an accepted gesture before asking the engine to close, claims fully closed control groups for the human, keeps a partly closed group's owner, and keeps the workspace and grants; and that a workspace move is refused for agent-owned, private, protected and same-workspace tabs, rejects non-web addresses, reopens before closing the original with `force: false`, and is allowed after disconnect or **Take ownership**. Two deliberate mutations of the broker (allowing agent-owned moves; closing before input drains) each failed the new checks.
+- New `extension_store_tests` cover Chromium's ID alphabet against its published `"test"` vector, Manifest V2/invalid/nameless refusal, localized names, managed copies, out-of-extension page refusal, restart activation, deferred deletion and (on POSIX) link refusal.
+- `native_input_policy_tests` now include Ctrl+PgUp/PgDn and Ctrl+1–9 as passive browser shortcuts.
+- The broker and extension-store tests, with every other broker test except the Windows-only pipe and persistence-failure cases, were also built with GCC on Linux against a test-only security shim and passed. The native shell and Controls sources passed a Windows-target syntax check with MinGW headers and stub CEF headers.
+- Windows CI results for this candidate are recorded below once available.
+
+Not yet covered: the operator-driven shell, introduction, language, autofill and authentication live suites; physical mouse and keyboard checks of the toolbar, tab drag between windows, tear-off, the ownership chip, context menus and the account list; loading a real extension in CEF; reparenting a CEF browser window between Xenon windows under load; non-100% DPI and high contrast. The extension ID shown in Controls follows Chromium's path rule and has not been compared with a running Chromium.
+
 ## Web content theme candidate
 
 The [web theme validation record](test-results/web-theme-validation.json) covers the report that **Theme: Light** left websites and blank pages dark while Windows used dark mode. Native-hosted Alloy pages follow Chromium's process-wide native theme, which `SetChromeColorScheme` does not change. Light and Dark now start CEF with `force-light-mode` or `force-dark-mode`. A full `build.ps1 -Test` run passed, and the new live suite passed four checks under Windows dark mode: Light, Dark, System, and a saved runtime switch applied after restart. A copy of the suite aimed at the unfixed binary failed on the reported case.

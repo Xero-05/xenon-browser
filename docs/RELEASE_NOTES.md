@@ -1,5 +1,19 @@
 # Release notes
 
+## Unreleased
+
+**Desktop browser layout.** Each window now has a Chrome/Edge-style toolbar across the top: back, forward and reload, a rounded address box with a saved-password key and bookmark star, an ownership chip, and Extensions, Controls and ⋮ menu buttons. Vertical tabs sit below it in a compact sidebar with **New tab** at the top. Find floats over the page instead of resizing it. The menu is regrouped (Zoom, Appearance, Help submenus) and adds new window, reopen closed tab, passwords, extensions and workspace cleanup. Chromium shortcuts were added: **Ctrl+N**, **Ctrl+Shift+T/N/W**, **Ctrl+Tab**, **Ctrl+PgUp/PgDn**, **Ctrl+1–9**, **Alt+D**, **F6** and **Ctrl+R**; tab-switching and focus shortcuts do not pause agents. Page link context menus offer opening in a new tab or window and copying the link.
+
+**Tabs and windows.** Xenon can open several windows. Drag a tab to reorder it, drop it in another window, or drag it out to start a new one; this keeps the live page, owner and pause unchanged. Dropping a tab on another workspace reopens its address there after confirmation, because a live page cannot change profiles; the broker refuses this while an agent owns the tab's control group, a handoff is pending or agent input is running, and for private and protected sign-in tabs. A right-click tab menu adds new tab below, duplicate, pin, mute, copy link, bookmark, move to window or workspace, take ownership and close others/below/all.
+
+**Workspace cleanup.** **Close all tabs…** on a workspace heading, in the menu or in Controls closes every tab in that workspace after confirmation. Queued agent work is canceled and refused first, accepted input drains, and the workspace, its sign-ins, history, permissions, agent grants and saved passwords are kept. Agents see the new `TAB_CLOSING` error for tabs being closed.
+
+**Saved accounts.** The human account picker is now a Chrome-style list directly under the focused login field: click an account, or use the arrow keys and **Enter**, to fill without submitting. Each account shows which agents have access through an opaque account handle, with **Manage passwords…** and **Agent access…** rows that open Controls. The toolbar key requests the list for the current page. The Save/Update offer is a bubble under the key. Filling and saving remain explicit native actions; vault plaintext still never reaches MCP.
+
+**Extensions.** **Controls → Extensions** adds unpacked Manifest V3 Chromium extensions, which Xenon copies into its data directory and loads into persistent workspaces at the next start. Extensions can be turned off, removed, and their options or popup pages opened in a human tab. Chrome Web Store installation and extension toolbar popups are not supported. Extensions can read and change the sites they run on, including pages agents use; see [security](SECURITY.md#extensions).
+
+The broker's cleanup and move rules, the extension store and the passive-shortcut policy have new native tests. Physical UI, live browser suites and real extension loading have not yet been run on these changes; see [testing](TESTING.md#desktop-shell-tabs-credentials-and-extensions-candidate).
+
 ## 0.1.2
 
 **Theme: Light** and **Theme: Dark** now apply to web content as well as the native shell. Pages receive the matching `prefers-color-scheme`, and about:blank and Chromium-drawn page UI such as context menus follow the saved theme; **System** continues to follow Windows. Chromium reads the choice once per process, so a theme changed while Xenon runs updates the shell immediately and applies to web pages after restart; the status line says so. No CDP, page script or DOM change is used for colors.

@@ -1,26 +1,74 @@
 # Using Xenon
 
-Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.2** and its [native interface overhaul](RELEASE_NOTES.md). Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
+Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes the development version after **0.1.2**, including the [desktop toolbar, window and extension changes](RELEASE_NOTES.md#unreleased). Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
 
 ## Browser and Controls
 
-New installations begin with language selection and a quick introduction before the first browser tab opens. Choose English or Simplified Chinese, then follow the tour or skip it. The language takes effect immediately on that first launch. **Menu → Quick tour** reopens the browser introduction, and **Menu → GitHub documentation** opens the getting-started guide in a new Personal tab. Existing profiles do not show the introduction automatically.
+New installations begin with language selection and a quick introduction before the first browser tab opens. Choose English or Simplified Chinese, then follow the tour or skip it. The language takes effect immediately on that first launch. **Menu → Help → Quick tour** reopens the browser introduction, and **Menu → Help → GitHub documentation** opens the getting-started guide in a new Personal tab. Existing profiles do not show the introduction automatically.
 
-Use the rounded icon buttons in the left rail for back, forward and reload; hover over an icon for its label. Enter an address or search in the pill above the page. The **Controls** sliders icon, **New tab** plus and **Menu** dots sit at the bottom of the rail. Open Controls there, with **Ctrl+Shift+X**, or **Xenon Controls** in a webpage's context menu. Tabs appear in the left sidebar, grouped under workspace names. The selected tab joins the page outline. Collapsing a group keeps its tabs and agents running.
+The toolbar across the top of each window works like Chrome's and Edge's: **Back**, **Forward** and **Reload** on the left, the address and search box in the middle, then the ownership chip and the **Extensions**, **Controls** and **Menu** (⋮) buttons. Hover over an icon for its label. Inside the address box, a key appears when Xenon has saved accounts for the site, and the star bookmarks the page. Tabs are listed in the left sidebar, grouped under workspace names, with **New tab** at the top. The selected tab joins the page outline. Collapsing a group keeps its tabs and agents running. Open Controls with its toolbar button, **Ctrl+Shift+X**, or **Xenon Controls** in a webpage's context menu; a dot on the Controls button means a client is waiting for pairing approval.
 
-Each tab has an **X** to close it; middle-click also closes a tab. **Ctrl+W** closes the selected tab, and **Delete** closes a tab selected in the sidebar. Closing the last tab keeps its workspace and saved website data. Empty saved workspaces remain in the sidebar, including after restart; click one, or select it and press **Enter**, to open a blank human-owned tab. Startup still opens one blank Personal tab. Use the explicit session restore action to reload previously saved pages.
+Each tab has an **X** to close it; middle-click also closes a tab. **Ctrl+W** closes the selected tab, and **Delete** closes a tab selected in the sidebar. Closing the last tab keeps its workspace and saved website data. Empty saved workspaces remain in the sidebar, including after restart; click one, or select it and press **Enter**, to open a blank human-owned tab. Startup still opens one blank Personal tab. Use the explicit session restore action to reload previously saved pages. **Ctrl+Shift+T** reopens recently closed pages during this run; protected sign-in pages are not remembered.
 
-Address submission works with **Enter** or **Go** and preserves a typed address when toolbar focus changes. **Escape** restores the current address. Background tabs have subtle gray hover feedback, workspace disclosure uses arrowheads, and mouse selection has no dashed focus box. Keyboard navigation draws a rounded focus ring around the focused control. A dot beside the owner name under the address uses the page outline's color, and a thin bar along the page's top edge shows loading. Close buttons on unselected tabs stay visible but quieter until hovered. **Menu** opens upward from the rail. See the [earlier navigation validation](TESTING.md#alpha13-navigation-and-visual-fixes) and [alpha.14 validation scope](TESTING.md#alpha14-release-validation).
+Press **Enter** in the address box to go; a typed address survives toolbar focus changes. **Ctrl+Enter** completes a single word as `www.<word>.com`. The first click into the box selects the whole address, and **Escape** restores the current address. Background tabs have subtle gray hover feedback, workspace disclosure uses arrowheads, and mouse selection has no dashed focus box. Keyboard navigation draws a rounded focus ring around the focused control. The page outline's top edge doubles as a loading bar. Close buttons on unselected tabs stay visible but quieter until hovered. **Find on page** floats over the page's top-right corner instead of resizing it; **Enter** finds the next match and **Shift+Enter** the previous one.
 
 With the Windows **Animation effects** setting on, buttons and tabs fade on hover, the selected-tab outline glides to a newly chosen tab, the outline color crossfades when control changes, and the address field fades in a focus ring. With it off, or in high contrast, every change is immediate. Only Xenon's own frame animates; the page's size and position never do.
 
-Drag the sidebar's right edge to change its width, or use **Menu → Sidebar width** for keyboard access to Narrower, Wider and Reset width. Its range is 180–480 logical pixels, further bounded by space for the page. Double-clicking the edge restores the default. Xenon saves the width alongside your theme preference. Dark mode uses charcoal surfaces with visible gray hover feedback; Light mode uses white surfaces. **System** follows Windows.
+Drag the sidebar's right edge to change its width, or use **Menu → Appearance** for keyboard access to Narrower, Wider and Reset sidebar width. Its range is 180–480 logical pixels, further bounded by space for the page. Double-clicking the edge restores the default. Xenon saves the width alongside your theme preference. Dark mode uses charcoal surfaces with visible gray hover feedback; Light mode uses white surfaces. **System** follows Windows.
+
+### The ownership chip
+
+Left of the Extensions button, a dot in the page outline's color and a short label show who controls the selected tab: **You**, **No agent**, or the agent's name with its state. Click the chip to **Take ownership**, to give a tab you own to a connected agent working in that workspace, or to open Controls. Short status messages, such as a saved bookmark or a refused action, appear in the chip for a few seconds.
+
+### Tabs and windows
+
+Right-click a tab for its menu:
+
+| Command | Effect |
+| --- | --- |
+| **New tab below** | Opens a blank tab in the same workspace, right after this one. |
+| **Reload**, **Duplicate** | Reloads the page, or opens its address again in the same workspace. |
+| **Pin** / **Unpin** | Keeps the tab at the top of its workspace group and hides its close button. Pins last for this run. |
+| **Mute site** / **Unmute site** | Silences the tab's audio. |
+| **Copy link**, **Bookmark tab** | Copies the address or saves a bookmark. Unavailable on protected sign-in pages. |
+| **Move tab to window** | Moves the live tab to a new or existing Xenon window. The page is not reloaded. |
+| **Move tab to workspace** | Reopens the address in another workspace (see below). |
+| **Take ownership** | Requests human ownership, as in Controls. |
+| **Close tab**, **Close other tabs in workspace**, **Close tabs below** | Closes tabs in this workspace group; pinned tabs are kept by **Close other tabs**. |
+| **Close all tabs in …** | Workspace cleanup, with confirmation (see below). |
+
+Drag a tab in the sidebar to reorder it. Drop it in another Xenon window to move it there, or outside every Xenon window to open it in a new window; dragging a window's only tab moves the window. **Ctrl+N** opens a new window and **Ctrl+Shift+W** closes the current one. Closing a window closes its tabs; closing the last window exits Xenon. Moving a tab between windows keeps the live page, its agent owner and any pause exactly as they were.
+
+Drop a tab on another workspace's heading or between its tabs to move it to that workspace. Each workspace has its own cookies and sign-ins, so a live page cannot change workspace: Xenon reopens the address in the target workspace and then closes the original. Text typed on the page is not carried over, and you are asked to confirm. A tab cannot move to another workspace while an agent controls it, a handoff is pending or agent input is still running; use **Take ownership** first, or wait for the agent to finish. Private workspace tabs and protected sign-in tabs stay where they are. While dragging, the label under the pointer says what the drop will do and a blocked drop shows a no-entry cursor.
+
+### Clean up a workspace after agent work
+
+To close every tab an agent session left open, choose **Close all tabs…** from the workspace heading's **…** button or right-click menu, **Menu → Close all tabs in this workspace…**, or **Controls → Workspaces → Close all tabs…**. Xenon asks for confirmation and states how many tabs will close. Queued agent actions in those tabs are canceled and refused; an action already started finishes first, then the tabs close. Unsaved changes in those tabs are lost. The workspace, its sign-ins, history, site permissions, agent access and saved passwords are kept. This is different from **Remove workspace**, which also deletes the workspace's data and permissions.
+
+### Keyboard shortcuts
+
+| Keys | Action |
+| --- | --- |
+| **Ctrl+T**, **Ctrl+N**, **Ctrl+Shift+N** | New tab, new window, new private workspace |
+| **Ctrl+W** or **Ctrl+F4**, **Ctrl+Shift+W** | Close tab, close window |
+| **Ctrl+Shift+T** | Reopen closed tab |
+| **Ctrl+Tab**, **Ctrl+Shift+Tab**, **Ctrl+PgDn**, **Ctrl+PgUp** | Next or previous tab in this window |
+| **Ctrl+1**–**Ctrl+8**, **Ctrl+9** | Select that tab, or the last tab |
+| **Ctrl+L**, **Alt+D**, **F6** | Focus the address box |
+| **Ctrl+R** or **F5**; **Ctrl+Shift+R** or **Ctrl+F5** | Reload; reload bypassing the cache |
+| **Alt+Left**, **Alt+Right** | Back, forward |
+| **Ctrl+F**, **F3**, **Shift+F3** | Find, next match, previous match |
+| **Ctrl+D**, **Ctrl+H**, **Ctrl+J**, **Ctrl+P** | Bookmark, history, downloads, print |
+| **Ctrl++**, **Ctrl+-**, **Ctrl+0** | Zoom in, out, reset |
+| **Ctrl+Shift+X** | Controls |
+
+Tab-switching and focus shortcuts do not count as page input, so they do not pause an agent. Right-clicking a link in a page also offers **Open link in new tab**, **Open link in new window** and **Copy link address**; new tabs opened this way are yours and stay in the link's workspace.
 
 Controls is a separate native window with sections in a left sidebar, rounded buttons and neutral gray list selections. Website pages and MCP clients cannot click its permission or credential buttons. Closing it hides it; the browser keeps running.
 
-Controls has **Clients**, **Workspaces** and **Passwords** sections. Pairing requests have separate Approve/Deny actions. Approved clients remain paired across launches and start read-only with automatic creation disabled, four concurrent workers and four automatic workspaces. Client configuration sets the overall ceiling; workspace configuration can narrow it. Legacy pairings retain their existing capabilities until configured. Lowering a quota blocks additional admission while allowing existing work to finish.
+Controls has **Clients**, **Workspaces**, **Passwords** and **Extensions** sections. Pairing requests have separate Approve/Deny actions. Approved clients remain paired across launches and start read-only with automatic creation disabled, four concurrent workers and four automatic workspaces. Client configuration sets the overall ceiling; workspace configuration can narrow it. Legacy pairings retain their existing capabilities until configured. Lowering a quota blocks additional admission while allowing existing work to finish.
 
-The Xenon menu supplies bookmarks, history, find, zoom, printing/PDF, downloads, site permissions and third-party notices. Choose **Theme: System**, **Theme: Light** or **Theme: Dark**; System is the default. Light and Dark also set the color scheme websites receive, including blank pages; System follows Windows. Xenon's own window changes immediately, but web pages use a newly chosen theme after Xenon restarts. Native bookmarks and history migrate existing workspace records without modifying their original files. Private metadata stays in memory, and new protected-authentication visits are excluded from history. There is no cloud sync or built-in model. Use Xenon's vault for passwords.
+The Xenon menu supplies new tabs and windows, history, downloads, bookmarks, passwords, extensions, find, zoom, printing/PDF, site permissions and, under **Help**, the tour, updates and third-party notices. Under **Appearance**, choose **Theme: System**, **Theme: Light** or **Theme: Dark**; System is the default. Light and Dark also set the color scheme websites receive, including blank pages; System follows Windows. Xenon's own window changes immediately, but web pages use a newly chosen theme after Xenon restarts. Native bookmarks and history migrate existing workspace records without modifying their original files. Private metadata stays in memory, and new protected-authentication visits are excluded from history. There is no cloud sync or built-in model. Use Xenon's vault for passwords.
 
 ## Workspaces and website sessions
 
@@ -82,7 +130,7 @@ Usernames and passwords are encrypted with Windows DPAPI for your Windows accoun
 
 There are three entry paths:
 
-1. **Native Save/Update prompt.** After you type and submit a supported login, Xenon can offer to save that submitted password. Check the original login origin and click **Save** or **Update** only if it is correct. The offer is not proof that login succeeded. **Not now** or closing the prompt discards it.
+1. **Native Save/Update bubble.** After you type and submit a supported login, Xenon can offer to save that submitted password in a small bubble under the toolbar's key, as Chrome does. It shows the original login origin and a masked username, never the password. Click **Save** or **Update** only if the password is correct; the offer is not proof that login succeeded. **Not now** or **Escape** discards it.
 2. **Save account in Controls.** Enter the HTTPS origin, username, password and an optional recognizable label, then click **Save account**.
 3. **Import CSV.** Export passwords using your existing browser, then select **Import CSV** in Controls. Review the masked preview and choose whether to replace or skip conflicts.
 
@@ -96,10 +144,11 @@ The encrypted pending offer stays bound to the original login origin through HTT
 
 On a supported login page:
 
-1. Click a username or password field and let input settle. Xenon can offer a native account picker for that exact HTTPS origin, at most once per document.
-2. Alternatively, select the login tab in Controls' Workspaces section, then choose **Passwords** and **Fill selected login tab**.
-3. Check the origin and account label, select the account and click **Fill**.
-4. Continue on the website yourself. Native human fill does not submit the form.
+1. Click a username or password field and let input settle. Xenon shows its saved accounts for that exact HTTPS origin in a list directly under the field, as Chrome and Edge do, at most once per document. You can also click the key in the address box, or select the login tab in Controls' Workspaces section and choose **Passwords → Fill selected login tab**.
+2. Click an account, or use **Up**/**Down** and **Enter**. Clicks in the first half second after the list appears are ignored so a click meant for the page cannot choose an account. **Escape**, typing or clicking elsewhere closes the list.
+3. Continue on the website yourself. Native human fill does not submit the form.
+
+Each account row also shows its agent access: **Agents: no access**, or the names of paired clients granted that account for this workspace or for all of their workspaces. An agent with access gets only an opaque account handle; it never receives the username or password, which Xenon fills natively when the agent requests sign-in (see below). **Manage passwords…** and **Agent access…** at the bottom of the list open Controls' Passwords section with this site's account selected. If the page has no fillable form, the key opens that section instead.
 
 Ordinary two-field forms need one editable username and an empty password. Separate username/password steps need explicit `username`/`current-password` autocomplete hints. After filling only the username, continue on the website and use **Fill selected login tab** again at the password step.
 
@@ -109,7 +158,7 @@ Human fill needs no agent account grant and creates none. It pauses agent effect
 
 ### Let an agent use an account
 
-Pair the client and share the intended workspace first. Choose the client and workspace in their sections, then select the saved account in **Passwords** and choose **Grant in workspace**, or **Grant to client** for an inheritable client-level resource. Enable saved-account use in both policies. Verify the exact HTTPS origin; subdomains and different ports are different origins.
+This is the agent handle on a saved account. Pair the client and share the intended workspace first. Choose the client and workspace in their sections, then select the saved account in **Passwords** and choose **Grant in workspace**, or **Grant to client** for an inheritable client-level resource. Enable saved-account use in both policies. Verify the exact HTTPS origin; subdomains and different ports are different origins.
 
 The agent receives an opaque account ID, origin and label through `xenon_accounts`. It requests protected sign-in with `xenon_login`; the vault does not return the username or password through MCP. The agent path can fill and submit supported same-origin POST forms, including a bounded username-first flow. Saving, pairing, workspace sharing and human autofill do not themselves add account grants.
 
@@ -120,6 +169,16 @@ Protected login withholds detailed observations and screenshots. If protection r
 Complete MFA, CAPTCHA, passkeys, recovery-code prompts, cross-origin embedded login and unusual forms yourself. Reuse the same workspace when a service remembers your browser; a new workspace starts a separate session. Expiry, device trust and organization policies remain controlled by the service. An unsigned build may not meet a provider's approved-browser requirements.
 
 The credential implementation has synthetic script, native and HTTPS fixture tests. Physical-focus suggestions, clicking the native account picker/Save prompt end to end, and real-site CWL/Duo/PD Portal sign-in are not claimed as verified acceptance. See the [manual test matrix](TESTING.md).
+
+## Extensions
+
+Xenon can run Chromium extensions that you add yourself. In **Controls → Extensions** (or **Extensions → Manage extensions…** in the toolbar), choose **Load unpacked…** and select the extension's folder, the one that contains `manifest.json`. Xenon checks that it is a Manifest V3 extension, copies it into its own data directory and lists it. Restart Xenon to load it. **Disable**, **Enable** and **Remove** also take effect after restart; removing deletes Xenon's copy, not your original folder.
+
+Enabled extensions load into every persistent workspace when Xenon starts. Content scripts, background service workers and network rules such as ad blockers' run as in Chromium. Private workspaces do not load extensions. **Open options** and the toolbar's **Extensions** menu open an extension's options page, or its popup page, in a new tab that you own. Agents cannot read or operate extension pages.
+
+Limits: Chrome Web Store installation, `.crx` packages and Manifest V2 extensions are not supported, and extension toolbar buttons and popups are not shown in Xenon's toolbar. A popup page opened in a tab may not find the page you were viewing, because Xenon's pages are not part of Chromium's own tab strip. Extensions that need those features may not work.
+
+Install only extensions you trust. An extension can read and change the websites it runs on, see what you type into them, including passwords, and change what agents see on those pages. Xenon does not review extensions, and an extension's permissions are not limited by workspace sharing or agent grants. See [extension boundary](SECURITY.md#extensions).
 
 ## Files and downloads
 
@@ -143,7 +202,7 @@ All website content—including visible text, images, dialogs, titles and downlo
 
 The default data directory is `%LOCALAPPDATA%\Xenon Browser`; pairing files are wherever you chose during pairing. Keep this data private. Do not upload profiles, vault databases, password exports or pairing files to GitHub.
 
-Choose **Menu → Check for updates**, or press **Ctrl+Shift+X**, then **Check for updates**. Xenon contacts its fixed GitHub repository over HTTPS and looks for a newer compatible installer. Alpha builds can receive newer alpha releases; stable builds exclude prereleases. Nothing is checked or installed in the background without opening this flow. A network error or missing verifiable installer cannot trigger installation.
+Choose **Menu → Help → Check for updates**, or press **Ctrl+Shift+X**, then **Check for updates**. Xenon contacts its fixed GitHub repository over HTTPS and looks for a newer compatible installer. Alpha builds can receive newer alpha releases; stable builds exclude prereleases. Nothing is checked or installed in the background without opening this flow. A network error or missing verifiable installer cannot trigger installation.
 
 Download the offered update in the native Updates window, then choose to install it. Xenon checks its size and SHA-256 against GitHub's release metadata and checks again before starting setup. The installer remains unsigned: this verification trusts GitHub and the repository maintainers, not an independent publisher certificate.
 
@@ -165,7 +224,9 @@ Portable ZIPs remain available for manual installation. Extract the complete pac
 | Agent cannot see your logged-in page | Its worker may be in another workspace. Share the intended workspace with that client and have it use that workspace's ID. |
 | Agent is paused after your input | Release held inputs and finish any website dialog or composition. The agent must wait for current status to clear and observe again; elapsed time alone is insufficient. |
 | Agent can read but cannot interact | Check the selected tab's owner. Give control to the authorized connected worker, or let it acquire an unowned tab using fresh control status. |
-| Autofill or Save prompt does not appear | Try the explicit **Fill saved account…** control for the correct tab/origin. Unsupported or changed forms need manual handling; use **Save account** or **Import CSV** to populate the vault. |
+| A tab will not move to another workspace | An agent controls it, a handoff is pending, or it is a private or protected sign-in tab. Use **Take ownership** in the tab menu or the ownership chip, finish signing in, or wait for the agent's current action. |
+| An extension is listed but not running | Its status says **On after restart**: restart Xenon. Extensions never run in private workspaces. |
+| Autofill or Save prompt does not appear | Click the key in the address box, or use **Passwords → Fill selected login tab** in Controls, for the correct tab/origin. Unsupported or changed forms need manual handling; use **Save account** or **Import CSV** to populate the vault. |
 | Screenshot/observation is protected | Finish authentication yourself. Use **Resume after login** only when no secret is visible. Do not expose a password just to unblock an agent. |
 | Website remains signed in after restart/logout | Persistent cookies and an SSO identity-provider session may remain. Use the site's own sign-out flow or a separate workspace for a new session. |
 | A tool times out or reports an unknown outcome | Have the agent inspect the retained operation and the page before retrying. A timeout does not mean a click or submission never happened. |

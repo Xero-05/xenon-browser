@@ -67,6 +67,8 @@ void copy_tree(const fs::path& from, const fs::path& to, CopyBudget& budget, siz
     budget.bytes += fs::file_size(path);
     if (budget.bytes > ExtensionStore::max_bytes) throw std::runtime_error("The extension folder is larger than 128 MiB.");
     fs::copy_file(path, to / path.filename());
+    // A read-only source attribute would make the managed copy undeletable.
+    fs::permissions(to / path.filename(), fs::perms::owner_write, fs::perm_options::add);
   }
 }
 // Deletes only a tree Xenon created, refusing any link inside it.
@@ -76,7 +78,7 @@ bool remove_tree(const fs::path& path, size_t& budget, size_t depth = 0) {
     if (++budget > ExtensionStore::max_files * 2) return false;
     if (linked(entry.path())) return false;
     if (fs::is_directory(fs::symlink_status(entry.path()))) { if (!remove_tree(entry.path(), budget, depth + 1)) return false; }
-    else fs::remove(entry.path());
+    else { std::error_code ignored; fs::permissions(entry.path(), fs::perms::owner_write, fs::perm_options::add, ignored); fs::remove(entry.path()); }
   }
   return fs::remove(path);
 }
