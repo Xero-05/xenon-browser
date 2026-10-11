@@ -1,5 +1,11 @@
 # Validation
 
+## Developer mode candidate
+
+`developer_trace_tests` passed on Linux with the pinned nlohmann JSON 3.12.0 header, C++20 and warnings treated as errors. It covers opt-in capture, credential/input redaction, returned text/image evidence, response correlation, clear/disable boundaries, concurrent capture and retention limits. The modified broker passed a C++20 syntax check. The broker test executable compiled, but could not run here because native identity/crypto require Windows; its new developer-mode checks remain unverified.
+
+Windows validation remains required: run `developer_trace_tests` and `broker_tests`, build the full browser, open **Menu → Developer mode**, enable capture and send synthetic observe/inspect/input/error commands. Check request/response details, command selection, scrolling, screenshot scaling, clear/disable, keyboard access, DPI, English/Chinese and themes. Linux trace checks do not validate native Windows painting or CEF screenshots.
+
 Xenon is an early Windows x64 release. The attached test records distinguish exercised behavior from inherited Chromium features and remaining manual coverage. They are not an independent security audit or a production reliability certification.
 
 ## Desktop shell, tabs, credentials and extensions candidate

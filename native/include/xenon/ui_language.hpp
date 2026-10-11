@@ -9,6 +9,12 @@ inline Language preferred_language=Language::english;
 inline const char* language_tag(Language value) {return value==Language::simplified_chinese?"zh-CN":"en-US";}
 struct Translation {const wchar_t* english;const wchar_t* chinese;};
 inline constexpr Translation translations[]{
+  {L"Developer mode",L"开发者模式"},{L"Enable developer mode",L"启用开发者模式"},{L"Disable developer mode",L"停用开发者模式"},{L"Clear trace",L"清除记录"},
+  {L"Agent commands and returned evidence",L"代理命令和返回的页面信息"},
+  {L"Captured only while enabled. Tokens and input values are redacted. Clear or disable to erase.",L"仅在启用时记录。令牌和输入值已隐藏。清除或停用即可删除记录。"},
+  {L"Request / response / rendered observation",L"请求 / 响应 / 可见页面信息"},{L"Screenshot returned to the agent",L"返回给代理的截图"},
+  {L"No screenshot in this response",L"此响应没有截图"},
+  {L"Enable developer mode, then select a command. Observations show the evidence returned to the agent.",L"启用开发者模式后选择一条命令。页面观察显示返回给代理的信息。"},
   {L"Quick tour",L"快速导览"},{L"GitHub documentation",L"GitHub 使用文档"},
   {L"Back",L"后退"},{L"Forward",L"前进"},{L"Reload",L"刷新"},{L"Stop",L"停止"},
   {L"Go to address",L"打开地址"},{L"Controls",L"控制中心"},{L"Menu",L"菜单"},

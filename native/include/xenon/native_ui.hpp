@@ -13,7 +13,7 @@ class FilePolicy;
 class ExtensionStore;
 class NativeUi {
  public:
-  enum class Section { clients, workspaces, passwords, extensions };
+  enum class Section { clients, workspaces, passwords, extensions, developer };
   NativeUi(Broker&,CefEngine&,Vault&,FilePolicy&,ExtensionStore&);
   ~NativeUi();
   void show();

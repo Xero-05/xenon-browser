@@ -24,6 +24,9 @@ class Broker {
   void dispatch(const std::string& connection_id, const Json& request, Reply reply);
   void disconnect(const std::string& connection_id);
   Json state() const;
+  void set_developer_mode(bool enabled);
+  void clear_developer_trace();
+  Json developer_trace() const;
   bool approve_pairing(const std::string& request_id);
   bool deny_pairing(const std::string& request_id);
   bool share_workspace(const std::string& workspace_id, const std::string& client_id);

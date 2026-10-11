@@ -16,6 +16,12 @@ With the Windows **Animation effects** setting on, buttons and tabs fade on hove
 
 Drag the sidebar's right edge to change its width, or use **Menu → Appearance** for keyboard access to Narrower, Wider and Reset sidebar width. Its range is 180–480 logical pixels, further bounded by space for the page. Double-clicking the edge restores the default. Xenon saves the width alongside your theme preference. Dark mode uses charcoal surfaces with visible gray hover feedback; Light mode uses white surfaces. **System** follows Windows.
 
+### Developer mode
+
+Open **Menu → Developer mode** or **Controls → Developer mode**, then click **Enable developer mode**. New agent requests appear in a live list, newest first. Select one to see its connection, worker/tab IDs, request parameters, pending/completed/error status, elapsed time, and broker response. Observations include the rendered evidence returned to the agent; `page.inspect` and `page.screenshot` responses also show their returned PNG when it fits the preview limit. This is captured evidence from that command, not a live video feed or the external model's reasoning.
+
+Capture starts disabled each time Xenon runs. **Clear trace** erases the current history; **Disable developer mode** erases it and stops capture. Diagnostics remain in memory and are never written to the profile or exposed through MCP. Pairing tokens, password/secret fields, and command input values are redacted; rendered page evidence remains visible. History retains at most 128 commands and 8 MiB total, with a 2 MiB entry limit and 1 MiB of encoded PNG per preview. Oversized entries are marked truncated, and older commands are evicted. Clearing or disabling also discards replies from previously captured commands that finish later.
+
 ### The ownership chip
 
 Left of the Extensions button, a dot in the page outline's color and a short label show who controls the selected tab: **You**, **No agent**, or the agent's name with its state. Click the chip to **Take ownership**, to give a tab you own to a connected agent working in that workspace, or to open Controls. Short status messages, such as a saved bookmark or a refused action, appear in the chip for a few seconds.

@@ -34,7 +34,7 @@ constexpr UINT ShellChanged=WM_APP+90,ShellRun=WM_APP+91;
 enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,FindText,FindNext,FindPrevious,FindClose,Extensions,Passwords,BookmarkStar,
   MenuFind=2100,MenuZoomIn,MenuZoomOut,MenuZoomReset,MenuBookmark,MenuBookmarks,MenuHistory,MenuDownloads,MenuPrint,MenuPdf,
   MenuPermissions,MenuThemeSystem,MenuThemeLight,MenuThemeDark,MenuAbout,MenuNotices,MenuExit,MenuPrivate,MenuCloseTab,
-  MenuSidebarNarrower,MenuSidebarWider,MenuSidebarReset,MenuUpdates,MenuQuickTour,MenuDocumentation,
+  MenuSidebarNarrower,MenuSidebarWider,MenuSidebarReset,MenuUpdates,MenuQuickTour,MenuDocumentation,MenuDeveloper,
   MenuNewWindow,MenuReopenTab,MenuCloseWorkspaceTabs,MenuCloseWindow,MenuManageExtensions,MenuPasswords,MenuNewTab,
   MenuLanguageEnglish=2200,MenuLanguageChinese,
   TabNewBelow=2300,TabReload,TabDuplicate,TabPin,TabMute,TabCopyLink,TabBookmark,TabNewWindow,TabTakeOwnership,TabControls,TabClose,TabCloseOthers,TabCloseBelow,TabCloseWorkspace,
@@ -413,7 +413,7 @@ struct BrowserShell::Impl {
       CheckMenuRadioItem(languages,MenuLanguageEnglish,MenuLanguageChinese,ui::preferred_language==ui::Language::simplified_chinese?MenuLanguageChinese:MenuLanguageEnglish,MF_BYCOMMAND);
       AppendMenuW(popup_menu,MF_POPUP,reinterpret_cast<UINT_PTR>(languages),L"Language / 语言");
       auto help=CreatePopupMenu();item(help,MenuQuickTour,ui::tr(L"Quick tour"));item(help,MenuDocumentation,ui::tr(L"GitHub documentation"));item(help,MenuUpdates,ui::tr(L"Check for updates"));item(help,MenuAbout,ui::tr(L"About Xenon"));item(help,MenuNotices,ui::tr(L"Third-party notices"));
-      AppendMenuW(popup_menu,MF_POPUP,reinterpret_cast<UINT_PTR>(help),ui::tr(L"Help"));separator(popup_menu);
+      AppendMenuW(popup_menu,MF_POPUP,reinterpret_cast<UINT_PTR>(help),ui::tr(L"Help"));item(popup_menu,MenuDeveloper,ui::tr(L"Developer mode"));separator(popup_menu);
       item(popup_menu,MenuCloseWindow,ui::tr(L"Close window\tCtrl+Shift+W"));item(popup_menu,MenuExit,ui::tr(L"Exit Xenon"));
       popup(popup_menu,Menu);
     }
@@ -863,6 +863,7 @@ void BrowserShell::Impl::Frame::command(int id){try{
   else if(id==MenuManageExtensions)shell.native.show_section(NativeUi::Section::extensions);
   else if(id==MenuPasswords){auto found=hosts.find(selected);shell.native.show_section(NativeUi::Section::passwords,found==hosts.end()?std::string{}:origin_of(str(found->second.metadata,"url")));}
   else if(id==MenuUpdates)engine.show_updates();
+  else if(id==MenuDeveloper)shell.native.show_section(NativeUi::Section::developer);
   else if(id==MenuDocumentation||(id==MenuQuickTour&&ui::show_introduction(window,false)==ui::IntroductionResult::documentation))open_tab("native-default",ui::utf8(ui::documentation_url));
   else if(id==MenuFind)show_find();else if(id==FindClose)hide_find();
   else if(id==FindNext||id==FindPrevious)engine.native_command(selected,id==FindNext?"find-next":"find-previous",ui::text(find_text));
