@@ -1,5 +1,18 @@
 #pragma once
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <utility>
 namespace xenon {
+// The guard samples fractions in getBoundingClientRect's screen-oriented box.
+// A reflected CDP quad has reversed corner order, not reversed fractions.
+inline std::pair<double,double> pointer_box_point(const std::array<double,8>& q,double fx,double fy) {
+  if(q[0]==q[6]&&q[2]==q[4]&&q[1]==q[3]&&q[5]==q[7]) {
+    const double left=std::min(q[0],q[2]),top=std::min(q[1],q[5]);
+    return {left+std::abs(q[2]-q[0])*fx,top+std::abs(q[5]-q[1])*fy};
+  }
+  return {q[0]+(q[2]-q[0])*fx+(q[6]-q[0])*fy,q[1]+(q[3]-q[1])*fx+(q[7]-q[1])*fy};
+}
 // Fixed native script; callers supply fractions, never executable source.
 inline constexpr const char* kPointerTarget=R"JS(function(fx,fy,fallback){
   return new Promise(resolve=>{

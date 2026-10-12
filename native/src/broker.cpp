@@ -1,4 +1,5 @@
 #include "xenon/broker.hpp"
+#include "xenon/developer_trace.hpp"
 #include "xenon/local_security.hpp"
 #include <algorithm>
 #include <atomic>
@@ -89,6 +90,7 @@ Json removed_workspace_result(const Json& value) {
 }
 
 struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
+  DeveloperTrace developer_trace;
   struct Client { std::string name, token_hash; ClientPolicy policy; uint64_t policy_epoch{1}; };
   struct AccountGrant { std::string client, workspace, account, origin; };
   struct Pairing { std::string name, connection; Reply reply; };
@@ -805,6 +807,12 @@ Broker::~Broker() { stop_all(); impl_->engine.set_event_sink({}); impl_->shutdow
 
 void Broker::dispatch(const std::string& connection, const Json& request, Reply reply) {
   auto self = impl_;
+  uint64_t trace_id{};
+  try { trace_id=self->developer_trace.begin(connection,request); } catch(...) {}
+  if(trace_id)reply=[weak=std::weak_ptr<Impl>(self),trace_id,target=std::move(reply)](Json value){
+    try { if(auto owner=weak.lock())owner->developer_trace.finish(trace_id,value); } catch(...) {}
+    target(std::move(value));
+  };
   Impl::UiChange notification{self.get()};
   if (!request.is_object() || !request.contains("method") || !request["method"].is_string() || (request.contains("params") && !request["params"].is_object())) { reply(failure("INVALID_REQUEST", "Expected method and object params")); return; }
   const auto method = field(request, "method"); auto params = request.value("params", Json::object());
@@ -1089,6 +1097,11 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   tab.queue.push_back({operation_id, session_id, method, tab.generation, attachment, tab.human_epoch, params, tab.document});
   lock.unlock(); self->pump(tab_id);
 }
+
+void Broker::set_developer_mode(bool enabled) { impl_->developer_trace.enable(enabled); }
+bool Broker::developer_mode_enabled() const { return impl_->developer_trace.enabled(); }
+void Broker::clear_developer_trace() { impl_->developer_trace.clear(); }
+Json Broker::developer_trace() const { return impl_->developer_trace.snapshot(); }
 
 Json Broker::state() const {
   auto self = impl_; std::lock_guard lock(self->mutex);

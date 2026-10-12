@@ -1,0 +1,221 @@
+{
+  "capturedAt": "2026-10-12T02:30:42.376Z",
+  "applicationDllSha256": "944036f815e272ef26faf9a1256de8f54f16272ebe9a310d84dee4f22ee8f956",
+  "behavior": [
+    "Convert viewport mouse positions into document coordinates for native DOM hit testing, including both scroll axes",
+    "Reject a hit if the viewport changes during its coordinate lookup",
+    "Refresh stationary hover and selected highlight when the observed viewport or node set changes",
+    "Human details distinguish document-coordinate node bounds and viewport-coordinate highlight geometry"
+  ],
+  "live": [
+    {
+      "language": "en-US",
+      "theme": "dark",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true,
+          "elapsedMs": 3734
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true,
+          "elapsedMs": 847
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true,
+          "elapsedMs": 5904
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true,
+          "elapsedMs": 466
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true,
+          "elapsedMs": 3849
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true,
+          "elapsedMs": 2835
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true,
+          "elapsedMs": 2210
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true,
+          "elapsedMs": 4813
+        },
+        {
+          "name": "Translated split result link with canceling reflections is observed, hovered and clicked",
+          "passed": true,
+          "elapsedMs": 3007
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true,
+          "elapsedMs": 2441
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true,
+          "elapsedMs": 2325
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true,
+          "elapsedMs": 3229
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true,
+          "elapsedMs": 6651
+        },
+        {
+          "name": "Page scrolling keeps hover and highlight aligned with viewport coordinates",
+          "passed": true,
+          "elapsedMs": 7763
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true,
+          "elapsedMs": 2389
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true,
+          "elapsedMs": 985
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true,
+          "elapsedMs": 897
+        }
+      ]
+    },
+    {
+      "language": "zh-CN",
+      "theme": "light",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true,
+          "elapsedMs": 3811
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true,
+          "elapsedMs": 902
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true,
+          "elapsedMs": 5849
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true,
+          "elapsedMs": 488
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true,
+          "elapsedMs": 3904
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true,
+          "elapsedMs": 2889
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true,
+          "elapsedMs": 2212
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true,
+          "elapsedMs": 4910
+        },
+        {
+          "name": "Translated split result link with canceling reflections is observed, hovered and clicked",
+          "passed": true,
+          "elapsedMs": 3050
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true,
+          "elapsedMs": 2460
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true,
+          "elapsedMs": 2326
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true,
+          "elapsedMs": 2880
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true,
+          "elapsedMs": 5302
+        },
+        {
+          "name": "Page scrolling keeps hover and highlight aligned with viewport coordinates",
+          "passed": true,
+          "elapsedMs": 7987
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true,
+          "elapsedMs": 2435
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true,
+          "elapsedMs": 906
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true,
+          "elapsedMs": 889
+        }
+      ]
+    }
+  ],
+  "native": {
+    "passed": true,
+    "suites": [
+      "developer_elements_tests",
+      "native_ui_tests",
+      "visible_evidence_tests"
+    ]
+  },
+  "branding": {
+    "passed": true,
+    "checks": 5
+  },
+  "google": {
+    "verified": false,
+    "reason": "Google returned an unusual traffic challenge during the final anonymous scrolled-results check; no challenge bypass attempted"
+  },
+  "earlierAttempts": [
+    "The initial page-scroll fixture and a focused rerun reproduced not_in_evidence after a 1600-pixel scroll; historical failed reports remain separate",
+    "A build was automatically rejected because the reviewer believed the disposable test was active; process inspection confirmed all Xenon processes had exited before the build was retried"
+  ],
+  "limitations": [
+    "Native window messages and PrintWindow verify the production path; physical cursor input and stationary physical hover remain manual coverage",
+    "Rendered coverage remains partial for unsupported or uncertain paint and transformations",
+    "Human page input temporarily clears evidence under the existing input pause; evidence returns after input settles"
+  ]
+}

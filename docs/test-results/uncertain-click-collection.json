@@ -1,0 +1,310 @@
+{
+  "capturedAt": "2026-10-12T07:31:29.290Z",
+  "applicationDllSha256": "b05063540ade6ca8109a6f1f838938a96835be0b0510b9eae1b229d149297819",
+  "build": {
+    "fullRelease": true,
+    "adapterCompiled": true,
+    "passed": true
+  },
+  "behavior": [
+    "Separate native-human opt-in starts off after each restart",
+    "Primary screenshot-bound agent clicks require a viewport-matched uncertain observation and native hit ancestry",
+    "Safe filter diagnostics and geometry are appended to an owner-only local JSONL file capped at 8 MiB",
+    "Disable retains the file, clear truncates it and both discard pending collection generations",
+    "No labels, URLs, DOM/CSS source, values, screenshots, candidate IDs or credentials are collected; no upload path",
+    "Dispatch is recorded separately from website success; uncertain candidates remain non-actionable IDs"
+  ],
+  "productionLive": [
+    {
+      "suite": "Visibility filter matrix with opt-in collection",
+      "run": "filter-matrix-1791789925524-19736509",
+      "passed": true,
+      "checks": [
+        {
+          "name": "plain",
+          "passed": true
+        },
+        {
+          "name": "identity-clip",
+          "passed": true
+        },
+        {
+          "name": "pixel-clip",
+          "passed": true
+        },
+        {
+          "name": "percent-clip",
+          "passed": true
+        },
+        {
+          "name": "negative-clip",
+          "passed": true
+        },
+        {
+          "name": "distant-blur",
+          "passed": true
+        },
+        {
+          "name": "zero-blur",
+          "passed": true
+        },
+        {
+          "name": "distant-backdrop",
+          "passed": true
+        },
+        {
+          "name": "bounded-shadow",
+          "passed": true
+        },
+        {
+          "name": "rotated-blur",
+          "passed": true
+        },
+        {
+          "name": "scaled-blur",
+          "passed": true
+        },
+        {
+          "name": "distant-invert",
+          "passed": true
+        },
+        {
+          "name": "covered-by-invert",
+          "passed": true
+        },
+        {
+          "name": "backdrop-content",
+          "passed": true
+        },
+        {
+          "name": "translation",
+          "passed": true
+        },
+        {
+          "name": "nested-inset",
+          "passed": true
+        },
+        {
+          "name": "covered-by-blur",
+          "passed": true
+        },
+        {
+          "name": "clipped-center",
+          "passed": true
+        },
+        {
+          "name": "zero-area-clip",
+          "passed": true
+        },
+        {
+          "name": "unsupported-round",
+          "passed": true
+        },
+        {
+          "name": "unsupported-polygon",
+          "passed": true
+        },
+        {
+          "name": "covered-by-backdrop",
+          "passed": true
+        },
+        {
+          "name": "faint-control",
+          "passed": true
+        },
+        {
+          "name": "Scroll after navigation",
+          "passed": true
+        },
+        {
+          "name": "Opt-in click collection, native hit identity, redaction, disable and clear",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "Native developer inspector",
+      "run": "developer-elements-1791790010168-dc626ae0",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true
+        },
+        {
+          "name": "Backdrop effects stay local and continue withholding covered controls",
+          "passed": true
+        },
+        {
+          "name": "Uncertain controls remain listed with screenshot guidance and no usable target",
+          "passed": true
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true
+        },
+        {
+          "name": "Translated split result link with canceling reflections is observed, hovered and clicked",
+          "passed": true
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true
+        },
+        {
+          "name": "Page scrolling keeps hover and highlight aligned with viewport coordinates",
+          "passed": true
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "Adversarial rendered evidence",
+      "run": "visibility-integration-1791790111330-748de0e1",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "collection": {
+    "defaultOffVerified": true,
+    "uncertainClickWebsiteCallbackObserved": true,
+    "nativeHitIdentityRecorded": true,
+    "unsupportedClipDiagnosticRecorded": true,
+    "hiddenCanariesAndTokenAbsent": true,
+    "coveredTargetNotRecorded": true,
+    "hoverNotRecorded": true,
+    "verifiedCoordinateClickNotRecorded": true,
+    "disabledClickNotRecorded": true,
+    "staleClickRejected": true,
+    "clearVerified": true
+  },
+  "native": {
+    "suites": [
+      "uncertain_click_log_tests",
+      "visible_evidence_tests",
+      "developer_elements_tests",
+      "native_ui_tests"
+    ],
+    "passed": true,
+    "coverage": [
+      "Allowlisted redaction and invalid numeric/type rejection",
+      "Default-off and restart behavior",
+      "Disable/re-enable and clear reject old generations",
+      "Bounded file size and clear while collecting",
+      "Multiply-linked file rejection preserves contents and ACLs",
+      "Unsupported clip produces safe boolean diagnostics"
+    ]
+  },
+  "branding": {
+    "checks": 5,
+    "passed": true
+  },
+  "preview": {
+    "collectionOff": true,
+    "controlsLayoutInspected": true
+  },
+  "earlierRuns": [
+    "Initial native and live collector checks failed because Windows directory ACL operations needed generic-read access; corrected before final verification",
+    "Directory handling was hardened to validate an existing owner-only ACL without propagating changes to unvalidated children",
+    "The ACL inheritance fixture initially omitted DACL_SECURITY_INFORMATION; the fixture was corrected and all focused native suites passed without changing the tested production DLL"
+  ],
+  "limitations": [
+    "Agent primary coordinate clicks only; physical human clicks are not collected",
+    "A record proves dispatch with a matching native hit identity, not website acceptance or a filter false negative",
+    "Changed document, authority, human activity or protected/private state suppresses late records",
+    "Collection depends on admitted observation candidates and matching viewport; queries, node limits and missing frame ancestry can omit cases",
+    "Live evidence uses native messages and PrintWindow; physical input, multi-DPI layouts and child-frame collection remain manual coverage"
+  ]
+}

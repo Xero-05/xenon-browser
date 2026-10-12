@@ -37,6 +37,17 @@ class CefEngine final : public BrowserEngine {
   void native_pointer(HWND page,POINT screen,bool substantive=false);
   void select_native_tab(const std::string& tab_id);
   void native_command(const std::string& tab_id,const std::string& command,const std::string& value={},Reply reply={});
+  // Native diagnostic read using the agent's rendered-evidence filter. Does
+  // not publish/replace agent observation tokens or actionable references.
+  void developer_elements(const std::string& tab_id, Reply);
+  void developer_highlight(const std::string& tab_id,const std::string& diagnostic_id,bool discard=false,Reply reply={});
+  void developer_pick(const std::string& tab_id,bool enabled,Reply);
+  void developer_pick_point(const std::string& tab_id,double x,double y);
+  void developer_hover_point(const std::string& tab_id,double x,double y,Reply);
+  // Session-only native opt-in; never exposed to MCP.
+  void set_uncertain_click_collection(bool enabled);
+  void clear_uncertain_click_log();
+  Json uncertain_click_log_status() const;
   // A human chose a page context-menu link command (tab, url, new window).
   void set_open_link_callback(std::function<void(const std::string&,const std::string&,bool)> callback);
   // Human-installed, enabled extensions whose own pages native UI may open.

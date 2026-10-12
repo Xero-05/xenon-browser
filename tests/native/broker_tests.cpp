@@ -1182,10 +1182,28 @@ void pipe_transport(const std::filesystem::path& directory) {
 }
 #endif
 }
+void developer_mode(const std::filesystem::path& directory) {
+  FakeEngine engine;Broker broker(engine,directory);
+  require(!broker.developer_trace().value("enabled",true),"Developer capture is off by default");
+  broker.set_developer_mode(true);
+  require(code(call(broker,"developer","workers.list"))=="UNAUTHORIZED","Developer mode preserves authorization");
+  require(broker.developer_trace()["entries"][0]["status"]=="error","Denied commands show the actual reply");
+  broker.clear_developer_trace();
+  const auto credentials=pair(broker,"developer","Synthetic developer host");
+  require(broker.developer_trace()["entries"][0]["status"]=="completed","Delayed native pairing approval completes the trace");
+  require(call(broker,"developer","hello",credentials).value("ok",false),"Trace redaction does not modify real credentials");
+  require(broker.developer_trace().dump().find(credentials["token"].get<std::string>())==std::string::npos,"Neither pairing responses nor hello requests retain pairing tokens");
+  require(!broker.state().contains("developerTrace"),"Diagnostics stay out of broker state");
+  broker.set_developer_mode(false);
+  require(broker.developer_trace()["entries"].empty(),"Disabling erases captured traffic");
+  require(call(broker,"developer","workers.list").value("ok",false),"Disabling diagnostics preserves the connection");
+  require(broker.developer_trace()["entries"].empty(),"Disabled mode collects no new commands");
+}
 int main() {
   try {
     human_dialog_notices();
     const auto root = std::filesystem::absolute(std::filesystem::path("build") / "broker-test-data" / local_security::random_hex(8));
+    developer_mode(root / "developer-mode");
     batch_operations(root / "batch-operations");
     scoped_diagnostics_and_inspection(root / "scope-inspection");
     batch_boundaries(root / "batch-boundaries");

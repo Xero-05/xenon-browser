@@ -1,0 +1,199 @@
+{
+  "limitations": [
+    "Real desktop cursor movement and foreground activation unavailable to this runner; physical hover remains manual coverage",
+    "Matching is limited to the current rendered evidence list",
+    "Site labels remain untrusted native inspector metadata, outside MCP rendered names"
+  ],
+  "capturedAt": "2026-10-12T01:10:06.2293142Z",
+  "live": [
+    {
+      "passed": true,
+      "language": "en-US",
+      "theme": "dark",
+      "applicationDllSha256": "7efc49e9fd7530a3c3a5ec967df78cefce1733265d878685bca49ed633194ba9",
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true,
+          "elapsedMs": 3470
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true,
+          "elapsedMs": 771
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true,
+          "elapsedMs": 5362
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true,
+          "elapsedMs": 443
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true,
+          "elapsedMs": 3799
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true,
+          "elapsedMs": 2808
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true,
+          "elapsedMs": 2146
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true,
+          "elapsedMs": 4784
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true,
+          "elapsedMs": 2394
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true,
+          "elapsedMs": 2296
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true,
+          "elapsedMs": 2646
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true,
+          "elapsedMs": 5947
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true,
+          "elapsedMs": 2211
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true,
+          "elapsedMs": 984
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true,
+          "elapsedMs": 876
+        }
+      ],
+      "applicationDllSha256AtEnd": "7efc49e9fd7530a3c3a5ec967df78cefce1733265d878685bca49ed633194ba9"
+    },
+    {
+      "passed": true,
+      "language": "zh-CN",
+      "theme": "light",
+      "applicationDllSha256": "7efc49e9fd7530a3c3a5ec967df78cefce1733265d878685bca49ed633194ba9",
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true,
+          "elapsedMs": 3559
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true,
+          "elapsedMs": 691
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true,
+          "elapsedMs": 5240
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true,
+          "elapsedMs": 441
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true,
+          "elapsedMs": 3791
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true,
+          "elapsedMs": 2847
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true,
+          "elapsedMs": 2156
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true,
+          "elapsedMs": 4809
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true,
+          "elapsedMs": 2537
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true,
+          "elapsedMs": 2346
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true,
+          "elapsedMs": 2662
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true,
+          "elapsedMs": 5928
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true,
+          "elapsedMs": 2217
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true,
+          "elapsedMs": 972
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true,
+          "elapsedMs": 867
+        }
+      ],
+      "applicationDllSha256AtEnd": "7efc49e9fd7530a3c3a5ec967df78cefce1733265d878685bca49ed633194ba9"
+    }
+  ],
+  "google": {
+    "signInHighlighted": true,
+    "anonymousHomepage": true,
+    "appsHoverSelectedLabel": "Google apps",
+    "appsHighlighted": true,
+    "nativeMessageAndScreenshotVerified": true
+  },
+  "nativeSuites": [
+    "developer_elements_tests",
+    "visible_evidence_tests",
+    "native_ui_tests"
+  ],
+  "brandingChecks": 5,
+  "coverage": "Production CEF/MCP with disposable profiles, native window/keyboard messages and PrintWindow; not physical input",
+  "earlierAttempts": [
+    "Initial hover driver used a nonexistent Chrome window class",
+    "A cursor-placement test failed because it could not control the interactive desktop; replaced with scoped native messages and retained failed reports",
+    "Accessibility-only ancestry missed the Apps icon on Google",
+    "Intermediate fixed parent traversal returned a non-Node object; parentNode, originating element and shadow-host links resolved the Google case",
+    "Rapid highlight reads were coalesced and deferred during hover lookup"
+  ]
+}

@@ -1,0 +1,361 @@
+{
+  "capturedAt": "2026-10-12T03:26:11.397Z",
+  "applicationDllSha256": "ed6367bdbe8a99fa0e3cc39e27f9e61b4d4be12154c708cae3c668b9e9051173",
+  "behavior": [
+    "Rectangular inset clips retain proven visible regions",
+    "Pure blur includes overflow descendants and conservative transformed three-sigma paint bounds",
+    "Inversion stays local without admitting unverified inverted content",
+    "Backdrop descendant geometry is available with unverified rendered labels withheld"
+  ],
+  "productionLive": [
+    {
+      "suite": "Cross-page filter matrix",
+      "run": "filter-matrix-1791775350600-1dde1ccf",
+      "passed": true,
+      "checks": [
+        {
+          "name": "plain",
+          "passed": true
+        },
+        {
+          "name": "identity-clip",
+          "passed": true
+        },
+        {
+          "name": "pixel-clip",
+          "passed": true
+        },
+        {
+          "name": "percent-clip",
+          "passed": true
+        },
+        {
+          "name": "negative-clip",
+          "passed": true
+        },
+        {
+          "name": "distant-blur",
+          "passed": true
+        },
+        {
+          "name": "zero-blur",
+          "passed": true
+        },
+        {
+          "name": "distant-backdrop",
+          "passed": true
+        },
+        {
+          "name": "bounded-shadow",
+          "passed": true
+        },
+        {
+          "name": "rotated-blur",
+          "passed": true
+        },
+        {
+          "name": "scaled-blur",
+          "passed": true
+        },
+        {
+          "name": "distant-invert",
+          "passed": true
+        },
+        {
+          "name": "covered-by-invert",
+          "passed": true
+        },
+        {
+          "name": "backdrop-content",
+          "passed": true
+        },
+        {
+          "name": "translation",
+          "passed": true
+        },
+        {
+          "name": "nested-inset",
+          "passed": true
+        },
+        {
+          "name": "covered-by-blur",
+          "passed": true
+        },
+        {
+          "name": "clipped-center",
+          "passed": true
+        },
+        {
+          "name": "zero-area-clip",
+          "passed": true
+        },
+        {
+          "name": "unsupported-round",
+          "passed": true
+        },
+        {
+          "name": "unsupported-polygon",
+          "passed": true
+        },
+        {
+          "name": "covered-by-backdrop",
+          "passed": true
+        },
+        {
+          "name": "Scroll after navigation",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "Developer elements inspector",
+      "run": "developer-elements-1791775401550-3fd306a9",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true,
+          "elapsedMs": 3276
+        },
+        {
+          "name": "Backdrop effects stay local and continue withholding covered controls",
+          "passed": true,
+          "elapsedMs": 819
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true,
+          "elapsedMs": 624
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true,
+          "elapsedMs": 4907
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true,
+          "elapsedMs": 436
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true,
+          "elapsedMs": 3740
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true,
+          "elapsedMs": 2685
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true,
+          "elapsedMs": 2081
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true,
+          "elapsedMs": 4732
+        },
+        {
+          "name": "Translated split result link with canceling reflections is observed, hovered and clicked",
+          "passed": true,
+          "elapsedMs": 2687
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true,
+          "elapsedMs": 2235
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true,
+          "elapsedMs": 2796
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true,
+          "elapsedMs": 3087
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true,
+          "elapsedMs": 4984
+        },
+        {
+          "name": "Page scrolling keeps hover and highlight aligned with viewport coordinates",
+          "passed": true,
+          "elapsedMs": 7821
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true,
+          "elapsedMs": 2189
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true,
+          "elapsedMs": 915
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true,
+          "elapsedMs": 863
+        }
+      ]
+    },
+    {
+      "suite": "Adversarial rendered evidence",
+      "run": "visibility-integration-1791775469203-13deecc6",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true,
+          "elapsedMs": 13
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true,
+          "elapsedMs": 872
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true,
+          "elapsedMs": 773
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true,
+          "elapsedMs": 26
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true,
+          "elapsedMs": 428
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true,
+          "elapsedMs": 642
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true,
+          "elapsedMs": 1396
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true,
+          "elapsedMs": 1352
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true,
+          "elapsedMs": 18
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true,
+          "elapsedMs": 1423
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true,
+          "elapsedMs": 15
+        }
+      ]
+    }
+  ],
+  "native": {
+    "suites": [
+      "developer_elements_tests",
+      "native_ui_tests",
+      "visible_evidence_tests"
+    ],
+    "passed": true
+  },
+  "branding": {
+    "checks": 5,
+    "passed": true
+  },
+  "publicPages": [
+    {
+      "url": "https://github.com/",
+      "elements": 31,
+      "status": "31 elements · 13 interactable · Partial coverage",
+      "checks": [
+        {
+          "label": "Sign in",
+          "listed": true
+        },
+        {
+          "label": "Sign up",
+          "listed": true
+        },
+        {
+          "label": "Sign up for GitHub",
+          "listed": true
+        },
+        {
+          "label": "Search or jump to, type / to search",
+          "listed": true
+        }
+      ]
+    },
+    {
+      "url": "https://www.linkedin.com/",
+      "elements": 85,
+      "status": "85 elements · 37 interactable · Partial coverage",
+      "checks": [
+        {
+          "label": "Sign in",
+          "listed": true
+        }
+      ]
+    },
+    {
+      "url": "https://www.wikipedia.org/",
+      "elements": 156,
+      "status": "156 elements · 31 interactable · Partial coverage",
+      "checks": [
+        {
+          "label": "Search Wikipedia",
+          "listed": true
+        },
+        {
+          "label": "Search",
+          "listed": true
+        }
+      ]
+    },
+    {
+      "url": "https://developer.mozilla.org/en-US/",
+      "elements": 106,
+      "status": "106 elements · 35 interactable · Partial coverage",
+      "checks": [
+        {
+          "label": "Search",
+          "listed": true
+        }
+      ]
+    }
+  ],
+  "githubHover": {
+    "control": "Sign in",
+    "highlighted": true,
+    "error": false
+  },
+  "previousFailures": [
+    "Early matrix runs missed distant blur because of Chromium LayoutView ancestry; the native fixture now includes that wrapper",
+    "A nested clip fixture had zero height and was corrected",
+    "The backdrop geometry change initially stopped marking transparent backdrop output as painted; native coverage caught and corrected it",
+    "The three-sigma unit fixture initially missed the control center and was corrected"
+  ],
+  "limitations": [
+    "Production CEF/MCP and native message/PrintWindow coverage; physical mouse, keyboard and DPI combinations remain manual",
+    "Public page checks used anonymous disposable state and did not submit forms",
+    "Coverage remains partial; unsupported shapes, perspective, uncertain text contrast and effects can still omit content",
+    "Earlier failed reports remain separate from final passing evidence"
+  ]
+}

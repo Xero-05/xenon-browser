@@ -1,0 +1,62 @@
+{
+  "earlierAttempts": [
+    "An attempted native submit-caption text-box fix failed the live label assertion because no text boxes were exposed. Reverted that filter change and retained the failed binary-bound report in out/."
+  ],
+  "capturedAt": "2026-10-12T00:10:25.29Z",
+  "fixed": [
+    "Editable INPUT/TEXTAREA comboboxes are classified as Fill / key before dropdown Select",
+    "Unverified names are explained in native selected-node details and rows say No verified label"
+  ],
+  "brandingChecks": 5,
+  "applicationDllSha256AtEnd": "a53d0358cb9d8f0e495cb61d2af2bfb86963da4822be2e0ee2448f8b4ce503a6",
+  "live": [
+    {
+      "passed": 11,
+      "theme": "dark",
+      "language": "en-US",
+      "total": 11
+    },
+    {
+      "passed": 11,
+      "theme": "light",
+      "language": "zh-CN",
+      "total": 11
+    }
+  ],
+  "nativeFocusedChecks": [
+    "developer_elements_tests",
+    "visible_evidence_tests",
+    "native_ui_tests"
+  ],
+  "checks": [
+    "Menu enables a website-side panel using filtered evidence",
+    "Native submit controls and editable comboboxes preserve label boundaries",
+    "Selection shows frame, bounds and states without agent action tokens",
+    "Selecting a row highlights its current rendered node",
+    "Page picker selects the corresponding row without activating it",
+    "Canceling the picker restores ordinary selection",
+    "Interactable filter removes text and disabled controls",
+    "Panel refresh leaves an existing agent observation usable",
+    "Tab switching replaces evidence with the selected document",
+    "Authentication protection removes diagnostic elements",
+    "Disable hides the panel and discards its rows"
+  ],
+  "source": "Local PR16 verification changes",
+  "applicationDllSha256": "a53d0358cb9d8f0e495cb61d2af2bfb86963da4822be2e0ee2448f8b4ce503a6",
+  "limitations": [
+    "Chromium DOMSnapshot does not expose verified text boxes for native input-button captions. Those controls keep their role, bounds and action reference but their names remain withheld.",
+    "Icon-only accessibility names remain withheld.",
+    "Native window/message drivers; not physical-device coverage.",
+    "An anonymous fresh-profile Google variant with a Chrome-download promotional overlay produced zero structured elements and partial coverage. It remains unverified coverage; the rendering filter was not loosened."
+  ],
+  "googleHomepageCheck": {
+    "searchHighlightVerified": true,
+    "elements": 37,
+    "interactable": 19,
+    "searchTag": "TEXTAREA",
+    "coverage": "Native panel read and PrintWindow on the anonymous public homepage; not physical input",
+    "profile": "Original agent-created disposable preview profile",
+    "displayedActions": "Fill / key",
+    "searchRole": "combobox"
+  }
+}

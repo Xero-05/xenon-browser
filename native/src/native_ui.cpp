@@ -15,6 +15,8 @@
 #include <windowsx.h>
 #include <wtsapi32.h>
 #include <shobjidl.h>
+#include <shellapi.h>
+#include <wincrypt.h>
 #include <algorithm>
 #include <atomic>
 #include <deque>
@@ -36,15 +38,17 @@ std::string str(const Json& j,const char* key){auto i=j.find(key);return i!=j.en
 std::string compact(const std::string& text,size_t limit){if(text.size()<=limit)return text;while(limit&&(static_cast<unsigned char>(text[limit])&0xc0)==0x80)--limit;return text.substr(0,limit)+"…";}
 enum Id { Pairings=101,Approve,Deny,Clients,Workspaces,Share,Tabs,Take,Workers,Give,Stop,ResumeAuth,
           Origin,Username,Password,Label,Save,Import,Accounts,DeleteAccount,Grant,NewWorkspace,UploadGrant,Status,Revoke,PrivateWorkspace,RestoreSession,DialogAccept,DialogDismiss,DialogText,RemoveWorkspace,FillSavedAccount,CheckUpdates,PageClients,PageWorkspaces,PagePasswords,ConfigureClient,ConfigureWorkspace,ClientFiles,ClientAccountGrant,AccountRevoke,DialogMessage,SectionTitle,Brand,
-          PageExtensions,ExtensionList,ExtensionLoad,ExtensionToggle,ExtensionRemove,ExtensionOptions,ExtensionPopup,CloseWorkspaceTabs };
+          PageExtensions,ExtensionList,ExtensionLoad,ExtensionToggle,ExtensionRemove,ExtensionOptions,ExtensionPopup,CloseWorkspaceTabs,
+          PageDeveloper,DeveloperToggle,DeveloperClear,DeveloperCommands,DeveloperDetails,DeveloperImage,
+          UncertainClickToggle,UncertainClickFolder,UncertainClickClear,UncertainClickStatus };
 constexpr UINT LoginNotice=WM_APP+41;
 constexpr UINT DialogNotice=WM_APP+42;
 constexpr UINT RemovalNotice=WM_APP+43;
 constexpr UINT AutofillNotice=WM_APP+44;
 constexpr UINT StatusNotice=WM_APP+45;
 // Section buttons; Extensions was added after the original three.
-int page_button(int page){return page==3?PageExtensions:PageClients+page;}
-int button_page(int id){return id==PageExtensions?3:id>=PageClients&&id<=PagePasswords?id-PageClients:-1;}
+int page_button(int page){return page==4?PageDeveloper:page==3?PageExtensions:PageClients+page;}
+int button_page(int id){return id==PageDeveloper?4:id==PageExtensions?3:id>=PageClients&&id<=PagePasswords?id-PageClients:-1;}
 enum class TextTone : INT_PTR { normal=0, muted=1, heading=2, brand=3, brand_muted=4, status=5 };
 enum class ButtonTone : INT_PTR { normal=0, primary=1, caution=2 };
 constexpr wchar_t TextToneProperty[]=L"Xenon.TextTone";
@@ -62,6 +66,43 @@ struct NativeUi::Impl {
   HWND window{};HFONT font{},heading_font{},brand_font{},small_font{};
   HBRUSH canvas_brush=CreateSolidBrush(Canvas),surface_brush=CreateSolidBrush(Surface),navy_brush=CreateSolidBrush(Navy);
   std::map<int,HWND> controls;std::map<int,std::vector<Json>> rows;
+  Json developer_selected;std::unique_ptr<Gdiplus::Bitmap> developer_bitmap;IStream* developer_stream{};
+  void clear_developer_image(){developer_bitmap.reset();if(developer_stream){developer_stream->Release();developer_stream=nullptr;}}
+  void refresh_developer(){
+    const auto trace=broker.developer_trace();
+    SetWindowTextW(controls.at(DeveloperToggle),trace.value("enabled",false)?ui::tr(L"Disable developer mode"):ui::tr(L"Enable developer mode"));
+    const auto collection=engine.uncertain_click_log_status();
+    SetWindowTextW(controls.at(UncertainClickToggle),collection.value("enabled",false)?ui::tr(L"Stop collecting uncertain clicks"):ui::tr(L"Collect uncertain agent clicks"));
+    const auto summary=std::wstring(collection.value("enabled",false)?ui::tr(L"Collecting locally"):ui::tr(L"Collection off"))+L" · "+std::to_wstring(collection.value("recordsThisSession",size_t{}));
+    SetWindowTextW(controls.at(UncertainClickStatus),summary.c_str());
+    Json entries=Json::array();for(auto it=trace["entries"].rbegin();it!=trace["entries"].rend();++it)entries.push_back(*it);
+    list(DeveloperCommands,entries,"traceId",[](const Json& row){const auto params=row["request"].is_object()?row["request"].value("params",Json::object()):Json::object();
+      return "#"+str(row,"traceId")+" · "+str(row,"method")+" · "+str(row,"status")+" · "+str(params,"agentSessionId")+" · "+str(params,"tabId");});
+    auto row=selected(DeveloperCommands);if(row==developer_selected)return;developer_selected=row;clear_developer_image();
+    const auto encoded=str(row,"screenshot");
+    if(!encoded.empty()){
+      DWORD size{};if(CryptStringToBinaryA(encoded.data(),static_cast<DWORD>(encoded.size()),CRYPT_STRING_BASE64,nullptr,&size,nullptr,nullptr)){
+        std::vector<BYTE> bytes(size);if(CryptStringToBinaryA(encoded.data(),static_cast<DWORD>(encoded.size()),CRYPT_STRING_BASE64,bytes.data(),&size,nullptr,nullptr)&&SUCCEEDED(CreateStreamOnHGlobal(nullptr,TRUE,&developer_stream))){
+          ULONG written{};LARGE_INTEGER start{};
+          if(SUCCEEDED(developer_stream->Write(bytes.data(),size,&written))&&written==size&&SUCCEEDED(developer_stream->Seek(start,STREAM_SEEK_SET,nullptr))){
+            developer_bitmap.reset(Gdiplus::Bitmap::FromStream(developer_stream));
+            if(!developer_bitmap||developer_bitmap->GetLastStatus()!=Gdiplus::Ok)clear_developer_image();
+          }else clear_developer_image();
+        }
+      }
+    }
+    row.erase("screenshot");auto details=row.empty()?std::wstring(ui::tr(L"Enable developer mode, then select a command. Observations show the evidence returned to the agent.")):wide(row.dump(2));
+    for(size_t pos=0;(pos=details.find(L'\n',pos))!=std::wstring::npos;pos+=2)details.insert(pos,L"\r");
+    SetWindowTextW(controls.at(DeveloperDetails),details.c_str());InvalidateRect(controls.at(DeveloperImage),nullptr,TRUE);
+  }
+  void draw_developer_image(const DRAWITEMSTRUCT& item){
+    const auto colors=ui::palette();auto brush=CreateSolidBrush(colors.surface);FillRect(item.hDC,&item.rcItem,brush);DeleteObject(brush);
+    if(developer_bitmap){const auto w=developer_bitmap->GetWidth(),h=developer_bitmap->GetHeight();if(!w||!h)return;
+      const double scale=std::min(double(item.rcItem.right-item.rcItem.left)/w,double(item.rcItem.bottom-item.rcItem.top)/h);
+      const int width=static_cast<int>(w*scale),height=static_cast<int>(h*scale);Gdiplus::Graphics graphics(item.hDC);
+      graphics.DrawImage(developer_bitmap.get(),item.rcItem.left+(item.rcItem.right-item.rcItem.left-width)/2,item.rcItem.top+(item.rcItem.bottom-item.rcItem.top-height)/2,width,height);
+    }else{SetBkMode(item.hDC,TRANSPARENT);SetTextColor(item.hDC,colors.muted);auto bounds=item.rcItem;DrawTextW(item.hDC,ui::tr(L"No screenshot in this response"),-1,&bounds,DT_CENTER|DT_VCENTER|DT_SINGLELINE);}
+  }
   struct PromptLayout {SIZE original{};HFONT face{};std::vector<std::pair<HWND,RECT>> children;};
   std::map<HWND,PromptLayout> prompt_layouts;
   void remember_prompt(HWND target){PromptLayout layout;RECT parent{};GetClientRect(target,&parent);layout.original={parent.right,parent.bottom};layout.face=ui::font(target);
@@ -842,6 +883,7 @@ struct NativeUi::Impl {
   }
   void refresh(){
     try {
+      if(page==4)refresh_developer();
       auto s=broker.state();
       std::map<std::string,std::string> worker_names,workspace_names;
       for(const auto& worker:s["workers"])worker_names[str(worker,"agentSessionId")]=str(worker,"name");
@@ -1024,7 +1066,7 @@ struct NativeUi::Impl {
     }catch(const std::runtime_error& error){status(ui::error_text(error.what()));}
   }
   void show_section(int target,const std::string& select){
-    page=std::clamp(target,0,3);layout_main();refresh();
+    page=std::clamp(target,0,4);layout_main();refresh();
     if(page==1&&!select.empty())for(size_t n=0;n<rows[Workspaces].size();++n)if(str(rows[Workspaces][n],"workspaceId")==select){SendMessageW(controls.at(Workspaces),LB_SETCURSEL,n,0);refresh();break;}
     if(page==2&&!select.empty())for(size_t n=0;n<rows[Accounts].size();++n)if(str(rows[Accounts][n],"origin")==select){SendMessageW(controls.at(Accounts),LB_SETCURSEL,n,0);refresh();break;}
     apply_theme();ShowWindow(window,SW_SHOWNORMAL);SetForegroundWindow(window);
@@ -1032,6 +1074,11 @@ struct NativeUi::Impl {
   void command(int id){
     try {
       if(button_page(id)>=0){page=button_page(id);layout_main();}
+      else if(id==DeveloperToggle){broker.set_developer_mode(!broker.developer_trace().value("enabled",false));refresh_developer();}
+      else if(id==DeveloperClear){broker.clear_developer_trace();refresh_developer();}
+      else if(id==UncertainClickToggle){engine.set_uncertain_click_collection(!engine.uncertain_click_log_status().value("enabled",false));refresh_developer();const auto log=engine.uncertain_click_log_status();status(log.value("error",std::string{}).empty()?ui::tr(L"Local agent-click diagnostics only. No URLs, text, values or images. Collection is off after restart."):wide(log.value("error",std::string{})));}
+      else if(id==UncertainClickClear){engine.clear_uncertain_click_log();refresh_developer();const auto log=engine.uncertain_click_log_status();status(log.value("error",std::string{}).empty()?ui::tr(L"Local click log cleared."):wide(log.value("error",std::string{})));}
+      else if(id==UncertainClickFolder){const auto log=engine.uncertain_click_log_status();const auto directory=wide(log.value("directory",std::string{}));if(GetFileAttributesW(directory.c_str())!=INVALID_FILE_ATTRIBUTES)ShellExecuteW(window,L"open",directory.c_str(),nullptr,nullptr,SW_SHOWNORMAL);else status(ui::tr(L"Enable collection to create the local log folder."));}
       else if(id==ConfigureClient)show_configuration(false);
       else if(id==ConfigureWorkspace)show_configuration(true);
       else if(id==ClientFiles)show_files(str(selected(Clients),"clientId"));
@@ -1115,7 +1162,7 @@ struct NativeUi::Impl {
       else if(button_page(id)>=0)MoveWindow(entry.control,d(20),d(102+button_page(id)*52),d(176),d(40),TRUE);
       else MoveWindow(entry.control,left+MulDiv(r.left-24,width,912),body_top+MulDiv(r.top-116,height,553),MulDiv(r.right-r.left,width,912),MulDiv(r.bottom-r.top,height,553),TRUE);
       ShowWindow(entry.control,entry.page<0||entry.page==page?SW_SHOW:SW_HIDE);if(button_page(id)>=0)InvalidateRect(entry.control,nullptr,TRUE);}
-    SetWindowTextW(controls.at(SectionTitle),page==0?ui::tr(L"Clients"):page==1?ui::tr(L"Workspaces"):page==2?ui::tr(L"Passwords"):ui::tr(L"Extensions"));InvalidateRect(window,nullptr,TRUE);}
+    SetWindowTextW(controls.at(SectionTitle),page==0?ui::tr(L"Clients"):page==1?ui::tr(L"Workspaces"):page==2?ui::tr(L"Passwords"):page==3?ui::tr(L"Extensions"):ui::tr(L"Developer mode"));InvalidateRect(window,nullptr,TRUE);}
   void apply_theme(){ui::icons(window);for(const auto& entry:placements)ui::control_theme(entry.control);const auto colors=ui::palette();applied_palette=colors;for(int id:{static_cast<int>(Tabs),static_cast<int>(ExtensionList)}){auto table=controls.at(id);ListView_SetBkColor(table,colors.canvas);ListView_SetTextBkColor(table,colors.canvas);ListView_SetTextColor(table,colors.ink);}InvalidateRect(window,nullptr,TRUE);
     for(const auto& [prompt,layout]:prompt_layouts){ui::icons(prompt);for(const auto& [child,bounds]:layout.children)ui::control_theme(child);InvalidateRect(prompt,nullptr,TRUE);}
     for(auto& config:configurations)if(config->window){ui::icons(config->window);ListView_SetBkColor(config->resources,colors.canvas);ListView_SetTextBkColor(config->resources,colors.canvas);ListView_SetTextColor(config->resources,colors.ink);InvalidateRect(config->window,nullptr,TRUE);}}
@@ -1123,7 +1170,8 @@ struct NativeUi::Impl {
     font=ui::font(window);heading_font=ui::font(window,16,FW_SEMIBOLD);brand_font=ui::font(window,24,FW_SEMIBOLD);small_font=ui::font(window,13);window_icon(window);building_page=-1;
     text_style(add(Brand,L"STATIC",L"Xenon",24,17,168,34),TextTone::normal,brand_font);text_style(add(SectionTitle,L"STATIC",ui::tr(L"Clients"),232,36,500,36),TextTone::normal,brand_font);button(CheckUpdates,ui::tr(L"Check for updates"),770,20,166);
     button(PageClients,ui::tr(L"Clients"),24,68,150);button(PageWorkspaces,ui::tr(L"Workspaces"),186,68,150);button(PagePasswords,ui::tr(L"Passwords"),348,68,150);button(PageExtensions,ui::tr(L"Extensions"),510,68,150);
-    for(int id:{PageClients,PageWorkspaces,PagePasswords,PageExtensions})SetPropW(controls.at(id),L"XenonConnected",reinterpret_cast<HANDLE>(1));
+    button(PageDeveloper,ui::tr(L"Developer mode"),672,68,150);
+    for(int id:{PageClients,PageWorkspaces,PagePasswords,PageExtensions,PageDeveloper})SetPropW(controls.at(id),L"XenonConnected",reinterpret_cast<HANDLE>(1));
     building_page=0;
     label(ui::tr(L"Pairing requests"),24,118,500,TextTone::heading);label(ui::tr(L"Approve only clients you recognize."),24,146,870,TextTone::muted);
     add(Pairings,L"LISTBOX",L"",24,177,912,110,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);button(Approve,ui::tr(L"Approve"),24,301);button(Deny,ui::tr(L"Deny"),161,301);
@@ -1142,6 +1190,17 @@ struct NativeUi::Impl {
     label(ui::tr(L"Selected client/workspace come from the other sections. Grants use exact HTTPS origins."),24,356,912,TextTone::muted);button(ClientAccountGrant,ui::tr(L"Grant to client"),24,388,190);button(AccountRevoke,ui::tr(L"Revoke client grant"),226,388,190);button(Grant,ui::tr(L"Grant in workspace"),428,388,195);
     label(ui::tr(L"HTTPS origin"),24,439,430,TextTone::muted);label(ui::tr(L"Account label"),490,439,446,TextTone::muted);add(Origin,L"EDIT",L"",24,464,445,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);add(Label,L"EDIT",L"",490,464,446,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
     label(ui::tr(L"Username"),24,507,445,TextTone::muted);label(ui::tr(L"Password"),490,507,446,TextTone::muted);add(Username,L"EDIT",L"",24,532,445,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);add(Password,L"EDIT",L"",490,532,446,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL|ES_PASSWORD);button(Save,ui::tr(L"Save account"),24,582,165);
+    building_page=4;
+    label(ui::tr(L"Agent commands and returned evidence"),24,116,870,TextTone::heading);
+    label(ui::tr(L"Captured only while enabled. Tokens and input values are redacted. Clear or disable to erase."),24,144,912,TextTone::muted);
+    button(DeveloperToggle,ui::tr(L"Enable developer mode"),24,177,230);button(DeveloperClear,ui::tr(L"Clear trace"),266,177,130);
+    button(UncertainClickToggle,ui::tr(L"Collect uncertain agent clicks"),24,217,280);button(UncertainClickFolder,ui::tr(L"Open log folder"),316,217,150);button(UncertainClickClear,ui::tr(L"Clear click log"),478,217,150);
+    add(UncertainClickStatus,L"STATIC",ui::tr(L"Collection off"),640,217,296,28);text_style(controls.at(UncertainClickStatus),TextTone::muted,small_font);
+    add(DeveloperCommands,L"LISTBOX",L"",24,257,912,90,WS_BORDER|WS_VSCROLL|WS_HSCROLL|LBS_NOTIFY|WS_TABSTOP);
+    label(ui::tr(L"Request / response / rendered observation"),24,358,490,TextTone::muted);label(ui::tr(L"Screenshot returned to the agent"),550,358,386,TextTone::muted);
+    add(DeveloperDetails,L"EDIT",L"",24,385,510,225,WS_BORDER|ES_MULTILINE|ES_READONLY|ES_AUTOHSCROLL|WS_VSCROLL|WS_HSCROLL|WS_TABSTOP);
+    SendMessageW(controls.at(DeveloperDetails),EM_SETLIMITTEXT,4*1024*1024,0);
+    add(DeveloperImage,L"STATIC",L"",550,385,386,225,WS_BORDER|SS_OWNERDRAW);
     building_page=3;
     label(ui::tr(L"Extensions"),24,116,870,TextTone::heading);
     text_style(add(0,L"STATIC",ui::tr(L"Extensions run in every non-private workspace. They can read and change websites, including pages agents use, and can see what you type there. Add only extensions you trust."),24,144,912,40),TextTone::muted,small_font);
@@ -1162,6 +1221,7 @@ struct NativeUi::Impl {
       case WM_CREATE:self->build();return 0;
       case WM_COMMAND:if(HIWORD(wp)==LBN_DBLCLK&&LOWORD(wp)==Workspaces)self->show_configuration(true);else if(HIWORD(wp)==LBN_SELCHANGE)self->refresh();else if(HIWORD(wp)==BN_CLICKED)self->command(LOWORD(wp));return 0;
       case WM_SIZE:self->layout_main();return 0;
+      case WM_DRAWITEM:{auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item&&item->CtlID==DeveloperImage){self->draw_developer_image(*item);return TRUE;}return DefWindowProcW(h,msg,wp,lp);}
       case WM_SETTINGCHANGE:case WM_THEMECHANGED:self->apply_theme();return 0;
       case WM_DPICHANGED:{auto rect=reinterpret_cast<RECT*>(lp);const HFONT previous[]{self->font,self->heading_font,self->brand_font,self->small_font};
         self->font=ui::font(h);self->heading_font=ui::font(h,16,FW_SEMIBOLD);self->brand_font=ui::font(h,24,FW_SEMIBOLD);self->small_font=ui::font(h,13);
@@ -1192,6 +1252,7 @@ NativeUi::NativeUi(Broker& b,CefEngine& e,Vault& v,FilePolicy& f,ExtensionStore&
   e.set_dialog_callback([self=impl_.get()](const std::string& tab_id){self->notify_dialog(tab_id);});
 }
 NativeUi::~NativeUi(){
+  impl_->broker.set_developer_mode(false);impl_->clear_developer_image();
   impl_->engine.set_save_prompt_callback({});impl_->engine.set_autofill_prompt_callback({});impl_->engine.set_dialog_callback({});
   {std::lock_guard lock(impl_->autofill_results->mutex);impl_->autofill_results->alive=false;impl_->autofill_results->values.clear();}
   {std::lock_guard lock(impl_->update_state->mutex);impl_->update_state->alive=false;impl_->update_state->cancel=true;}

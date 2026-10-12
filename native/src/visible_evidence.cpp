@@ -237,12 +237,15 @@ struct Document {
   std::optional<Rect> viewport;
   std::vector<int> parents, backend, node_layout, node_types;
   std::vector<bool> editable, svg;
+  std::vector<bool> fragmented, fragment_inconsistent;
+  std::vector<std::vector<int>> fragments;
   std::vector<std::string> tags, types, ids, label_for;
   std::vector<Layout> layouts;
   const Json* source{};
 };
 struct FilterState {
   const Json& strings; Json result{{"frames", Json::object()}, {"omitted", Json::object()}, {"partial", false}};
+  bool human_diagnostics{};std::set<std::string> unsupported_transforms,unsupported_paint;
   size_t work{}; bool exhausted{};
   void omit(const char* reason, size_t count=1) {
     auto& v = result["omitted"][reason]; v = v.is_number_unsigned() ? v.get<size_t>() + count : count; result["partial"] = true;
@@ -260,9 +263,65 @@ bool ancestor(const Document& d, int parent, int child) {
   }
   return false;
 }
+std::optional<std::pair<double,double>> axis_transform(const std::string& value) {
+  if(value=="none" || value=="matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)")return std::pair{1.0,1.0};
+  // Snapshot bounds already include a 2D translation. It preserves axes,
+  // dimensions, clipping and shadow radii; never apply the offset a second time.
+  if(!value.starts_with("matrix(") || !value.ends_with(")") || value.size()>256)return {};
+  std::array<double,6> values{};size_t begin=7;
+  for(size_t i=0;i<values.size();++i) {
+    const size_t end=i+1==values.size()?value.size()-1:value.find(',',begin);
+    if(end==std::string::npos || end<=begin)return {};
+    auto part=value.substr(begin,end-begin);while(!part.empty()&&part.back()==' ')part.pop_back();
+    const auto parsed=css_number(part);if(!parsed || std::abs(*parsed)>1e8)return {};
+    values[i]=*parsed;begin=end+1;
+  }
+  if(std::abs(values[0])==1 && values[1]==0 && values[2]==0 && std::abs(values[3])==1)return std::pair{values[0],values[3]};
+  return {};
+}
+bool unscaled_transform(const std::string& value) {
+  const auto axes=axis_transform(value);return axes&&axes->first==1&&axes->second==1;
+}
+std::optional<Rect> inset_clip(const std::string& value,const Rect& box,bool* empty=nullptr) {
+  if(value=="none")return box;
+  if(!value.starts_with("inset(")||!value.ends_with(")")||value.size()>256)return {};
+  std::vector<std::string> tokens;size_t start=6;
+  for(size_t i=6;i<value.size();++i)if(value[i]==' '||i==value.size()-1){if(i>start)tokens.push_back(value.substr(start,i-start));start=i+1;}
+  if(tokens.empty()||tokens.size()>4)return {};
+  std::array<std::string,4> sides{tokens[0],tokens.size()>1?tokens[1]:tokens[0],tokens.size()>2?tokens[2]:tokens[0],tokens.size()>3?tokens[3]:tokens.size()>1?tokens[1]:tokens[0]};
+  std::array<double,4> offsets{};
+  for(size_t i=0;i<4;++i){auto token=sides[i];const bool percent=token.ends_with('%');if(percent)token.pop_back();const auto n=css_number(token,!percent);if(!n||std::abs(*n)>1e6)return {};offsets[i]=*n*(percent?(i%2?box.w:box.h)/100:1);}
+  if(box.w-offsets[1]-offsets[3]<=0||box.h-offsets[0]-offsets[2]<=0){if(empty)*empty=true;return {};}
+  return Rect{box.x+offsets[3],box.y+offsets[0],box.w-offsets[1]-offsets[3],box.h-offsets[0]-offsets[2]};
+}
+std::optional<double> blur_extent(const std::string& value) {
+  if(!value.starts_with("blur(")||!value.ends_with(")")||value.size()>64)return {};
+  const auto radius=css_number(value.substr(5,value.size()-6),true);
+  if(!radius||*radius<0||*radius>1e5)return {};
+  // Unlike box-shadow's blur radius, filter blur specifies sigma directly.
+  return std::ceil(*radius*3)+1;
+}
+bool bounded_color_filter(const std::string& value) {
+  if(brightness_gain(value))return true;
+  if(!value.starts_with("invert(")||!value.ends_with(")")||value.size()>64)return false;
+  auto argument=value.substr(7,value.size()-8);const bool percent=argument.ends_with('%');if(percent)argument.pop_back();
+  const auto amount=css_number(argument);return amount&&*amount>=0&&*amount<=(percent?100:1);
+}
+std::optional<double> paint_transform_expansion(const std::string& value) {
+  if(value=="none"||value=="matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)")return 1;
+  if(!value.starts_with("matrix(")||!value.ends_with(")")||value.size()>256)return {};
+  std::array<double,6> v{};size_t begin=7;
+  for(size_t i=0;i<v.size();++i){const auto end=i+1==v.size()?value.size()-1:value.find(',',begin);if(end==std::string::npos||end<=begin)return {};
+    auto part=value.substr(begin,end-begin);while(!part.empty()&&part.back()==' ')part.pop_back();const auto n=css_number(part);if(!n||std::abs(*n)>1e6)return {};v[i]=*n;begin=end+1;}
+  // Infinity norm bounds the transformed blur support. Snapshot source bounds
+  // already contain the transform; only its expansion is multiplied here.
+  return std::max({1.0,std::abs(v[0])+std::abs(v[2]),std::abs(v[1])+std::abs(v[3])});
+}
 bool basic_style(const Layout& l) {
   if (!l.styles_complete || !l.box || l.styles[Display] == "none" || l.styles[Visibility] != "visible" || l.styles[ContentVisibility] == "hidden") return false;
-  for (int s : {ClipPath, BackdropFilter, Transform, Perspective, MaskImage, WebkitMaskImage}) if (l.styles[s] != "none") return false;
+  if(!inset_clip(l.styles[ClipPath],*l.box))return false;
+  for (int s : {Perspective, MaskImage, WebkitMaskImage}) if (l.styles[s] != "none") return false;
+  if(!axis_transform(l.styles[Transform]))return false;
   if(!brightness_gain(l.styles[Filter]))return false;
   if (l.styles[Clip] != "auto" || l.styles[MixBlendMode] != "normal") return false;
   const auto zoom = css_number(l.styles[Zoom]); if (!zoom || *zoom != 1) return false;
@@ -279,9 +338,19 @@ bool inherited_geometry(FilterState& state, const Document& d, int node, const R
     // Visibility is inherited but may explicitly become visible on descendants.
     // Other paint-affecting ancestor styles cannot be overridden that way.
     if (!l.styles_complete) return false;
-    for (int s : {ClipPath, BackdropFilter, Transform, Perspective, MaskImage, WebkitMaskImage}) if (l.styles[s] != "none") return false;
+    if(unfiltered_embedding&&l.styles[BackdropFilter]!="none")return false;
+    for (int s : {Transform, Perspective, MaskImage, WebkitMaskImage}) if (s==Transform?!axis_transform(l.styles[s]):l.styles[s]!="none") {
+      if(s==Transform&&state.human_diagnostics&&state.unsupported_transforms.size()<8&&l.styles[s].size()<256)state.unsupported_transforms.insert(l.styles[s]);
+      state.omit(("unsupportedAncestor_"+kStyles[s]).c_str());return false;
+    }
+    if(l.styles[ClipPath]!="none"){
+      const auto clip=l.box&&unscaled_transform(l.styles[Transform])?inset_clip(l.styles[ClipPath],*l.box):std::nullopt;
+      if(!clip||!contains(*clip,r)){state.omit("unprovenClipPath");return false;}
+    }
     const auto brightness=brightness_gain(l.styles[Filter]);
     if(!brightness || (unfiltered_embedding && *brightness!=1))return false;
+    const bool reflected=!unscaled_transform(l.styles[Transform]);
+    if(unfiltered_embedding&&reflected)return false;
     const auto zoom=css_number(l.styles[Zoom]);
     if (!zoom || *zoom != 1 || l.styles[Clip] != "auto" || l.styles[MixBlendMode] != "normal") return false;
     const auto op=css_number(l.styles[Opacity]); if (!op || *op < 0 || *op > 1) return false;
@@ -291,6 +360,7 @@ bool inherited_geometry(FilterState& state, const Document& d, int node, const R
     for (int axis=0; axis<2; ++axis) {
       const auto& overflow=l.styles[axis ? OverflowY : OverflowX];
       if (overflow == "visible") continue;
+      if(reflected)return false;
       if (overflow != "hidden" && overflow != "clip" && overflow != "scroll" && overflow != "auto") return false;
       if (!l.box) return false;
       const auto before=css_number(l.styles[axis ? BorderTop : BorderLeft],true), after=css_number(l.styles[axis ? BorderBottom : BorderRight],true);
@@ -307,7 +377,7 @@ bool occluded(FilterState& state, const Document& d, const Layout& target, const
     if (!state.step()) return true;
     if (!other.paint_box || !other.potentially_painted || other.paint <= target.paint || (!other.unbounded_paint && !overlaps(r,*other.paint_box))) continue;
     if (ancestor(d,other.node,target.node) || ancestor(d,target.node,other.node)) continue;
-    return true;
+    state.omit(other.unbounded_paint?"unboundedPaintOcclusion":other.node<0?"fragmentedPaintOcclusion":"boundedPaintOcclusion");return true;
   }
   return false;
 }
@@ -332,6 +402,7 @@ void clip_paint_bounds(const Document& d,Layout& paint) {
   for(int n=d.parents[paint.node],depth=0;n>=0 && static_cast<size_t>(n)<d.parents.size() && depth++<128;n=d.parents[n]) {
     if(d.node_types[n]==9 || d.node_types[n]==11)continue;
     const int li=d.node_layout[n];if(li<0)continue;const auto& l=d.layouts[li];if(!l.box)continue;
+    if(!unscaled_transform(l.styles[Transform]))continue;
     for(int axis=0;axis<2;++axis) {
       const auto& overflow=l.styles[axis?OverflowY:OverflowX];
       if(overflow!="hidden" && overflow!="clip" && overflow!="scroll" && overflow!="auto")continue;
@@ -380,8 +451,9 @@ std::optional<Rect> child_viewport(const Document& parent, int owner, const Json
 
 Json visible_snapshot_styles() { return kStyles; }
 
-Json visible_snapshot(const Json& snapshot, const Json& viewports) {
+Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_diagnostics, bool include_uncertain) {
   FilterState state{at(snapshot,"strings")};
+  state.human_diagnostics=human_diagnostics;
   const auto& raw_docs=at(snapshot,"documents");
   if(!raw_docs.is_array() || !state.strings.is_array()) { state.omit("malformedSnapshot"); return state.result; }
   if(raw_docs.size()>kMaxDocuments) { state.omit("documentLimit",raw_docs.size());return state.result; }
@@ -394,7 +466,7 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
     total_nodes+=types.size();total_layouts+=indexes.size();total_boxes+=boxes.is_array()?boxes.size():0;
     if(total_nodes>kMaxNodes || total_layouts>kMaxLayouts || total_boxes>kMaxTextBoxes) {state.omit("snapshotLimit");return state.result;}
     const size_t count=types.size();d.parents.resize(count,-1);d.backend.resize(count,-1);d.node_layout.resize(count,-1);d.node_types.resize(count,-1);
-    d.tags.resize(count);d.types.resize(count);d.ids.resize(count);d.label_for.resize(count);d.editable.resize(count);d.svg.resize(count);
+    d.tags.resize(count);d.types.resize(count);d.ids.resize(count);d.label_for.resize(count);d.editable.resize(count);d.svg.resize(count);d.fragmented.resize(count);d.fragment_inconsistent.resize(count);d.fragments.resize(count);
     for(size_t n=0;n<count;++n) {
       int parent=integer(item(at(nodes,"parentIndex"),n));d.parents[n]=parent>=0 && static_cast<size_t>(parent)<n?parent:-1;
       d.node_types[n]=integer(types[n]);
@@ -416,8 +488,20 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
       if(l.styles_complete)for(size_t s=0;s<kStyles.size();++s)l.styles[s]=state.str(styles[s]);
       l.text=state.str(item(at(layout,"text"),i));l.blended=state.str(item(at(layout,"blendedBackgroundColors"),i));l.text_opacity=number(item(at(layout,"textColorOpacities"),i));
       if(l.node<0 || static_cast<size_t>(l.node)>=count) {l.node=-1;state.omit("malformedLayout");}
-      else if(d.node_layout[l.node]>=0) {l.node=-1;state.omit("unsupportedFragmentedLayout");}
+      else if(d.node_layout[l.node]>=0) {
+        // Chromium can report several inline fragments for the same DOM node.
+        // Preserve their proven ancestry instead of turning ordinary fragments
+        // into anonymous, globally uncertain shadow paint. Inconsistent styles
+        // or fragment clipping still fail closed. A fragment is not proof of
+        // the complete element's action geometry.
+        const auto& first=d.layouts[d.node_layout[l.node]];d.fragmented[l.node]=true;
+        if(!l.styles_complete || !first.styles_complete || l.styles!=first.styles ||
+           l.styles[OverflowX]!="visible" || l.styles[OverflowY]!="visible") {
+          d.fragment_inconsistent[l.node]=true;l.node=-1;state.omit("unsupportedFragmentedLayout");
+        }
+      }
       else d.node_layout[l.node]=static_cast<int>(d.layouts.size());
+      if(l.node>=0)d.fragments[l.node].push_back(static_cast<int>(d.layouts.size()));
       l.basic=l.node>=0 && basic_style(l);d.layouts.push_back(std::move(l));
     }
     for(auto& l:d.layouts) {
@@ -426,7 +510,7 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
         if(d.node_types[n]==9 || d.node_types[n]==11)continue;
         const int li=d.node_layout[n];if(li<0)continue;const auto& a=d.layouts[li];const auto value=css_number(a.styles[Opacity]);
         const auto zoom=css_number(a.styles[Zoom]);
-        if(!a.styles_complete || a.styles[Transform]!="none" || a.styles[Perspective]!="none" || !zoom || *zoom!=1)shadow_geometry=false;
+        if(!a.styles_complete || !unscaled_transform(a.styles[Transform]) || a.styles[Perspective]!="none" || !zoom || *zoom!=1)shadow_geometry=false;
         if(!value || *value<0 || *value>1){opacity=0;break;}opacity*=*value;
       }
       l.effective_opacity=depth>128?0:opacity;
@@ -452,13 +536,51 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
       }
       // Only supported box shadows have bounded ink. Unknown shadow/filter
       // paint still blocks evidence globally rather than guessing its reach.
-      l.unbounded_paint=!shadow_bounds || l.styles[TextShadow]!="none" || !brightness_gain(l.styles[Filter]) ||
-        l.styles[BackdropFilter]!="none" || (outline_paint && (!outline_width || !outline_offset));
+      // Backdrop output is clipped to the element's transformed border box,
+      // including rounded corners. It cannot obscure unrelated distant pixels.
+      // Foreground filters and shadows can extend beyond that box and still
+      // require independent bounds. Content inside a backdrop remains withheld.
+      l.unbounded_paint=!shadow_bounds || l.styles[TextShadow]!="none" || !bounded_color_filter(l.styles[Filter]) ||
+        (outline_paint && (!outline_width || !outline_offset));
       const std::string tag=l.node>=0?d.tags[l.node]:"";
       const bool media=tag=="IMG" || tag=="SVG" || tag=="CANVAS" || tag=="VIDEO" || tag=="IFRAME" || tag=="OBJECT" || tag=="EMBED";
       // Unknown paint is a blocker too. pointer-events does not affect pixels.
       l.potentially_painted=l.effective_opacity>0 && l.styles[Visibility]=="visible" && l.styles[Display]!="none" &&
-        (media || border_paint || outline_paint || l.styles[BoxShadow]!="none" || l.unbounded_paint || !l.text.empty() || !bg || bg->a>0 || l.styles[BackgroundImage]!="none" || !l.basic);
+        (media || border_paint || outline_paint || l.styles[BoxShadow]!="none" || l.styles[BackdropFilter]!="none" || l.unbounded_paint || !l.text.empty() || !bg || bg->a>0 || l.styles[BackgroundImage]!="none" || !l.basic);
+    }
+    // A pure Gaussian blur has finite raster ink. Include every descendant's
+    // proven paint bounds before expanding; overflow children must not be lost.
+    // Unsupported source paint or transformed ancestry stays unbounded.
+    for(auto it=d.layouts.rbegin();it!=d.layouts.rend();++it){auto& l=*it;if(l.node<0||!l.unbounded_paint)continue;
+      const auto extent=blur_extent(l.styles[Filter]);if(!extent||!l.paint_box)continue;
+      const auto stroke=css_number(l.styles[TextStrokeWidth],true);
+      bool safe=l.styles[TextShadow]=="none"&&l.styles[BoxShadow]=="none"&&stroke&&*stroke==0;Rect source=*l.paint_box;double expansion=1;int depth=0;
+      for(int n=l.node;n>=0&&static_cast<size_t>(n)<count&&depth++<128;n=d.parents[n]){
+        if(d.node_types[n]==9||d.node_types[n]==11)continue;
+        const int li=d.node_layout[n];if(li<0)continue;const auto zoom=css_number(d.layouts[li].styles[Zoom]);
+        const auto transform=paint_transform_expansion(d.layouts[li].styles[Transform]);
+        if(!transform||d.layouts[li].styles[Perspective]!="none"||!zoom||*zoom!=1)safe=false;
+        else{expansion*=*transform;if(!std::isfinite(expansion)||expansion>1e6)safe=false;}
+      }
+      if(depth>128)safe=false;
+      for(const auto& child:d.layouts){
+        if(!state.step()){safe=false;break;}
+        if(child.node==l.node||!ancestor(d,l.node,child.node)||!child.potentially_painted)continue;
+        if(child.unbounded_paint||!child.paint_box){
+          if(human_diagnostics&&state.unsupported_paint.size()<8){
+            const auto example="blur source descendant: "+(child.node>=0?d.tags[child.node]:std::string("fragment"))+"; filter: "+child.styles[Filter]+"; shadow: "+child.styles[BoxShadow]+"; transform: "+child.styles[Transform]+(child.paint_box?"":"; missing bounds");
+            if(example.size()<512)state.unsupported_paint.insert(example);
+          }
+          safe=false;break;
+        }
+        const double right=std::max(source.x+source.w,child.paint_box->x+child.paint_box->w),bottom=std::max(source.y+source.h,child.paint_box->y+child.paint_box->h);
+        source.x=std::min(source.x,child.paint_box->x);source.y=std::min(source.y,child.paint_box->y);source.w=right-source.x;source.h=bottom-source.y;
+      }
+      if(safe){const double padding=*extent*expansion;l.paint_box=Rect{source.x-padding,source.y-padding,source.w+2*padding,source.h+2*padding};l.unbounded_paint=false;}
+    }
+    for(const auto& l:d.layouts)if(human_diagnostics&&l.unbounded_paint&&l.potentially_painted&&state.unsupported_paint.size()<8){
+      const auto example=std::string(l.box?"":"missing bounds; ")+"box-shadow: "+l.styles[BoxShadow]+"; text-shadow: "+l.styles[TextShadow]+"; filter: "+l.styles[Filter]+"; transform: "+l.styles[Transform];
+      if(example.size()<512)state.unsupported_paint.insert(example);
     }
     for(auto& l:d.layouts)clip_paint_bounds(d,l);
     docs.push_back(std::move(d));
@@ -501,16 +623,22 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
       bool unsupported=!font || *font<kMinFontSize || !fg || !bg || bg->a<.999 || !l.text_opacity || *l.text_opacity<kMinOpacity ||
         !stroke || *stroke!=0 || l.styles[TextShadow]!="none" || l.styles[TextSecurity]!="none";
       for(int s:{LetterSpacing,WordSpacing}) if(l.styles[s]!="normal") {const auto v=css_number(l.styles[s],true);if(!v || *v<0)unsupported=true;}
-      double gain=1;
+      double gain=1,orientation_x=1,orientation_y=1;
       for(int n=l.node,depth=0;n>=0 && static_cast<size_t>(n)<d.parents.size() && depth++<128;n=d.parents[n]) {
         if(d.node_types[n]==9 || d.node_types[n]==11)continue;
         const int ancestor_li=d.node_layout[n];if(ancestor_li<0)continue;const auto& a=d.layouts[ancestor_li];
         if(a.styles[TextOverflow]!="clip" || (a.styles[LineClamp]!="none" && a.styles[LineClamp]!="0"))unsupported=true;
         if(a.styles[BackgroundImage]!="none")unsupported=true;
+        // Backdrop effects change contrast behind content, not its geometry.
+        if(a.styles[BackdropFilter]!="none")unsupported=true;
         // LayoutText copies its element's computed style, but does not create
         // another CSS filter layer. Apply only actual element filters once.
-        if(d.node_types[n]==1) {const auto brightness=brightness_gain(a.styles[Filter]);if(!brightness)unsupported=true;else gain*=*brightness;}
+        if(d.node_types[n]==1) {
+          const auto brightness=brightness_gain(a.styles[Filter]);if(!brightness)unsupported=true;else gain*=*brightness;
+          const auto axes=axis_transform(a.styles[Transform]);if(!axes)unsupported=true;else {orientation_x*=axes->first;orientation_y*=axes->second;}
+        }
       }
+      if(orientation_x!=1 || orientation_y!=1)unsupported=true;
       if(unsupported) {state.omit("unsupportedTextStyle");continue;}
       if(darkened_contrast(*fg,*bg,std::min(l.effective_opacity,*l.text_opacity),gain)<kMinContrast) {state.omit("lowContrastText");continue;}
       if(!units[li])units[li]=utf16_offsets(l.text);const auto& u=*units[li];
@@ -539,7 +667,28 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
       // LayoutView/document-fragment records are structural ancestry, not
       // visible elements. Their intentionally empty styles are not a gap.
       if(d.node_types[n]==9 || d.node_types[n]==11)continue;
-      const int li=d.node_layout[n];if(li<0 || d.backend[n]<0)continue;const auto& l=d.layouts[li];
+      const int li=d.node_layout[n];if(li<0 || d.backend[n]<0)continue;
+      Layout combined;const Layout* geometry=&d.layouts[li];
+      if(d.fragmented[n]) {
+        // A split inline link may have several boxes. Admit its union only when
+        // the action center lies inside a verified fragment, not the gap between
+        // lines. All fragment records must retain consistent styles/identity.
+        bool complete=!d.fragment_inconsistent[n]&&center_geometry(d,*geometry);Rect bounds{};bool first=true;
+        for(const auto index:d.fragments[n]) {
+          const auto& fragment=d.layouts[index];if(!fragment.basic || !fragment.box){complete=false;break;}
+          if(first){bounds=*fragment.box;first=false;}else {
+            const double right=std::max(bounds.x+bounds.w,fragment.box->x+fragment.box->w),bottom=std::max(bounds.y+bounds.h,fragment.box->y+fragment.box->h);
+            bounds.x=std::min(bounds.x,fragment.box->x);bounds.y=std::min(bounds.y,fragment.box->y);bounds.w=right-bounds.x;bounds.h=bottom-bounds.y;
+          }
+        }
+        if(bounds.w>1e8 || bounds.h>1e8)complete=false;
+        const Rect center{bounds.x+(bounds.w-std::min(2.0,bounds.w))/2,bounds.y+(bounds.h-std::min(2.0,bounds.h))/2,std::min(2.0,bounds.w),std::min(2.0,bounds.h)};
+        const Layout* center_fragment=nullptr;
+        if(complete)for(const auto index:d.fragments[n])if(contains(*d.layouts[index].box,center)){center_fragment=&d.layouts[index];break;}
+        if(!center_fragment){state.omit("unprovenFragmentedGeometry");continue;}
+        combined=*center_fragment;combined.box=bounds;geometry=&combined;
+      }
+      const auto& l=*geometry;
       if(!l.box || !shown_geometry(state,d,l,*l.box)) {state.omit("unprovenGeometry");continue;}
       std::string name=names[n];
       if(d.tags[n]=="INPUT" || d.tags[n]=="TEXTAREA" || d.tags[n]=="SELECT") {
@@ -556,9 +705,46 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports) {
       }
       frame["nodes"][std::to_string(d.backend[n])]=std::move(value);
     }
+    if(include_uncertain&&!state.exhausted){
+      Json candidates=Json::object();
+      for(size_t n=0;n<d.tags.size();++n){
+        if(!state.step())break;
+        if(d.node_types[n]!=1||d.backend[n]<0||frame["nodes"].contains(std::to_string(d.backend[n])))continue;
+        const int li=d.node_layout[n];if(li<0)continue;const auto& l=d.layouts[li];
+        if(!l.box||!l.styles_complete||!overlaps(*l.box,*d.viewport)||l.effective_opacity<=0||l.styles[Visibility]!="visible"||l.styles[Display]=="none"||l.styles[ContentVisibility]=="hidden")continue;
+        if(d.types[n]=="password"||d.types[n]=="hidden")continue;
+        bool possible=true;std::string reason="clipping_or_occlusion_unproven";int depth=0;
+        bool unsupported_transform=false,unsupported_paint=false,clip_present=false,nonrectangular_clip=false;
+        for(int p=static_cast<int>(n);p>=0&&static_cast<size_t>(p)<d.parents.size()&&depth++<128;p=d.parents[p]){
+          if(!state.step()){possible=false;break;}
+          if(d.node_types[p]==9||d.node_types[p]==11)continue;
+          const int ancestor_li=d.node_layout[p];if(ancestor_li<0)continue;const auto& a=d.layouts[ancestor_li];
+          if(!a.styles_complete||a.styles[Display]=="none"||a.styles[ContentVisibility]=="hidden"){possible=false;break;}
+          if(!axis_transform(a.styles[Transform])){reason="transform_visibility_unproven";unsupported_transform=true;}
+          else if(!brightness_gain(a.styles[Filter])||a.styles[MaskImage]!="none"||a.styles[WebkitMaskImage]!="none"||a.styles[Perspective]!="none"){reason="paint_effect_visibility_unproven";unsupported_paint=true;}
+          // Do not enumerate controls proven outside a rectangular ancestor clip.
+          bool empty_clip=false;const auto clip=a.box?inset_clip(a.styles[ClipPath],*a.box,&empty_clip):std::nullopt;
+          if(a.styles[ClipPath]!="none"){clip_present=true;if(!clip&&!empty_clip)nonrectangular_clip=true;}
+          if(empty_clip){possible=false;break;}
+          if(clip&&unscaled_transform(a.styles[Transform])&&!overlaps(*clip,*l.box)){possible=false;break;}
+        }
+        if(!possible||depth>128)continue;
+        if(candidates.size()>=1000){state.omit("uncertainCandidateLimit");break;}
+        // A separately verified text run may survive even when the control's
+        // complete geometry does not. Never substitute AX names or DOM values.
+        const auto name=d.tags[n]=="INPUT"||d.tags[n]=="TEXTAREA"||d.tags[n]=="SELECT"?std::string{}:names[n];
+        candidates[std::to_string(d.backend[n])]={{"bounds",encode_rect(*l.box)},{"name",name},{"visibilityStatus","uncertain"},{"visibilityReason",reason},{"screenshotRequired",true}};
+        // Internal numeric/boolean diagnostics only; never copy raw CSS or DOM strings.
+        candidates[std::to_string(d.backend[n])]["filterDiagnostics"]={{"effectiveOpacity",l.effective_opacity},{"ancestorDepth",depth},{"unsupportedTransform",unsupported_transform},{"unsupportedPaint",unsupported_paint},{"clipPresent",clip_present},{"nonrectangularClip",nonrectangular_clip}};
+        if(std::set<std::string>{"INPUT","SELECT","TEXTAREA","BUTTON","A"}.contains(d.tags[n]))candidates[std::to_string(d.backend[n])]["tag"]=d.tags[n];
+      }
+      frame["uncertainNodes"]=std::move(candidates);
+    }
     state.result["frames"][d.frame]=std::move(frame);
   }
   state.result["policy"]={{"minimumOpacity",kMinOpacity},{"minimumTextContrast",kMinContrast},{"minimumFontSizeCssPx",kMinFontSize},{"nameSource","rendered-text-boxes"}};
+  if(human_diagnostics)state.result["policy"]["untrustedUnsupportedTransforms"]=state.unsupported_transforms;
+  if(human_diagnostics)state.result["policy"]["untrustedUnsupportedPaint"]=state.unsupported_paint;
   return state.result;
 }
 }
