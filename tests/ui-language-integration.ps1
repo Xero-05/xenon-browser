@@ -29,9 +29,12 @@ public static class XenonLanguageFixture {
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int size);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder text, int size);
   [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr window);
+  [DllImport("user32.dll")] static extern IntPtr GetDlgItem(IntPtr window, int id);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode, EntryPoint="SendMessageW")] static extern IntPtr ReadText(IntPtr window, uint message, IntPtr wp, StringBuilder text);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr window, uint message, IntPtr wp, IntPtr lp);
   static string Class(IntPtr window) {var s=new StringBuilder(128);GetClassName(window,s,s.Capacity);return s.ToString();}
   public static string Text(IntPtr window) {var s=new StringBuilder(4096);GetWindowText(window,s,s.Capacity);return s.ToString();}
+  public static string AddressText(IntPtr window) {var s=new StringBuilder(4096);ReadText(GetDlgItem(window,2004),0xD,new IntPtr(s.Capacity),s);return s.ToString();}
   public static IntPtr Find(int pid, string kind, string caption) {
     IntPtr result=IntPtr.Zero;
     EnumWindows((window,data)=>{uint owner;GetWindowThreadProcessId(window,out owner);
@@ -105,10 +108,11 @@ try {
   Exit-Fixture
   Record 'English preference switches to zh-CN on the next normal launch'
   Launch-Fixture
-  foreach ($caption in @('后退','前进','刷新','打开地址','控制中心','菜单','新标签页','上一个匹配','下一个匹配','关闭查找')) {
+  foreach ($caption in @('后退','前进','刷新','扩展','控制中心','菜单','新标签页','上一个匹配','下一个匹配','关闭查找')) {
     Wait-Caption $taskShell $caption "Chinese shell caption: $caption"
   }
   Require ([XenonLanguageFixture]::Text($taskShell) -eq '新标签页 — Xenon') 'Chinese blank-tab title'
+  Wait-Until { [XenonLanguageFixture]::AddressText($taskShell) -eq 'about:blank' } 'Address edit preserves the URL in the translated shell' | Out-Null
   Wait-Until {
     $renderers=Get-CimInstance Win32_Process -Filter "ParentProcessId = $($taskProcess.Id)" | Where-Object {$_.CommandLine -like '*--type=renderer*'}
     @($renderers | Where-Object {$_.CommandLine -like '*--lang=zh-CN*'}).Count -gt 0

@@ -78,6 +78,16 @@ The [web theme validation record](test-results/web-theme-validation.json) covers
 
 The suite has not yet run under Windows light mode. Runtime theme changes reach web content only after restart. The menu is driven by native messages, not physical input, and fixtures are synthetic loopback pages.
 
+## 0.1.3 local release validation
+
+The [0.1.3 validation record](test-results/release-0.1.3-validation.json) binds this local unsigned release to its rebuilt production and unshipped authentication-fixture DLLs. All 15 native groups, 111 adapter/fixed-script checks, 32 downloader/extractor/pointer-script checks, five branding checks and 47 isolated installer checks passed. Typechecking also passed. Dependency pins are unchanged.
+
+Nineteen live runs passed 179 checks: the seven core production suites; graceful persistence recovery; the filter matrix with opt-in uncertain-click collection; the inspector in English/dark and Chinese/light; language and first-run drivers; protected login, native autofill and workspace removal using the unshipped fixture; and native shell tabs, input pause/dialog dismissal and startup recovery using Computer Use. Each suite used disposable synthetic state. The fixture driver coverage and synthesized Windows input are distinct from physical-device acceptance.
+
+Earlier failed inspector runs exposed missing foreground/cursor prerequisites and real pointer messages interfering with synthetic capture-based divider drags. The driver now prepares its own window and aligns the cursor with those drags. The language harness expected a removed Go button; it now verifies the Extensions caption and reads the address edit through the correct cross-process text API. The autofill harness hit a Windows replacement lock; it now bounds retries of publishing the same request bytes without reissuing an accepted fill. Both inspector languages and the affected language/autofill suites passed on the unchanged DLLs after these harness fixes. Original failure reports remain separate and their hashes and failed check names appear in the record. One prematurely overlapping startup harness was stopped and then rerun serially; only the completed serial run is counted.
+
+The restricted build stalled before compilation; the ordinary-user build and tests passed without changing product ACLs. High contrast, multi-monitor/DPI, assistive technology, real accounts/sites and sustained-load acceptance remain unverified. The [release notes](RELEASE-0.1.3.md) document the current CEF security-update lag. Packaging and extracted-archive smoke evidence are recorded after assembly; this section does not claim publication.
+
 ## 0.1.2 release validation
 
 0.1.2 is a regular GitHub release, marked latest. It adds the web-content theme, native shell polish, MCP pipe recovery after failed connects and System32 ACL tool paths. Dependency pins are unchanged.

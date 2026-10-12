@@ -51,7 +51,16 @@ async function native(action, params = {}) {
   const id = ++requestId;
   const temporary = resolve(profile, 'native-autofill-request.tmp');
   await writeFile(temporary, JSON.stringify({ id, action, ...params }));
-  await rename(temporary, resolve(profile, 'native-autofill-request.json'));
+  // Windows can briefly refuse replacement while the fixture polls the old
+  // request. Retry only publishing these same bytes, never an accepted fill.
+  const publicationDeadline = Date.now() + 2000;
+  while (true) {
+    try { await rename(temporary, resolve(profile, 'native-autofill-request.json')); break; }
+    catch (error) {
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || Date.now() >= publicationDeadline) throw error;
+      await sleep(25);
+    }
+  }
   return until(async () => {
     let reply; try { reply = JSON.parse(await readFile(resolve(profile, 'native-autofill-result.json'), 'utf8')); } catch (error) { if (error.code === 'ENOENT' || error instanceof SyntaxError) return false; throw error; }
     if (reply.id !== id) return false;

@@ -1,0 +1,1088 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.3",
+  "capturedUtc": "2026-10-12T19:44:56.612Z",
+  "passed": true,
+  "stage": "Local unsigned release; not published",
+  "sourceCommit": "e3a6ddf98ad0da8f2b3271610ac56903640dca6c",
+  "sourceChanges": "VERSION and npm metadata bumped to 0.1.3; release notes and validation documentation added; fixture drivers corrected for cursor/capture setup, current shell controls and bounded request-file publication",
+  "dependencies": {
+    "cef": {
+      "version": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+      "archive": "cef_binary_154.0.34+g14c5a08+chromium-154.0.8037.98_windows64_minimal.tar.bz2",
+      "sha1": "be54bbaf3222191dec59ffd9c9ec7e8a7f44a26d",
+      "sha256": "c81c34d048d87276f4a18f0b000206710a1709bb67dd658948b87100e1a538da"
+    },
+    "sqlite": {
+      "version": "3.53.4",
+      "url": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip",
+      "sha256": "1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d"
+    },
+    "json": {
+      "version": "3.12.0",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp",
+      "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+    },
+    "node": {
+      "version": "24.16.0",
+      "sha256": "edaca9bd58ec8e92037dac4e877d52f6b8f430b81c18b57e264b4e2fb111cd56"
+    }
+  },
+  "cefMaintenance": {
+    "source": "https://cef-builds.spotifycdn.com/index.json",
+    "checkedUtc": "2026-10-12T19:23:59.7926402Z",
+    "newestStableWindows64": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "pinnedVersion": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "chromeStableVersion": "155.0.8059.39/.40",
+    "chromeReleaseSource": "https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_086471744.html",
+    "securityParityClaimed": false
+  },
+  "binaries": {
+    "productionExecutableSha256": "ebe41a33b165693045176c0ef94ff3b83d10fba8d6e440f4be873cc055b08c0d",
+    "productionDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+    "fixtureDllSha256": "ce7cb77aadbfddb2061f48fa2239476a2887ebba9259e9f2a16119216d4d5bb1"
+  },
+  "unit": [
+    {
+      "name": "native",
+      "passed": true,
+      "checks": 15,
+      "reportSha256": "eef34a29e4bf08b9c8ffc543f7ab0398ba1bcd9887cdf74f1b4228eb314f3e25"
+    },
+    {
+      "name": "adapter",
+      "passed": true,
+      "checks": 22,
+      "reportSha256": "d565ac4e4d5c98319d74661dca084a9ea6b830b46dc421dd65679f4393ed7ca8"
+    },
+    {
+      "name": "login-capture",
+      "passed": true,
+      "checks": 42,
+      "reportSha256": "978c7e52191c4e0e4f772b4bd925832ed5b0359f63c25dbc40fda36bb2b424aa"
+    },
+    {
+      "name": "human-autofill",
+      "passed": true,
+      "checks": 31,
+      "reportSha256": "b56599d9c87740d382e2e8d06d6e35bad47f606fd963ea1c19531a6e57cbf282"
+    },
+    {
+      "name": "protected-login",
+      "passed": true,
+      "checks": 10,
+      "reportSha256": "88ea380d2925f61cfc8d73a7f55eb28dfed1043c44e1992ad300c40f7079a702"
+    },
+    {
+      "name": "form-fill",
+      "passed": true,
+      "checks": 6,
+      "reportSha256": "45751b032f71a5ce03cb047819c51fdba827ea5afdae7007e115dd298cd4695a"
+    }
+  ],
+  "supplemental": {
+    "typecheck": true,
+    "downloaderExtractorAndPointerScriptChecks": 32,
+    "installerLifecycleChecks": 47,
+    "brandingChecks": 5
+  },
+  "suites": [
+    {
+      "name": "integration",
+      "passed": true,
+      "checks": 17,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "0dcbd3bb0ff643fc25b76d37fd67a40e83e55c92b8f0402ef2c7abe0581d8870",
+      "coverage": "Production CEF and MCP with synthetic data",
+      "results": [
+        {
+          "name": "Four separate adapters, three live tabs each",
+          "passed": true
+        },
+        {
+          "name": "Workspace and result isolation",
+          "passed": true
+        },
+        {
+          "name": "A pending wait does not block other adapters",
+          "passed": true
+        },
+        {
+          "name": "Page-only screenshots through real MCP image output",
+          "passed": true
+        },
+        {
+          "name": "Replaced nodes reject stale references",
+          "passed": true
+        },
+        {
+          "name": "Overlay hit testing rejects obscured input",
+          "passed": true
+        },
+        {
+          "name": "Same-origin and cross-origin frames expose usable references",
+          "passed": true
+        },
+        {
+          "name": "Shadow DOM actionability and semantics",
+          "passed": true
+        },
+        {
+          "name": "Visual coordinates require a current screenshot",
+          "passed": true
+        },
+        {
+          "name": "JavaScript dialogs are handled without blocking other tabs",
+          "passed": true
+        },
+        {
+          "name": "Website JavaScript links and logout confirmations remain usable",
+          "passed": true
+        },
+        {
+          "name": "Download namespace reports opaque scoped metadata",
+          "passed": true
+        },
+        {
+          "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+          "passed": true
+        },
+        {
+          "name": "Related popups transfer as one ownership group",
+          "passed": true
+        },
+        {
+          "name": "Mid-drag handoff waits for release before changing ownership",
+          "passed": true
+        },
+        {
+          "name": "Four workers behind one adapter, three tabs each",
+          "passed": true
+        },
+        {
+          "name": "Disconnect/reconnect preserves page and never replays mutations",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "batch-integration",
+      "passed": true,
+      "checks": 7,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "94f3762fea77e4161120c7643fea8dc543f82fe3dad7272301b0a1a698a003e5",
+      "coverage": "Production CEF and MCP with synthetic data",
+      "results": [
+        {
+          "name": "modern: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Separate calls comparison on the same eight-action plan",
+          "passed": true
+        },
+        {
+          "name": "Replaced target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Covered target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Navigation cancels original-document targets",
+          "passed": true
+        },
+        {
+          "name": "legacy: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Binary remained unchanged",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "visibility-integration",
+      "passed": true,
+      "checks": 11,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "5e9e1758e47e29060b0231a6a8bb649fb6bc28ea4a45ccbc3388d9cb87b011cf",
+      "coverage": "Production CEF and MCP with synthetic data",
+      "results": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "worker-lifecycle-integration",
+      "passed": true,
+      "checks": 4,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "e8f95ddb07bc1368e3e0a6e2d75e3382e1e9ae12ff4ec1b0cb9309edeba3f898",
+      "coverage": "Production CEF and MCP with synthetic data",
+      "results": [
+        {
+          "name": "Modern and legacy clients cannot retire each other’s workers",
+          "passed": true
+        },
+        {
+          "name": "Twenty retired workers preserve one live drafted, selected and scrolled session",
+          "passed": true
+        },
+        {
+          "name": "Retirement cancels queued input and releases a started finite gesture honestly",
+          "passed": true
+        },
+        {
+          "name": "Configured global capacity spans clients and retirement frees a slot",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "upload-entry-integration",
+      "passed": true,
+      "checks": 11,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "5a162325ae4765522b21c40738f6e3c10f726edd3fb65879c2937e1e5f52e612",
+      "coverage": "Production CEF and MCP with synthetic data",
+      "results": [
+        {
+          "name": "File discovery retains truncation, later pages and scoped relative-path filters",
+          "passed": true
+        },
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true
+        },
+        {
+          "name": "A brightness-styled hover preserves the approved upload entry",
+          "passed": true
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "persistence-integration",
+      "passed": true,
+      "checks": 3,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "7d6e82c81a2eb1e8648824af21735bc3b0f65ed73aa3db52664233a25bbe1707",
+      "coverage": "Production CEF and MCP with synthetic data",
+      "results": [
+        {
+          "name": "Distinct workspaces isolate persistent cookies and local storage before restart",
+          "passed": true
+        },
+        {
+          "name": "Stored state survives a forced process stop and a second launch",
+          "passed": true
+        },
+        {
+          "name": "A new workspace after restart does not inherit either saved session",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "theme-integration",
+      "passed": true,
+      "checks": 4,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "ce3b2c0429ee9e9d428254693e284d86b50636b33620dcf6cb736291f6700e78",
+      "coverage": "Production CEF and MCP with a loopback fixture; native message driver for theme menu and close, not physical input",
+      "results": [
+        {
+          "name": "Theme light forces light web content under Windows dark mode",
+          "passed": true
+        },
+        {
+          "name": "Theme dark forces dark web content under Windows dark mode",
+          "passed": true
+        },
+        {
+          "name": "Theme system follows Windows dark mode; a runtime switch is saved for the next launch",
+          "passed": true
+        },
+        {
+          "name": "Restart applies the runtime light selection to web content",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "persistence-graceful",
+      "passed": true,
+      "checks": 3,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "dd1917c498e79a33fdc2da83c7e0079e5c3147262c423fb91b7d2238216a8c05",
+      "coverage": "Production CEF and MCP with synthetic data",
+      "results": [
+        {
+          "name": "Distinct workspaces isolate persistent cookies and local storage before restart",
+          "passed": true
+        },
+        {
+          "name": "Stored state survives normal native shutdown and a second launch",
+          "passed": true
+        },
+        {
+          "name": "A new workspace after restart does not inherit either saved session",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "filter-matrix-collection",
+      "passed": true,
+      "checks": 25,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "8810f20fa3849bc73207fbe8804f5706874d3ba9e53b550bafe9245e1748180c",
+      "coverage": "Production CEF and MCP with synthetic data",
+      "results": [
+        {
+          "name": "plain",
+          "passed": true
+        },
+        {
+          "name": "identity-clip",
+          "passed": true
+        },
+        {
+          "name": "pixel-clip",
+          "passed": true
+        },
+        {
+          "name": "percent-clip",
+          "passed": true
+        },
+        {
+          "name": "negative-clip",
+          "passed": true
+        },
+        {
+          "name": "distant-blur",
+          "passed": true
+        },
+        {
+          "name": "zero-blur",
+          "passed": true
+        },
+        {
+          "name": "distant-backdrop",
+          "passed": true
+        },
+        {
+          "name": "bounded-shadow",
+          "passed": true
+        },
+        {
+          "name": "rotated-blur",
+          "passed": true
+        },
+        {
+          "name": "scaled-blur",
+          "passed": true
+        },
+        {
+          "name": "distant-invert",
+          "passed": true
+        },
+        {
+          "name": "covered-by-invert",
+          "passed": true
+        },
+        {
+          "name": "backdrop-content",
+          "passed": true
+        },
+        {
+          "name": "translation",
+          "passed": true
+        },
+        {
+          "name": "nested-inset",
+          "passed": true
+        },
+        {
+          "name": "covered-by-blur",
+          "passed": true
+        },
+        {
+          "name": "clipped-center",
+          "passed": true
+        },
+        {
+          "name": "zero-area-clip",
+          "passed": true
+        },
+        {
+          "name": "unsupported-round",
+          "passed": true
+        },
+        {
+          "name": "unsupported-polygon",
+          "passed": true
+        },
+        {
+          "name": "covered-by-backdrop",
+          "passed": true
+        },
+        {
+          "name": "faint-control",
+          "passed": true
+        },
+        {
+          "name": "Scroll after navigation",
+          "passed": true
+        },
+        {
+          "name": "Opt-in click collection, native hit identity, redaction, disable and clear",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "developer-elements-en-dark",
+      "passed": true,
+      "checks": 19,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "46b422ee84d00ee894758e9d683a16e087f02f00c7530ddf34d71fc7855014e1",
+      "coverage": "Production CEF/MCP, native window/keyboard messages and PrintWindow on synthetic data; not physical input",
+      "results": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true
+        },
+        {
+          "name": "Backdrop effects stay local and continue withholding covered controls",
+          "passed": true
+        },
+        {
+          "name": "Uncertain controls remain listed with screenshot guidance and no usable target",
+          "passed": true
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true
+        },
+        {
+          "name": "Translated split result link with canceling reflections is observed, hovered and clicked",
+          "passed": true
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true
+        },
+        {
+          "name": "Page scrolling keeps hover and highlight aligned with viewport coordinates",
+          "passed": true
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "developer-elements-zh-light",
+      "passed": true,
+      "checks": 19,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "fbbcaa3dbfa6899866dd7ebe77acc7a137709f67c6f06bccdc775080720d539d",
+      "coverage": "Production CEF/MCP, native window/keyboard messages and PrintWindow on synthetic data; not physical input",
+      "results": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true
+        },
+        {
+          "name": "Backdrop effects stay local and continue withholding covered controls",
+          "passed": true
+        },
+        {
+          "name": "Uncertain controls remain listed with screenshot guidance and no usable target",
+          "passed": true
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true
+        },
+        {
+          "name": "Translated split result link with canceling reflections is observed, hovered and clicked",
+          "passed": true
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true
+        },
+        {
+          "name": "Page scrolling keeps hover and highlight aligned with viewport coordinates",
+          "passed": true
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "ui-language",
+      "passed": true,
+      "checks": 6,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "7478aefd1bfe7988ed7f06e12474dc77667c15319fdbe8c11eec1ec4af018396",
+      "coverage": "native message driver, no physical input or visual acceptance",
+      "results": [
+        {
+          "name": "English preference switches to zh-CN on the next normal launch",
+          "passed": true
+        },
+        {
+          "name": "Real shell HWNDs, blank-tab title and CEF locale use Simplified Chinese",
+          "passed": true
+        },
+        {
+          "name": "Real Controls sections, ownership and saved-account buttons are translated",
+          "passed": true
+        },
+        {
+          "name": "Workspace configuration and file-permission windows are translated",
+          "passed": true
+        },
+        {
+          "name": "Native browser panels are translated",
+          "passed": true
+        },
+        {
+          "name": "Switching back restores English after restart",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "introduction",
+      "passed": true,
+      "checks": 6,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "430f0db70b6f68a74bf74d8d7d9b2f76c387559ebab4aff4e759f6877860b2dd",
+      "coverage": "native message driver and fixture-only window captures; no physical input or multi-monitor/DPI acceptance",
+      "results": [
+        {
+          "name": "Fresh language selection, duplicate-launch gate and cancel/retry",
+          "passed": true
+        },
+        {
+          "name": "Translated tour, Previous/Next, saved completion and immediate CEF locale",
+          "passed": true
+        },
+        {
+          "name": "Restart preserves language and opens a blank tab without setup",
+          "passed": true
+        },
+        {
+          "name": "Menu tour reopens, preserves settings and opens the GitHub URL",
+          "passed": true
+        },
+        {
+          "name": "Skipping setup saves the selection and starts browsing",
+          "passed": true
+        },
+        {
+          "name": "First-run documentation link starts Xenon at the requested guide",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "auth-integration",
+      "passed": true,
+      "checks": 11,
+      "applicationDllSha256": "ce7cb77aadbfddb2061f48fa2239476a2887ebba9259e9f2a16119216d4d5bb1",
+      "reportSha256": "12cc9526b5fad3ebb6aa9b167a890015d3dba2ffd9f03fe39afabaf120d9c6d4",
+      "coverage": "Unshipped native fixture driver with synthetic data",
+      "results": [
+        {
+          "name": "Safe page screenshots remain available",
+          "passed": true
+        },
+        {
+          "name": "No raw eval, CDP, cookies or storage tools",
+          "passed": true
+        },
+        {
+          "name": "Synthetic password and OTP input events seal all observers through reveal and handoff",
+          "passed": true
+        },
+        {
+          "name": "Native folder grants persist and upload only approved opaque file handles",
+          "passed": true
+        },
+        {
+          "name": "Account rights remain per client across handoff",
+          "passed": true
+        },
+        {
+          "name": "Exact credential origin enforced",
+          "passed": true
+        },
+        {
+          "name": "GET and readonly forms reject credentials before input or submission",
+          "passed": true
+        },
+        {
+          "name": "Named login submitter advances the POST flow exactly once",
+          "passed": true
+        },
+        {
+          "name": "Opaque saved login authenticates without a model-visible credential",
+          "passed": true
+        },
+        {
+          "name": "Four-agent handoff preserves quarantine and sends no website input",
+          "passed": true
+        },
+        {
+          "name": "Username-first forms reuse only the exact-origin account",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "human-autofill-integration",
+      "passed": true,
+      "checks": 11,
+      "applicationDllSha256": "ce7cb77aadbfddb2061f48fa2239476a2887ebba9259e9f2a16119216d4d5bb1",
+      "reportSha256": "7ec2b69400659b867e35f2e55889d6a38aa14ed3b166b18404325e238b826a26",
+      "coverage": "Unshipped native fixture driver with synthetic data",
+      "results": [
+        {
+          "name": "Automatic native picker appears during cooldown after held input releases",
+          "passed": true
+        },
+        {
+          "name": "Human autofill fills a CWL-shaped form without submission or agent account grants",
+          "passed": true
+        },
+        {
+          "name": "Autofilled credentials remain protected from all clients through ownership handoff",
+          "passed": true
+        },
+        {
+          "name": "Saved accounts cannot autofill a different HTTPS origin",
+          "passed": true
+        },
+        {
+          "name": "Navigation invalidates an already offered native account selection",
+          "passed": true
+        },
+        {
+          "name": "Replacing the bound form cannot redirect an existing autofill offer",
+          "passed": true
+        },
+        {
+          "name": "Dismissing a native offer prevents subsequent filling",
+          "passed": true
+        },
+        {
+          "name": "Username-first and password-only steps fill only the current phase without advancing",
+          "passed": true
+        },
+        {
+          "name": "Google-shaped unowned login phases and explicit usernames in richer forms fill only bound credentials",
+          "passed": true
+        },
+        {
+          "name": "Locking the native vault invalidates pending offers and prevents new autofill",
+          "passed": true
+        },
+        {
+          "name": "Lock and unlock cannot revive an accepted fill waiting for a finite action to drain",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "workspace-removal-integration",
+      "passed": true,
+      "checks": 4,
+      "applicationDllSha256": "ce7cb77aadbfddb2061f48fa2239476a2887ebba9259e9f2a16119216d4d5bb1",
+      "reportSha256": "86da98381303b50a4a05d3c56ea999fc606e7da6abc1cd73fddaf777733cdef5",
+      "coverage": "Unshipped native fixture driver with synthetic data",
+      "results": [
+        {
+          "name": "Two isolated workspaces have live data, popup, vault grant, approved file and download",
+          "passed": true
+        },
+        {
+          "name": "Native removal revokes access and pending reads while preserving unrelated live work",
+          "passed": true
+        },
+        {
+          "name": "Restart purges only the tombstoned profile and cannot recreate its grant",
+          "passed": true
+        },
+        {
+          "name": "Remaining workspace cookie and local storage survive while shared files remain",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "shell-tabs-integration",
+      "passed": true,
+      "checks": 8,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "ca1aed47f42b1197d3051f37e7d4ebfd542b6ac2bd72453725f3a5ef7b423c5c",
+      "coverage": "Computer Use synthesized Windows input in the disposable fixture window; not physical-device acceptance",
+      "results": [
+        {
+          "name": "Visible X closes a background tab without selecting its page",
+          "passed": true
+        },
+        {
+          "name": "Middle click closes the last tab and keeps its workspace",
+          "passed": true
+        },
+        {
+          "name": "Selecting an empty saved workspace opens a blank human-owned tab",
+          "passed": true
+        },
+        {
+          "name": "Native Exit persists saved workspaces",
+          "passed": true
+        },
+        {
+          "name": "Restart retains names and opens only one Personal blank tab",
+          "passed": true
+        },
+        {
+          "name": "Saved empty workspace remains selectable after restart",
+          "passed": true
+        },
+        {
+          "name": "Ctrl+W closes the selected tab without deleting its workspace",
+          "passed": true
+        },
+        {
+          "name": "Final native Exit completes normally",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "native-input-smoke-dialog",
+      "passed": true,
+      "checks": 3,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "2e6d50f3497350b4c2518bcb17057d26efda6a270be45312358725ed9f6e61e5",
+      "coverage": "Computer Use synthesized Windows input in the disposable fixture window; not physical-device acceptance",
+      "results": [
+        {
+          "name": "Windows page input pauses dispatch while retaining creator ownership",
+          "passed": true
+        },
+        {
+          "name": "Idle resumes authority only with fresh evidence and preserves the human draft",
+          "passed": true
+        },
+        {
+          "name": "Human dialog holds the pause until dismissal without taking ownership",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "startup-integration",
+      "passed": true,
+      "checks": 7,
+      "applicationDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+      "reportSha256": "e4fcc8046e4fe2b1e9d66baba829bd5e3f79bf517f8142a480c80da3d0e2e851",
+      "coverage": "Computer Use synthesized Windows input in the disposable fixture window; not physical-device acceptance",
+      "results": [
+        {
+          "name": "First launch opens exactly one human-owned blank tab",
+          "passed": true
+        },
+        {
+          "name": "Two fixture tabs remain open with persisted state before native Exit",
+          "passed": true
+        },
+        {
+          "name": "Native whole-application Exit closes the first process successfully",
+          "passed": true
+        },
+        {
+          "name": "Normal reopen starts blank without loading old tabs or replaying actions",
+          "passed": true
+        },
+        {
+          "name": "Explicit fixture reopen preserves cookies and local storage",
+          "passed": true
+        },
+        {
+          "name": "A fresh workspace does not inherit the native workspace session",
+          "passed": true
+        },
+        {
+          "name": "Closing a workspace only tab preserves its session while the browser stays open",
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "attempts": [
+    {
+      "name": "restricted native build",
+      "result": "Stopped after CMake configuration because the restricted runner stalled before compilation; no test result claimed"
+    },
+    {
+      "name": "ordinary-user full build and tests",
+      "passed": true
+    },
+    {
+      "name": "startup operator harness",
+      "result": "Started prematurely while native-input fixture was still awaiting dismissal; stopped, then rerun serially. Only the complete serial result is counted.",
+      "interruptedLogSha256": "cb2b1fc7607b02f68126e8616288f2f2d91bd96d9a329a74e8be2ff1077aecad"
+    },
+    {
+      "name": "developer-elements-en-dark",
+      "passed": false,
+      "reportSha256": "d04121cdb49216730a9111269da4549c7e38ce76463dc5a32d535eb8883decf6",
+      "failedChecks": [
+        "Uncertain controls remain listed with screenshot guidance and no usable target",
+        "Panel width and list/details divider resize independently with minimum bounds",
+        "Selecting a row highlights its current rendered node",
+        "Passive page hover matches a nested control without activating it",
+        "Hovering an SVG icon resolves its listed button",
+        "Page scrolling keeps hover and highlight aligned with viewport coordinates",
+        "Tab switching replaces evidence with the selected document",
+        "Authentication protection removes diagnostic elements"
+      ]
+    },
+    {
+      "name": "developer-elements-zh-light",
+      "passed": false,
+      "reportSha256": "cdf4f3f620ee630d0820b5283f11f1439e7a0c3d58390a5e4397c51f282648ea",
+      "failedChecks": [
+        "Uncertain controls remain listed with screenshot guidance and no usable target",
+        "Selecting a row highlights its current rendered node"
+      ]
+    },
+    {
+      "name": "ui-language",
+      "passed": false,
+      "reportSha256": "9bccf1129142e04f5af30104355175b85c16692f88dbd3ad5695c90ef695a860",
+      "failedChecks": [
+        "Language integration"
+      ]
+    },
+    {
+      "name": "human-autofill-integration",
+      "passed": false,
+      "reportSha256": "8274d36a13763dd1186ec93ecfa731053b3879218b83abdc2cf643c284034525",
+      "failedChecks": [
+        "Locking the native vault invalidates pending offers and prevents new autofill"
+      ]
+    },
+    {
+      "name": "developer-elements-en-dark",
+      "passed": false,
+      "reportSha256": "61943b139897e76ebd1ab0af8ea7ac72cfea2bd62d093a28300558952556a691",
+      "failedChecks": [
+        "Page picker selects the corresponding row without activating it",
+        "Passive page hover matches a nested control without activating it",
+        "Canceling the picker restores ordinary selection",
+        "Page scrolling keeps hover and highlight aligned with viewport coordinates",
+        "Tab switching replaces evidence with the selected document",
+        "Authentication protection removes diagnostic elements"
+      ]
+    },
+    {
+      "name": "developer-elements-zh-light",
+      "passed": false,
+      "reportSha256": "7f0ab9c019c5cfb07d7f51a0b4780a0204a02d897414f1ba0d907a664cf1307e",
+      "failedChecks": [
+        "Panel width and list/details divider resize independently with minimum bounds"
+      ]
+    },
+    {
+      "name": "ui-language",
+      "passed": false,
+      "reportSha256": "dbdbbfd8293733bd6e4d8db5420f9a1983f138ed77a777b65a387deac711242d",
+      "failedChecks": [
+        "Language integration"
+      ]
+    }
+  ],
+  "limitations": [
+    "Synthesized Windows input and native message drivers are distinct from physical input.",
+    "High contrast, multi-monitor/DPI, assistive technology and sustained-load acceptance remain unverified.",
+    "No real account or production browser profile was used.",
+    "Dependencies were not upgraded; this packaging task does not claim current Chromium security parity.",
+    "Packages remain unsigned; SHA-256 verifies bytes, not publisher identity."
+  ]
+}
