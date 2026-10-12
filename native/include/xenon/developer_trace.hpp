@@ -10,6 +10,7 @@ namespace xenon {
 // Native-human-only, volatile diagnostics. Never included in broker state or MCP.
 class DeveloperTrace {
  public:
+  bool enabled() const { std::lock_guard lock(mutex_); return enabled_; }
   void enable(bool enabled) { std::lock_guard lock(mutex_); enabled_=enabled; clear_locked(); }
   void clear() { std::lock_guard lock(mutex_); clear_locked(); }
   Json snapshot() const {

@@ -8,6 +8,7 @@
 #include "xenon/introduction.hpp"
 #include "xenon/pointer_motion.hpp"
 #include "xenon/pointer_overlay.hpp"
+#include "xenon/developer_elements.hpp"
 #include "xenon/local_security.hpp"
 #include "xenon/version.hpp"
 #include "include/cef_parser.h"
@@ -40,7 +41,8 @@ enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,Find
   TabNewBelow=2300,TabReload,TabDuplicate,TabPin,TabMute,TabCopyLink,TabBookmark,TabNewWindow,TabTakeOwnership,TabControls,TabClose,TabCloseOthers,TabCloseBelow,TabCloseWorkspace,
   GroupNewTab=2350,GroupToggle,GroupCloseAll,GroupConfigure,
   OwnerTake=2370,OwnerControls,
-  TabToWorkspace=2400,TabToWindow=2500,OwnerGive=2560,ExtensionItem=2600};
+  TabToWorkspace=2400,TabToWindow=2500,OwnerGive=2560,ExtensionItem=2600,
+  DeveloperTitle=2800,DeveloperHint,DeveloperFilter,DeveloperList,DeveloperStatus,DeveloperNodeDetails,DeveloperPick};
 static_assert(Passwords==ui::password_anchor_id,"Credential bubbles anchor to the toolbar key button");
 std::string str(const Json& value,const char* key){auto found=value.find(key);return found!=value.end()&&found->is_string()?found->get<std::string>():std::string{};}
 std::wstring short_title(const std::string& value,size_t maximum=55){auto text=ui::wide(value);if(text.size()>maximum)text=text.substr(0,maximum-1)+L"…";return text;}
@@ -87,6 +89,120 @@ struct BrowserShell::Impl {
     ui::Fade address_focus;std::map<HTREEITEM,ui::Fade> row_fades;RECT glide_from{},pill{};ULONGLONG glide_start{},accent_start{};
     COLORREF accent_from{},accent_to{};bool accent_ready{},pill_valid{},tree_moving{},window_moving{},was_loading{};
     size_t saved_accounts{};bool bookmarked{};std::string checked_url,last_find,update_version;
+    HWND developer_panel{};bool developer_visible{},developer_pending{},developer_controls_only{};
+    int developer_preferred_width{400},developer_split_y{};double developer_split{0.67};bool resizing_developer{},resizing_developer_split{};
+    bool developer_rebuilding{},developer_picking{};std::string developer_selection,developer_tab;
+    HWND developer_overlay{};Json developer_box=Json::object();
+    std::string developer_error;POINT developer_hover_at{};bool developer_hover_dirty{},developer_hover_pending{},developer_hover_inside{};uint64_t developer_hover_version{};Clock::time_point developer_hover_next{};
+    std::string developer_hover_error;
+    std::string developer_highlight_target;bool developer_highlight_dirty{};uint64_t developer_highlight_version{};Clock::time_point developer_highlight_next{};
+    void hover_developer(const POINT* event=nullptr);
+    void select_developer(const std::string& diagnostic,bool focus=false){
+      if(diagnostic==developer_selection)return;
+      if(developer_controls_only&&std::none_of(developer_rows.begin(),developer_rows.end(),[&](const Json& n){return str(n,"diagnosticId")==diagnostic;})){developer_controls_only=false;SendMessageW(controls.at(DeveloperFilter),BM_SETCHECK,BST_UNCHECKED,0);developer_list();}
+      auto list=controls.at(DeveloperList);
+      for(size_t i=0;i<developer_rows.size();++i)if(str(developer_rows[i],"diagnosticId")==diagnostic){
+        developer_rebuilding=true;ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);ListView_SetItemState(list,static_cast<int>(i),LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);developer_rebuilding=false;
+        ListView_EnsureVisible(list,static_cast<int>(i),FALSE);if(focus)SetFocus(list);developer_details();return;
+      }
+    }
+    void position_developer_overlay(){
+      if(!developer_overlay)return;
+      const auto host=shell.hosts.find(selected);
+      if(!developer_visible||host==shell.hosts.end()||!host->second.browser||(!developer_picking&&(developer_box.empty()||str(host->second.metadata,"developerHighlighted")!=developer_selection))){ShowWindow(developer_overlay,SW_HIDE);return;}
+      RECT page{};GetWindowRect(host->second.browser,&page);MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&page),2);
+      SetWindowLongPtrW(developer_overlay,GWL_EXSTYLE,WS_EX_LAYERED|WS_EX_NOACTIVATE|(developer_picking?0:WS_EX_TRANSPARENT));
+      SetLayeredWindowAttributes(developer_overlay,RGB(255,0,255),developer_picking?1:255,developer_picking?LWA_ALPHA:LWA_COLORKEY);
+      SetWindowPos(developer_overlay,HWND_TOP,page.left,page.top,page.right-page.left,page.bottom-page.top,SWP_NOACTIVATE|SWP_SHOWWINDOW);
+      InvalidateRect(developer_overlay,nullptr,TRUE);
+    }
+    void highlight_developer(const std::string& diagnostic){
+      ++developer_highlight_version;
+      developer_error.clear();developer_box=Json::object();ShowWindow(developer_overlay,SW_HIDE);
+      developer_highlight_target=diagnostic;developer_highlight_dirty=true;developer_highlight_next=Clock::now()+std::chrono::milliseconds(75);
+    }
+    void dispatch_developer_highlight(){
+      if(!developer_highlight_dirty||developer_hover_pending||Clock::now()<developer_highlight_next)return;
+      developer_highlight_dirty=false;const auto diagnostic=developer_highlight_target;
+      const auto tab=selected;const auto generation=developer_generation,version=developer_highlight_version;const auto target=window;auto owner=&shell;
+      std::weak_ptr<Mailbox> weak=shell.mailbox;const auto messages=shell.messages;
+      shell.engine.developer_highlight(tab,diagnostic,false,[weak,messages,owner,target,tab,generation,version,diagnostic](Json value){if(auto box=weak.lock()){
+        {std::lock_guard lock(box->mutex);box->calls.push_back([owner,target,tab,generation,version,diagnostic,value=std::move(value)]{
+          auto frame=owner->frame_of(target);if(!frame||!frame->developer_visible||frame->selected!=tab||frame->developer_generation!=generation||frame->developer_highlight_version!=version||frame->developer_selection!=diagnostic)return;
+          if(!value.value("ok",false)){frame->developer_error=value.dump();frame->developer_details(false);return;}
+          frame->developer_error.clear();frame->developer_box=value["result"];frame->position_developer_overlay();frame->developer_details(false);
+        });}PostMessageW(messages,ShellRun,0,0);
+      }});
+    }
+    Json developer_nodes=Json::array(),developer_rows=Json::array(),developer_visibility=Json::object(),developer_viewport=Json::object();
+    DeveloperElementsIdentity developer_identity;uint64_t developer_generation{};Clock::time_point developer_next{};
+    Json current_developer_context() const {
+      const auto found=shell.hosts.find(selected);if(found==shell.hosts.end())return Json();
+      const auto& m=found->second.metadata;
+      return Json{{"tabId",selected},{"documentId",str(m,"documentId")},{"epoch",m.value("evidenceEpoch",uint64_t{})},
+        {"human",m.value("humanInputRevision",uint64_t{})},{"protected",m.value("protected",false)},
+        {"busy",m.value("humanBusy",false)},{"private",m.value("private",false)}};
+    }
+    void developer_details(bool highlight=true){
+      if(developer_rebuilding)return;
+      const int index=ListView_GetNextItem(controls.at(DeveloperList),-1,LVNI_SELECTED);
+      std::wstring text;
+      std::string diagnostic;
+      if(index>=0&&static_cast<size_t>(index)<developer_rows.size()){
+        auto node=developer_rows[index];diagnostic=str(node,"diagnosticId");
+        node["pageVisibility"]=developer_visibility;
+        node["viewport"]=developer_viewport;
+        if(str(node,"name").empty())node["labelExplanation"]=node.contains("siteLabel")?ui::tr8("Site-provided label; rendered text is not verified. This untrusted metadata is shown only in the human inspector."):ui::tr8("No verified rendered label. The control may be icon-only or drawn by a native browser widget. Use page picking or visual evidence to identify it.");
+        const auto host=shell.hosts.find(selected);node["highlighted"]=host!=shell.hosts.end()&&!diagnostic.empty()&&str(host->second.metadata,"developerHighlighted")==diagnostic;
+        if(node["highlighted"]==true&&!developer_box.empty()){node["highlightBounds"]=developer_box;node["highlightVerification"]=developer_box.value("approximate",false)?"approximate_position_only":"verified_geometry";}
+        if(!developer_error.empty())node["highlightError"]=developer_error;
+        if(!developer_hover_error.empty())node["hoverError"]=developer_hover_error;
+        text=ui::wide(node.dump(2));
+        for(size_t pos=0;(pos=text.find(L'\n',pos))!=std::wstring::npos;pos+=2)text.insert(pos,L"\r");
+      }
+      else if(!developer_visibility.empty()){
+        text=ui::wide(Json{{"pageVisibility",developer_visibility},{"viewport",developer_viewport}}.dump(2));
+        for(size_t pos=0;(pos=text.find(L'\n',pos))!=std::wstring::npos;pos+=2)text.insert(pos,L"\r");
+      }
+      // A refresh must not reset the user's scroll position or text selection.
+      const auto details=controls.at(DeveloperNodeDetails);
+      if(ui::text(details)!=ui::utf8(text)){
+        const auto line=diagnostic==developer_selection?SendMessageW(details,EM_GETFIRSTVISIBLELINE,0,0):0;DWORD start{},end{};if(diagnostic==developer_selection)SendMessageW(details,EM_GETSEL,reinterpret_cast<WPARAM>(&start),reinterpret_cast<LPARAM>(&end));
+        SetWindowTextW(details,text.c_str());SendMessageW(details,EM_SETSEL,start,end);SendMessageW(details,EM_LINESCROLL,0,line);
+      }
+      if(highlight&&!developer_picking&&diagnostic!=developer_selection){developer_selection=diagnostic;developer_tab=selected;
+        highlight_developer(diagnostic);
+      }
+    }
+    void developer_list(){
+      auto list=controls.at(DeveloperList);developer_rebuilding=true;int next=-1;
+      SendMessageW(list,WM_SETREDRAW,FALSE,0);ListView_DeleteAllItems(list);developer_rows=Json::array();
+      for(const auto& node:developer_nodes){
+        const auto actions=developer_element_actions(node);const bool uncertain=str(node,"visibilityStatus")=="uncertain";if(developer_controls_only&&actions.empty()&&!uncertain)continue;
+        const auto index=static_cast<int>(developer_rows.size());developer_rows.push_back(node);
+        if(str(node,"diagnosticId")==developer_selection&&!developer_selection.empty())next=index;
+        auto role=ui::wide(str(node,"role")),name=ui::wide(str(node,"name"));if(uncertain)role+=L" (?)";const bool site_name=name.empty()&&node.contains("siteLabel");if(site_name)name=ui::wide(str(node["siteLabel"],"text"));if(name.empty())name=ui::tr(L"No verified label");
+        auto control=ui::wide(uncertain?ui::tr8("Check screenshot"):actions.empty()?ui::tr8("Read only"):ui::tr8(actions.c_str()));
+        LVITEMW item{};item.mask=LVIF_TEXT;item.iItem=index;item.pszText=role.data();ListView_InsertItem(list,&item);
+        ListView_SetItemText(list,index,1,name.data());ListView_SetItemText(list,index,2,control.data());
+        std::wstring source=ui::tr(site_name?L"Site-provided":str(node,"name").empty()?L"Unlabeled":L"Rendered text");ListView_SetItemText(list,index,3,source.data());
+        auto visibility=ui::wide(ui::tr8(uncertain?"Uncertain — check screenshot":"Verified visible"));ListView_SetItemText(list,index,4,visibility.data());
+      }
+      if(next>=0)ListView_SetItemState(list,next,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+      developer_rebuilding=false;SendMessageW(list,WM_SETREDRAW,TRUE,0);InvalidateRect(list,nullptr,TRUE);developer_details();
+    }
+    void clear_developer(const wchar_t* message){
+      if(!developer_tab.empty())shell.engine.developer_highlight(developer_tab,{},true);
+      developer_tab.clear();developer_selection.clear();developer_picking=false;
+      developer_error.clear();developer_hover_error.clear();developer_hover_dirty=false;developer_hover_pending=false;developer_hover_inside=false;++developer_hover_version;
+      developer_highlight_dirty=false;developer_highlight_target.clear();
+      developer_box=Json::object();if(developer_overlay)ShowWindow(developer_overlay,SW_HIDE);
+      if(controls.contains(DeveloperPick))SetWindowTextW(controls.at(DeveloperPick),ui::tr(L"Pick from page"));
+      developer_generation=developer_identity.reset(current_developer_context());developer_pending=false;developer_next={};
+      developer_nodes=Json::array();developer_visibility=Json::object();developer_viewport=Json::object();developer_list();SetWindowTextW(controls.at(DeveloperStatus),message);
+    }
+    void refresh_developer();
+    void pick_developer();
     explicit Frame(Impl& owner):shell(owner){}
     int d(int value) const {return ui::dip(window,value);}
     HWND add(int id,const wchar_t* type,const wchar_t* caption,DWORD style=0,HWND parent=nullptr){
@@ -111,9 +227,22 @@ struct BrowserShell::Impl {
       SetWindowSubclass(address,edit_proc,1,reinterpret_cast<DWORD_PTR>(this));SetWindowSubclass(find_text,edit_proc,2,reinterpret_cast<DWORD_PTR>(this));
       cursor=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,L"XenonAgentCursor",ui::tr(L"Agent pointer"),WS_POPUP,0,0,25,30,window,nullptr,branding_module(),this);
       SetLayeredWindowAttributes(cursor,RGB(255,0,255),255,LWA_COLORKEY);
+      developer_panel=CreateWindowExW(WS_EX_CONTROLPARENT,L"XenonElementsPanel",ui::tr(L"Agent page elements"),WS_CHILD|WS_CLIPCHILDREN,0,0,10,10,window,nullptr,branding_module(),this);
+      developer_overlay=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE,L"XenonElementOverlay",L"",WS_CHILD,0,0,10,10,window,nullptr,branding_module(),this);
+      add(DeveloperTitle,L"STATIC",ui::tr(L"Agent page elements"),0,developer_panel);
+      add(DeveloperHint,L"STATIC",ui::tr(L"Visible page evidence. Actions require agent permission and a fresh observation."),0,developer_panel);
+      add(DeveloperFilter,L"BUTTON",ui::tr(L"Interactable only"),BS_AUTOCHECKBOX|WS_TABSTOP,developer_panel);
+      add(DeveloperPick,L"BUTTON",ui::tr(L"Pick from page"),BS_PUSHBUTTON|WS_TABSTOP,developer_panel);
+      auto elements=add(DeveloperList,WC_LISTVIEWW,L"",WS_TABSTOP|WS_BORDER|LVS_REPORT|LVS_SINGLESEL|LVS_SHOWSELALWAYS,developer_panel);
+      ListView_SetExtendedListViewStyle(elements,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER|LVS_EX_LABELTIP);
+      for(const auto& [column,title]:std::vector<std::pair<int,const wchar_t*>>{{0,ui::tr(L"Role")},{1,ui::tr(L"Name")},{2,ui::tr(L"Possible actions")},{3,ui::tr(L"Label source")},{4,ui::tr(L"Visibility")}}){LVCOLUMNW c{};c.mask=LVCF_TEXT|LVCF_WIDTH;c.cx=d(column==1||column==4?180:95);c.pszText=const_cast<wchar_t*>(title);ListView_InsertColumn(elements,column,&c);}
+      add(DeveloperStatus,L"STATIC",ui::tr(L"Waiting for rendered page evidence…"),0,developer_panel);
+      add(DeveloperNodeDetails,L"EDIT",L"",WS_TABSTOP|WS_BORDER|ES_MULTILINE|ES_READONLY|ES_AUTOHSCROLL|WS_HSCROLL|WS_VSCROLL,developer_panel);
+      SendMessageW(controls.at(DeveloperNodeDetails),EM_SETLIMITTEXT,1024*1024,0);
       sidebar=ui::sidebar_width;theme();layout();
     }
     void theme(){auto colors=ui::palette();ui::frame(window);TreeView_SetBkColor(tree,colors.canvas);TreeView_SetTextColor(tree,colors.ink);TreeView_SetLineColor(tree,colors.border);
+      if(controls.contains(DeveloperList)){auto list=controls.at(DeveloperList);ListView_SetBkColor(list,colors.surface);ListView_SetTextBkColor(list,colors.surface);ListView_SetTextColor(list,colors.ink);}
       SetWindowTheme(tooltips,L"",L"");SendMessageW(tooltips,TTM_SETTIPBKCOLOR,colors.surface,0);SendMessageW(tooltips,TTM_SETTIPTEXTCOLOR,colors.ink,0);
       for(const auto& [id,control]:controls){ui::control_theme(control);InvalidateRect(control,nullptr,TRUE);}InvalidateRect(window,nullptr,TRUE);InvalidateRect(find_bar,nullptr,TRUE);}
     void place(int id,int x,int y,int width,int height){MoveWindow(controls.at(id),d(x),d(y),d(width),d(height),TRUE);}
@@ -147,6 +276,13 @@ struct BrowserShell::Impl {
       // straight edges: equal strips above and below it clear the curves
       // instead of masking website pixels.
       panel_bounds={d(sidebar),d(ToolbarHeight),rect.right-d(8),rect.bottom-d(8)};
+      const int developer_width=developer_visible?std::clamp(developer_preferred_width,240,std::max(240,width-sidebar-168)):0;
+      if(developer_visible)panel_bounds.right-=d(developer_width+8);
+      SetWindowPos(developer_panel,nullptr,panel_bounds.right+d(8),d(ToolbarHeight),d(developer_width),std::max<int>(1,rect.bottom-d(ToolbarHeight+8)),SWP_NOACTIVATE|SWP_NOZORDER|(developer_visible?SWP_SHOWWINDOW:SWP_HIDEWINDOW));
+      if(developer_visible){const int panel_height=height-ToolbarHeight-8,space=std::max(140,panel_height-188),list_height=std::clamp(static_cast<int>(space*developer_split),80,space-60);developer_split_y=166+list_height;
+        place(DeveloperTitle,12,12,developer_width-24,24);place(DeveloperHint,12,42,developer_width-24,48);
+        place(DeveloperFilter,12,96,developer_width/2-12,24);place(DeveloperPick,developer_width/2,96,developer_width/2-12,24);place(DeveloperList,12,128,developer_width-24,list_height);
+        place(DeveloperStatus,12,134+list_height,developer_width-24,30);place(DeveloperNodeDetails,12,176+list_height,developer_width-24,std::max(45,panel_height-list_height-188));InvalidateRect(developer_panel,nullptr,TRUE);}
       page={panel_bounds.left,panel_bounds.top+d(FrameRadius),panel_bounds.right,panel_bounds.bottom-d(FrameRadius)};
       RECT inner=page;InflateRect(&inner,-d(2),-d(2));
       for(auto& [id,host]:shell.hosts)if(host.frame==this){SetWindowPos(host.window,nullptr,inner.left,inner.top,std::max<int>(1,inner.right-inner.left),std::max<int>(1,inner.bottom-inner.top),SWP_NOACTIVATE|SWP_NOZORDER);
@@ -158,6 +294,9 @@ struct BrowserShell::Impl {
       InvalidateRect(window,nullptr,TRUE);
     }
     bool sidebar_hit(POINT point) const {RECT bounds{};GetClientRect(window,&bounds);return point.x>=d(sidebar-6)&&point.x<d(sidebar+1)&&point.y>=d(ToolbarHeight)&&point.y<bounds.bottom-d(8);}
+    bool developer_width_hit(POINT point) const {return developer_visible&&point.x>=panel_bounds.right&&point.x<panel_bounds.right+d(8)&&point.y>=panel_bounds.top&&point.y<panel_bounds.bottom;}
+    bool developer_split_hit(POINT point) const {RECT bounds{};GetClientRect(developer_panel,&bounds);return developer_visible&&point.x>=d(12)&&point.x<bounds.right-d(12)&&point.y>=d(developer_split_y)&&point.y<d(developer_split_y+10);}
+    void finish_developer_resize(){resizing_developer=false;resizing_developer_split=false;if(GetCapture()==window||GetCapture()==developer_panel)ReleaseCapture();}
     RECT sidebar_grip() const {RECT bounds{};GetClientRect(window,&bounds);const auto middle=(d(ToolbarHeight)+bounds.bottom)/2;return {d(sidebar-5),middle-d(16),d(sidebar-2),middle+d(16)};}
     void invalidate_grip(){auto rect=sidebar_grip();InvalidateRect(window,&rect,FALSE);}
     void set_address(const std::string& value){if(ui::text(address)==value)return;setting_address=true;SetWindowTextW(address,ui::wide(value).c_str());setting_address=false;}
@@ -187,7 +326,7 @@ struct BrowserShell::Impl {
     int group_button_at(POINT point,std::string& group) const {const auto item=item_at(point);const auto [id,is_group]=key_of(item);if(id.empty()||!is_group)return -1;
       for(int index:{GroupPlus,GroupMore}){if(index==GroupMore&&item!=hovered_row)continue;auto rect=group_button(item,index);if(PtInRect(&rect,point)){group=id;return index;}}return -1;}
     void choose(const std::string& id,bool focus){auto found=shell.hosts.find(id);if(found==shell.hosts.end()||found->second.frame!=this)return;
-      if(selected!=id){RECT from{};const bool visible=pill_rect(from);glide_from=from;glide_start=visible&&ui::motion()?GetTickCount64():0;address_dirty=false;set_address(str(found->second.metadata,"url"));
+      if(selected!=id){clear_developer(ui::tr(L"Waiting for rendered page evidence…"));RECT from{};const bool visible=pill_rect(from);glide_from=from;glide_start=visible&&ui::motion()?GetTickCount64():0;address_dirty=false;set_address(str(found->second.metadata,"url"));
         // Keyboard tab switching can choose a row outside the visible sidebar.
         // A scrolled sidebar has no meaningful glide origin.
         if(auto item=item_of(id)){const auto top=TreeView_GetFirstVisible(tree);TreeView_EnsureVisible(tree,item);if(TreeView_GetFirstVisible(tree)!=top)glide_start=0;}}selected=id;
@@ -328,6 +467,7 @@ struct BrowserShell::Impl {
           ui::fill(dc,{bridge.left,bridge.top,bridge.right,bridge.top+thickness},tint);ui::fill(dc,{bridge.left,bridge.bottom-thickness,bridge.right,bridge.bottom},tint);
           for(const bool top:{true,false})ui::tab_junction(dc,panel_bounds.left,top?bridge.top:bridge.bottom,top,thickness,d(8),colors.canvas,colors.surface,tint);}}
       if(sidebar_hover||resizing_sidebar){auto grip=sidebar_grip();ui::rounded(dc,grip,colors.muted,colors.muted,d(1));}
+      if(developer_visible){const int middle=(panel_bounds.top+panel_bounds.bottom)/2;RECT grip{panel_bounds.right+d(3),middle-d(16),panel_bounds.right+d(5),middle+d(16)};ui::fill(dc,grip,colors.muted);}
     }
     void draw_new_tab(const DRAWITEMSTRUCT& item){ui::buffered(item,[&](const DRAWITEMSTRUCT& copy){const auto colors=ui::palette();auto rect=copy.rcItem;ui::fill(copy.hDC,rect,colors.canvas);InflateRect(&rect,-1,-1);
       const double hover=ui::hover_amount(copy);ui::rounded(copy.hDC,rect,ui::mix(colors.canvas,ui::hover_background(),hover),colors.contrast?colors.border:ui::mix(colors.canvas,ui::hover_background(),hover),d(8));
@@ -669,6 +809,7 @@ struct BrowserShell::Impl {
     }
     const bool slow=Clock::now()>=next_slow;if(slow)next_slow=Clock::now()+std::chrono::seconds(1);
     for(auto& frame:frames)if(frame->window){frame->rebuild_tree();frame->sync_toolbar();if(slow)frame->refresh_page_state();frame->update_cursor();frame->animate();
+      frame->refresh_developer();
       // A closing window whose tabs survived (a page refused to close) returns.
       if(frame->closing&&GetTickCount64()-frame->closing_since>10000&&frame->has_hosts()){frame->closing=false;ShowWindow(frame->window,SW_SHOWNORMAL);frame->set_status(ui::tr(L"Some tabs did not close."));}}
     if(Clock::now()>=next_flush){next_flush=Clock::now()+std::chrono::seconds(3);if(!data.flush())if(auto frame=live_active())frame->set_status(ui::tr(L"Browser metadata could not be saved. Existing data is preserved."));}
@@ -679,6 +820,44 @@ struct BrowserShell::Impl {
   void panel(Frame& frame,const std::string& kind,const std::string& description={},std::function<void(bool)> answer={},const std::string& source_tab={});
   static LRESULT CALLBACK panel_proc(HWND,UINT,WPARAM,LPARAM);
   static LRESULT CALLBACK host_proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){if(msg==WM_NCHITTEST)return HTCLIENT;return DefWindowProcW(h,msg,wp,lp);}
+  static LRESULT CALLBACK elements_proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){
+    auto frame=reinterpret_cast<Frame*>(GetWindowLongPtrW(h,GWLP_USERDATA));
+    if(msg==WM_NCCREATE){frame=static_cast<Frame*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(frame));}
+    if(frame&&(msg==WM_COMMAND||msg==WM_NOTIFY||msg==WM_CTLCOLORSTATIC||msg==WM_CTLCOLOREDIT||msg==WM_CTLCOLORBTN))return SendMessageW(frame->window,msg,wp,lp);
+    if(frame){
+      if(msg==WM_SETCURSOR){POINT point{};GetCursorPos(&point);ScreenToClient(h,&point);if(frame->resizing_developer_split||frame->developer_split_hit(point)){SetCursor(LoadCursorW(nullptr,IDC_SIZENS));return TRUE;}}
+      if(msg==WM_LBUTTONDOWN&&frame->developer_split_hit({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)})){frame->resizing_developer_split=true;SetCapture(h);return 0;}
+      if(msg==WM_MOUSEMOVE&&frame->resizing_developer_split){RECT rect{};GetClientRect(h,&rect);const int space=std::max(140,MulDiv(rect.bottom,96,GetDpiForWindow(h))-188);frame->developer_split=std::clamp(static_cast<double>(MulDiv(GET_Y_LPARAM(lp),96,GetDpiForWindow(h))-171)/space,80.0/space,1.0-60.0/space);frame->layout();return 0;}
+      if(msg==WM_LBUTTONUP||msg==WM_CAPTURECHANGED||msg==WM_CANCELMODE){if(frame->resizing_developer_split){frame->finish_developer_resize();return 0;}}
+      if(msg==WM_LBUTTONDBLCLK&&frame->developer_split_hit({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)})){frame->developer_split=0.67;frame->layout();return 0;}
+    }
+    if(msg==WM_PAINT){PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT rect{};GetClientRect(h,&rect);ui::fill(dc,rect,ui::palette().surface);if(frame){const int middle=rect.right/2;RECT grip{middle-frame->d(16),frame->d(frame->developer_split_y+4),middle+frame->d(16),frame->d(frame->developer_split_y+6)};ui::fill(dc,grip,ui::palette().muted);}EndPaint(h,&paint);return 0;}
+    return DefWindowProcW(h,msg,wp,lp);
+  }
+  static LRESULT CALLBACK element_overlay_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){auto self=reinterpret_cast<Frame*>(GetWindowLongPtrW(h,GWLP_USERDATA));
+    if(message==WM_NCCREATE){self=static_cast<Frame*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}
+    if(!self)return DefWindowProcW(h,message,wp,lp);
+    if(message==WM_NCHITTEST)return self->developer_picking?HTCLIENT:HTTRANSPARENT;
+    if(message==WM_MOUSEACTIVATE)return MA_NOACTIVATE;
+    if(message==WM_SETCURSOR&&self->developer_picking){SetCursor(LoadCursorW(nullptr,IDC_CROSS));return TRUE;}
+    if(message==WM_LBUTTONDOWN&&self->developer_picking){SetCapture(h);return 0;}
+    if(message==WM_LBUTTONUP&&self->developer_picking){if(GetCapture()==h)ReleaseCapture();
+      const auto host=self->shell.hosts.find(self->selected);if(host!=self->shell.hosts.end()){
+        const auto scale=GetDpiForWindow(host->second.browser)/96.0*host->second.metadata.value("zoom",1.0);
+        self->shell.engine.developer_pick_point(self->selected,GET_X_LPARAM(lp)/scale,GET_Y_LPARAM(lp)/scale);
+      }return 0;
+    }
+    if(message==WM_MOUSEWHEEL||message==WM_RBUTTONDOWN||message==WM_RBUTTONUP||message==WM_MBUTTONDOWN||message==WM_MBUTTONUP)return 0;
+    if(message==WM_PAINT){PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT rect{};GetClientRect(h,&rect);ui::fill(dc,rect,RGB(255,0,255));
+      const auto host=self->shell.hosts.find(self->selected);
+      if(!self->developer_box.empty()&&host!=self->shell.hosts.end()){
+        const auto scale=GetDpiForWindow(host->second.browser)/96.0*host->second.metadata.value("zoom",1.0);const auto& b=self->developer_box;
+        RECT box{static_cast<LONG>(std::floor(b.value("x",0.0)*scale)),static_cast<LONG>(std::floor(b.value("y",0.0)*scale)),static_cast<LONG>(std::ceil((b.value("x",0.0)+b.value("width",0.0))*scale)),static_cast<LONG>(std::ceil((b.value("y",0.0)+b.value("height",0.0))*scale))};
+        const bool approximate=b.value("approximate",false);
+        auto pen=CreatePen(approximate?PS_DASH:PS_SOLID,approximate?1:self->d(2),approximate?RGB(235,160,45):RGB(35,140,255));auto old=SelectObject(dc,pen),brush=SelectObject(dc,GetStockObject(HOLLOW_BRUSH));Rectangle(dc,box.left,box.top,box.right,box.bottom);SelectObject(dc,old);SelectObject(dc,brush);DeleteObject(pen);
+      }EndPaint(h,&paint);return 0;}
+    return DefWindowProcW(h,message,wp,lp);
+  }
   static LRESULT CALLBACK cursor_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){auto self=reinterpret_cast<Frame*>(GetWindowLongPtrW(h,GWLP_USERDATA));
     if(message==WM_NCCREATE){self=static_cast<Frame*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}
     if(message==WM_NCHITTEST)return HTTRANSPARENT;if(message==WM_MOUSEACTIVATE)return MA_NOACTIVATE;
@@ -720,26 +899,32 @@ struct BrowserShell::Impl {
     switch(message){case WM_CREATE:self->build();return 0;case WM_SIZE:self->layout();return 0;
       case WM_ACTIVATE:if(LOWORD(wp)!=WA_INACTIVE){shell.active=self;if(!self->selected.empty())shell.engine.select_native_tab(self->selected);}break;
       case WM_SETCURSOR:{POINT point{};GetCursorPos(&point);ScreenToClient(h,&point);if(LOWORD(lp)==HTCLIENT&&(self->resizing_sidebar||self->sidebar_hit(point))){SetCursor(LoadCursorW(nullptr,IDC_SIZEWE));return TRUE;}
+        if(LOWORD(lp)==HTCLIENT&&(self->resizing_developer||self->developer_width_hit(point))){SetCursor(LoadCursorW(nullptr,IDC_SIZEWE));return TRUE;}
         if(LOWORD(lp)==HTCLIENT&&PtInRect(&self->chip,point)){SetCursor(LoadCursorW(nullptr,IDC_HAND));return TRUE;}break;}
       case WM_LBUTTONDOWN:{const POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
+        if(self->developer_width_hit(point)){self->drag_origin=point.x;RECT bounds{};GetClientRect(self->developer_panel,&bounds);self->drag_width=MulDiv(bounds.right,96,GetDpiForWindow(h));self->clear_developer(ui::tr(L"Waiting for rendered page evidence…"));self->resizing_developer=true;SetCapture(h);return 0;}
         if(self->sidebar_hit(point)){self->drag_origin=point.x;self->drag_width=self->sidebar;self->resizing_sidebar=true;SetPropW(h,L"XenonSidebarDrag",reinterpret_cast<HANDLE>(1));SetCapture(h);return 0;}
         if(PtInRect(&self->chip,point)){self->owner_menu();return 0;}
         if(PtInRect(&self->omnibox,point)){self->focus_address();return 0;}break;}
       case WM_MOUSEMOVE:if(shell.drag.active&&shell.drag.source==h){POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ClientToScreen(h,&point);shell.drag_move(point);return 0;}
         if(self->resizing_sidebar){self->resize_sidebar(self->drag_width+MulDiv(GET_X_LPARAM(lp)-self->drag_origin,96,GetDpiForWindow(h)));return 0;}
+        if(self->resizing_developer){RECT bounds{};GetClientRect(h,&bounds);self->developer_preferred_width=std::clamp(self->drag_width-MulDiv(GET_X_LPARAM(lp)-self->drag_origin,96,GetDpiForWindow(h)),240,std::max(240,MulDiv(bounds.right,96,GetDpiForWindow(h))-self->sidebar-168));self->layout();return 0;}
+        {POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};if(PtInRect(&self->page,point)&&!(wp&(MK_LBUTTON|MK_RBUTTON|MK_MBUTTON|MK_XBUTTON1|MK_XBUTTON2))){ClientToScreen(h,&point);self->hover_developer(&point);}}
         {const bool hover=self->sidebar_hit({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});if(hover!=self->sidebar_hover){self->sidebar_hover=hover;self->invalidate_grip();}if(hover){TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,h,0};TrackMouseEvent(&track);}}break;
       case WM_MOUSELEAVE:if(self->sidebar_hover){self->sidebar_hover=false;self->invalidate_grip();}return 0;
       case WM_LBUTTONUP:if(shell.drag.active&&shell.drag.source==h){POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ClientToScreen(h,&point);shell.drag_drop(point);return 0;}
-        if(self->resizing_sidebar){self->finish_sidebar(true);return 0;}break;
-      case WM_CAPTURECHANGED:if(shell.drag.active&&shell.drag.source==h&&!shell.drag.finishing){shell.drag_cancel();return 0;}self->finish_sidebar(true);return 0;
-      case WM_CANCELMODE:if(shell.drag.active&&shell.drag.source==h)shell.drag_cancel();self->finish_sidebar(true);break;
+        if(self->resizing_sidebar){self->finish_sidebar(true);return 0;}if(self->resizing_developer){self->finish_developer_resize();return 0;}break;
+      case WM_CAPTURECHANGED:if(shell.drag.active&&shell.drag.source==h&&!shell.drag.finishing){shell.drag_cancel();return 0;}self->finish_sidebar(true);self->finish_developer_resize();return 0;
+      case WM_CANCELMODE:if(shell.drag.active&&shell.drag.source==h)shell.drag_cancel();self->finish_sidebar(true);self->finish_developer_resize();break;
       case WM_KEYDOWN:if(wp==VK_ESCAPE&&self->resizing_sidebar){self->finish_sidebar(true);return 0;}if(wp==VK_ESCAPE&&shell.drag.active){shell.drag_cancel();return 0;}break;
       case WM_LBUTTONDBLCLK:if(self->sidebar_hit({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)})){self->finish_sidebar(false);self->resize_sidebar(240);shell.save_sidebar(*self);return 0;}break;
       case WM_DPICHANGED:{const auto rect=reinterpret_cast<RECT*>(lp);SetWindowPos(h,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER|SWP_NOACTIVATE);DeleteObject(self->font);DeleteObject(self->bold);self->font=ui::font(h);self->bold=ui::font(h,13,FW_SEMIBOLD);
         for(const auto& [id,c]:self->controls)SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(self->font),TRUE);TreeView_SetItemHeight(self->tree,self->d(TabRow));self->layout();return 0;}
       case WM_SETTINGCHANGE:case WM_THEMECHANGED:shell.theme_all();return 0;
       case WM_GETMINMAXINFO:{auto value=reinterpret_cast<MINMAXINFO*>(lp);value->ptMinTrackSize={ui::dip(h,640),ui::dip(h,420)};return 0;}
-      case WM_COMMAND:if(LOWORD(wp)==Address&&HIWORD(wp)==EN_CHANGE&&!self->setting_address)self->address_dirty=true;
+      case WM_COMMAND:if(LOWORD(wp)==DeveloperPick&&HIWORD(wp)==BN_CLICKED){self->pick_developer();}
+        else if(LOWORD(wp)==DeveloperFilter&&HIWORD(wp)==BN_CLICKED){self->developer_controls_only=SendMessageW(self->controls.at(DeveloperFilter),BM_GETCHECK,0,0)==BST_CHECKED;self->developer_list();}
+        else if(LOWORD(wp)==Address&&HIWORD(wp)==EN_CHANGE&&!self->setting_address)self->address_dirty=true;
         else if(LOWORD(wp)==Address&&(HIWORD(wp)==EN_SETFOCUS||HIWORD(wp)==EN_KILLFOCUS)){self->address_focus.set(HIWORD(wp)==EN_SETFOCUS,FocusDuration);InvalidateRect(h,&self->omnibox,FALSE);}else if(HIWORD(wp)==BN_CLICKED)self->command(LOWORD(wp));return 0;
       case WM_DRAWITEM:{auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item&&item->CtlType==ODT_BUTTON){
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
@@ -754,6 +939,7 @@ struct BrowserShell::Impl {
           if(!self->update_version.empty())ui::dot(item->hDC,{x,shell.pairing_count?item->rcItem.bottom-self->d(7):item->rcItem.top+self->d(7)},radius,ui::notice_blue());}
         return TRUE;}break;}
       case WM_NOTIFY:{auto notice=reinterpret_cast<NMHDR*>(lp);
+        if(notice->idFrom==DeveloperList){if(notice->code==LVN_ITEMCHANGED)self->developer_details();return 0;}
         if(notice->hwndFrom!=self->tree)break;
         if(notice->code==TVN_SELCHANGEDW&&!self->rebuilding){auto item=reinterpret_cast<NMTREEVIEWW*>(lp);const auto index=item->itemNew.lParam;if(index>0&&static_cast<size_t>(index)<=self->tree_keys.size()&&!self->tree_keys[index-1].second)self->choose(self->tree_keys[index-1].first,true);return 0;}
         if(notice->code==TVN_ITEMEXPANDEDW){InvalidateRect(h,nullptr,FALSE);return 0;}
@@ -773,7 +959,7 @@ struct BrowserShell::Impl {
         std::vector<std::string> ids;for(const auto& [id,host]:shell.hosts)if(host.frame==self)ids.push_back(id);
         if(ids.empty()){DestroyWindow(h);return 0;}
         self->closing=true;self->closing_since=GetTickCount64();ShowWindow(h,SW_HIDE);if(shell.active==self)shell.active=nullptr;shell.close_tabs(*self,ids);return 0;}
-      case WM_DESTROY:self->finish_sidebar(false);if(shell.drag.active&&(shell.drag.source==h||shell.drag.target==h))shell.drag_cancel();if(shell.active==self)shell.active=nullptr;return 0;
+      case WM_DESTROY:self->clear_developer(ui::tr(L"Waiting for rendered page evidence…"));self->finish_sidebar(false);if(shell.drag.active&&(shell.drag.source==h||shell.drag.target==h))shell.drag_cancel();if(shell.active==self)shell.active=nullptr;return 0;
       case WM_NCDESTROY:if(self->font)DeleteObject(self->font);if(self->bold)DeleteObject(self->bold);self->font=self->bold=nullptr;self->window=nullptr;return DefWindowProcW(h,message,wp,lp);
     }return DefWindowProcW(h,message,wp,lp);
   }
@@ -844,6 +1030,110 @@ void BrowserShell::Impl::Frame::group_menu(const std::string& workspace_id,POINT
   else if(chosen==GroupCloseAll)shell.close_workspace(*this,workspace_id);
   else if(chosen==GroupConfigure)shell.native.show_section(NativeUi::Section::workspaces,workspace_id);
 }
+void BrowserShell::Impl::Frame::pick_developer(){
+  if(developer_picking){shell.engine.developer_pick(selected,false,[](Json){});return;}
+  if(!developer_visible||developer_nodes.empty())return;
+  developer_picking=true;developer_tab=selected;
+  position_developer_overlay();
+  SetWindowTextW(controls.at(DeveloperPick),ui::tr(L"Cancel picking"));
+  SetWindowTextW(controls.at(DeveloperStatus),ui::tr(L"Click a page element to select it. Escape cancels."));
+  const auto tab=selected;const auto target=window;const auto generation=developer_generation;auto owner=&shell;
+  std::weak_ptr<Mailbox> weak=shell.mailbox;const auto messages=shell.messages;
+  shell.engine.developer_pick(tab,true,[weak,messages,owner,target,tab,generation](Json value){if(auto box=weak.lock()){
+    {std::lock_guard lock(box->mutex);box->calls.push_back([owner,target,tab,generation,value=std::move(value)]{
+      auto frame=owner->frame_of(target);if(!frame||frame->selected!=tab||frame->developer_generation!=generation)return;
+      frame->developer_picking=false;SetWindowTextW(frame->controls.at(DeveloperPick),ui::tr(L"Pick from page"));
+      frame->position_developer_overlay();
+      if(!value.value("ok",false)){SetWindowTextW(frame->controls.at(DeveloperStatus),ui::tr(L"Selection canceled or unavailable. Choose a listed element."));return;}
+      const auto diagnostic=str(value["result"],"diagnosticId");
+      if(frame->developer_controls_only){frame->developer_controls_only=false;SendMessageW(frame->controls.at(DeveloperFilter),BM_SETCHECK,BST_UNCHECKED,0);frame->developer_list();}
+      frame->developer_selection.clear();
+      auto list=frame->controls.at(DeveloperList);
+      for(size_t i=0;i<frame->developer_rows.size();++i)if(str(frame->developer_rows[i],"diagnosticId")==diagnostic){
+        ListView_SetItemState(list,-1,0,LVIS_SELECTED|LVIS_FOCUSED);ListView_SetItemState(list,static_cast<int>(i),LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+        ListView_EnsureVisible(list,static_cast<int>(i),FALSE);SetFocus(list);frame->developer_details();break;
+      }
+    });}PostMessageW(messages,ShellRun,0,0);
+  }});
+}
+void BrowserShell::Impl::Frame::hover_developer(const POINT* event){
+  if(!developer_visible||developer_picking||resizing_developer||developer_nodes.empty())return;
+  const auto host=shell.hosts.find(selected);if(host==shell.hosts.end()||!host->second.browser)return;
+  // Read only this window's current hover, without intercepting page messages.
+  // Chromium child windows may receive input outside our message-hook thread.
+  if(event){developer_hover_at=*event;developer_hover_dirty=true;++developer_hover_version;}
+  else {POINT screen{};GetCursorPos(&screen);const auto under=WindowFromPoint(screen);
+  if(GetAncestor(GetForegroundWindow(),GA_ROOT)!=window||!(under==host->second.browser||IsChild(host->second.browser,under)||under==developer_overlay)||(GetAsyncKeyState(VK_LBUTTON)&0x8000)||(GetAsyncKeyState(VK_RBUTTON)&0x8000)||(GetAsyncKeyState(VK_MBUTTON)&0x8000)){
+    if(developer_hover_inside)++developer_hover_version;developer_hover_inside=false;developer_hover_dirty=false;return;
+  }
+  if(!developer_hover_inside||screen.x!=developer_hover_at.x||screen.y!=developer_hover_at.y){developer_hover_at=screen;developer_hover_dirty=true;++developer_hover_version;}developer_hover_inside=true;}
+  if(developer_hover_pending||!developer_hover_dirty||Clock::now()<developer_hover_next)return;
+  const auto context=current_developer_context();if(context.is_null()||context.value("protected",false)||context.value("busy",false)||context.value("private",false))return;
+  POINT point=developer_hover_at;ScreenToClient(host->second.browser,&point);const double scale=GetDpiForWindow(host->second.browser)/96.0*host->second.metadata.value("zoom",1.0);
+  developer_hover_pending=true;developer_hover_dirty=false;developer_hover_next=Clock::now()+std::chrono::milliseconds(120);
+  const auto generation=developer_generation,version=developer_hover_version;const auto tab=selected;const auto target=window;auto owner=&shell;std::weak_ptr<Mailbox> weak=shell.mailbox;const auto messages=shell.messages;
+  shell.engine.developer_hover_point(tab,point.x/scale,point.y/scale,[weak,messages,owner,target,tab,generation,version,context](Json value){if(auto box=weak.lock()){
+    {std::lock_guard lock(box->mutex);box->calls.push_back([owner,target,tab,generation,version,context,value=std::move(value)]{
+      auto frame=owner->frame_of(target);if(!frame||frame->selected!=tab||frame->developer_generation!=generation)return;
+      frame->developer_hover_pending=false;
+      if(frame->developer_hover_version!=version||frame->current_developer_context()!=context||!frame->developer_visible||frame->developer_picking)return;
+      frame->developer_hover_error=value.value("ok",false)?std::string{}:value.dump();
+      if(!value.value("ok",false))return;
+      frame->select_developer(str(value["result"],"diagnosticId"));
+    });}PostMessageW(messages,ShellRun,0,0);
+  }});
+}
+void BrowserShell::Impl::Frame::refresh_developer(){
+  const bool enabled=shell.broker.developer_mode_enabled();
+  if(enabled!=developer_visible){developer_visible=enabled;clear_developer(ui::tr(L"Waiting for rendered page evidence…"));layout();}
+  if(!enabled)return;
+  developer_details(false);
+  position_developer_overlay();
+  const auto context=current_developer_context();
+  if(developer_identity.changed(context))clear_developer(ui::tr(L"Waiting for rendered page evidence…"));
+  if(context.is_null()||context.value("protected",false)||context.value("busy",false)||context.value("private",false)){
+    if(!developer_nodes.empty())clear_developer(ui::tr(L"Page evidence is unavailable for this tab right now."));
+    SetWindowTextW(controls.at(DeveloperStatus),ui::tr(L"Page evidence is unavailable for this tab right now."));return;
+  }
+  if(developer_picking||resizing_developer)return;
+  hover_developer();
+  dispatch_developer_highlight();
+  if(developer_pending||Clock::now()<developer_next||IsIconic(window)||!IsWindowVisible(window))return;
+  developer_pending=true;developer_next=Clock::now()+std::chrono::milliseconds(1500);
+  const auto generation=developer_generation;const auto tab=selected;const auto target=window;
+  std::weak_ptr<Mailbox> weak=shell.mailbox;const auto messages=shell.messages;auto owner=&shell;
+  shell.engine.developer_elements(tab,[weak,messages,owner,target,tab,generation,context](Json value){
+    if(auto box=weak.lock()){
+      {std::lock_guard lock(box->mutex);box->calls.push_back([owner,target,tab,generation,context,value=std::move(value)]{
+        auto frame=owner->frame_of(target);
+        if(!frame||!frame->developer_visible||!owner->broker.developer_mode_enabled()||frame->selected!=tab||
+          !frame->developer_identity.matches(generation,frame->current_developer_context())||frame->current_developer_context()!=context)return;
+        frame->developer_pending=false;
+        if(!value.value("ok",false)){frame->developer_nodes=Json::array();frame->developer_list();
+          SetWindowTextW(frame->controls.at(DeveloperStatus),ui::tr(L"Page evidence is unavailable for this tab right now."));return;}
+        const auto& result=value["result"];const auto& nodes=result["nodes"];
+        frame->developer_visibility=result.value("visibility",Json::object());
+        const auto viewport=result.value("viewport",Json::object());
+        const bool moved=viewport!=frame->developer_viewport;
+        frame->developer_viewport=viewport;
+        const bool changed=nodes!=frame->developer_nodes;
+        // Scrolling can move a different element under a stationary cursor,
+        // even when document coordinates and the admitted node set are equal.
+        if(moved||changed){++frame->developer_hover_version;frame->developer_hover_dirty=frame->developer_hover_inside;
+          frame->developer_box=Json::object();if(frame->developer_overlay)ShowWindow(frame->developer_overlay,SW_HIDE);}
+        if(changed){frame->developer_nodes=nodes;frame->developer_list();}
+        const auto host=owner->hosts.find(tab);
+        if(!frame->developer_picking&&!frame->developer_selection.empty()&&(moved||changed||host==owner->hosts.end()||str(host->second.metadata,"developerHighlighted")!=frame->developer_selection))frame->highlight_developer(frame->developer_selection);
+        size_t interactive=0;for(const auto& node:nodes)if(!developer_element_actions(node).empty())++interactive;
+        const auto status=std::to_wstring(nodes.size())+L" "+ui::tr(L"elements")+L" · "+std::to_wstring(interactive)+L" "+ui::tr(L"interactable")+
+          (result.value("truncated",false)?L" · "+std::wstring(ui::tr(L"Truncated")):L"")+
+          (str(result,"coverage")=="partial"?L" · "+std::wstring(ui::tr(L"Partial coverage")):L"");
+        SetWindowTextW(frame->controls.at(DeveloperStatus),status.c_str());
+      });}
+      PostMessageW(messages,ShellRun,0,0);
+    }
+  });
+}
 void BrowserShell::Impl::Frame::command(int id){try{
   auto& engine=shell.engine;auto& hosts=shell.hosts;
   if(id==Back||id==Forward||id==Reload)engine.native_command(selected,id==Back?"back":id==Forward?"forward":hosts.contains(selected)&&hosts.at(selected).metadata.value("loading",false)?"stop":"reload");
@@ -863,7 +1153,7 @@ void BrowserShell::Impl::Frame::command(int id){try{
   else if(id==MenuManageExtensions)shell.native.show_section(NativeUi::Section::extensions);
   else if(id==MenuPasswords){auto found=hosts.find(selected);shell.native.show_section(NativeUi::Section::passwords,found==hosts.end()?std::string{}:origin_of(str(found->second.metadata,"url")));}
   else if(id==MenuUpdates)engine.show_updates();
-  else if(id==MenuDeveloper)shell.native.show_section(NativeUi::Section::developer);
+  else if(id==MenuDeveloper){if(!shell.broker.developer_mode_enabled())shell.broker.set_developer_mode(true);refresh_developer();shell.native.show_section(NativeUi::Section::developer);}
   else if(id==MenuDocumentation||(id==MenuQuickTour&&ui::show_introduction(window,false)==ui::IntroductionResult::documentation))open_tab("native-default",ui::utf8(ui::documentation_url));
   else if(id==MenuFind)show_find();else if(id==FindClose)hide_find();
   else if(id==FindNext||id==FindPrevious)engine.native_command(selected,id==FindNext?"find-next":"find-previous",ui::text(find_text));
@@ -936,7 +1226,7 @@ LRESULT CALLBACK BrowserShell::Impl::panel_proc(HWND h,UINT message,WPARAM wp,LP
 BrowserShell::BrowserShell(Broker& broker,CefEngine& engine,NativeUi& native,ExtensionStore& extensions,const std::filesystem::path& root):impl_(std::make_unique<Impl>(broker,engine,native,extensions,root)){
   INITCOMMONCONTROLSEX common{sizeof(common),ICC_TREEVIEW_CLASSES|ICC_LISTVIEW_CLASSES};InitCommonControlsEx(&common);
   for(const auto& [name,proc]:std::vector<std::pair<const wchar_t*,WNDPROC>>{{L"XenonBrowserShell",Impl::proc},{L"XenonTabHost",Impl::host_proc},{L"XenonAgentCursor",Impl::cursor_proc},{L"XenonBrowserPanel",Impl::panel_proc},
-      {L"XenonFindBar",Impl::find_proc},{L"XenonTabDrag",Impl::ghost_proc},{L"XenonShellMessages",Impl::message_proc}}){
+      {L"XenonFindBar",Impl::find_proc},{L"XenonElementsPanel",Impl::elements_proc},{L"XenonElementOverlay",Impl::element_overlay_proc},{L"XenonTabDrag",Impl::ghost_proc},{L"XenonShellMessages",Impl::message_proc}}){
     WNDCLASSW type{};type.style=wcscmp(name,L"XenonBrowserShell")==0?CS_DBLCLKS:wcscmp(name,L"XenonTabDrag")==0?CS_DROPSHADOW:0;type.lpfnWndProc=proc;type.hInstance=branding_module();type.lpszClassName=name;type.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&type);}
   impl_->messages=CreateWindowExW(0,L"XenonShellMessages",L"",0,0,0,0,0,HWND_MESSAGE,nullptr,branding_module(),impl_.get());
   if(!impl_->messages||!impl_->create_frame())throw std::runtime_error("Cannot create native browser shell");
@@ -977,6 +1267,8 @@ bool BrowserShell::pretranslate(MSG& message){
   auto frame=impl_->frame_of(root);if(!frame)return false;
   if(message.message==WM_KEYDOWN||message.message==WM_SYSKEYDOWN){const bool control=(GetKeyState(VK_CONTROL)&0x8000)!=0,alt=(GetKeyState(VK_MENU)&0x8000)!=0,shift=(GetKeyState(VK_SHIFT)&0x8000)!=0;const auto key=message.wParam;
     const auto run=[&](int id){frame->command(id);return true;};
+    if(key==VK_ESCAPE&&frame->developer_picking){frame->pick_developer();return true;}
+    if(frame->developer_picking){const auto host=impl_->hosts.find(frame->selected);if(host!=impl_->hosts.end()&&(message.hwnd==host->second.window||IsChild(host->second.window,message.hwnd)))return true;}
     if(control&&shift&&key=='X')return run(Controls);
     if((control&&key=='L')||(alt&&key=='D')||key==VK_F6){frame->focus_address();return true;}
     if(control&&key=='F')return run(MenuFind);

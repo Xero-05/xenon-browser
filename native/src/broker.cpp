@@ -1099,6 +1099,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
 }
 
 void Broker::set_developer_mode(bool enabled) { impl_->developer_trace.enable(enabled); }
+bool Broker::developer_mode_enabled() const { return impl_->developer_trace.enabled(); }
 void Broker::clear_developer_trace() { impl_->developer_trace.clear(); }
 Json Broker::developer_trace() const { return impl_->developer_trace.snapshot(); }
 

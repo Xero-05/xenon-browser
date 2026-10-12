@@ -1,0 +1,230 @@
+{
+  "capturedAt": "2026-10-12T02:02:45.758Z",
+  "applicationDllSha256": "9e164a57e48fad60578b3fa40a89b0c77dbd225a98017c4d8907f04263eff633",
+  "behavior": [
+    "Axis-aligned unit reflections preserve control geometry; text is admitted only when the complete element transform chain finishes upright",
+    "Bounded 2D translations use Chromium snapshot coordinates without applying offsets twice",
+    "Consistent inline fragments retain paint ancestry; combined action geometry requires a center inside a verified fragment",
+    "Reflected pointer quads keep guarded screen-space fractions; superseded highlight replies cannot restore stale errors",
+    "Human details show aggregate visibility omissions and bounded untrusted transform examples; MCP observations exclude those examples"
+  ],
+  "live": [
+    {
+      "language": "en-US",
+      "theme": "dark",
+      "applicationDllSha256": "9e164a57e48fad60578b3fa40a89b0c77dbd225a98017c4d8907f04263eff633",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true,
+          "elapsedMs": 3842
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true,
+          "elapsedMs": 829
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true,
+          "elapsedMs": 5845
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true,
+          "elapsedMs": 467
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true,
+          "elapsedMs": 3841
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true,
+          "elapsedMs": 2857
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true,
+          "elapsedMs": 2255
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true,
+          "elapsedMs": 4829
+        },
+        {
+          "name": "Translated split result link with canceling reflections is observed, hovered and clicked",
+          "passed": true,
+          "elapsedMs": 2870
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true,
+          "elapsedMs": 2349
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true,
+          "elapsedMs": 2278
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true,
+          "elapsedMs": 2811
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true,
+          "elapsedMs": 6138
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true,
+          "elapsedMs": 2262
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true,
+          "elapsedMs": 979
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true,
+          "elapsedMs": 842
+        }
+      ]
+    },
+    {
+      "language": "zh-CN",
+      "theme": "light",
+      "applicationDllSha256": "9e164a57e48fad60578b3fa40a89b0c77dbd225a98017c4d8907f04263eff633",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true,
+          "elapsedMs": 3568
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true,
+          "elapsedMs": 781
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true,
+          "elapsedMs": 5496
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true,
+          "elapsedMs": 453
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true,
+          "elapsedMs": 3771
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true,
+          "elapsedMs": 2793
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true,
+          "elapsedMs": 2162
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true,
+          "elapsedMs": 4780
+        },
+        {
+          "name": "Translated split result link with canceling reflections is observed, hovered and clicked",
+          "passed": true,
+          "elapsedMs": 2894
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true,
+          "elapsedMs": 2378
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true,
+          "elapsedMs": 2303
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true,
+          "elapsedMs": 2812
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true,
+          "elapsedMs": 5271
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true,
+          "elapsedMs": 2305
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true,
+          "elapsedMs": 990
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true,
+          "elapsedMs": 902
+        }
+      ]
+    }
+  ],
+  "native": {
+    "passed": true,
+    "suites": [
+      "developer_elements_tests",
+      "native_ui_tests",
+      "visible_evidence_tests"
+    ],
+    "coverage": [
+      "Known inline fragments, inconsistent fragments, center gaps and later covering paint",
+      "Identity and translation transforms, upright canceling reflections and withheld upside-down text",
+      "Reflected clipping and shadow ancestry, malformed matrices and unsupported scaling/skew",
+      "Screen-space pointer fractions for normal and reflected quads",
+      "Human-only transform diagnostics stay outside agent evidence"
+    ]
+  },
+  "branding": {
+    "passed": true,
+    "checks": 5
+  },
+  "google": {
+    "elementCount": 85,
+    "highlightError": null,
+    "applicationDllSha256": "9e164a57e48fad60578b3fa40a89b0c77dbd225a98017c4d8907f04263eff633",
+    "matchedRenderedName": true,
+    "status": "85 elements · 34 interactable · Partial coverage",
+    "physicalHoverVerified": false,
+    "hoverError": null,
+    "matchedRole": "link",
+    "highlighted": true,
+    "coverage": "Anonymous disposable Google results page; native-message hover matched a main result link and PrintWindow verified its blue outline; no result navigation or submission"
+  },
+  "earlierAttempts": [
+    "Fragment/translation-only candidates still omitted main Google result links; local observations remain separate from final validation",
+    "The first Chinese reflection/pointer run failed an immediate SVG-icon read after the agent click; the driver now waits for fresh evidence and the passing rerun is recorded separately",
+    "A real Google outline succeeded while an old highlight callback left a stale error; final callbacks are fenced by request version and clear errors on success"
+  ],
+  "limitations": [
+    "Physical desktop hover remains manual coverage; the runner uses native window messages",
+    "Coverage remains partial for uncertain paint, perspective, rotations, non-unit scaling, reflected clipping/frame embeddings and unsupported shadows",
+    "Diagnostic labels and computed transform examples are untrusted human inspector metadata and do not grant agent authority"
+  ]
+}

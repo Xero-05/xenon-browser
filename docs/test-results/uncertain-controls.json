@@ -1,0 +1,325 @@
+{
+  "capturedAt": "2026-10-12T03:59:44.636Z",
+  "applicationDllSha256": "9a89cb5aeb5b1d139dcfd78fbe4a336363c4ca28f8d8320b161d4540126fc197",
+  "behavior": [
+    "Verified geometry and uncertain viewport control candidates are labeled separately",
+    "Uncertain candidates carry a reason, screenshotRequired and candidateId without an actionable ref",
+    "Candidate text is independently verified; raw hidden labels, values and credentials remain excluded",
+    "Uncertain row selection survives refresh without a misleading highlight",
+    "Screenshot-bound coordinate input retains the existing native guards"
+  ],
+  "productionLive": [
+    {
+      "suite": "Visibility candidate filter matrix",
+      "run": "filter-matrix-1791777276652-50377843",
+      "passed": true,
+      "checks": [
+        {
+          "name": "plain",
+          "passed": true
+        },
+        {
+          "name": "identity-clip",
+          "passed": true
+        },
+        {
+          "name": "pixel-clip",
+          "passed": true
+        },
+        {
+          "name": "percent-clip",
+          "passed": true
+        },
+        {
+          "name": "negative-clip",
+          "passed": true
+        },
+        {
+          "name": "distant-blur",
+          "passed": true
+        },
+        {
+          "name": "zero-blur",
+          "passed": true
+        },
+        {
+          "name": "distant-backdrop",
+          "passed": true
+        },
+        {
+          "name": "bounded-shadow",
+          "passed": true
+        },
+        {
+          "name": "rotated-blur",
+          "passed": true
+        },
+        {
+          "name": "scaled-blur",
+          "passed": true
+        },
+        {
+          "name": "distant-invert",
+          "passed": true
+        },
+        {
+          "name": "covered-by-invert",
+          "passed": true
+        },
+        {
+          "name": "backdrop-content",
+          "passed": true
+        },
+        {
+          "name": "translation",
+          "passed": true
+        },
+        {
+          "name": "nested-inset",
+          "passed": true
+        },
+        {
+          "name": "covered-by-blur",
+          "passed": true
+        },
+        {
+          "name": "clipped-center",
+          "passed": true
+        },
+        {
+          "name": "zero-area-clip",
+          "passed": true
+        },
+        {
+          "name": "unsupported-round",
+          "passed": true
+        },
+        {
+          "name": "unsupported-polygon",
+          "passed": true
+        },
+        {
+          "name": "covered-by-backdrop",
+          "passed": true
+        },
+        {
+          "name": "faint-control",
+          "passed": true
+        },
+        {
+          "name": "Scroll after navigation",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "Native developer inspector",
+      "run": "developer-elements-1791777338866-3982910e",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true,
+          "elapsedMs": 3899
+        },
+        {
+          "name": "Backdrop effects stay local and continue withholding covered controls",
+          "passed": true,
+          "elapsedMs": 766
+        },
+        {
+          "name": "Uncertain controls remain listed with screenshot guidance and no usable target",
+          "passed": true,
+          "elapsedMs": 5773
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true,
+          "elapsedMs": 618
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true,
+          "elapsedMs": 5150
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true,
+          "elapsedMs": 456
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true,
+          "elapsedMs": 3816
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true,
+          "elapsedMs": 2894
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true,
+          "elapsedMs": 2184
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true,
+          "elapsedMs": 4803
+        },
+        {
+          "name": "Translated split result link with canceling reflections is observed, hovered and clicked",
+          "passed": true,
+          "elapsedMs": 2808
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true,
+          "elapsedMs": 2359
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true,
+          "elapsedMs": 2913
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true,
+          "elapsedMs": 3346
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true,
+          "elapsedMs": 5838
+        },
+        {
+          "name": "Page scrolling keeps hover and highlight aligned with viewport coordinates",
+          "passed": true,
+          "elapsedMs": 7430
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true,
+          "elapsedMs": 2223
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true,
+          "elapsedMs": 893
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true,
+          "elapsedMs": 892
+        }
+      ]
+    },
+    {
+      "suite": "Adversarial rendered evidence",
+      "run": "visibility-integration-1791777435184-144340e2",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true,
+          "elapsedMs": 17
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true,
+          "elapsedMs": 799
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true,
+          "elapsedMs": 822
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true,
+          "elapsedMs": 42
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true,
+          "elapsedMs": 517
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true,
+          "elapsedMs": 652
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true,
+          "elapsedMs": 1558
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true,
+          "elapsedMs": 1310
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true,
+          "elapsedMs": 15
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true,
+          "elapsedMs": 1409
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true,
+          "elapsedMs": 14
+        }
+      ]
+    }
+  ],
+  "screenshotPath": {
+    "fixture": "unsupported-round",
+    "candidateReferenceRejected": true,
+    "imageReturned": true,
+    "screenshotBoundCoordinateClickWebsiteCallbackObserved": true
+  },
+  "native": {
+    "suites": [
+      "developer_elements_tests",
+      "visible_evidence_tests",
+      "native_ui_tests"
+    ],
+    "passed": true
+  },
+  "adapter": {
+    "typecheck": true,
+    "tests": 125,
+    "passed": true
+  },
+  "branding": {
+    "checks": 5,
+    "passed": true
+  },
+  "publicPreview": {
+    "url": "https://github.com/",
+    "verified": 31,
+    "uncertain": 1,
+    "selectedCandidate": {
+      "role": "link",
+      "reason": "clipping_or_occlusion_unproven",
+      "screenshotRequired": true,
+      "targetAvailable": false,
+      "highlighted": false
+    }
+  },
+  "earlierRuns": [
+    "The first inspector run passed all 19 checks but its report still required the old count of 18; the harness count was corrected and rerun",
+    "Restricted-runner adapter cleanup failed with EPERM; all 125 tests passed in the ordinary interactive-user runner"
+  ],
+  "limitations": [
+    "Viewport candidates are not a complete hidden-DOM inventory; display-none, zero-opacity, empty rectangular clips and unproven frame embeddings remain excluded",
+    "Verified ordinary geometry generally proves its center patch, not every pixel or all label text",
+    "Native message/PrintWindow coverage; physical mouse and DPI combinations remain manual",
+    "Screenshot guidance does not override authentication, ownership or native input protection"
+  ]
+}

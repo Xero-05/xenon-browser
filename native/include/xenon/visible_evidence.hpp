@@ -19,5 +19,10 @@ Json visible_snapshot_styles();
 // names independently require full text-box proof, and frame embeddings require
 // their entire border box to be visible. Bounds alone do not assert every pixel
 // of an ordinary element is unobscured.
-Json visible_snapshot(const Json& snapshot, const Json& viewports);
+// Human diagnostics optionally include at most eight short, untrusted computed
+// transform and paint-effect examples. Agent observations and action revalidation leave this off.
+// Optional uncertainNodes contain structural candidates and independently
+// verified text only, never raw names/values or action references. Guarded
+// action revalidation must leave this disabled.
+Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_diagnostics=false, bool include_uncertain=false);
 }

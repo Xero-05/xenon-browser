@@ -1,0 +1,47 @@
+{
+  "coverage": "Production CEF/MCP and native window/keyboard-message driver with synthetic profiles and loopback websites. PrintWindow verified panel layout. Not physical input.",
+  "earlierAttempts": [
+    "Initial build failed on mixed integer types in panel layout; corrected.",
+    "First two live attempts could not read custom native controls through UI Automation. Replaced the test driver with native tree/list/keyboard messages. Failed local reports remain in out/.",
+    "Two prototype live runs exposed unreliable Chromium Overlay inspect-mode cleanup and later website-input failures. Replaced that prototype with a native selection overlay and Chromium geometry/hit testing; the final ten-check suites passed. Failed reports remain in out/.",
+    "The native-overlay build first failed on an MSVC structured-binding capture issue; corrected before live testing."
+  ],
+  "limitations": [
+    "Physical keyboard, assistive technology, multi-monitor DPI and sustained load remain unverified",
+    "Frame transforms and complex shadow/frame picking were not exercised by this selection fixture."
+  ],
+  "source": "Local changes based on PR16 commit 823d2120d193db592990ec30b12231e21618fbe0",
+  "live": [
+    {
+      "language": "en-US",
+      "total": 10,
+      "theme": "dark",
+      "passed": 10
+    },
+    {
+      "language": "zh-CN",
+      "total": 10,
+      "theme": "light",
+      "passed": 10
+    }
+  ],
+  "nativeSuites": {
+    "total": 14,
+    "passed": 14
+  },
+  "applicationDllSha256AtEnd": "1649133b0e449a738ef21945be304d0b9ca1c2b1fe7ca2de53a1a2e0d2d5effe",
+  "checks": [
+    "Menu enables a website-side panel using filtered evidence",
+    "Selection shows frame, bounds and states without agent action tokens",
+    "Selecting a row highlights its current rendered node",
+    "Page picker selects the corresponding row without activating it",
+    "Canceling the picker restores ordinary selection",
+    "Interactable filter removes text and disabled controls",
+    "Panel refresh leaves an existing agent observation usable",
+    "Tab switching replaces evidence with the selected document",
+    "Authentication protection removes diagnostic elements",
+    "Disable hides the panel and discards its rows"
+  ],
+  "capturedAt": "2026-10-11T23:57:44.911Z",
+  "applicationDllSha256": "1649133b0e449a738ef21945be304d0b9ca1c2b1fe7ca2de53a1a2e0d2d5effe"
+}

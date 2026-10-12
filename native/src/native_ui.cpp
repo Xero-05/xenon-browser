@@ -15,6 +15,7 @@
 #include <windowsx.h>
 #include <wtsapi32.h>
 #include <shobjidl.h>
+#include <shellapi.h>
 #include <wincrypt.h>
 #include <algorithm>
 #include <atomic>
@@ -38,7 +39,8 @@ std::string compact(const std::string& text,size_t limit){if(text.size()<=limit)
 enum Id { Pairings=101,Approve,Deny,Clients,Workspaces,Share,Tabs,Take,Workers,Give,Stop,ResumeAuth,
           Origin,Username,Password,Label,Save,Import,Accounts,DeleteAccount,Grant,NewWorkspace,UploadGrant,Status,Revoke,PrivateWorkspace,RestoreSession,DialogAccept,DialogDismiss,DialogText,RemoveWorkspace,FillSavedAccount,CheckUpdates,PageClients,PageWorkspaces,PagePasswords,ConfigureClient,ConfigureWorkspace,ClientFiles,ClientAccountGrant,AccountRevoke,DialogMessage,SectionTitle,Brand,
           PageExtensions,ExtensionList,ExtensionLoad,ExtensionToggle,ExtensionRemove,ExtensionOptions,ExtensionPopup,CloseWorkspaceTabs,
-          PageDeveloper,DeveloperToggle,DeveloperClear,DeveloperCommands,DeveloperDetails,DeveloperImage };
+          PageDeveloper,DeveloperToggle,DeveloperClear,DeveloperCommands,DeveloperDetails,DeveloperImage,
+          UncertainClickToggle,UncertainClickFolder,UncertainClickClear,UncertainClickStatus };
 constexpr UINT LoginNotice=WM_APP+41;
 constexpr UINT DialogNotice=WM_APP+42;
 constexpr UINT RemovalNotice=WM_APP+43;
@@ -69,6 +71,10 @@ struct NativeUi::Impl {
   void refresh_developer(){
     const auto trace=broker.developer_trace();
     SetWindowTextW(controls.at(DeveloperToggle),trace.value("enabled",false)?ui::tr(L"Disable developer mode"):ui::tr(L"Enable developer mode"));
+    const auto collection=engine.uncertain_click_log_status();
+    SetWindowTextW(controls.at(UncertainClickToggle),collection.value("enabled",false)?ui::tr(L"Stop collecting uncertain clicks"):ui::tr(L"Collect uncertain agent clicks"));
+    const auto summary=std::wstring(collection.value("enabled",false)?ui::tr(L"Collecting locally"):ui::tr(L"Collection off"))+L" · "+std::to_wstring(collection.value("recordsThisSession",size_t{}));
+    SetWindowTextW(controls.at(UncertainClickStatus),summary.c_str());
     Json entries=Json::array();for(auto it=trace["entries"].rbegin();it!=trace["entries"].rend();++it)entries.push_back(*it);
     list(DeveloperCommands,entries,"traceId",[](const Json& row){const auto params=row["request"].is_object()?row["request"].value("params",Json::object()):Json::object();
       return "#"+str(row,"traceId")+" · "+str(row,"method")+" · "+str(row,"status")+" · "+str(params,"agentSessionId")+" · "+str(params,"tabId");});
@@ -1070,6 +1076,9 @@ struct NativeUi::Impl {
       if(button_page(id)>=0){page=button_page(id);layout_main();}
       else if(id==DeveloperToggle){broker.set_developer_mode(!broker.developer_trace().value("enabled",false));refresh_developer();}
       else if(id==DeveloperClear){broker.clear_developer_trace();refresh_developer();}
+      else if(id==UncertainClickToggle){engine.set_uncertain_click_collection(!engine.uncertain_click_log_status().value("enabled",false));refresh_developer();const auto log=engine.uncertain_click_log_status();status(log.value("error",std::string{}).empty()?ui::tr(L"Local agent-click diagnostics only. No URLs, text, values or images. Collection is off after restart."):wide(log.value("error",std::string{})));}
+      else if(id==UncertainClickClear){engine.clear_uncertain_click_log();refresh_developer();const auto log=engine.uncertain_click_log_status();status(log.value("error",std::string{}).empty()?ui::tr(L"Local click log cleared."):wide(log.value("error",std::string{})));}
+      else if(id==UncertainClickFolder){const auto log=engine.uncertain_click_log_status();const auto directory=wide(log.value("directory",std::string{}));if(GetFileAttributesW(directory.c_str())!=INVALID_FILE_ATTRIBUTES)ShellExecuteW(window,L"open",directory.c_str(),nullptr,nullptr,SW_SHOWNORMAL);else status(ui::tr(L"Enable collection to create the local log folder."));}
       else if(id==ConfigureClient)show_configuration(false);
       else if(id==ConfigureWorkspace)show_configuration(true);
       else if(id==ClientFiles)show_files(str(selected(Clients),"clientId"));
@@ -1185,7 +1194,9 @@ struct NativeUi::Impl {
     label(ui::tr(L"Agent commands and returned evidence"),24,116,870,TextTone::heading);
     label(ui::tr(L"Captured only while enabled. Tokens and input values are redacted. Clear or disable to erase."),24,144,912,TextTone::muted);
     button(DeveloperToggle,ui::tr(L"Enable developer mode"),24,177,230);button(DeveloperClear,ui::tr(L"Clear trace"),266,177,130);
-    add(DeveloperCommands,L"LISTBOX",L"",24,217,912,130,WS_BORDER|WS_VSCROLL|WS_HSCROLL|LBS_NOTIFY|WS_TABSTOP);
+    button(UncertainClickToggle,ui::tr(L"Collect uncertain agent clicks"),24,217,280);button(UncertainClickFolder,ui::tr(L"Open log folder"),316,217,150);button(UncertainClickClear,ui::tr(L"Clear click log"),478,217,150);
+    add(UncertainClickStatus,L"STATIC",ui::tr(L"Collection off"),640,217,296,28);text_style(controls.at(UncertainClickStatus),TextTone::muted,small_font);
+    add(DeveloperCommands,L"LISTBOX",L"",24,257,912,90,WS_BORDER|WS_VSCROLL|WS_HSCROLL|LBS_NOTIFY|WS_TABSTOP);
     label(ui::tr(L"Request / response / rendered observation"),24,358,490,TextTone::muted);label(ui::tr(L"Screenshot returned to the agent"),550,358,386,TextTone::muted);
     add(DeveloperDetails,L"EDIT",L"",24,385,510,225,WS_BORDER|ES_MULTILINE|ES_READONLY|ES_AUTOHSCROLL|WS_VSCROLL|WS_HSCROLL|WS_TABSTOP);
     SendMessageW(controls.at(DeveloperDetails),EM_SETLIMITTEXT,4*1024*1024,0);

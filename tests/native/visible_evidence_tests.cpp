@@ -1,4 +1,5 @@
 #include "xenon/visible_evidence.hpp"
+#include "xenon/pointer_target.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -95,11 +96,11 @@ void chromium_layout_view_and_parent_blending() {
   f.style(0,0,"background-color","rgb(255, 255, 255)");
   result=f.run();require(Fixture::output(result,button)["name"]=="Visible button","Known containing opaque background was not used");
   f.layout(0,button,{30,25,40,20},2,"Fragment");
-  result=f.run();require(result["partial"]==true && result["omitted"].contains("unsupportedFragmentedLayout"),"Unsupported repeated layout was not reported");
+  result=f.run();require(!Fixture::output(result,button).is_null(),"Consistent overlapping fragments lost their verified action center");
   require(!result["omitted"].contains("malformedLayout"),"Valid repeated layout was incorrectly called malformed");
 }
 void inherited_style_and_clipping() {
-  for(const auto& [key,value]:std::vector<std::pair<std::string,std::string>>{{"opacity","0.01"},{"transform","matrix(1, 0, 0, 1, 0, 0)"},{"filter","blur(2px)"},{"clip-path","inset(99%)"}}) {
+  for(const auto& [key,value]:std::vector<std::pair<std::string,std::string>>{{"opacity","0.01"},{"transform","matrix(2, 0, 0, 2, 0, 0)"},{"filter","blur(2px)"},{"clip-path","inset(99%)"}}) {
     Fixture f;int parent=f.node(0,1,"DIV");int layout=f.layout(0,parent,{10,10,220,100});f.style(0,layout,key,value);f.button(0,parent,"HIDDEN_STYLE_TEXT");
     auto result=f.run();require(result.dump().find("HIDDEN_STYLE_TEXT")==std::string::npos,"Ancestor paint style leaked invisible text");require(result["partial"]==true,"Omission not reported");
   }
@@ -167,7 +168,7 @@ void bounded_box_shadows() {
   clipped.style(0,pl,"overflow-x","hidden");clipped.style(0,pl,"overflow-y","hidden");
   n=clipped.node(0,parent,"DIV");l=clipped.layout(0,n,{500,500,20,20},100);clipped.style(0,l,"box-shadow","rgb(255, 255, 255) 0px 0px 0px 1000px");
   require(Fixture::output(clipped.run(),visible)["name"]=="Visible button","Clipped-away bounded shadow suppressed unrelated text");
-  for(const auto& [key,value]:std::vector<std::pair<std::string,std::string>>{{"transform","matrix(2, 0, 0, 2, 0, 0)"},{"perspective","100px"},{"zoom","2"}}) {
+  for(const auto& [key,value]:std::vector<std::pair<std::string,std::string>>{{"transform","matrix(2, 0, 0, 2, 0, 0)"},{"transform","matrix(1, 0, 0, -1, 0, 0)"},{"perspective","100px"},{"zoom","2"}}) {
     Fixture scaled;scaled.button(0,1,"HIDDEN_SCALED_SHADOW");
     int p=scaled.node(0,1,"DIV"),layout=scaled.layout(0,p,{500,500,20,20},10);scaled.style(0,layout,key,value);
     int child=scaled.node(0,p,"DIV"),cl=scaled.layout(0,child,{500,500,20,20},100);scaled.style(0,cl,"box-shadow","rgb(0, 0, 0) 0px 0px 1px 0px");
@@ -177,6 +178,81 @@ void bounded_box_shadows() {
   n=fragmented.node(0,1,"DIV");fragmented.layout(0,n,{500,500,20,20},100);
   l=fragmented.layout(0,n,{500,900,20,20},100);fragmented.style(0,l,"box-shadow","rgb(0, 0, 0) 0px 0px 1px 0px");
   require(fragmented.run().dump().find("HIDDEN_FRAGMENT_SHADOW")==std::string::npos,"Unsupported fragmented shadow ancestry was guessed");
+}
+void bounded_backdrop_paint() {
+  Fixture distant;auto [button,text]=distant.button(0,1);
+  int n=distant.node(0,1,"DIV"),l=distant.layout(0,n,{500,900,20,20},100);
+  distant.style(0,l,"backdrop-filter","blur(100px)");
+  require(Fixture::output(distant.run(),button)["name"]=="Visible button","Distant backdrop globally hid evidence");
+  distant.snapshot["documents"][0]["layout"]["bounds"][l]={20,20,180,36};
+  require(Fixture::output(distant.run(),button).is_null(),"Backdrop-covered control was admitted");
+  Fixture combined;auto [covered,covered_text]=combined.button(0,1,"HIDDEN_BACKDROP_SHADOW");
+  n=combined.node(0,1,"DIV");l=combined.layout(0,n,{500,900,20,20},100);
+  combined.style(0,l,"backdrop-filter","blur(1px)");combined.style(0,l,"box-shadow","rgb(255, 255, 255) -400px -870px 0px 0px");
+  require(combined.run().dump().find("HIDDEN_BACKDROP_SHADOW")==std::string::npos,"Backdrop clipping incorrectly clipped an extending box shadow");
+  combined.style(0,l,"filter","blur(600px)");
+  combined.style(0,l,"box-shadow","none");
+  require(Fixture::output(combined.run(),covered).is_null(),"Foreground blur was bounded as a backdrop");
+  require(!combined.run()["policy"].contains("untrustedUnsupportedPaint"),"Paint diagnostics leaked into agent evidence");
+  combined.style(0,l,"filter","drop-shadow(0px 0px 8px black)");
+  const auto human=xenon::visible_snapshot(combined.snapshot,combined.viewports,true);
+  require(!human["policy"]["untrustedUnsupportedPaint"].empty(),"Human paint omission diagnostic was missing");
+  Fixture content;content.style(0,0,"backdrop-filter","blur(10px)");auto [cb,ct]=content.button(0,1,"UNPROVEN_BACKDROP_LABEL");
+  const auto node=Fixture::output(content.run(),cb);
+  require(!node.is_null()&&node["name"]=="","Backdrop descendant geometry was lost or uncertain contrast admitted");
+}
+void rectangular_clips_and_blur_bounds() {
+  for(const auto& invert:std::vector<std::string>{"invert(1)","invert(50%)"}){
+    Fixture f;auto [bn,bt]=f.button(0,1);int decor=f.node(0,1,"DIV"),dl=f.layout(0,decor,{500,900,20,20},100);f.style(0,dl,"filter",invert);
+    require(Fixture::output(f.run(),bn)["name"]=="Visible button","Distant inversion became global paint");
+    f.snapshot["documents"][0]["layout"]["bounds"][dl]={20,20,180,36};
+    require(Fixture::output(f.run(),bn).is_null(),"Overlapping inverted paint was ignored");
+  }
+  for(const auto& clip:std::vector<std::string>{"inset(0px)","inset(10px)","inset(1%)","inset(-10px 0px -20px)"}){
+    Fixture f;f.style(0,0,"clip-path",clip);auto [n,t]=f.button(0,1);
+    require(Fixture::output(f.run(),n)["name"]=="Visible button","Supported inset suppressed visible content");
+  }
+  for(const auto& clip:std::vector<std::string>{"inset(30px)","inset(50%)","inset(0px round 20px)","inset(garbage)","polygon(0 0, 100% 0, 0 100%)"}){
+    Fixture f;f.style(0,0,"clip-path",clip);auto [n,t]=f.button(0,1,"HIDDEN_CLIP_CANARY");
+    require(Fixture::output(f.run(),n).is_null(),"Clipped or unsupported geometry was admitted");
+  }
+  for(const auto& blur:std::vector<std::string>{"blur(0px)","blur(30px)","blur(120px)"}){
+    Fixture f;int view=f.layout(0,0,{0,0,800,600},0);f.snapshot["documents"][0]["layout"]["styles"][view]=Json::array();
+    auto [n,t]=f.button(0,1);int decoration=f.node(0,1,"DIV"),l=f.layout(0,decoration,{500,900,20,20},100);f.style(0,l,"filter",blur);
+    require(Fixture::output(f.run(),n)["name"]=="Visible button","Distant Gaussian blur hid unrelated content");
+  }
+  Fixture overflow;auto [n,t]=overflow.button(0,1,"HIDDEN_OVERFLOW_BLUR");
+  int parent=overflow.node(0,1,"DIV"),l=overflow.layout(0,parent,{500,900,20,20},100);overflow.style(0,l,"filter","blur(1px)");
+  int child=overflow.node(0,parent,"DIV"),cl=overflow.layout(0,child,{20,20,180,36},100);overflow.style(0,cl,"background-color","rgb(255, 255, 255)");
+  require(Fixture::output(overflow.run(),n).is_null(),"Blur source lost an overflowing covering child");
+  Fixture sigma;auto [sn,st]=sigma.button(0,1,"HIDDEN_SIGMA_BLUR");
+  int decoration=sigma.node(0,1,"DIV"),sl=sigma.layout(0,decoration,{190,20,20,36},100);sigma.style(0,sl,"filter","blur(30px)");
+  require(Fixture::output(sigma.run(),sn).is_null(),"Filter blur used box-shadow's half-sigma extent");
+  for(const auto& transform:std::vector<std::string>{"matrix(0.707107, -0.707107, 0.707107, 0.707107, 0, 0)","matrix(1.05, 0, 0, 1.05, 0, 0)"}){
+    Fixture f;auto [bn,bt]=f.button(0,1);int decor=f.node(0,1,"DIV"),dl=f.layout(0,decor,{500,900,20,20},100);f.style(0,dl,"filter","blur(30px)");f.style(0,dl,"transform",transform);
+    require(Fixture::output(f.run(),bn)["name"]=="Visible button","Transformed distant blur became global paint");
+    f.snapshot["documents"][0]["layout"]["bounds"][dl]={205,20,20,36};
+    require(Fixture::output(f.run(),bn).is_null(),"Transformed overlapping blur was ignored");
+  }
+}
+void uncertain_controls_are_structural_only() {
+  Fixture f;auto [button,text]=f.button(0,1,"HIDDEN_UNCERTAIN_CONTENT");f.style(0,0,"clip-path","inset(0px round 20px)");
+  auto result=xenon::visible_snapshot(f.snapshot,f.viewports,false,true);
+  const auto key=std::to_string(1000+button);
+  require(result["frames"]["main"]["nodes"].empty(),"Uncertain control became verified geometry");
+  const auto candidate=result["frames"]["main"]["uncertainNodes"][key];
+  require(candidate["visibilityStatus"]=="uncertain"&&candidate["name"]==""&&candidate["screenshotRequired"]==true,"Uncertain candidate missing its label boundary");
+  require(candidate["filterDiagnostics"]["clipPresent"]==true&&candidate["filterDiagnostics"]["nonrectangularClip"]==true,"Safe filter diagnostics lost unsupported clip reason");
+  require(result.dump().find("HIDDEN_")==std::string::npos,"Uncertain candidate exposed hidden text or AX metadata");
+  require(!f.run()["frames"]["main"].contains("uncertainNodes"),"Action revalidation enabled uncertain candidates");
+  f.style(0,1,"display","none");result=xenon::visible_snapshot(f.snapshot,f.viewports,false,true);
+  require(!result["frames"]["main"]["uncertainNodes"].contains(key),"Display-none control became an uncertain candidate");
+  f.style(0,1,"display","block");f.style(0,1,"opacity","0.01");result=xenon::visible_snapshot(f.snapshot,f.viewports,false,true);
+  require(result["frames"]["main"]["uncertainNodes"].contains(key),"Faint control was omitted instead of marked uncertain");
+  f.style(0,1,"opacity","0");result=xenon::visible_snapshot(f.snapshot,f.viewports,false,true);
+  require(!result["frames"]["main"]["uncertainNodes"].contains(key),"Transparent control became an uncertain candidate");
+  f.style(0,1,"opacity","1");f.style(0,0,"clip-path","inset(50%)");result=xenon::visible_snapshot(f.snapshot,f.viewports,false,true);
+  require(!result["frames"]["main"]["uncertainNodes"].contains(key),"Zero-area clip became an uncertain candidate");
 }
 void editable_values_and_visible_labels() {
   Fixture f;int label=f.node(0,1,"LABEL",{{"for","field"}});f.layout(0,label,{20,100,180,30});int lt=f.node(0,label,"#text");int tl=f.layout(0,lt,{20,100,160,20},1,"Visible account");f.box(0,tl,{20,100,160,20},0,15);
@@ -216,6 +292,41 @@ void svg_text_requires_visual_evidence() {
   auto result=f.run();require(result.dump().find("HIDDEN_")==std::string::npos,"SVG fill was misread as HTML text color");
   require(result["omitted"].contains("unsupportedTextPaint"),"SVG text omission not reported");require(!Fixture::output(result,svg).is_null(),"SVG geometry disappeared with its unsupported text");
 }
+void repeated_inline_fragments_preserve_paint_ancestry() {
+  Fixture f;auto [button,text]=f.button(0,1,"Visible result link");
+  int inline_node=f.node(0,1,"SPAN");
+  const int first=f.layout(0,inline_node,{500,500,20,20},100);
+  const int second=f.layout(0,inline_node,{500,900,20,20},100);
+  for(int li:{first,second})f.style(0,li,"box-shadow","rgb(0, 0, 0) 0px 0px 1px 0px");
+  auto result=f.run();
+  require(Fixture::output(result,button).value("name","")=="Visible result link","Repeated inline fragment became a global paint blocker");
+  require(Fixture::output(result,inline_node).is_null(),"A gap between fragments was presented as a verified action center");
+  require(!result["omitted"].contains("unboundedPaintOcclusion"),"Known fragment ancestry lost its bounded shadow");
+  f.snapshot["documents"][0]["layout"]["bounds"][second]={100,30,20,20};
+  result=f.run();require(Fixture::output(result,button).is_null(),"An overlapping later fragment stopped blocking control geometry");
+}
+void identity_transform_is_not_uncertain_geometry() {
+  for(const auto& quad:std::vector<std::array<double,8>>{{10,20,110,20,110,60,10,60},{10,60,110,60,110,20,10,20},{110,20,10,20,10,60,110,60},{110,60,10,60,10,20,110,20}}) {
+    const auto [x,y]=xenon::pointer_box_point(quad,.25,.75);require(x==35&&y==50,"Reflected quad reversed the guarded screen-space sample");
+  }
+  for(const auto& transform:std::vector<std::string>{"matrix(1, 0, 0, 1, 0, 0)","matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)"}) {
+    Fixture f;f.style(0,0,"transform",transform);auto [button,text]=f.button(0,1,"Result title");
+    require(Fixture::output(f.run(),button).value("name","")=="Result title","An identity transform suppressed unchanged rendered geometry");
+  }
+  Fixture f;f.style(0,0,"transform","matrix(1, 0, 0, 1, -11, 1)");auto [button,text]=f.button(0,1);
+  require(Fixture::output(f.run(),button).value("name","")=="Visible button","An unscaled translation suppressed snapshot geometry");
+  for(const auto& transform:std::vector<std::string>{"matrix(2, 0, 0, 2, 0, 0)","matrix(1, 0, 1, 1, 0, 0)","matrix(1, 0, 0, 1, NaN, 0)","matrix(1, 0, 0, 1, 0, 0, 1)","matrix(1, 0, 0, 1, 0, 0)garbage"}) {
+    f.style(0,0,"transform",transform);require(Fixture::output(f.run(),button).is_null(),"An unsafe or malformed transform was admitted");
+  }
+  require(!f.run()["policy"].contains("untrustedUnsupportedTransforms"),"Human CSS diagnostics leaked into agent evidence");
+  require(xenon::visible_snapshot(f.snapshot,f.viewports,true)["policy"]["untrustedUnsupportedTransforms"].size()==1,"Human transform omission diagnostic was missing");
+  Fixture reflected;reflected.style(0,0,"transform","matrix(1, 0, 0, -1, 0, 0)");auto [control,run]=reflected.button(0,1,"Upright result");
+  require(Fixture::output(reflected.run(),control).value("name","").empty(),"Upside-down text was asserted to be upright rendered text");
+  const int control_layout=1;reflected.style(0,control_layout,"transform","matrix(1, 0, 0, -1, 0, 0)");
+  reflected.style(0,run,"transform","matrix(1, 0, 0, -1, 0, 0)");
+  require(Fixture::output(reflected.run(),control).value("name","")=="Upright result","Canceling reflections suppressed upright text");
+  reflected.style(0,0,"overflow-y","hidden");require(Fixture::output(reflected.run(),control).is_null(),"Reflected ancestor clipping was guessed from unreflected border edges");
+}
 void utf16_and_unicode_controls() {
   Fixture f;int t=f.node(0,1,"#text");const std::string value="A\xF0\x9F\x99\x82" "B";int l=f.layout(0,t,{20,20,60,20},1,value);f.box(0,l,{30,20,20,20},1,2);
   auto result=f.run();require(Fixture::output(result,t)["name"]=="\xF0\x9F\x99\x82","UTF-16 text-box indices split a supplementary code point");
@@ -243,7 +354,7 @@ int main(int argc,char** argv) {
     // Optional offline replay accepts only a caller-selected synthetic snapshot;
     // no browser diagnostics or raw website snapshots are enabled in production.
     if(argc==2){std::ifstream input(argv[1]);Json fixture;input>>fixture;std::cout<<xenon::visible_snapshot(fixture.at("snapshot"),fixture.at("viewports")).dump(2)<<'\n';return 0;}
-    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();utf16_and_unicode_controls();child_frames_and_malformed_evidence();
+    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();bounded_backdrop_paint();rectangular_clips_and_blur_bounds();uncertain_controls_are_structural_only();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();repeated_inline_fragments_preserve_paint_ancestry();identity_transform_is_not_uncertain_geometry();utf16_and_unicode_controls();child_frames_and_malformed_evidence();
     std::cout<<"Visible evidence regression tests passed\n";return 0;
   }catch(const std::exception& e){std::cerr<<"Visible evidence test failed: "<<e.what()<<'\n';return 1;}
 }
