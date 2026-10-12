@@ -39,6 +39,17 @@ public static class DeveloperElementsDriver {
 $shell=[DeveloperElementsDriver]::Find($BrowserPid,'XenonBrowserShell')
 $controls=[DeveloperElementsDriver]::Find($BrowserPid,'XenonControlCenter')
 if($shell -eq [IntPtr]::Zero){throw 'Disposable shell missing'}
+if($Action -eq 'prepare'){
+ # Capture-based divider drags require a foreground window. Keep the real
+ # stationary pointer off the page so passive hover cannot overwrite the
+ # native-message hover positions used by this fixture.
+ [void][DeveloperElementsDriver]::SetForegroundWindow($shell)
+ $prepareRect=New-Object DeveloperElementsDriver+Rect
+ [void][DeveloperElementsDriver]::GetWindowRect($shell,[ref]$prepareRect)
+ if(-not [DeveloperElementsDriver]::SetCursorPos($prepareRect.left+30,$prepareRect.top+15)){throw 'Could not park the fixture pointer'}
+ if([DeveloperElementsDriver]::GetForegroundWindow() -ne $shell){throw 'Could not foreground the disposable fixture'}
+ @{prepared=$true}|ConvertTo-Json -Compress;return
+}
 if($Action -eq 'classes'){[DeveloperElementsDriver]::Classes($shell);return}
 if($Action -eq 'cursor-state'){$cursorPoint=New-Object DeveloperElementsDriver+Point;[void][DeveloperElementsDriver]::GetCursorPos([ref]$cursorPoint);@{foregroundOwn=[DeveloperElementsDriver]::GetForegroundWindow() -eq $shell;underClass=[DeveloperElementsDriver]::Class([DeveloperElementsDriver]::WindowFromPoint($cursorPoint));x=$cursorPoint.x;y=$cursorPoint.y}|ConvertTo-Json -Compress;return}
 if($Action -eq 'close'){[void][DeveloperElementsDriver]::PostMessage($shell,16,[IntPtr]::Zero,[IntPtr]::Zero);return}
@@ -80,9 +91,19 @@ if($Action -in @('resize-width','resize-split')){
   $target=$panel;$x=$rect.left+30;$y=$rect.top-[int](5*[DeveloperElementsDriver]::GetDpiForWindow($panel)/96);$endX=$x;$endY=$y+$delta
  }
  $start=[IntPtr](($y -shl 16) -bor ($x -band 65535));$end=[IntPtr](($endY -shl 16) -bor ($endX -band 65535))
+ # Windows sends real pointer positions during capture even for a message-
+ # driven drag. Align that position with the fixture gesture so those messages
+ # cannot undo the requested divider size between cross-process calls.
+ $cursorRect=New-Object DeveloperElementsDriver+Rect
+ $cursorRect.left=$x;$cursorRect.top=$y;$cursorRect.right=$endX;$cursorRect.bottom=$endY
+ [void][DeveloperElementsDriver]::MapWindowPoints($target,[IntPtr]::Zero,[ref]$cursorRect,2)
+ if(-not [DeveloperElementsDriver]::SetCursorPos($cursorRect.left,$cursorRect.top)){throw 'Could not position the fixture drag'}
  [void][DeveloperElementsDriver]::SendMessage($target,513,[IntPtr]1,$start)
+ if(-not [DeveloperElementsDriver]::SetCursorPos($cursorRect.right,$cursorRect.bottom)){throw 'Could not position the fixture drag endpoint'}
  [void][DeveloperElementsDriver]::SendMessage($target,512,[IntPtr]1,$end)
  [void][DeveloperElementsDriver]::SendMessage($target,514,[IntPtr]::Zero,$end)
+ $parkRect=New-Object DeveloperElementsDriver+Rect;[void][DeveloperElementsDriver]::GetWindowRect($shell,[ref]$parkRect)
+ if(-not [DeveloperElementsDriver]::SetCursorPos($parkRect.left+30,$parkRect.top+15)){throw 'Could not park the fixture pointer after resize'}
 }
 if($Action -eq 'filter'){[void][DeveloperElementsDriver]::SendMessage([DeveloperElementsDriver]::GetDlgItem($panel,2802),245,[IntPtr]::Zero,[IntPtr]::Zero)}
 if($Action -eq 'pick'){[void][DeveloperElementsDriver]::SendMessage([DeveloperElementsDriver]::GetDlgItem($panel,2806),245,[IntPtr]::Zero,[IntPtr]::Zero)}

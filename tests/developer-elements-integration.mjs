@@ -50,6 +50,7 @@ try{
   await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${server.address().port}`;initialHash=await hash();
   browser=spawn(resolve(root,'build/app/Release/Xenon.exe'),[`--user-data-dir=${profile}`,`--broker-pipe=${pipeName}`],{windowsHide:true,stdio:'ignore'});
   await until(()=>new Promise(r=>{const s=net.connect(pipe);s.once('connect',()=>{s.destroy();r(true)});s.once('error',()=>r(false))}));
+  await driver('prepare');
   client=new Client({name:'Elements fixture',version:'1'},{versionNegotiation:{mode:{pin:'2026-07-28'}}});
   await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve(root,'adapter/dist/src/cli.js'),'serve','--config',config],stderr:'pipe'}));
   const worker=await tool('worker_create',{name:'Elements fixture worker',workspaceId:'native-default'});

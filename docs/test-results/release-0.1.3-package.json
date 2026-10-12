@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.3",
+  "capturedUtc": "2026-10-12T19:47:15.135Z",
+  "passed": true,
+  "published": false,
+  "signed": false,
+  "artifacts": [
+    {
+      "name": "Xenon-0.1.3-windows-x64-unsigned.zip",
+      "bytes": 234418037,
+      "sha256": "53213f8f1e4ed5a0ddcb102346e375a69dfe7be0229d48ce710096c078fc001c",
+      "checksumSidecar": "Xenon-0.1.3-windows-x64-unsigned.zip.sha256"
+    },
+    {
+      "name": "Xenon-0.1.3-windows-x64-setup-unsigned.exe",
+      "bytes": 203741913,
+      "sha256": "7d91c9004ca5aee4483bc234e7eee0452b4e5ea3c12200afa36adc37295cac9d",
+      "checksumSidecar": "Xenon-0.1.3-windows-x64-setup-unsigned.exe.sha256"
+    }
+  ],
+  "manifestFileCount": 1314,
+  "validationRecordSha256": "5f1851177eb56eb93b8ac2a762d6886baf1c94b3364d123dd34773067a4b5877",
+  "productionDllSha256": "b68eac08d5c7e690710438346df29e43b41e9ad25cc3fb13668f8b69bf3d8950",
+  "packageVerification": "Complete ZIP checksum, inventory and individual-file hash validation by scripts/verify-package.ps1; the installer builder repeated this verification before compiling the same ZIP payload.",
+  "packageSmoke": {
+    "passed": true,
+    "checks": 6,
+    "reportSha256": "5f514a59d9ed604996f3c7ae4a921540eaf44588e8e00090412407ab27ef0335",
+    "results": [
+      {
+        "name": "Packaged branding changes only permitted CEF bootstrap resources",
+        "passed": true
+      },
+      {
+        "name": "Packaged CEF browser and bundled Node MCP adapter connect",
+        "passed": true
+      },
+      {
+        "name": "Packaged browser observes and performs a verified page action",
+        "passed": true
+      },
+      {
+        "name": "Packaged batch fills multiple fields and verifies website state",
+        "passed": true
+      },
+      {
+        "name": "Packaged scoped helper combines inspection, control and a verified batch",
+        "passed": true
+      },
+      {
+        "name": "Packaged opt-in export preserves exact public replies and permitted PNGs",
+        "passed": true
+      }
+    ]
+  },
+  "installationCoverage": "47 isolated installer lifecycle checks on a synthetic payload and unique test identities; the production installer was built, not installed over the user copy."
+}
