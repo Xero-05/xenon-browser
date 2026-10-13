@@ -1,5 +1,9 @@
 # Validation
 
+## 0.1.4 release validation
+
+The [0.1.4 record](test-results/release-0.1.4-validation.json) binds the full Release production/fixture build to all 15 native groups, 111 adapter/fixed-script checks, typechecking, 32 downloader/pointer checks, five branding checks and 47 isolated installer checks. The rebuilt production DLL passed 11 adversarial visibility checks, 26 filter/scroll/collection checks, two focused selection checks each in English/dark and Chinese/light, and the web-theme suite. The first build failed while committing copied-bootstrap branding resources; an unchanged-source retry passed and the failed log remains separate. No dependency pins changed. Package verification and extracted-package smoke checks are recorded after assembly. Physical input, high contrast, other DPI, assistive technology and real accounts remain unverified.
+
 The uncertain-click/filter and native-selection follow-up passed the full Release build, all 15 native groups, adapter/script checks and five branding checks. The unchanged production DLL passed 11 adversarial visibility checks, 26 filter/scroll/collection checks and two focused developer-selection checks each in English/dark and Chinese/light. `node tests/developer-elements-integration.mjs --selection-only` verifies themed row pixels and that a selected-tab reclick hides keyboard focus cues while keyboard input restores them without changing tabs. The bookmark layout was inspected through a synthetic PrintWindow capture. The full developer suite could not acquire foreground activation; divider/hover and physical-input coverage are not claimed. Earlier failed clip-label and driver attempts remain separate. See the [binary-bound record](test-results/uncertain-click-filter-ui.json).
 
 ## Developer mode candidate

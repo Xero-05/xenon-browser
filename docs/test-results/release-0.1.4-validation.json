@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.4",
+  "capturedUtc": "2026-10-13T06:08:34.738Z",
+  "passed": true,
+  "stage": "Locally rebuilt unsigned release; package and publication recorded separately",
+  "baseSourceCommit": "365413c20a306a8caa3282c9928d29419f48664e",
+  "sourceChanges": "VERSION and npm metadata bumped to 0.1.4; release notes and validation record added. Production code is merged PR #18.",
+  "dependencies": {
+    "cef": {
+      "version": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+      "archive": "cef_binary_154.0.34+g14c5a08+chromium-154.0.8037.98_windows64_minimal.tar.bz2",
+      "sha1": "be54bbaf3222191dec59ffd9c9ec7e8a7f44a26d",
+      "sha256": "c81c34d048d87276f4a18f0b000206710a1709bb67dd658948b87100e1a538da"
+    },
+    "sqlite": {
+      "version": "3.53.4",
+      "url": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip",
+      "sha256": "1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d"
+    },
+    "json": {
+      "version": "3.12.0",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp",
+      "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+    },
+    "node": {
+      "version": "24.16.0",
+      "sha256": "edaca9bd58ec8e92037dac4e877d52f6b8f430b81c18b57e264b4e2fb111cd56"
+    }
+  },
+  "cefMaintenance": {
+    "checkedUtc": "2026-10-13T06:00:15.6314912Z",
+    "indexSource": "https://cef-builds.spotifycdn.com/index.json",
+    "highestStableObserved": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "pinnedVersion": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "pinnedPresent": true,
+    "indexBytesUnavailable": false
+  },
+  "binaries": {
+    "productionExecutableSha256": "51155f3e4c806aa7f0ffb1fe9d86a9a87e022fef54b6a33ac7fa20c31f2a4515",
+    "productionDllSha256": "717e3ea90333ec1f50fb35e58fff9a20a532eb214c64e05273360faf41b16547",
+    "fixtureDllSha256": "a8ee73cb8450b89c983193ed32356edab7d4180f99517036011909f9c87e6b99"
+  },
+  "unit": [
+    {
+      "name": "native",
+      "passed": true,
+      "checks": 15,
+      "reportSha256": "7d8162e3b5aa324e2b1ad2796a5ed487223f8a20dbc90b801038a13ce06d6642"
+    },
+    {
+      "name": "adapter",
+      "passed": true,
+      "checks": 22,
+      "reportSha256": "44f70a5897bc1e683a116046e5e8d49020c79ffa0c28acec3950febcbf32ea41"
+    },
+    {
+      "name": "login-capture",
+      "passed": true,
+      "checks": 42,
+      "reportSha256": "1156acaaaec7de24ae7ea3f431bfc4aa64ef391e72f0ecc41c7dadda57439055"
+    },
+    {
+      "name": "human-autofill",
+      "passed": true,
+      "checks": 31,
+      "reportSha256": "e3971624dc676cf8ec87252c25a6c13efb527e9b66a1f898bec4d9a378805bcf"
+    },
+    {
+      "name": "protected-login",
+      "passed": true,
+      "checks": 10,
+      "reportSha256": "f962b7befb447a72ab2f4718fd205a8f32892294aa55cc2a8f2294dac31ce158"
+    },
+    {
+      "name": "form-fill",
+      "passed": true,
+      "checks": 6,
+      "reportSha256": "fd51bf77e77b9e8c8208113db4453362790287f75de467baed9a5e866bede6a0"
+    }
+  ],
+  "supplemental": {
+    "typecheck": true,
+    "downloaderExtractorChecks": 18,
+    "pointerScriptChecks": 14,
+    "brandingChecks": 5,
+    "isolatedInstallerChecks": 47
+  },
+  "live": [
+    {
+      "name": "visibility",
+      "passed": true,
+      "checks": 11,
+      "reportSha256": "5797261484a90f3e09f2acf61d7cae98e7b8cffb29fd152a8274145a440bdd96"
+    },
+    {
+      "name": "filter-matrix",
+      "passed": true,
+      "checks": 26,
+      "reportSha256": "82aae963435a83a41b018aec0c571c27a1d3af07383e7621c3be585c511b71e0"
+    },
+    {
+      "name": "selection-dark",
+      "passed": true,
+      "checks": 2,
+      "reportSha256": "824ea0ca84e4bfdea0e34acfbbf9f9bb322025242749860dece81eda3393f441"
+    },
+    {
+      "name": "selection-light",
+      "passed": true,
+      "checks": 2,
+      "reportSha256": "78fda6f60c6d1ffc210d1922973b1311691fbe70cf3f0b1d260fa84bcc550ebf"
+    },
+    {
+      "name": "theme",
+      "passed": true,
+      "checks": 4,
+      "reportSha256": "0218c0c374d03b02db324c4387559be4ddc9b408cc219cccf42f0fc262325bb7"
+    }
+  ],
+  "earlierFailures": [
+    "First build failed while committing copied-bootstrap branding resources; unchanged-source retry passed. Failed build log preserved."
+  ],
+  "coverage": "Synthetic pages and profiles, native message drivers and PrintWindow; no personal click logs or real profile data included.",
+  "limits": [
+    "Full developer divider/hover suite previously could not acquire foreground activation; focused selection checks cover the changed UI.",
+    "Physical input, high contrast, other DPI, assistive technology and real accounts remain unverified.",
+    "Pinned Chromium runtime retains upstream CEF security-update lag."
+  ]
+}
