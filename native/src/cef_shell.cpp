@@ -263,7 +263,8 @@ struct BrowserShell::Impl {
       const int chip_left=chip_right-chip_width,omni_right=chip_width?chip_left-8:chip_right-4;
       omnibox={d(omni_left),d(6),d(omni_right),d(38)};chip={d(chip_left),d(8),d(chip_right),d(36)};
       const bool key=saved_accounts>0&&!is_private();ShowWindow(controls.at(Passwords),key?SW_SHOWNA:SW_HIDE);
-      place(BookmarkStar,omni_right-33,8,28,28);place(Passwords,omni_right-63,8,28,28);
+      // Keep the complete child surfaces inside the omnibox's curved edge.
+      place(BookmarkStar,omni_right-36,10,24,24);place(Passwords,omni_right-64,10,24,24);
       place(Address,omni_left+16,13,std::max(60,omni_right-(key?68:38)-(omni_left+16)),19);
       // A widened address edit can cover where a moved button was drawn; the
       // edit does not repaint that newly covered strip on its own.
@@ -602,6 +603,11 @@ struct BrowserShell::Impl {
       return DefSubclassProc(control,message,wp,lp);
     }
     static LRESULT CALLBACK tree_proc(HWND control,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR owner){auto self=reinterpret_cast<Frame*>(owner);auto& shell=self->shell;
+      // Custom mouse paths can bypass Windows' normal focus-cue update.
+      // A reclick keeps the ownership outline; keyboard navigation restores
+      // the separate focus cue for accessibility.
+      if(message==WM_LBUTTONDOWN||message==WM_LBUTTONDBLCLK)SendMessageW(self->window,WM_CHANGEUISTATE,MAKEWPARAM(UIS_SET,UISF_HIDEFOCUS),0);
+      if(message==WM_KEYDOWN)SendMessageW(self->window,WM_CHANGEUISTATE,MAKEWPARAM(UIS_CLEAR,UISF_HIDEFOCUS),0);
       if(message==WM_KEYDOWN&&wp==VK_ESCAPE&&shell.drag.active){shell.drag_cancel();return 0;}
       if(message==WM_KEYDOWN&&(wp==VK_DELETE||wp==VK_RETURN)){const auto [id,group]=self->key_of(TreeView_GetSelection(control));if(!id.empty()){if(wp==VK_DELETE&&!group){shell.engine.native_command(id,"close");return 0;}if(wp==VK_RETURN&&group&&self->empty_workspace(id)){self->open_workspace(id);return 0;}}}
       // A quick second click arrives as a double-click. On a row button it is
@@ -939,7 +945,7 @@ struct BrowserShell::Impl {
           if(!self->update_version.empty())ui::dot(item->hDC,{x,shell.pairing_count?item->rcItem.bottom-self->d(7):item->rcItem.top+self->d(7)},radius,ui::notice_blue());}
         return TRUE;}break;}
       case WM_NOTIFY:{auto notice=reinterpret_cast<NMHDR*>(lp);
-        if(notice->idFrom==DeveloperList){if(notice->code==LVN_ITEMCHANGED)self->developer_details();return 0;}
+        if(notice->idFrom==DeveloperList){if(ui::list_draw(message,wp,lp,h,result))return result;if(notice->code==LVN_ITEMCHANGED)self->developer_details();return 0;}
         if(notice->hwndFrom!=self->tree)break;
         if(notice->code==TVN_SELCHANGEDW&&!self->rebuilding){auto item=reinterpret_cast<NMTREEVIEWW*>(lp);const auto index=item->itemNew.lParam;if(index>0&&static_cast<size_t>(index)<=self->tree_keys.size()&&!self->tree_keys[index-1].second)self->choose(self->tree_keys[index-1].first,true);return 0;}
         if(notice->code==TVN_ITEMEXPANDEDW){InvalidateRect(h,nullptr,FALSE);return 0;}

@@ -208,11 +208,11 @@ void rectangular_clips_and_blur_bounds() {
     f.snapshot["documents"][0]["layout"]["bounds"][dl]={20,20,180,36};
     require(Fixture::output(f.run(),bn).is_null(),"Overlapping inverted paint was ignored");
   }
-  for(const auto& clip:std::vector<std::string>{"inset(0px)","inset(10px)","inset(1%)","inset(-10px 0px -20px)"}){
+  for(const auto& clip:std::vector<std::string>{"inset(0px)","inset(10px)","inset(1%)","inset(-10px 0px -20px)","inset(0px round 20px)"}){
     Fixture f;f.style(0,0,"clip-path",clip);auto [n,t]=f.button(0,1);
     require(Fixture::output(f.run(),n)["name"]=="Visible button","Supported inset suppressed visible content");
   }
-  for(const auto& clip:std::vector<std::string>{"inset(30px)","inset(50%)","inset(0px round 20px)","inset(garbage)","polygon(0 0, 100% 0, 0 100%)"}){
+  for(const auto& clip:std::vector<std::string>{"inset(40px)","inset(50%)","inset(0px round 20%)","inset(garbage)","polygon(0 0, 100% 0, 0 100%)"}){
     Fixture f;f.style(0,0,"clip-path",clip);auto [n,t]=f.button(0,1,"HIDDEN_CLIP_CANARY");
     require(Fixture::output(f.run(),n).is_null(),"Clipped or unsupported geometry was admitted");
   }
@@ -235,8 +235,38 @@ void rectangular_clips_and_blur_bounds() {
     require(Fixture::output(f.run(),bn).is_null(),"Transformed overlapping blur was ignored");
   }
 }
+void bounded_text_shadows_and_rounded_clips() {
+  Fixture own;auto [own_button,own_text]=own.button(0,1);
+  own.style(0,1,"clip-path","inset(0px round 6px)");own.style(0,own_text,"clip-path","inset(0px round 6px)");
+  require(Fixture::output(own.run(),own_button)["name"]=="Visible button","Copied LayoutText clip incorrectly shrank the glyph reference box");
+  for(const auto& shadow:std::vector<std::string>{"rgb(0, 0, 0) 1px 2px 3px","rgba(0, 0, 0, 0.5) -2px 0px, rgb(255, 255, 255) 0px 2px 8px"}){
+    Fixture f;auto [button,text]=f.button(0,1);
+    const int container=f.node(0,1,"DIV"),cl=f.layout(0,container,{500,900,20,20},100);
+    f.style(0,cl,"text-shadow",shadow);
+    const int node=f.node(0,container,"#text"),layout=f.layout(0,node,{500,900,20,20},100,"decor");
+    f.style(0,layout,"text-shadow",shadow);
+    require(Fixture::output(f.run(),button)["name"]=="Visible button","Distant text shadow blocked unrelated evidence");
+    // Overflowing text retains its own ink bounds outside the container.
+    f.snapshot["documents"][0]["layout"]["bounds"][layout]={20,20,180,36};
+    auto result=xenon::visible_snapshot(f.snapshot,f.viewports,false,true);
+    require(Fixture::output(result,button).is_null(),"Overflowing shadowed text failed to block a covered center");
+    require(result["frames"]["main"]["uncertainNodes"][std::to_string(1000+button)]["filterDiagnostics"]["centerOcclusionProvenClear"]==false,"Occlusion diagnostic lost the blocked center");
+  }
+  Fixture f;f.style(0,0,"clip-path","inset(0px round 100px)");auto [corner,t]=f.button(0,1,"HIDDEN_ROUND_CORNER",0,0);
+  auto [inside,it]=f.button(0,1,"Visible interior",100,100);
+  auto result=xenon::visible_snapshot(f.snapshot,f.viewports,false,true);
+  require(Fixture::output(result,corner).is_null() && Fixture::output(result,inside)["name"]=="Visible interior","Rounded clip failed to distinguish its corner from its interior");
+  require(result["frames"]["main"]["uncertainNodes"].contains(std::to_string(1000+corner)),"Inscribed proof incorrectly discarded the possible curved region");
+  require(result.dump().find("HIDDEN_")==std::string::npos,"Clipped corner exposed text");
+  for(const auto& tag:std::vector<std::string>{"INPUT","TEXTAREA","SELECT","SVG"}){
+    Fixture unknown;auto [button,text]=unknown.button(0,1,"HIDDEN_UNKNOWN_GLYPHS");
+    const int node=unknown.node(0,1,tag),layout=unknown.layout(0,node,{500,900,20,20},100);
+    unknown.style(0,layout,"text-shadow","rgb(0, 0, 0) -400px -870px 80px");
+    require(unknown.run().dump().find("HIDDEN_UNKNOWN_GLYPHS")==std::string::npos,"An omitted native/SVG glyph source was guessed empty");
+  }
+}
 void uncertain_controls_are_structural_only() {
-  Fixture f;auto [button,text]=f.button(0,1,"HIDDEN_UNCERTAIN_CONTENT");f.style(0,0,"clip-path","inset(0px round 20px)");
+  Fixture f;auto [button,text]=f.button(0,1,"HIDDEN_UNCERTAIN_CONTENT");f.style(0,0,"clip-path","inset(0px round 20%)");
   auto result=xenon::visible_snapshot(f.snapshot,f.viewports,false,true);
   const auto key=std::to_string(1000+button);
   require(result["frames"]["main"]["nodes"].empty(),"Uncertain control became verified geometry");
@@ -354,7 +384,7 @@ int main(int argc,char** argv) {
     // Optional offline replay accepts only a caller-selected synthetic snapshot;
     // no browser diagnostics or raw website snapshots are enabled in production.
     if(argc==2){std::ifstream input(argv[1]);Json fixture;input>>fixture;std::cout<<xenon::visible_snapshot(fixture.at("snapshot"),fixture.at("viewports")).dump(2)<<'\n';return 0;}
-    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();bounded_backdrop_paint();rectangular_clips_and_blur_bounds();uncertain_controls_are_structural_only();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();repeated_inline_fragments_preserve_paint_ancestry();identity_transform_is_not_uncertain_geometry();utf16_and_unicode_controls();child_frames_and_malformed_evidence();
+    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();bounded_backdrop_paint();rectangular_clips_and_blur_bounds();bounded_text_shadows_and_rounded_clips();uncertain_controls_are_structural_only();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();repeated_inline_fragments_preserve_paint_ancestry();identity_transform_is_not_uncertain_geometry();utf16_and_unicode_controls();child_frames_and_malformed_evidence();
     std::cout<<"Visible evidence regression tests passed\n";return 0;
   }catch(const std::exception& e){std::cerr<<"Visible evidence test failed: "<<e.what()<<'\n';return 1;}
 }

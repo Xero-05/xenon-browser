@@ -46,7 +46,7 @@ class UncertainClickLog {
     const auto frame=evidence.value("frameScope",std::string{});if(frame=="root_frame"||frame=="child_frame")row["frameScope"]=frame;
     row["boundsCoordinateSpace"]="frame_document_css";row["clickCoordinateSpace"]="viewport_css";
     const auto diagnostics=evidence.value("filterDiagnostics",Json::object());Json flags=Json::object();
-    for(const auto* key:{"unsupportedTransform","unsupportedPaint","clipPresent","nonrectangularClip"})if(diagnostics.contains(key)&&diagnostics[key].is_boolean())flags[key]=diagnostics[key];
+    for(const auto* key:{"unsupportedTransform","unsupportedPaint","clipPresent","nonrectangularClip","basicStyleProven","boundsInsideViewport","ancestorGeometryProven","centerOcclusionProvenClear","occluderUnbounded","occluderTextShadow","occluderBoxShadow","occluderFilter"})if(diagnostics.contains(key)&&diagnostics[key].is_boolean())flags[key]=diagnostics[key];
     if(diagnostics.contains("effectiveOpacity")&&diagnostics["effectiveOpacity"].is_number()){const double opacity=diagnostics["effectiveOpacity"].get<double>();if(std::isfinite(opacity)&&opacity>=0&&opacity<=1)flags["effectiveOpacity"]=opacity;}
     if(diagnostics.contains("ancestorDepth")&&diagnostics["ancestorDepth"].is_number_integer()){const auto depth=diagnostics["ancestorDepth"].get<int>();if(depth>=0&&depth<=128)flags["ancestorDepth"]=depth;}
     if(!flags.empty())row["filterDiagnostics"]=std::move(flags);

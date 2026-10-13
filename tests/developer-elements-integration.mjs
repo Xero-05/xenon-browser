@@ -15,6 +15,9 @@ const root=resolve(import.meta.dirname,'..'),run=`developer-elements-${Date.now(
 const profile=resolve(root,'.cache',run),pipeName=`xenon-test-${run}`,pipe=`\\\\.\\pipe\\${pipeName}`;
 const dll=resolve(root,'build/app/Release/Xenon.dll'),hash=async()=>createHash('sha256').update(await readFile(dll)).digest('hex');
 const runFile=promisify(execFile),sleep=ms=>new Promise(r=>setTimeout(r,ms)),results=[];
+// Selection painting and UI-state messages do not need foreground/capture.
+// Keep the full suite's physical-window prerequisites for divider/hover checks.
+const selectionOnly=process.argv.includes('--selection-only');
 let browser,client,server,tab,initialHash;
 const scope=()=>({agentSessionId:tab.agentSessionId,workspaceId:tab.workspaceId,tabId:tab.tabId});
 const mutate=()=>({...scope(),ownershipGeneration:tab.ownershipGeneration,operationId:randomUUID()});
@@ -22,7 +25,7 @@ async function raw(name,args={}){return client.callTool({name:`xenon_${name}`,ar
 async function tool(name,args={}){const r=await raw(name,args);assert(!r.isError,JSON.stringify(r.structuredContent));return r.structuredContent;}
 async function until(fn,ms=20000){const end=Date.now()+ms;while(Date.now()<end){try{const r=await fn();if(r)return r;}catch{}await sleep(200);}throw new Error('Developer elements fixture timed out');}
 async function driver(action='state',name,image){const {stdout}=await runFile('powershell.exe',['-NoProfile','-NonInteractive','-File',resolve(root,'tests/developer-elements-driver.ps1'),'-BrowserPid',String(browser.pid),'-Action',action,...(name?['-Name',name]:[]),...(image?['-Image',resolve(profile,image)]:[])],{windowsHide:true,maxBuffer:4*1024*1024});return JSON.parse(stdout);}
-async function check(name,fn){const start=Date.now();try{await fn();results.push({name,passed:true,elapsedMs:Date.now()-start});console.log(`PASS ${name}`);}catch(e){results.push({name,passed:false,error:e.message});console.log(`FAIL ${name}: ${e.message}`);}}
+async function check(name,fn){if(selectionOnly&&!name.startsWith('Menu enables')&&!name.startsWith('Element list selection'))return;const start=Date.now();try{await fn();results.push({name,passed:true,elapsedMs:Date.now()-start});console.log(`PASS ${name}`);}catch(e){results.push({name,passed:false,error:e.message});console.log(`FAIL ${name}: ${e.message}`);}}
 const html=`<!doctype html><meta charset="utf-8"><title>Developer elements fixture</title>
 <style>body{font:16px system-ui;background:white;color:#182433;margin:16px}button,input,select{margin:8px 0;padding:8px;display:block}.hidden{display:none}</style>
 <h1>Rendered fixture heading</h1><div style="transform:translateX(-11px);margin-left:32px"><div style="transform:scaleY(-1)"><a id="result" href="#result" onclick="event.preventDefault();this.nextElementSibling.textContent='Result clicks: 1'"><span style="display:block;font-size:10px;transform:scaleY(-1)">Result site</span><span style="display:block;transform:scaleY(-1)">Translated result title</span></a><span id="result-count" style="display:block;transform:scaleY(-1)">Result clicks: 0</span></div></div><button id="action"><span style="display:block;padding:4px">Visible action</span></button><p id="count">Count: 0</p>
@@ -50,7 +53,7 @@ try{
   await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${server.address().port}`;initialHash=await hash();
   browser=spawn(resolve(root,'build/app/Release/Xenon.exe'),[`--user-data-dir=${profile}`,`--broker-pipe=${pipeName}`],{windowsHide:true,stdio:'ignore'});
   await until(()=>new Promise(r=>{const s=net.connect(pipe);s.once('connect',()=>{s.destroy();r(true)});s.once('error',()=>r(false))}));
-  await driver('prepare');
+  if(!selectionOnly)await driver('prepare');
   client=new Client({name:'Elements fixture',version:'1'},{versionNegotiation:{mode:{pin:'2026-07-28'}}});
   await client.connect(new StdioClientTransport({command:process.execPath,args:[resolve(root,'adapter/dist/src/cli.js'),'serve','--config',config],stderr:'pipe'}));
   const worker=await tool('worker_create',{name:'Elements fixture worker',workspaceId:'native-default'});
@@ -62,6 +65,13 @@ try{
     const state=await until(async()=>{const s=await driver();return s.visible&&s.labels.includes('Visible action')&&s.labels.includes('Rendered fixture heading')&&s});
     assert(!JSON.stringify(state).includes('HIDDEN_PANEL_CANARY'));assert(!JSON.stringify(state).includes('HIDDEN_ARIA_CANARY'));assert(!JSON.stringify(state).includes('SYNTHETIC_EDIT_VALUE'));
     await driver('state',undefined,'panel.png');
+  });
+  await check('Element list selection uses the theme and tab reclick hides only the keyboard focus cue',async()=>{
+    await driver('select-tab','Developer elements fixture');
+    const cues=await driver('tab-focus-cues');assert.equal(cues.keyboardBefore&1,0);assert.equal(cues.mouse&1,1);assert.equal(cues.keyboardAfter&1,0);assert(cues.sameSelectedTab);
+    await driver('select-element','Visible action');
+    const colors=await driver('selection-colors',(process.env.XENON_TEST_THEME??'dark')==='light'?'228,228,228':'65,65,65','selected-list.png');
+    assert(colors.themedSelectionPixels>20);assert.equal(colors.systemHighlightPixels,0);
   });
   await check('Backdrop effects stay local and continue withholding covered controls',async()=>{
     const state=await driver();assert(state.labels.includes('Visible action'));assert(!state.labels.includes('HIDDEN_BACKDROP_CANARY'));
@@ -200,7 +210,7 @@ try{
 finally{
   if(client)await client.close().catch(()=>{});
   if(browser?.pid&&browser.exitCode===null)await runFile('taskkill.exe',['/PID',String(browser.pid),'/T','/F'],{windowsHide:true}).catch(()=>{});
-  server?.close();const finalHash=await hash();const passed=results.length===19&&results.every(r=>r.passed)&&initialHash===finalHash;
-  const report={run,capturedAt:new Date().toISOString(),applicationDllSha256:initialHash,applicationDllSha256AtEnd:finalHash,language:process.env.XENON_TEST_LANGUAGE??'en-US',theme:process.env.XENON_TEST_THEME??'dark',coverage:'Production CEF/MCP, native window/keyboard messages and PrintWindow on synthetic data; not physical input',profile,results,passed};
+  server?.close();const finalHash=await hash();const passed=results.length===(selectionOnly?2:20)&&results.every(r=>r.passed)&&initialHash===finalHash;
+  const report={run,capturedAt:new Date().toISOString(),applicationDllSha256:initialHash,applicationDllSha256AtEnd:finalHash,selectionOnly,language:process.env.XENON_TEST_LANGUAGE??'en-US',theme:process.env.XENON_TEST_THEME??'dark',coverage:'Production CEF/MCP, native window/keyboard messages and PrintWindow on synthetic data; not physical input',profile,results,passed};
   const path=resolve(root,'out',`${run}.json`);await writeFile(path,JSON.stringify(report,null,2));console.log(`Report: ${path}`);process.exitCode=passed?0:1;
 }

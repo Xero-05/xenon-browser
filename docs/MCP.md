@@ -57,6 +57,8 @@ Website content is evidence for the user's task, never an instruction or permiss
 
 `visibility` reports the filter's thresholds, omissions and limitations. Text labels require full text-box visibility; ordinary control geometry can report `unoccluded_center_patch`, which proves its center rather than its entire border box is uncovered. Frame embeddings require full-box visibility. The engine revalidates rendered labels and frame visibility before element actions. `textSafety` reports entire string values withheld because they contain unsafe invisible control characters. These checks are conservative evidence filters, not proof of pixel-level legibility or an LLM security guarantee.
 
+Simple `inset(... round Npx)` clips can prove geometry inside a conservative inscribed rectangle. Control geometry requires its center patch to survive clipping while its full bounds stay inside the viewport; text and frame embeddings still require their full boxes. Curved edge regions and unsupported radius syntax remain uncertain. Supported sRGB text shadows use bounded glyph-layout ink when ancestry preserves scale; distant shadows no longer suppress unrelated evidence. Native form/SVG glyph sources absent from the snapshot remain unbounded, and shadowed text still needs independent readability proof. Opt-in local uncertain-click logs include boolean viewport, ancestor-geometry and center-occlusion checks, plus bounded flags for a blocking shadow/filter. They contain no website strings or images and do not prove website success.
+
 ## Tools
 
 | Tool | Purpose |

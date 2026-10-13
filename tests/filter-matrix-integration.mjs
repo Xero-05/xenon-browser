@@ -17,7 +17,7 @@ const cases=[
  ['rotated-blur','','filter:blur(30px);transform:rotate(45deg)',true],['scaled-blur','','filter:blur(30px);transform:scale(1.05)',true],
  ['distant-invert','','filter:invert(1)',true],['covered-by-invert','','left:20px;top:20px;width:200px;height:60px;filter:invert(1);z-index:2',false],
  ['backdrop-content','','',true],['translation','transform:translateX(10px)','',true],['nested-inset','clip-path:inset(0px)','',true],
- ['covered-by-blur','','filter:blur(600px)',false],['clipped-center','clip-path:inset(100px)','',false],['zero-area-clip','clip-path:inset(50%)','',false],['unsupported-round','clip-path:inset(0px round 20px)','',false],['unsupported-polygon','clip-path:polygon(0 0,100% 0,0 100%)','',false],
+ ['covered-by-blur','','filter:blur(600px)',false],['clipped-center','clip-path:inset(100px)','',false],['zero-area-clip','clip-path:inset(50%)','',false],['supported-round','clip-path:inset(0px round 20px)','',true],['unsupported-round','clip-path:inset(0px round 20%)','',false],['unsupported-polygon','clip-path:polygon(0 0,100% 0,0 100%)','',false],
  ['covered-by-backdrop','','left:20px;top:20px;width:200px;height:60px;backdrop-filter:blur(10px);z-index:2',false],
  ['faint-control','opacity:0.1','',false],
 ];

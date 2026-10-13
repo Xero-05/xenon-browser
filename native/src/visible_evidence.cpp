@@ -148,7 +148,7 @@ double darkened_contrast(Rgba fg, const Rgba& bg, double opacity, double gain) {
   if(bg_high<ink_low)return (ink_low+.05)/(bg_high+.05);
   return 1; // overlapping luminance intervals cannot prove readable contrast
 }
-std::optional<Rect> box_shadow_bounds(const std::string& value, const Rect& box) {
+std::optional<Rect> box_shadow_bounds(const std::string& value, const Rect& box, bool text_shadow=false) {
   if(value=="none")return box;
   if(value.empty() || value.size()>4096)return {};
   Rect bounds=box;std::vector<std::string> tokens;size_t shadows=0;
@@ -156,13 +156,13 @@ std::optional<Rect> box_shadow_bounds(const std::string& value, const Rect& box)
     if(tokens.empty() || tokens.size()>6 || ++shadows>64)return false;
     bool inset=false;std::optional<Rgba> rgba;std::vector<double> lengths;
     for(const auto& token:tokens) {
-      if(token=="inset") {if(inset)return false;inset=true;}
+      if(token=="inset") {if(inset || text_shadow)return false;inset=true;}
       else if(const auto parsed=color(token)) {if(rgba)return false;rgba=parsed;}
       else {const auto length=css_number(token,true);if(!length || std::abs(*length)>1e8)return false;lengths.push_back(*length);}
     }
     // Computed Chromium shadows have an sRGB color and two offsets, with
     // optional blur/spread. Unsupported colors or syntax remain unbounded.
-    if(!rgba || lengths.size()<2 || lengths.size()>4)return false;
+    if(!rgba || lengths.size()<2 || lengths.size()>(text_shadow?3:4))return false;
     const double blur=lengths.size()>2?lengths[2]:0,spread=lengths.size()>3?lengths[3]:0;
     if(blur<0)return false;
     if(inset || rgba->a==0)return true;
@@ -282,17 +282,30 @@ std::optional<std::pair<double,double>> axis_transform(const std::string& value)
 bool unscaled_transform(const std::string& value) {
   const auto axes=axis_transform(value);return axes&&axes->first==1&&axes->second==1;
 }
-std::optional<Rect> inset_clip(const std::string& value,const Rect& box,bool* empty=nullptr) {
+std::optional<Rect> inset_clip(const std::string& value,const Rect& box,bool* empty=nullptr,bool interior=true) {
   if(value=="none")return box;
   if(!value.starts_with("inset(")||!value.ends_with(")")||value.size()>256)return {};
   std::vector<std::string> tokens;size_t start=6;
   for(size_t i=6;i<value.size();++i)if(value[i]==' '||i==value.size()-1){if(i>start)tokens.push_back(value.substr(start,i-start));start=i+1;}
+  std::optional<double> radius;
+  if(tokens.size()>=3 && tokens[tokens.size()-2]=="round"){
+    radius=css_number(tokens.back(),true);if(!radius || *radius<0 || *radius>1e6)return {};
+    tokens.resize(tokens.size()-2);
+  }
   if(tokens.empty()||tokens.size()>4)return {};
   std::array<std::string,4> sides{tokens[0],tokens.size()>1?tokens[1]:tokens[0],tokens.size()>2?tokens[2]:tokens[0],tokens.size()>3?tokens[3]:tokens.size()>1?tokens[1]:tokens[0]};
   std::array<double,4> offsets{};
   for(size_t i=0;i<4;++i){auto token=sides[i];const bool percent=token.ends_with('%');if(percent)token.pop_back();const auto n=css_number(token,!percent);if(!n||std::abs(*n)>1e6)return {};offsets[i]=*n*(percent?(i%2?box.w:box.h)/100:1);}
   if(box.w-offsets[1]-offsets[3]<=0||box.h-offsets[0]-offsets[2]<=0){if(empty)*empty=true;return {};}
-  return Rect{box.x+offsets[3],box.y+offsets[0],box.w-offsets[1]-offsets[3],box.h-offsets[0]-offsets[2]};
+  Rect clipped{box.x+offsets[3],box.y+offsets[0],box.w-offsets[1]-offsets[3],box.h-offsets[0]-offsets[2]};
+  if(radius && interior){
+    // A rectangle inscribed in the rounded clip proves every admitted pixel.
+    // Use outer bounds only for possible candidates; never discard the curves
+    // as if they were known invisible. Other radius syntax remains unsupported.
+    const double inset=std::min(*radius,std::min(clipped.w,clipped.h)/2)*(1-std::sqrt(0.5));
+    clipped={clipped.x+inset,clipped.y+inset,clipped.w-2*inset,clipped.h-2*inset};
+  }
+  return clipped;
 }
 std::optional<double> blur_extent(const std::string& value) {
   if(!value.starts_with("blur(")||!value.ends_with(")")||value.size()>64)return {};
@@ -319,7 +332,7 @@ std::optional<double> paint_transform_expansion(const std::string& value) {
 }
 bool basic_style(const Layout& l) {
   if (!l.styles_complete || !l.box || l.styles[Display] == "none" || l.styles[Visibility] != "visible" || l.styles[ContentVisibility] == "hidden") return false;
-  if(!inset_clip(l.styles[ClipPath],*l.box))return false;
+  if(!inset_clip(l.styles[ClipPath],*l.box,nullptr,false))return false;
   for (int s : {Perspective, MaskImage, WebkitMaskImage}) if (l.styles[s] != "none") return false;
   if(!axis_transform(l.styles[Transform]))return false;
   if(!brightness_gain(l.styles[Filter]))return false;
@@ -343,7 +356,9 @@ bool inherited_geometry(FilterState& state, const Document& d, int node, const R
       if(s==Transform&&state.human_diagnostics&&state.unsupported_transforms.size()<8&&l.styles[s].size()<256)state.unsupported_transforms.insert(l.styles[s]);
       state.omit(("unsupportedAncestor_"+kStyles[s]).c_str());return false;
     }
-    if(l.styles[ClipPath]!="none"){
+    // LayoutText copies the containing element's clip style. Its glyph box
+    // is not a second clip-path reference box; the element below owns the clip.
+    if(d.node_types[n]==1 && l.styles[ClipPath]!="none"){
       const auto clip=l.box&&unscaled_transform(l.styles[Transform])?inset_clip(l.styles[ClipPath],*l.box):std::nullopt;
       if(!clip||!contains(*clip,r)){state.omit("unprovenClipPath");return false;}
     }
@@ -371,12 +386,13 @@ bool inherited_geometry(FilterState& state, const Document& d, int node, const R
   }
   return depth <= 128;
 }
-bool occluded(FilterState& state, const Document& d, const Layout& target, const Rect& r) {
+bool occluded(FilterState& state, const Document& d, const Layout& target, const Rect& r,Json* diagnostic=nullptr) {
   if (target.paint < 0) return true;
   for (const auto& other:d.layouts) {
     if (!state.step()) return true;
     if (!other.paint_box || !other.potentially_painted || other.paint <= target.paint || (!other.unbounded_paint && !overlaps(r,*other.paint_box))) continue;
     if (ancestor(d,other.node,target.node) || ancestor(d,target.node,other.node)) continue;
+    if(diagnostic){(*diagnostic)["occluderUnbounded"]=other.unbounded_paint;(*diagnostic)["occluderTextShadow"]=other.styles[TextShadow]!="none";(*diagnostic)["occluderBoxShadow"]=other.styles[BoxShadow]!="none";(*diagnostic)["occluderFilter"]=other.styles[Filter]!="none";}
     state.omit(other.unbounded_paint?"unboundedPaintOcclusion":other.node<0?"fragmentedPaintOcclusion":"boundedPaintOcclusion");return true;
   }
   return false;
@@ -395,7 +411,9 @@ bool shown_geometry(FilterState& state,const Document& d,const Layout& l,const R
   if(!center_geometry(d,l))return shown(state,d,l,bounds);
   const double w=std::min(2.0,bounds.w),h=std::min(2.0,bounds.h);
   const Rect center{bounds.x+(bounds.w-w)/2,bounds.y+(bounds.h-h)/2,w,h};
-  return l.basic && l.effective_opacity>=kMinOpacity && inherited_geometry(state,d,l.node,bounds,true) && !occluded(state,d,l,center);
+  // Actionability proves the same center patch through ancestor clips and
+  // occlusion. Text and embeddings still require their complete boxes.
+  return l.basic && l.effective_opacity>=kMinOpacity && d.viewport && contains(*d.viewport,bounds) && inherited_geometry(state,d,l.node,center,true) && !occluded(state,d,l,center);
 }
 void clip_paint_bounds(const Document& d,Layout& paint) {
   if(!paint.paint_box || paint.unbounded_paint || paint.node<0)return;
@@ -540,7 +558,20 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
       // including rounded corners. It cannot obscure unrelated distant pixels.
       // Foreground filters and shadows can extend beyond that box and still
       // require independent bounds. Content inside a backdrop remains withheld.
-      l.unbounded_paint=!shadow_bounds || l.styles[TextShadow]!="none" || !bounded_color_filter(l.styles[Filter]) ||
+      // Text shadows paint glyphs, not an empty container's entire subtree.
+      // Snapshot text layouts carry the inherited shadow and their own bounds.
+      // Native form controls and SVG can paint glyphs absent from layout.text.
+      // Their shadow source cannot be inferred from an empty snapshot string.
+      const bool unknown_glyphs=l.text.empty() && l.node>=0 &&
+        (d.editable[l.node] || d.svg[l.node] || d.tags[l.node]=="SELECT");
+      const auto text_bounds=l.styles[TextShadow]=="none"?l.box:unknown_glyphs?std::nullopt:l.text.empty()?l.box:l.box && shadow_geometry && depth<=128?
+        box_shadow_bounds(l.styles[TextShadow],*l.box,true):std::nullopt;
+      if(text_bounds && l.paint_box){
+        const double right=std::max(l.paint_box->x+l.paint_box->w,text_bounds->x+text_bounds->w),bottom=std::max(l.paint_box->y+l.paint_box->h,text_bounds->y+text_bounds->h);
+        l.paint_box->x=std::min(l.paint_box->x,text_bounds->x);l.paint_box->y=std::min(l.paint_box->y,text_bounds->y);
+        l.paint_box->w=right-l.paint_box->x;l.paint_box->h=bottom-l.paint_box->y;
+      }
+      l.unbounded_paint=!shadow_bounds || !text_bounds || !bounded_color_filter(l.styles[Filter]) ||
         (outline_paint && (!outline_width || !outline_offset));
       const std::string tag=l.node>=0?d.tags[l.node]:"";
       const bool media=tag=="IMG" || tag=="SVG" || tag=="CANVAS" || tag=="VIDEO" || tag=="IFRAME" || tag=="OBJECT" || tag=="EMBED";
@@ -723,7 +754,7 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
           if(!axis_transform(a.styles[Transform])){reason="transform_visibility_unproven";unsupported_transform=true;}
           else if(!brightness_gain(a.styles[Filter])||a.styles[MaskImage]!="none"||a.styles[WebkitMaskImage]!="none"||a.styles[Perspective]!="none"){reason="paint_effect_visibility_unproven";unsupported_paint=true;}
           // Do not enumerate controls proven outside a rectangular ancestor clip.
-          bool empty_clip=false;const auto clip=a.box?inset_clip(a.styles[ClipPath],*a.box,&empty_clip):std::nullopt;
+          bool empty_clip=false;const auto clip=a.box?inset_clip(a.styles[ClipPath],*a.box,&empty_clip,false):std::nullopt;
           if(a.styles[ClipPath]!="none"){clip_present=true;if(!clip&&!empty_clip)nonrectangular_clip=true;}
           if(empty_clip){possible=false;break;}
           if(clip&&unscaled_transform(a.styles[Transform])&&!overlaps(*clip,*l.box)){possible=false;break;}
@@ -736,6 +767,13 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
         candidates[std::to_string(d.backend[n])]={{"bounds",encode_rect(*l.box)},{"name",name},{"visibilityStatus","uncertain"},{"visibilityReason",reason},{"screenshotRequired",true}};
         // Internal numeric/boolean diagnostics only; never copy raw CSS or DOM strings.
         candidates[std::to_string(d.backend[n])]["filterDiagnostics"]={{"effectiveOpacity",l.effective_opacity},{"ancestorDepth",depth},{"unsupportedTransform",unsupported_transform},{"unsupportedPaint",unsupported_paint},{"clipPresent",clip_present},{"nonrectangularClip",nonrectangular_clip}};
+        auto& diagnostic=candidates[std::to_string(d.backend[n])]["filterDiagnostics"];
+        diagnostic["basicStyleProven"]=l.basic;
+        diagnostic["boundsInsideViewport"]=contains(*d.viewport,*l.box);
+        diagnostic["ancestorGeometryProven"]=inherited_geometry(state,d,l.node,*l.box,true);
+        const double cw=std::min(2.0,l.box->w),ch=std::min(2.0,l.box->h);
+        const Rect center{l.box->x+(l.box->w-cw)/2,l.box->y+(l.box->h-ch)/2,cw,ch};
+        diagnostic["centerOcclusionProvenClear"]=!occluded(state,d,l,center,&diagnostic);
         if(std::set<std::string>{"INPUT","SELECT","TEXTAREA","BUTTON","A"}.contains(d.tags[n]))candidates[std::to_string(d.backend[n])]["tag"]=d.tags[n];
       }
       frame["uncertainNodes"]=std::move(candidates);

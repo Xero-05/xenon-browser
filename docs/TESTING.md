@@ -1,5 +1,7 @@
 # Validation
 
+The uncertain-click/filter and native-selection follow-up passed the full Release build, all 15 native groups, adapter/script checks and five branding checks. The unchanged production DLL passed 11 adversarial visibility checks, 26 filter/scroll/collection checks and two focused developer-selection checks each in English/dark and Chinese/light. `node tests/developer-elements-integration.mjs --selection-only` verifies themed row pixels and that a selected-tab reclick hides keyboard focus cues while keyboard input restores them without changing tabs. The bookmark layout was inspected through a synthetic PrintWindow capture. The full developer suite could not acquire foreground activation; divider/hover and physical-input coverage are not claimed. Earlier failed clip-label and driver attempts remain separate. See the [binary-bound record](test-results/uncertain-click-filter-ui.json).
+
 ## Developer mode candidate
 
 `developer_trace_tests` passed on Linux with the pinned nlohmann JSON 3.12.0 header, C++20 and warnings treated as errors. It covers opt-in capture, credential/input redaction, returned text/image evidence, response correlation, clear/disable boundaries, concurrent capture and retention limits. The modified broker passed a C++20 syntax check. The broker test executable compiled, but could not run here because native identity/crypto require Windows; its new developer-mode checks remain unverified.
