@@ -13,6 +13,8 @@ void unprotect(const std::filesystem::path& path){PACL acl{};PSECURITY_DESCRIPTO
 #endif
 int main() try {
   const auto safe=UncertainClickLog::sanitize(evidence());const auto encoded=safe.dump();require(!safe.empty());for(const auto* marker:{"HIDDEN","SECRET","SCREENSHOT","PRIVATE_ID","private.invalid"})require(encoded.find(marker)==std::string::npos);
+  auto diagnostic=evidence();diagnostic["filterDiagnostics"]={{"basicStyleProven",true},{"boundsInsideViewport",true},{"ancestorGeometryProven",true},{"centerOcclusionProvenClear",false},{"websiteString","SECRET"}};
+  const auto filtered=UncertainClickLog::sanitize(diagnostic);require(filtered["filterDiagnostics"].size()==4);require(filtered["filterDiagnostics"]["centerOcclusionProvenClear"]==false);require(filtered.dump().find("SECRET")==std::string::npos);
   auto invalid=evidence();invalid["role"]="HOSTILE";require(UncertainClickLog::sanitize(invalid).empty());invalid=evidence();invalid["hitMatch"]="approximate_snapshot_position";require(UncertainClickLog::sanitize(invalid).empty());invalid=evidence();invalid["bounds"]["x"]=std::numeric_limits<double>::infinity();require(UncertainClickLog::sanitize(invalid).empty());invalid=evidence();invalid["role"]=Json::array();require(UncertainClickLog::sanitize(invalid).empty());
 #ifdef _WIN32
   const auto root=std::filesystem::temp_directory_path()/("xenon-click-log-"+local_security::random_hex(8));std::filesystem::create_directory(root);

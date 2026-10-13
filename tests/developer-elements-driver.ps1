@@ -14,6 +14,8 @@ public static class DeveloperElementsDriver {
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h,StringBuilder s,int n);
  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h,int id);
  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
+ [DllImport("user32.dll",SetLastError=true)] static extern IntPtr SendMessageTimeout(IntPtr h,uint m,IntPtr w,IntPtr l,uint flags,uint timeout,out IntPtr result);
+ public static IntPtr BoundedMessage(IntPtr h,uint m,IntPtr w,IntPtr l){IntPtr result;if(SendMessageTimeout(h,m,w,l,2,3000,out result)==IntPtr.Zero)throw new InvalidOperationException("Synthetic focus message timed out: "+m);return result;}
  [DllImport("user32.dll",CharSet=CharSet.Unicode,EntryPoint="SendMessageW")] static extern IntPtr TextMessage(IntPtr h,uint m,IntPtr w,StringBuilder l);
  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
@@ -33,6 +35,7 @@ public static class DeveloperElementsDriver {
  public static IntPtr VisibleChild(IntPtr root,string cls){IntPtr result=IntPtr.Zero;EnumChildWindows(root,(h,p)=>{var s=new StringBuilder(128);GetClassName(h,s,128);if(IsWindowVisible(h)&&s.ToString()==cls){result=h;return false;}return true;},IntPtr.Zero);return result;}
  public static string Classes(IntPtr root){var result=new StringBuilder();EnumChildWindows(root,(h,p)=>{var s=new StringBuilder(128);GetClassName(h,s,128);if(IsWindowVisible(h))result.Append(s.ToString()).Append("\n");return true;},IntPtr.Zero);return result.ToString();}
  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+ [DllImport("user32.dll")] public static extern uint GetSysColor(int index);
  public static string Text(IntPtr h){var n=SendMessage(h,14,IntPtr.Zero,IntPtr.Zero).ToInt32();var s=new StringBuilder(n+1);TextMessage(h,13,(IntPtr)(n+1),s);return s.ToString();}
 }
 '@
@@ -80,6 +83,35 @@ if($Action -eq 'select-tab'){
 $panel=[DeveloperElementsDriver]::Child($shell,'XenonElementsPanel');if($panel -eq [IntPtr]::Zero){throw 'Elements panel missing'}
 $listHandle=[DeveloperElementsDriver]::GetDlgItem($panel,2803)
 $visible=[DeveloperElementsDriver]::IsWindowVisible($panel)
+if($Action -eq 'tab-focus-cues'){
+ $tree=[DeveloperElementsDriver]::GetDlgItem($shell,2009)
+ $selected=[DeveloperElementsDriver]::BoundedMessage($tree,4362,[IntPtr]9,[IntPtr]::Zero)
+ [void][DeveloperElementsDriver]::BoundedMessage($tree,256,[IntPtr]17,[IntPtr]::Zero)
+ $keyboardBefore=[DeveloperElementsDriver]::BoundedMessage($tree,297,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32()
+ $height=[DeveloperElementsDriver]::BoundedMessage($tree,4380,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32()
+ $point=[IntPtr](([int]($height*2.5) -shl 16) -bor 60)
+ # TreeView mouse-down can wait inside Windows' drag detection. Queue both
+ # halves so mouse-up can drain while that native loop is active.
+ [void][DeveloperElementsDriver]::PostMessage($tree,513,[IntPtr]1,$point)
+ [void][DeveloperElementsDriver]::PostMessage($tree,514,[IntPtr]::Zero,$point)
+ Start-Sleep -Milliseconds 150
+ $mouse=[DeveloperElementsDriver]::BoundedMessage($tree,297,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32()
+ $same=$selected -eq [DeveloperElementsDriver]::BoundedMessage($tree,4362,[IntPtr]9,[IntPtr]::Zero)
+ [void][DeveloperElementsDriver]::BoundedMessage($tree,256,[IntPtr]17,[IntPtr]::Zero)
+ $keyboardAfter=[DeveloperElementsDriver]::BoundedMessage($tree,297,[IntPtr]::Zero,[IntPtr]::Zero).ToInt32()
+ @{keyboardBefore=$keyboardBefore;mouse=$mouse;keyboardAfter=$keyboardAfter;sameSelectedTab=$same}|ConvertTo-Json -Compress;exit
+}
+if($Action -eq 'selection-colors'){
+ $rect=New-Object DeveloperElementsDriver+Rect;[void][DeveloperElementsDriver]::GetWindowRect($listHandle,[ref]$rect)
+ $bitmap=New-Object Drawing.Bitmap ($rect.right-$rect.left),($rect.bottom-$rect.top);$graphics=[Drawing.Graphics]::FromImage($bitmap);$dc=$graphics.GetHdc()
+ try{if(-not [DeveloperElementsDriver]::PrintWindow($listHandle,$dc,2)){throw 'Element list PrintWindow failed'}}finally{$graphics.ReleaseHdc($dc);$graphics.Dispose()}
+ $rgb=$Name.Split(',');$expected=[Drawing.Color]::FromArgb([int]$rgb[0],[int]$rgb[1],[int]$rgb[2]).ToArgb()
+ $system=[DeveloperElementsDriver]::GetSysColor(13);$highlight=[Drawing.Color]::FromArgb([int]($system -band 255),[int](($system -shr 8) -band 255),[int](($system -shr 16) -band 255)).ToArgb()
+ $themed=0;$default=0
+ for($y=0;$y -lt $bitmap.Height;$y++){for($x=0;$x -lt $bitmap.Width;$x++){ $pixel=$bitmap.GetPixel($x,$y).ToArgb();if($pixel -eq $expected){$themed++};if($pixel -eq $highlight){$default++} }}
+ if($Image){$bitmap.Save($Image,[Drawing.Imaging.ImageFormat]::Png)};$bitmap.Dispose()
+ @{themedSelectionPixels=$themed;systemHighlightPixels=$default}|ConvertTo-Json -Compress;exit
+}
 if($Action -in @('resize-width','resize-split')){
  $rect=New-Object DeveloperElementsDriver+Rect
  $delta=[int]$Name

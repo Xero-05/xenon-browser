@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "applicationDllSha256": "1a4fe09c1a384627ea5017464abc156810a474e43919f42371dcebf4b4659714",
+  "build": "Full Release production and unshipped fixture build; 15 native groups, adapter/script tests and 5 branding checks passed",
+  "visibilityChecks": 11,
+  "filterMatrixChecks": 26,
+  "uncertainClickCollection": true,
+  "developerSelectionChecks": [
+    {
+      "theme": "dark",
+      "language": "en-US",
+      "checks": 2,
+      "passed": true
+    },
+    {
+      "theme": "light",
+      "language": "zh-CN",
+      "checks": 2,
+      "passed": true
+    }
+  ],
+  "coverage": "Synthetic pages, native messages and PrintWindow; no physical input coverage",
+  "changes": [
+    "Bounded text-shadow occlusion",
+    "Simple rounded inset interior proof and consistent center-patch clipping",
+    "Boolean uncertainty diagnostics",
+    "Bookmark child surface contained inside omnibox",
+    "Themed developer list and mouse/keyboard tab focus cues",
+    "Unknown native form/SVG shadow glyph sources remain unbounded"
+  ],
+  "earlierFailures": [
+    "Restricted build stalled; ordinary-user build succeeded",
+    "Initial rounded-clip label regression corrected with owning-element reference box and center proof",
+    "Full developer suite blocked by Windows foreground activation",
+    "Focused driver initially used synchronous mouse-down; complete queued gesture corrected the harness"
+  ],
+  "limits": [
+    "Original structural click log cannot prove each historical cause",
+    "Full developer divider/hover suite not rerun successfully; focused selection checks passed",
+    "Physical input, other DPI and high contrast remain manual"
+  ],
+  "priorValidatedDllSha256": "1aabef26e3d27daa9f2f4c3fd10878ac79bf9023dca4b2fd863c1e80835ab84f",
+  "finalValidation": [
+    {
+      "run": "visibility-integration-1791859842020-ead17dee",
+      "checks": 11,
+      "passed": true
+    },
+    {
+      "run": "filter-matrix-1791859871402-bfd74824",
+      "checks": 26,
+      "passed": true
+    },
+    {
+      "run": "developer-elements-1791859912404-8c9e385c",
+      "checks": 2,
+      "passed": true
+    },
+    {
+      "run": "developer-elements-1791859958791-1830163b",
+      "checks": 2,
+      "passed": true
+    }
+  ]
+}
