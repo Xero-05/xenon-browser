@@ -12,6 +12,7 @@
 #include "xenon/login_monitor.hpp"
 #include "xenon/human_autofill.hpp"
 #include "xenon/protected_login.hpp"
+#include "xenon/passkey_guard.hpp"
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
@@ -142,6 +143,15 @@ struct Tab {
   std::set<std::string> guards;
   std::set<std::pair<std::string,int>> guard_contexts;
   std::map<std::pair<std::string,int>,std::string> guard_frames;
+  std::set<std::pair<std::string,int>> main_contexts;
+  PasskeyGate passkey;
+  bool passkey_refused = false;
+  // Loaded only after the main session's passkey wrapper is installed; the
+  // creation reply waits until that load has started.
+  std::string initial_url,requested_url;
+  Reply create_reply;
+  // The placeholder about:blank entry is removed after the first real commit.
+  bool prune_initial_history = false;
   std::string main_frame;
   LoginCaptureState login;
   bool closed = false;
@@ -216,22 +226,68 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     t->elements.clear();t->observation.clear();t->screenshot.clear();
     if(credential){t->login.physical_input(std::chrono::steady_clock::now());t->autofill_human_qualified=true;}
     const auto seq=++t->human_input;
-    const bool waiting=held||t->human_dialog||t->native_fill;
+    const bool waiting=held||t->human_dialog||t->native_fill||t->passkey.pending();
     const auto deadline=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()+2000;
     event("human.input",{{"tabId",t->id},{"busy",waiting},{"pauseUntil",waiting?Json(nullptr):Json(deadline)}});
     // Showing a native account choice does not dispatch agent input. Wait for
     // physical releases/focus to settle, independently of the agent cooldown.
     const auto offer_epoch=t->epoch,offer_request=t->autofill_requested;
     if(!waiting&&t->autofill_human_qualified)later(250,[self=shared_from_this(),t,seq,offer_epoch,offer_request]{
-      if(t->human_input==seq&&t->epoch==offer_epoch&&t->autofill_requested==offer_request&&!t->closed&&!t->human_gesture&&!t->human_dialog&&!t->native_fill&&t->autofill_human_qualified){
+      if(t->human_input==seq&&t->epoch==offer_epoch&&t->autofill_requested==offer_request&&!t->closed&&!t->human_gesture&&!t->human_dialog&&!t->native_fill&&!t->passkey.pending()&&t->autofill_human_qualified){
         t->autofill_human_qualified=false;self->autofill_request(t,true,[](Json){});
       }
     });
     if(!waiting)later(2000,[self=shared_from_this(),t,seq]{
-      if(t->human_input==seq&&!t->closed&&!t->human_gesture&&!t->human_dialog&&!t->native_fill){
+      if(t->human_input==seq&&!t->closed&&!t->human_gesture&&!t->human_dialog&&!t->native_fill&&!t->passkey.pending()){
         t->human_busy=false;self->event("human.idle",{{"tabId",t->id}});
       }
     });
+  }
+  // The last forwarded ceremony ended: start the normal post-input cooldown
+  // instead of resuming agent input immediately.
+  void passkey_released(const std::shared_ptr<Tab>& t,bool last){if(last&&!t->closed)human_activity(t,t->human_gesture,false);}
+  void passkey_message(const std::shared_ptr<Tab>& t,const Json& p,const std::string& session){
+    const int context=p.value("executionContextId",0);
+    if(t->closed||!t->main_contexts.contains({session,context}))return;
+    const auto message=parse_passkey_message(field(p,"payload"));if(!message)return;
+    const auto key=session+"|"+std::to_string(context)+"|"+message->id;
+    if(message->type==PasskeyMessage::Type::settled){passkey_released(t,t->passkey.settle(key));return;}
+    const auto now=PasskeyGate::Clock::now();
+    const bool human_controlled=!removed_workspaces_.contains(t->workspace)&&passkey_human_controls_&&passkey_human_controls_(t->id);
+    bool allowed=!removed_workspaces_.contains(t->workspace)&&t->passkey.allow(human_controlled,message->conditional,now);
+    // Autofill requests wait for a suggestion choice; only modal ceremonies hold
+    // the pause, and the bound on concurrent ceremonies refuses the rest.
+    const bool held=allowed&&!message->conditional;
+    if(held&&!t->passkey.begin(key,now))allowed=false;
+    send(t,"Runtime.evaluate",{{"contextId",context},{"expression","globalThis.__xenonPasskeyDecision?.("+Json(message->id).dump()+","+(allowed?"true":"false")+")"},{"returnByValue",true}},[](Json){},session);
+    if(allowed&&held){
+      human_activity(t,t->human_gesture,false);
+      later(static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(PasskeyGate::ceremony_limit).count())+1000,[weak=weak_from_this(),t]{
+        if(auto self=weak.lock())self->passkey_released(t,t->passkey.expire(PasskeyGate::Clock::now()));
+      });
+    } else if(!allowed&&!t->passkey_refused) {
+      t->passkey_refused=true;event("passkey.refused",{{"tabId",t->id}});
+    }
+  }
+  std::function<bool(const std::string&)> passkey_human_controls_;
+  std::map<std::string,std::string> initial_urls_;
+  // A session's first document must not run before its passkey wrapper is
+  // installed: the main session then loads the tab's URL, and an auto-attached
+  // frame session resumes. This runs once per session, success or not.
+  void session_ready(const std::shared_ptr<Tab>& t,const std::string& session){
+    if(t->closed)return;
+    if(!session.empty()){send(t,"Runtime.runIfWaitingForDebugger",Json::object(),[](Json){},session);return;}
+    if(auto url=std::exchange(t->initial_url,{});!url.empty()){t->prune_initial_history=true;t->browser->GetMainFrame()->LoadURL(url);answer_create(t,url,0);}
+  }
+  // Callers observe a loading tab, as before the deferred initial load.
+  void answer_create(const std::shared_ptr<Tab>& t,const std::string& url,int attempt){
+    if(!t->create_reply||!t->initial_url.empty())return;
+    if(t->closed){auto reply=std::exchange(t->create_reply,nullptr);reply(failure("tab_closed","The tab closed during creation."));return;}
+    if(!t->browser->IsLoading()&&t->last_url!=url&&attempt<80){
+      later(25,[weak=weak_from_this(),t,url,attempt]{if(auto self=weak.lock())self->answer_create(t,url,attempt+1);});return;
+    }
+    auto reply=std::exchange(t->create_reply,nullptr);
+    send(t,"Page.getFrameTree",Json::object(),[t,reply](Json r){reply(cdp_ok(r)?success({{"tabId",t->id},{"workspaceId",t->workspace},{"status","created"}}):failure("controller_unavailable","The tab exists but its controller did not initialize."));});
   }
   EventSink sink_;
   std::mutex sink_mutex_;
@@ -380,7 +436,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     for(const auto& id:offers)autofill_discard(id);
     const auto origin=Vault::normalize_https_origin(t->last_url);
     dismiss_login_id(t->login.navigated(origin.has_value()));
-    ++t->epoch; t->document = nonce(); t->elements.clear(); t->observation.clear();t->screenshot.clear();
+    ++t->epoch; t->document = nonce(); t->elements.clear(); t->observation.clear();t->screenshot.clear();t->passkey_refused=false;
     if(t->upload)finish_upload(t,t->upload,failure("upload_interrupted","The document changed during file selection. Observe before deciding what to do next."));
     event("tab.navigated", {{"tabId",t->id},{"workspaceId",t->workspace},{"documentId",t->document}});
     if(t->protected_auth&&!t->auth_inflight){t->protected_auth=false;event("auth.protected",{{"tabId",t->id},{"protected",false}});}
@@ -437,9 +493,18 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
         send(t,"Page.addScriptToEvaluateOnNewDocument",{{"source",monitor},{"worldName","Xenon credential guard"},{"runImmediately",true}},
           [t,session](Json installed){if(cdp_ok(installed))t->guards.insert(session);},session);
       },session);
+    // Main-world passkey wrapper for every frame session, private tabs included.
+    // The binding exists before the script so new documents can reach the gate.
+    // Session commands are answered in order, so the credential guard's script
+    // is installed before this chain's final reply as well.
+    send(t,"Runtime.addBinding",{{"name","__xenon_passkey"}},[this,t,session](Json added){
+      if(!cdp_ok(added)){session_ready(t,session);return;}
+      send(t,"Page.addScriptToEvaluateOnNewDocument",{{"source",passkey_guard_script},{"runImmediately",true}},[this,t,session](Json){session_ready(t,session);},session);
+    },session);
     if(session.empty()&&!t->private_mode)send(t,"Runtime.addBinding",{{"name","__xenon_login_capture"},{"executionContextName","Xenon credential guard"}},
       [this,t](Json added){if(cdp_ok(added))send(t,"Page.addScriptToEvaluateOnNewDocument",{{"source",login_capture_script},{"worldName","Xenon credential guard"},{"runImmediately",true}},[](Json){});});
-    send(t,"Target.setAutoAttach",{{"autoAttach",true},{"waitForDebuggerOnStart",false},{"flatten",true}},ignore,session);
+    // Attached targets start paused; session_ready or attachedToTarget resumes them.
+    send(t,"Target.setAutoAttach",{{"autoAttach",true},{"waitForDebuggerOnStart",true},{"flatten",true}},ignore,session);
   }
   void message(const std::shared_ptr<Tab>& t, const Json& j) {
     if (j.contains("id") && j["id"].is_number_integer()) {
@@ -453,14 +518,19 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     const auto method=field(j,"method"), session=field(j,"sessionId");
     const Json empty=Json::object();const Json& p=j.contains("params")?j["params"]:empty;
     if(method=="Runtime.executionContextCreated"){
-      const auto context=p.value("context",Json::object());if(field(context,"name")=="Xenon credential guard"){
+      const auto context=p.value("context",Json::object());
+      if(context.value("auxData",Json::object()).value("isDefault",false))t->main_contexts.insert({session,context.value("id",0)});
+      if(field(context,"name")=="Xenon credential guard"){
         const auto key=std::make_pair(session,context.value("id",0));t->guard_contexts.insert(key);
         t->guard_frames[key]=field(context.value("auxData",Json::object()),"frameId");
       }
     } else if(method=="Runtime.executionContextDestroyed") {
       const auto key=std::make_pair(session,p.value("executionContextId",0));
       t->guard_contexts.erase(key);t->guard_frames.erase(key);t->login.context_destroyed(key);
+      if(t->main_contexts.erase(key))passkey_released(t,t->passkey.drop_prefix(session+"|"+std::to_string(key.second)+"|"));
     } else if(method=="Runtime.executionContextsCleared") {
+      for(auto i=t->main_contexts.begin();i!=t->main_contexts.end();)if(i->first==session)i=t->main_contexts.erase(i);else ++i;
+      passkey_released(t,t->passkey.drop_prefix(session+"|"));
       for(auto i=t->guard_contexts.begin();i!=t->guard_contexts.end();)if(i->first==session)i=t->guard_contexts.erase(i);else ++i;
       for(auto i=t->guard_frames.begin();i!=t->guard_frames.end();)if(i->first.first==session)i=t->guard_frames.erase(i);else ++i;
       t->login.contexts_cleared(session);
@@ -471,14 +541,18 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       }
     } else if(method=="Runtime.bindingCalled"&&field(p,"name")=="__xenon_login_capture") {
       login_capture(t,p,session);
+    } else if(method=="Runtime.bindingCalled"&&field(p,"name")=="__xenon_passkey") {
+      passkey_message(t,p,session);
     } else if (method=="Target.attachedToTarget") {
       const auto sid=field(p,"sessionId");
       const auto info=p.value("targetInfo",Json::object());
       if (field(info,"type")=="iframe") {
         t->sessions[sid]={sid,field(info,"targetId"),session}; enable_session(t,sid);
-      }
+      } else send(t,"Runtime.runIfWaitingForDebugger",Json::object(),[](Json){},sid);
     } else if (method=="Target.detachedFromTarget") {
       const auto sid=field(p,"sessionId"); t->sessions.erase(sid);t->guards.erase(sid);
+      for(auto i=t->main_contexts.begin();i!=t->main_contexts.end();)if(i->first==sid)i=t->main_contexts.erase(i);else ++i;
+      passkey_released(t,t->passkey.drop_prefix(sid+"|"));
       for(auto i=t->elements.begin(); i!=t->elements.end();) {
         if(i->second.session==sid)i=t->elements.erase(i);else ++i;
       }
@@ -513,6 +587,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     if(t->upload)finish_upload(t,t->upload,failure("upload_interrupted","The tab closed during file selection."));
     auto pending=std::move(t->pending); t->pending.clear();
     for(auto& [id,cb]:pending)cb({{"error",{{"message","Tab closed"}}}});
+    if(auto reply=std::exchange(t->create_reply,nullptr))reply(failure("tab_closed","The tab closed during creation."));
     event("tab.closed",{{"tabId",t->id},{"workspaceId",t->workspace}});
     browser_ids_.erase(browser->GetIdentifier()); tabs_.erase(t->id);
     if(host_closed_)host_closed_(t->id);
@@ -789,6 +864,14 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
     const auto child=browser->GetHost()->GetWindowHandle();
     later(0,[child]{if(IsWindow(child))DestroyWindow(child);});return true;
   }
+  void OnLoadStart(CefRefPtr<CefBrowser> b,CefRefPtr<CefFrame> frame,TransitionType)override{
+    // Runs after the browser committed the navigation, so the reset removes
+    // the placeholder about:blank entry before loading ends and Back updates.
+    if(!frame||!frame->IsMain())return;
+    if(auto o=owner_.lock())if(auto t=o->find(b))if(t->prune_initial_history&&frame->GetURL().ToString()!="about:blank"){
+      t->prune_initial_history=false;o->send(t,"Page.resetNavigationHistory",Json::object(),[](Json){});
+    }
+  }
   void OnGotFocus(CefRefPtr<CefBrowser> b)override{if(auto o=owner_.lock())if(auto t=o->find(b))if(o->active_tab_==t->id)o->active_windows_[GetAncestor(b->GetHost()->GetWindowHandle(),GA_ROOT)]=t->id;}
   bool OnBeforeBrowse(CefRefPtr<CefBrowser>,CefRefPtr<CefFrame> frame,CefRefPtr<CefRequest> request,bool,bool)override {
     const auto url=request->GetURL().ToString();
@@ -980,7 +1063,12 @@ void CefEngine::Impl::create_ready(const PendingCreate& request) {
     if(!parent){fail_create(request.id,"native_shell_unavailable","The Xenon browser shell could not create a tab host.");return;}
     RECT rect{};GetClientRect(parent,&rect);wi.SetAsChild(parent,CefRect(0,0,rect.right,rect.bottom));wi.runtime_style=CEF_RUNTIME_STYLE_ALLOY;
     CefBrowserSettings settings;
-    const auto browser=CefBrowserHost::CreateBrowserSync(wi,new Client(weak_from_this(),request.workspace,request.id),request.url,settings,nullptr,context);
+    // Start on about:blank, which gives DevTools a renderer to install scripts
+    // in; session_ready loads the URL once the passkey wrapper is installed,
+    // so the first website document cannot run before it.
+    if(request.url!="about:blank")initial_urls_[request.id]=request.url;
+    const auto browser=CefBrowserHost::CreateBrowserSync(wi,new Client(weak_from_this(),request.workspace,request.id),"about:blank",settings,nullptr,context);
+    if(!browser)initial_urls_.erase(request.id);
     if(!startup.restore()){
       context_states_[request.workspace]=ContextState::failed;
       if(browser)browser->GetHost()->CloseBrowser(true);
@@ -1037,6 +1125,7 @@ void CefEngine::Impl::finish_workspace_removal(const std::string& workspace) {
     {"profileCleanup",private_workspaces_.contains(workspace)?"memory_only":"next_start"},{"filePermissionsCleanupPending",file_cleanup_pending}}));
 }
 void CefEngine::Impl::created(CefRefPtr<CefBrowser> b,const std::string& workspace,const std::string& id,const std::string& opener) {
+  auto initial=initial_urls_.extract(id);
   if(removed_workspaces_.contains(workspace)){fail_create(id,"workspace_removed","This workspace was removed.");removed_closing_browsers_[b->GetIdentifier()]=workspace;b->GetHost()->CloseBrowser(true);return;}
   if(shutting_down_){fail_create(id,"browser_closing","The browser is closing.");b->GetHost()->CloseBrowser(true);return;}
   auto t=std::make_shared<Tab>();t->browser=b;t->id=id;t->workspace=workspace;t->opener=opener;
@@ -1056,6 +1145,7 @@ void CefEngine::Impl::created(CefRefPtr<CefBrowser> b,const std::string& workspa
     b->GetHost()->CloseBrowser(true);if(controls_)controls_();return;
   }
   t->private_mode=private_workspaces_.contains(t->workspace);t->last_url=b->GetMainFrame()->GetURL().ToString();
+  if(!initial.empty()){t->requested_url=initial.mapped();t->initial_url=std::move(initial.mapped());}
   t->native_host=GetParent(b->GetHost()->GetWindowHandle());
   tabs_[id]=t;browser_ids_[b->GetIdentifier()]=id;
   if(active_tab_.empty())active_tab_=id;
@@ -1067,6 +1157,9 @@ void CefEngine::Impl::created(CefRefPtr<CefBrowser> b,const std::string& workspa
   persist_session();
   auto pending=creating_.find(id);if(pending!=creating_.end()) {
     auto reply=std::move(pending->second);creating_.erase(pending);
+    // session_ready answers once the deferred load starts; if it already ran
+    // synchronously after a failed protocol send, answer here.
+    if(!t->requested_url.empty()){t->create_reply=std::move(reply);answer_create(t,t->requested_url,0);return;}
     send(t,"Page.getFrameTree",Json::object(),[t,reply](Json r){reply(cdp_ok(r)?success({{"tabId",t->id},{"workspaceId",t->workspace},{"status","created"}}):failure("controller_unavailable","The tab exists but its controller did not initialize."));});
   }
 }
@@ -1705,6 +1798,9 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   if(t->protected_auth&&command!="tabs.close"){
     reply(failure("protected_auth","This tab is sealed for authentication. Use native controls to resume observations."));return;
   }
+  // Any agent page action ends the human's passkey window in this tab, even
+  // before its input is dispatched.
+  if(mutating)t->passkey.agent_action();
   if(command=="tabs.close"){t->browser->GetHost()->CloseBrowser(false);reply(success({{"status","closing"}}));return;}
   if(command=="page.navigate"){
     const auto url=field(p,"url");if(!web_url(url)){reply(failure("invalid_url","Only HTTP, HTTPS and about:blank are allowed."));return;}
@@ -1945,6 +2041,7 @@ void CefEngine::set_private_workspace_callback(std::function<void()> f){impl_->p
 void CefEngine::set_host_callbacks(std::function<HWND(const std::string&,const std::string&,bool)> create,
   std::function<void(const std::string&,HWND)> created,std::function<void(const std::string&)> closed){impl_->create_host_=std::move(create);impl_->host_created_=std::move(created);impl_->host_closed_=std::move(closed);}
 void CefEngine::set_download_callback(std::function<bool(const std::string&)> allowed){impl_->download_allowed_=std::move(allowed);}
+void CefEngine::set_passkey_control_callback(std::function<bool(const std::string&)> human_controls){impl_->passkey_human_controls_=std::move(human_controls);}
 void CefEngine::set_permission_callback(std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> callback){impl_->permission_=std::move(callback);}
 void CefEngine::select_native_tab(const std::string& id){
   impl_->active_tab_=id;if(auto found=impl_->tabs_.find(id);found!=impl_->tabs_.end())impl_->active_windows_[GetAncestor(found->second->browser->GetHost()->GetWindowHandle(),GA_ROOT)]=id;
@@ -2108,6 +2205,7 @@ void CefEngine::native_input(CefWindowHandle window,bool busy,bool credential_in
     else p->human_gestures_[window]=routing.retained;
     for(const auto& id:routing.affected)if(auto tab=p->tabs_.find(id);tab!=p->tabs_.end()){
       const bool qualified=credential_input&&known_active&&routing.credential_targets.size()==1&&routing.credential_targets.front()==id;
+      tab->second->passkey.human_gesture(PasskeyGate::Clock::now());
       p->human_activity(tab->second,busy,qualified);
     }
   });

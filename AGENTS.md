@@ -13,7 +13,7 @@ Xenon is a Windows x64 alpha built with C++20, CEF's sandboxed Chrome runtime, a
 | Windows startup, native shell, input routing and controls | `native/src/main_win.cpp`, `cef_shell.cpp`, `native_ui.cpp`, `native/include/xenon/browser_shell.hpp`, `ui_theme.hpp`, `native_input_policy.hpp` |
 | Native bookmarks/history and non-destructive legacy migration | `native/src/browser_data.cpp`, `native/include/xenon/browser_data.hpp` |
 | Vault, CSV import, file capabilities and profile cleanup | `native/src/vault.cpp`, `file_policy.cpp`, `workspace_storage.cpp`, matching headers and `native/include/xenon/local_security.hpp` |
-| Rendered-evidence filter and fixed isolated-world credential scripts | `native/src/visible_evidence.cpp`, `native/include/xenon/login_monitor.hpp`, `human_autofill.hpp` |
+| Rendered-evidence filter, fixed isolated-world credential scripts and main-world passkey gate | `native/src/visible_evidence.cpp`, `native/include/xenon/login_monitor.hpp`, `human_autofill.hpp`, `passkey_guard.hpp` |
 | MCP schemas, stdio CLI, named-pipe transport and activity resource | `adapter/src/server.ts`, `cli.ts`, `ipc.ts`, `human-activity.ts` |
 | Native/unit/live regression coverage | `tests/native/`, `adapter/test/`, `tests/*.mjs`, `tests/fixtures/` |
 | Dependency pins, build and release assembly | `dependencies.lock.json`, `package-lock.json`, `CMakeLists.txt`, `scripts/` |

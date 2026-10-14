@@ -31,6 +31,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Protected login tests failed.' }
     & node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=out/form-fill-tests.xml 'tests/form-fill-tests.mjs'
     if ($LASTEXITCODE -ne 0) { throw 'Form fill tests failed.' }
+    & node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=out/passkey-guard-tests.xml 'tests/passkey-guard-tests.mjs'
+    if ($LASTEXITCODE -ne 0) { throw 'Passkey guard tests failed.' }
     if (-not $CoreOnly) {
       & node tests/branding-resources.mjs
       if ($LASTEXITCODE -ne 0) { throw 'Bootstrap branding integrity failed.' }

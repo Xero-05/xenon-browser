@@ -111,7 +111,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   struct Command { std::string operation, session, method; uint64_t generation{}, attachment{}, human_epoch{}; Json params; std::string document; };
   struct Tab {
     std::string workspace, owner, document, group;
-    uint64_t generation{1}, state_epoch{}, human_epoch{}; bool frozen{}, human_busy{}, protected_auth{};
+    uint64_t generation{1}, state_epoch{}, human_epoch{}; bool frozen{}, human_busy{}, protected_auth{}, passkey_refused{};
     std::optional<int64_t> human_pause_until;
     std::optional<std::string> pending_owner;
     std::string active, dialog_active;
@@ -453,6 +453,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     Json result{{"tabId", id}, {"workspaceId", tab.workspace}, {"controlGroupId", tab.group}, {"ownerSessionId", tab.owner}, {"ownershipGeneration", tab.generation}, {"handoffPending", tab.pending_owner.has_value()}, {"inputBusy", !tab.active.empty() || !tab.dialog_active.empty() || tab.human_busy}, {"protected", tab.protected_auth},
       {"agentAvailable",available},{"humanActivityEpoch", tab.human_epoch}, {"humanPaused", tab.human_busy}, {"humanPauseUntil", tab.human_pause_until ? Json(*tab.human_pause_until) : Json(nullptr)},
       {"requiresFreshObservation", tab.human_epoch != 0 && !fresh_after_human_locked(tab, observing_session)},
+      {"passkeyNeedsHuman", tab.passkey_refused},
       {"activityMessage", tab.human_busy ? "Human page activity paused agent input; ownership is unchanged. Wait for the pause to end, then observe again." : tab.human_epoch ? "Human page activity occurred; use a fresh observation before continuing." : "No human page activity has been recorded for this tab."}};
     if (tab.pending_owner) result["pendingOwnerSessionId"] = *tab.pending_owner;
     if (!tab.document.empty()) result["documentId"] = tab.document;
@@ -724,7 +725,9 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         tabs.erase(tab);
         for (auto& [id, member] : tabs) if (member.group == group) { transfer_if_ready_locked(member); break; }
       } else if (type == "tab.navigated") {
-        tab->second.document = field(data, "documentId"); ++tab->second.state_epoch; tab->second.observations.clear();
+        tab->second.document = field(data, "documentId"); ++tab->second.state_epoch; tab->second.observations.clear(); tab->second.passkey_refused = false;
+      } else if (type == "passkey.refused") {
+        tab->second.passkey_refused = true;
       } else if (type == "auth.protected") {
         tab->second.protected_auth = data.value("protected", true); tab->second.observations.clear();
       } else if (type == "human.input") {
@@ -1128,6 +1131,11 @@ void Broker::resource_changed(const std::string& client) {
   Impl::UiChange notification{impl_.get()};std::vector<Delivery> output;
   {std::lock_guard lock(impl_->mutex);if(client.empty()){for(const auto& [id,value]:impl_->clients)impl_->invalidate_policy_locked(id,output);}else impl_->invalidate_policy_locked(client,output);}
   deliver(std::move(output));
+}
+bool Broker::human_controls(const std::string& id) const {
+  std::lock_guard lock(impl_->mutex);auto tab=impl_->tabs.find(id);
+  return tab!=impl_->tabs.end()&&!impl_->removed_workspaces.contains(tab->second.workspace)&&!tab->second.frozen&&
+    tab->second.owner=="human"&&!tab->second.pending_owner;
 }
 bool Broker::allow_download(const std::string& id) const {
   std::lock_guard lock(impl_->mutex);auto tab=impl_->tabs.find(id);
