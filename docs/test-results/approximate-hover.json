@@ -1,0 +1,285 @@
+{
+  "capturedAt": "2026-10-12T04:15:41.636Z",
+  "applicationDllSha256": "449861113742c9245f926d1132f633f33a45c39e0a39e480d0abf68eec4d15bd",
+  "behavior": [
+    "Uncertain row selection and page hover produce dashed amber approximate outlines; verified geometry keeps solid blue outlines",
+    "Native hit identities take priority over the uncertain positional fallback",
+    "Uncertain hover survives refresh and tracks viewport coordinates after scrolling",
+    "Diagnostic candidate IDs remain separate from published agent action references"
+  ],
+  "productionLive": [
+    {
+      "suite": "Native developer inspector",
+      "run": "developer-elements-1791778136980-5e969eb7",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true
+        },
+        {
+          "name": "Backdrop effects stay local and continue withholding covered controls",
+          "passed": true
+        },
+        {
+          "name": "Uncertain controls remain listed with screenshot guidance and no usable target",
+          "passed": true
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true
+        },
+        {
+          "name": "Passive page hover matches a nested control without activating it",
+          "passed": true
+        },
+        {
+          "name": "Code scrolling survives repeated inspector refreshes",
+          "passed": true
+        },
+        {
+          "name": "Translated split result link with canceling reflections is observed, hovered and clicked",
+          "passed": true
+        },
+        {
+          "name": "Hovering an SVG icon resolves its listed button",
+          "passed": true
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true
+        },
+        {
+          "name": "Page scrolling keeps hover and highlight aligned with viewport coordinates",
+          "passed": true
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "Visibility filter matrix",
+      "run": "filter-matrix-1791778255300-7df191a1",
+      "passed": true,
+      "checks": [
+        {
+          "name": "plain",
+          "passed": true
+        },
+        {
+          "name": "identity-clip",
+          "passed": true
+        },
+        {
+          "name": "pixel-clip",
+          "passed": true
+        },
+        {
+          "name": "percent-clip",
+          "passed": true
+        },
+        {
+          "name": "negative-clip",
+          "passed": true
+        },
+        {
+          "name": "distant-blur",
+          "passed": true
+        },
+        {
+          "name": "zero-blur",
+          "passed": true
+        },
+        {
+          "name": "distant-backdrop",
+          "passed": true
+        },
+        {
+          "name": "bounded-shadow",
+          "passed": true
+        },
+        {
+          "name": "rotated-blur",
+          "passed": true
+        },
+        {
+          "name": "scaled-blur",
+          "passed": true
+        },
+        {
+          "name": "distant-invert",
+          "passed": true
+        },
+        {
+          "name": "covered-by-invert",
+          "passed": true
+        },
+        {
+          "name": "backdrop-content",
+          "passed": true
+        },
+        {
+          "name": "translation",
+          "passed": true
+        },
+        {
+          "name": "nested-inset",
+          "passed": true
+        },
+        {
+          "name": "covered-by-blur",
+          "passed": true
+        },
+        {
+          "name": "clipped-center",
+          "passed": true
+        },
+        {
+          "name": "zero-area-clip",
+          "passed": true
+        },
+        {
+          "name": "unsupported-round",
+          "passed": true
+        },
+        {
+          "name": "unsupported-polygon",
+          "passed": true
+        },
+        {
+          "name": "covered-by-backdrop",
+          "passed": true
+        },
+        {
+          "name": "faint-control",
+          "passed": true
+        },
+        {
+          "name": "Scroll after navigation",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "Adversarial rendered evidence",
+      "run": "visibility-integration-1791778454762-2af2bb74",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "native": {
+    "suites": [
+      "developer_elements_tests",
+      "visible_evidence_tests",
+      "native_ui_tests"
+    ],
+    "passed": true
+  },
+  "branding": {
+    "checks": 5,
+    "passed": true
+  },
+  "build": {
+    "fullRelease": true,
+    "passed": true
+  },
+  "publicPreview": {
+    "url": "https://github.com/",
+    "elements": 32,
+    "selectedCandidate": {
+      "role": "link",
+      "visibilityStatus": "uncertain",
+      "highlighted": true,
+      "highlightVerification": "approximate_position_only",
+      "targetAvailable": false
+    }
+  },
+  "visualInspection": {
+    "syntheticCoveredControlDashedAmberOutline": true
+  },
+  "limitations": [
+    "Position-only fallback is restricted to root-frame candidates; child frames require native hit ancestry",
+    "Approximate bounds do not prove visibility or permit agent input; screenshot guidance and native guards remain in force",
+    "Live coverage uses native messages and PrintWindow, not physical mouse input",
+    "Earlier validation records describe earlier binaries and remain unchanged"
+  ]
+}

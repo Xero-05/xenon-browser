@@ -63,6 +63,46 @@ void transitions() {
   state.clear_edit(); // Same reset used before agent mutation, tab close and Windows lock.
   require(state.discard_candidate()=="candidate"&&!state.consume_submission("form",context,3,start),"Cancellation retained a candidate or edit provenance");
 }
+void script_driven() {
+  LoginCaptureState state;edit(state);
+  // Script-driven sign-in keeps edit provenance, so a failed attempt can retry.
+  require(state.attempted("form",context,3,start),"Qualified script-driven attempt denied");
+  require(state.attempted("form",context,3,start+1min),"Script-driven retry lost provenance");
+  require(!state.attempted("other",context,3,start)&&!state.attempted("form",{"",18},3,start)&&!state.attempted("form",context,4,start),"Another form, context or document inherited attempt provenance");
+  require(!state.attempted("form",context,3,start+5min+1ms),"Expired edit authorized a script-driven attempt");
+  const std::string origin="https://authentication.example.invalid";
+  state.proposed_deferred("deferred",origin,"form",context,3);
+  require(state.deferred()&&!state.notified(),"Deferred candidate was ready before the page moved on");
+  require(!state.field_gone("other",context,3)&&!state.field_gone("form",{"",18},3)&&!state.field_gone("form",context,4),"Another form, context or document readied a deferred candidate");
+  require(state.field_gone("form",context,3)&&!state.deferred()&&state.candidate()=="deferred","Removed password field did not ready the candidate");
+  require(!state.field_gone("form",context,3),"A ready candidate was readied twice");
+  state.proposed_deferred("single-page",origin,"form",context,3);
+  require(state.navigated_within_document()&&!state.deferred()&&state.candidate()=="single-page","Same-document navigation did not ready the candidate");
+  require(!state.navigated_within_document(),"Same-document navigation readied a candidate that was not deferred");
+  state.proposed_deferred("navigation",origin,"form",context,3);
+  require(state.navigated(true).empty()&&state.candidate()=="navigation"&&!state.deferred(),"HTTPS navigation discarded or did not ready a deferred candidate");
+  state.proposed_deferred("downgrade",origin,"form",context,3);
+  require(state.navigated(false)=="downgrade"&&state.candidate().empty(),"Non-HTTPS navigation kept a deferred candidate");
+  edit(state);state.proposed_deferred("retyped",origin,"form",context,3);
+  state.physical_input(start+1s);const auto canceled=state.password_edited("form",context,3,start+1s);
+  require(canceled&&*canceled=="retyped"&&!state.deferred()&&state.candidate().empty(),"Retyping the password did not cancel the deferred attempt");
+}
+void username_first() {
+  LoginCaptureState state;const std::string origin="https://authentication.example.invalid",account="PUBLIC_ACCOUNT_CANARY";
+  state.account_entered(origin,account,start);
+  require(state.account(origin,start).empty(),"Account without physical input was remembered");
+  state.physical_input(start);state.account_entered(origin,account,start+2001ms);
+  require(state.account(origin,start+2001ms).empty(),"Stale physical input qualified an account");
+  state.account_entered(origin,account,start);
+  require(state.account(origin,start+10min)==account,"Typed account was not remembered for its origin");
+  require(state.account("https://other.example.invalid",start).empty(),"Account crossed origins");
+  require(state.account(origin,start+10min+1ms).empty(),"Account outlived its bounded lifetime");
+  state.navigated(true);
+  require(state.account(origin,start+1min)==account,"Navigation between sign-in steps forgot the account");
+  state.forget_account();require(state.account(origin,start).empty(),"Forgetting retained the account");
+  state.physical_input(start);state.account_entered(origin,std::string(1025,'a'),start);
+  require(state.account(origin,start).empty(),"Oversized account was remembered");
+}
 void native_confirmation() {
   const auto parent=std::filesystem::absolute(std::filesystem::current_path()/"test_state");
   const auto root=parent/("login-capture-"+local_security::random_hex(8));
@@ -98,6 +138,6 @@ void native_confirmation() {
 }
 }
 int main() {
-  try { provenance();transitions();native_confirmation();std::cout<<"login capture policy tests passed\n";return 0; }
+  try { provenance();transitions();script_driven();username_first();native_confirmation();std::cout<<"login capture policy tests passed\n";return 0; }
   catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

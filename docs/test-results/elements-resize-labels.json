@@ -1,0 +1,177 @@
+{
+  "limitations": [
+    "Site labels are untrusted native inspector metadata, not MCP rendered names",
+    "Only elements admitted by the rendered viewport filter are included",
+    "Divider preferences last for the current browser window"
+  ],
+  "google": {
+    "controls": [
+      {
+        "label": "Sign in",
+        "role": "link",
+        "targetAvailable": true,
+        "source": "site_accessibility_name"
+      },
+      {
+        "label": "Google apps",
+        "role": "button",
+        "targetAvailable": true,
+        "highlightScreenshotVerified": true,
+        "source": "site_accessibility_name"
+      }
+    ],
+    "anonymousHomepage": true
+  },
+  "capturedAt": "2026-10-12T00:30:17.4362270Z",
+  "earlierAttempts": [
+    "Initial build failed because the previous disposable preview held the production DLL; closed preview through ordinary-user native messages and rebuilt successfully",
+    "Restricted-runner native_ui_tests failed fixture ACL access; ordinary-user rerun passed all three focused native suites"
+  ],
+  "coverage": "Production CEF/MCP with disposable profiles, native window/keyboard messages and PrintWindow; no physical input",
+  "live": [
+    {
+      "applicationDllSha256": "ed0cd12c940d9f9ebc15c3ad4face32834f7526985eeaf603bc2241c521f8dbd",
+      "theme": "dark",
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true,
+          "elapsedMs": 3592
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true,
+          "elapsedMs": 937
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true,
+          "elapsedMs": 5579
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true,
+          "elapsedMs": 453
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true,
+          "elapsedMs": 3809
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true,
+          "elapsedMs": 2821
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true,
+          "elapsedMs": 2375
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true,
+          "elapsedMs": 2870
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true,
+          "elapsedMs": 5156
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true,
+          "elapsedMs": 2348
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true,
+          "elapsedMs": 921
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true,
+          "elapsedMs": 854
+        }
+      ],
+      "language": "en-US",
+      "passed": true,
+      "applicationDllSha256AtEnd": "ed0cd12c940d9f9ebc15c3ad4face32834f7526985eeaf603bc2241c521f8dbd"
+    },
+    {
+      "applicationDllSha256": "ed0cd12c940d9f9ebc15c3ad4face32834f7526985eeaf603bc2241c521f8dbd",
+      "theme": "light",
+      "checks": [
+        {
+          "name": "Menu enables a website-side panel using filtered evidence",
+          "passed": true,
+          "elapsedMs": 3821
+        },
+        {
+          "name": "Native submit controls and editable comboboxes preserve label boundaries",
+          "passed": true,
+          "elapsedMs": 675
+        },
+        {
+          "name": "Panel width and list/details divider resize independently with minimum bounds",
+          "passed": true,
+          "elapsedMs": 5447
+        },
+        {
+          "name": "Selection shows frame, bounds and states without agent action tokens",
+          "passed": true,
+          "elapsedMs": 442
+        },
+        {
+          "name": "Selecting a row highlights its current rendered node",
+          "passed": true,
+          "elapsedMs": 3832
+        },
+        {
+          "name": "Page picker selects the corresponding row without activating it",
+          "passed": true,
+          "elapsedMs": 2830
+        },
+        {
+          "name": "Canceling the picker restores ordinary selection",
+          "passed": true,
+          "elapsedMs": 2269
+        },
+        {
+          "name": "Interactable filter removes text and disabled controls",
+          "passed": true,
+          "elapsedMs": 2666
+        },
+        {
+          "name": "Panel refresh leaves an existing agent observation usable",
+          "passed": true,
+          "elapsedMs": 5997
+        },
+        {
+          "name": "Tab switching replaces evidence with the selected document",
+          "passed": true,
+          "elapsedMs": 2510
+        },
+        {
+          "name": "Authentication protection removes diagnostic elements",
+          "passed": true,
+          "elapsedMs": 907
+        },
+        {
+          "name": "Disable hides the panel and discards its rows",
+          "passed": true,
+          "elapsedMs": 860
+        }
+      ],
+      "language": "zh-CN",
+      "passed": true,
+      "applicationDllSha256AtEnd": "ed0cd12c940d9f9ebc15c3ad4face32834f7526985eeaf603bc2241c521f8dbd"
+    }
+  ],
+  "nativeSuites": [
+    "developer_elements_tests",
+    "visible_evidence_tests",
+    "native_ui_tests"
+  ],
+  "brandingChecks": 5
+}

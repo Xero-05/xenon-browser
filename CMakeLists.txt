@@ -33,7 +33,7 @@ add_library(SQLite::SQLite3 ALIAS sqlite3)
 target_include_directories(sqlite3 PUBLIC third_party/sqlite)
 target_compile_definitions(sqlite3 PRIVATE SQLITE_THREADSAFE=1 SQLITE_DQS=0 SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_DEFAULT_MEMSTATUS=0 SQLITE_SECURE_DELETE=1)
 
-file(GLOB XENON_CORE_SOURCES CONFIGURE_DEPENDS native/src/broker.cpp native/src/browser_data.cpp native/src/pipe_server.cpp native/src/vault.cpp native/src/file_policy.cpp native/src/local_security.cpp native/src/visible_evidence.cpp native/src/workspace_storage.cpp native/src/updater.cpp)
+file(GLOB XENON_CORE_SOURCES CONFIGURE_DEPENDS native/src/broker.cpp native/src/browser_data.cpp native/src/pipe_server.cpp native/src/vault.cpp native/src/file_policy.cpp native/src/local_security.cpp native/src/visible_evidence.cpp native/src/workspace_storage.cpp native/src/updater.cpp native/src/extension_store.cpp)
 add_library(xenon_core STATIC ${XENON_CORE_SOURCES})
 target_include_directories(xenon_core PUBLIC native/include)
 target_compile_definitions(xenon_core PUBLIC XENON_VERSION="${XENON_VERSION}")

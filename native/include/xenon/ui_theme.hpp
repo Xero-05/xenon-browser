@@ -10,6 +10,8 @@
 #include <string>
 #include <uxtheme.h>
 #include <algorithm>
+#include <cmath>
+#include <initializer_list>
 #include <objidl.h>
 #include <gdiplus.h>
 
@@ -25,6 +27,9 @@ inline const char* web_color_scheme_switch(ThemeMode mode) {return mode==ThemeMo
 inline int sidebar_width=240;
 inline std::filesystem::path settings_path;
 inline bool introduction_completed{};
+// Metadata-only release checks in the background. Downloading and installing
+// always remain explicit native actions.
+inline bool automatic_update_checks=true;
 inline bool high_contrast() {HIGHCONTRASTW value{sizeof(value)};return SystemParametersInfoW(SPI_GETHIGHCONTRAST,sizeof(value),&value,0)&&(value.dwFlags&HCF_HIGHCONTRASTON);}
 inline Palette palette() {
   if(high_contrast())return {GetSysColor(COLOR_WINDOW),GetSysColor(COLOR_WINDOW),GetSysColor(COLOR_WINDOWTEXT),GetSysColor(COLOR_WINDOWTEXT),GetSysColor(COLOR_WINDOWFRAME),GetSysColor(COLOR_HIGHLIGHT),GetSysColor(COLOR_HIGHLIGHT),GetSysColor(COLOR_WINDOWFRAME),false,true};
@@ -36,19 +41,24 @@ inline Palette palette() {
 inline void load_theme(const std::filesystem::path& root) {
   settings_path=root/"ui-settings.json";
   language=preferred_language=Language::english;
-  introduction_completed=false;
+  introduction_completed=false;automatic_update_checks=true;
   try{if(std::filesystem::exists(settings_path)&&std::filesystem::file_size(settings_path)<4096){Json value;std::ifstream(settings_path)>>value;
     const auto mode=value.value("theme",std::string("system"));theme_mode=mode=="dark"?ThemeMode::dark:mode=="light"?ThemeMode::light:ThemeMode::system;
     if(auto locale=value.find("language");locale!=value.end()&&locale->is_string())
       language=preferred_language=*locale=="zh-CN"?Language::simplified_chinese:Language::english;
     if(auto completed=value.find("introductionCompleted");completed!=value.end()&&completed->is_boolean())introduction_completed=completed->get<bool>();
+    if(auto updates=value.find("automaticUpdateChecks");updates!=value.end()&&updates->is_boolean())automatic_update_checks=updates->get<bool>();
     if(auto width=value.find("sidebarWidth");width!=value.end()&&width->is_number_integer())sidebar_width=std::clamp(width->get<int>(),180,480);}}catch(...){}
 }
 inline bool save_settings() {
-  try{auto temporary=settings_path;temporary+=L".tmp";{std::ofstream stream(temporary);stream<<Json{{"version",1},{"theme",theme_mode==ThemeMode::dark?"dark":theme_mode==ThemeMode::light?"light":"system"},{"sidebarWidth",sidebar_width},{"language",language_tag(preferred_language)},{"introductionCompleted",introduction_completed}};stream.flush();if(!stream)return false;}
+  try{auto temporary=settings_path;temporary+=L".tmp";{std::ofstream stream(temporary);stream<<Json{{"version",1},{"theme",theme_mode==ThemeMode::dark?"dark":theme_mode==ThemeMode::light?"light":"system"},{"sidebarWidth",sidebar_width},{"language",language_tag(preferred_language)},{"introductionCompleted",introduction_completed},{"automaticUpdateChecks",automatic_update_checks}};stream.flush();if(!stream)return false;}
     local_security::restrict_path(temporary);return MoveFileExW(temporary.c_str(),settings_path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE;}catch(...){return false;}
 }
 inline bool save_theme(ThemeMode mode) {theme_mode=mode;return save_settings();}
+inline bool save_automatic_update_checks(bool enabled) {
+  const auto previous=automatic_update_checks;automatic_update_checks=enabled;
+  if(save_settings())return true;automatic_update_checks=previous;return false;
+}
 inline bool save_language(Language value) {
   const auto previous=preferred_language;preferred_language=value;
   if(save_settings())return true;preferred_language=previous;return false;
@@ -67,6 +77,9 @@ inline void fill(HDC dc,RECT rect,COLORREF color) {auto brush=CreateSolidBrush(c
 inline COLORREF selection() {const auto colors=palette();return colors.contrast?GetSysColor(COLOR_HIGHLIGHT):colors.dark?RGB(65,65,65):RGB(228,228,228);}
 inline COLORREF hover_background() {const auto colors=palette();return colors.contrast?GetSysColor(COLOR_HIGHLIGHT):colors.dark?RGB(80,80,80):RGB(226,226,226);}
 inline COLORREF selection_ink() {return palette().contrast?GetSysColor(COLOR_HIGHLIGHTTEXT):palette().ink;}
+// The notification dot for an available update, distinct from the ownership
+// accents (teal/orange) used for agents and pairing requests.
+inline COLORREF notice_blue() {const auto colors=palette();return colors.contrast?GetSysColor(COLOR_HOTLIGHT):colors.dark?RGB(96,165,250):RGB(0,103,192);}
 // Native chrome motion follows the Windows "Animation effects" setting and is
 // off in high contrast. Website geometry never animates; only shell paint does.
 inline int motion_override=-1;
@@ -170,7 +183,10 @@ inline bool keyboard_focus(HWND control) {return (SendMessageW(control,WM_QUERYU
 inline void focus_mark(HDC dc,RECT rect,HWND control,int radius=6) {
   if(!keyboard_focus(control))return;outline(dc,rect,palette().ink,dip(control,radius),dip(control,2));
 }
-enum class Icon {none,back,forward,reload,stop,go,controls,menu,plus,up,down,chevron_right,close};
+enum class Icon {none,back,forward,reload,stop,go,controls,menu,plus,up,down,chevron_right,close,extensions,key,star,star_filled,pin,muted,more};
+// The browser toolbar's saved-password button. Native credential bubbles
+// anchor to it inside their source window when it is visible.
+inline constexpr int password_anchor_id=2015;
 inline void icon(HDC dc,RECT rect,Icon kind,COLORREF ink,HWND window) {
   if(vector_rendering()){Gdiplus::Graphics graphics(dc);graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);const float scale=GetDpiForWindow(window)/96.0f,cx=(rect.left+rect.right)/2.0f,cy=(rect.top+rect.bottom)/2.0f;
     Gdiplus::Pen pen(vector_color(ink),1.8f*scale);pen.SetStartCap(Gdiplus::LineCapRound);pen.SetEndCap(Gdiplus::LineCapRound);pen.SetLineJoin(Gdiplus::LineJoinRound);Gdiplus::SolidBrush brush(vector_color(ink));
@@ -183,7 +199,17 @@ inline void icon(HDC dc,RECT rect,Icon kind,COLORREF ink,HWND window) {
     else if(kind==Icon::up||kind==Icon::down){const float sign=kind==Icon::up?-1.0f:1.0f;line(-5,-sign*3,0,sign*3);line(0,sign*3,5,-sign*3);}
     else if(kind==Icon::chevron_right){line(-3,-5,3,0);line(3,0,-3,5);}
     else if(kind==Icon::controls){for(float y:{-6.0f,0.0f,6.0f}){const float x=y==0?4.0f:-3.0f;line(-8,y,x-2,y);line(x+2,y,8,y);graphics.DrawEllipse(&pen,cx+(x-2)*scale,cy+(y-2)*scale,4*scale,4*scale);}}
-    else if(kind==Icon::menu)for(float x:{-6.0f,0.0f,6.0f})graphics.FillEllipse(&brush,cx+(x-1.5f)*scale,cy-1.5f*scale,3*scale,3*scale);
+    else if(kind==Icon::menu)for(float y:{-6.0f,0.0f,6.0f})graphics.FillEllipse(&brush,cx-1.5f*scale,cy+(y-1.5f)*scale,3*scale,3*scale);
+    else if(kind==Icon::more)for(float x:{-6.0f,0.0f,6.0f})graphics.FillEllipse(&brush,cx+(x-1.5f)*scale,cy-1.5f*scale,3*scale,3*scale);
+    else if(kind==Icon::extensions){
+      // Puzzle piece: square body with knobs on its top and right edges.
+      line(-6,-3,-3,-3);line(2,-3,5,-3);line(5,-3,5,-0.5f);line(5,4.5f,5,7);line(5,7,-6,7);line(-6,7,-6,-3);
+      graphics.DrawArc(&pen,cx-3*scale,cy-5.5f*scale,5*scale,5*scale,180.0f,180.0f);graphics.DrawArc(&pen,cx+2.5f*scale,cy-0.5f*scale,5*scale,5*scale,270.0f,180.0f);}
+    else if(kind==Icon::key){graphics.DrawEllipse(&pen,cx-8*scale,cy-3.5f*scale,7*scale,7*scale);line(-1,0,8,0);line(5,0,5,3.5f);line(7.5f,0,7.5f,2.5f);}
+    else if(kind==Icon::star||kind==Icon::star_filled){Gdiplus::PointF points[10];for(int n=0;n<10;++n){const double angle=-1.5707963+n*0.6283185;const float radius=(n%2?3.3f:7.5f)*scale;points[n]={cx+radius*static_cast<float>(std::cos(angle)),cy+0.8f*scale+radius*static_cast<float>(std::sin(angle))};}
+      if(kind==Icon::star_filled)graphics.FillPolygon(&brush,points,10);graphics.DrawPolygon(&pen,points,10);}
+    else if(kind==Icon::pin){graphics.DrawRectangle(&pen,cx-3*scale,cy-7*scale,6*scale,6*scale);line(-5.5f,-1,5.5f,-1);line(0,-1,0,7);}
+    else if(kind==Icon::muted){Gdiplus::PointF speaker[]{{cx-7*scale,cy-2.5f*scale},{cx-4*scale,cy-2.5f*scale},{cx,cy-6*scale},{cx,cy+6*scale},{cx-4*scale,cy+2.5f*scale},{cx-7*scale,cy+2.5f*scale}};graphics.DrawPolygon(&pen,speaker,6);line(3,-3,7.5f,3);line(3,3,7.5f,-3);}
     return;}
   const int unit=dip(window,1),cx=(rect.left+rect.right)/2,cy=(rect.top+rect.bottom)/2;auto d=[&](int v){return dip(window,v);};
   auto pen=CreatePen(PS_SOLID,std::max(1,d(2)),ink);auto old_pen=SelectObject(dc,pen),old_brush=SelectObject(dc,GetStockObject(NULL_BRUSH));
@@ -196,9 +222,28 @@ inline void icon(HDC dc,RECT rect,Icon kind,COLORREF ink,HWND window) {
   else if(kind==Icon::up||kind==Icon::down){const int sign=kind==Icon::up?-1:1;line(-5,-sign*3,0,sign*3);line(0,sign*3,5,-sign*3);}
   else if(kind==Icon::chevron_right){line(-3,-5,3,0);line(3,0,-3,5);}
   else if(kind==Icon::controls){for(int y:{-6,0,6}){line(-8,y,8,y);const int x=y==0?4:-3;Ellipse(dc,cx+d(x-2),cy+d(y-2),cx+d(x+2)+unit,cy+d(y+2)+unit);}}
-  else if(kind==Icon::menu){auto brush=CreateSolidBrush(ink);SelectObject(dc,brush);for(int x:{-6,0,6})Ellipse(dc,cx+d(x-1),cy-d(1),cx+d(x+1)+unit,cy+d(1)+unit);SelectObject(dc,old_brush);DeleteObject(brush);}
+  else if(kind==Icon::menu||kind==Icon::more){auto brush=CreateSolidBrush(ink);SelectObject(dc,brush);for(int n:{-6,0,6}){const int x=kind==Icon::more?n:0,y=kind==Icon::more?0:n;Ellipse(dc,cx+d(x-1),cy+d(y-1),cx+d(x+1)+unit,cy+d(y+1)+unit);}SelectObject(dc,old_brush);DeleteObject(brush);}
+  else if(kind==Icon::extensions){Rectangle(dc,cx-d(6),cy-d(3),cx+d(5),cy+d(7));Ellipse(dc,cx-d(3),cy-d(7),cx+d(2),cy-d(2));Ellipse(dc,cx+d(4),cy-d(1),cx+d(9),cy+d(4));}
+  else if(kind==Icon::key){Ellipse(dc,cx-d(8),cy-d(3),cx-d(1),cy+d(4));line(-1,0,8,0);line(5,0,5,3);line(7,0,7,2);}
+  else if(kind==Icon::star||kind==Icon::star_filled){POINT points[10];for(int n=0;n<10;++n){const double angle=-1.5707963+n*0.6283185;const int radius=d(n%2?3:7);points[n]={cx+static_cast<LONG>(radius*std::cos(angle)),cy+d(1)+static_cast<LONG>(radius*std::sin(angle))};}
+    auto brush=kind==Icon::star_filled?CreateSolidBrush(ink):nullptr;if(brush)SelectObject(dc,brush);Polygon(dc,points,10);if(brush){SelectObject(dc,GetStockObject(NULL_BRUSH));DeleteObject(brush);}}
+  else if(kind==Icon::pin){Rectangle(dc,cx-d(3),cy-d(7),cx+d(3),cy-d(1));line(-5,-1,5,-1);line(0,-1,0,7);}
+  else if(kind==Icon::muted){POINT speaker[]{{cx-d(7),cy-d(2)},{cx-d(4),cy-d(2)},{cx,cy-d(6)},{cx,cy+d(6)},{cx-d(4),cy+d(2)},{cx-d(7),cy+d(2)}};Polygon(dc,speaker,6);line(3,-3,7,3);line(3,3,7,-3);}
   SelectObject(dc,old_brush);SelectObject(dc,old_pen);DeleteObject(pen);
 }
+// Replaces {0}, {1}... in translated native copy with already-wide values.
+inline std::wstring format(std::wstring text,std::initializer_list<std::wstring> values) {
+  size_t index=0;for(const auto& value:values){const auto key=L"{"+std::to_wstring(index++)+L"}";for(size_t at=text.find(key);at!=std::wstring::npos;at=text.find(key,at+value.size()))text.replace(at,key.size(),value);}
+  return text;
+}
+// Shared native confirmation for workspace cleanup in the shell and Controls.
+inline bool confirm_close_tabs(HWND owner,size_t count,const std::string& workspace) {
+  const auto message=format(tr(L"Close all {0} tabs in {1}?\n\nQueued agent actions in these tabs are canceled; actions already started finish first. Unsaved changes in these tabs are lost.\n\nThe workspace, its sign-ins, history, permissions, agent access and saved passwords are kept."),{std::to_wstring(count),wide(workspace)});
+  return MessageBoxW(owner,message.c_str(),tr(L"Close workspace tabs"),MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)==IDYES;
+}
+// Lightweight native popups (account list, save bubble) use Windows 11
+// rounded corners where available; older Windows keeps square corners.
+inline void popup_corners(HWND window) {const int preference=3;DwmSetWindowAttribute(window,33,&preference,sizeof(preference));}
 inline bool hovered(const DRAWITEMSTRUCT& item) {return IsWindowEnabled(item.hwndItem)&&(GetPropW(item.hwndItem,L"XenonHover")||(item.itemState&ODS_HOTLIGHT)||(SendMessageW(item.hwndItem,BM_GETSTATE,0,0)&BST_HOT));}
 inline Fade hover_fade(HWND control) {return {static_cast<ULONGLONG>(reinterpret_cast<ULONG_PTR>(GetPropW(control,L"XenonHoverStart"))),GetPropW(control,L"XenonHover")!=nullptr};}
 // 0 at rest, 1 fully hovered. System hot-tracking without our pointer state

@@ -68,7 +68,7 @@ void passive_modifiers_and_browser_focus(){
     require(policy.release(key).empty(),"An unqualified modifier release remains passive");
   }
   require(!policy.tracking(),"Window-switch modifier sequences leave no page gesture");
-  for(const unsigned key:{static_cast<unsigned>('L'),static_cast<unsigned>('T'),static_cast<unsigned>('N'),static_cast<unsigned>('W'),0x09u})
+  for(const unsigned key:{static_cast<unsigned>('L'),static_cast<unsigned>('T'),static_cast<unsigned>('N'),static_cast<unsigned>('W'),0x09u,0x21u,0x22u,static_cast<unsigned>('1'),static_cast<unsigned>('9')})
     require(xenon::native_browser_focus_shortcut(key,true,false),"Known Control browser-focus shortcuts remain passive");
   for(const unsigned key:{0x09u,0x1bu,static_cast<unsigned>('D')})
     require(xenon::native_browser_focus_shortcut(key,false,true),"Known Alt window/browser-focus shortcuts remain passive");

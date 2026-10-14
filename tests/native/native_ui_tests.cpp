@@ -99,6 +99,8 @@ int main(){try{
   require(std::wstring(chinese_font.lfFaceName)==L"Microsoft YaHei UI","Choose a font that supports Chinese controls");
   std::set<std::wstring_view> translated_keys;
   for(const auto& entry:ui::translations){require(translated_keys.insert(entry.english).second,"Translation keys are unique");require(std::wstring_view(entry.chinese).size()!=0,"Translations cannot be empty");}
+  require(ui::format(L"{0} moved to {1}; {0} reloads",{L"Tab",L"工作区"})==L"Tab moved to 工作区; Tab reloads"&&ui::format(L"{1}",{L"a"})==L"{1}","Placeholders fill every occurrence and leave unknown ones");
+  require(std::wstring(ui::tr(L"Close all {0} tabs…"))==L"关闭全部 {0} 个标签页…"&&ui::format(ui::tr(L"Close all {0} tabs…"),{L"3"})==L"关闭全部 3 个标签页…","Translated templates keep their placeholders");
   require(ui::workspace_label("native-default","Personal")=="个人"&&ui::workspace_label("custom","Personal")=="Personal","Translate built-in workspace labels without changing user names");
   require(ui::tab_title("New tab","about:blank")=="新标签页"&&ui::tab_title("New tab","https://example.test")=="New tab","Translate blank-tab labels without translating website titles");
   require(ui::tab_title("New tab","")=="新标签页","Translate the initial blank-tab label before its first URL callback");
@@ -116,6 +118,14 @@ int main(){try{
   reset_preferences();ui::load_theme(root);require(ui::introduction_completed&&ui::language==ui::Language::simplified_chinese&&ui::sidebar_width==310&&ui::theme_mode==ui::ThemeMode::light,"Completion restores language and preserves other preferences");
   require(ui::save_language(ui::Language::english)&&ui::save_theme(ui::ThemeMode::dark),"Later settings changes succeed");
   reset_preferences();ui::load_theme(root);require(ui::introduction_completed,"Later theme and language changes preserve completed introduction");
+  require(ui::automatic_update_checks,"Automatic update checks default on for existing settings");
+  require(ui::save_automatic_update_checks(false),"Save the automatic update preference");reset_preferences();ui::load_theme(root);
+  require(!ui::automatic_update_checks&&ui::introduction_completed&&ui::theme_mode==ui::ThemeMode::dark,"Restore a disabled automatic update preference with other settings");
+  require(ui::save_theme(ui::ThemeMode::light),"Later settings changes keep the update preference");reset_preferences();ui::load_theme(root);
+  require(!ui::automatic_update_checks,"Other saves preserve a disabled automatic update preference");
+  ui::settings_path=root/"missing"/"ui-settings.json";require(!ui::save_automatic_update_checks(true)&&!ui::automatic_update_checks,"Failed update preference save keeps the previous choice");
+  ui::settings_path=root/"ui-settings.json";require(ui::save_automatic_update_checks(true),"Re-enable automatic update checks");
+  require(ui::palette().contrast||(ui::notice_blue()!=ui::palette().teal&&ui::notice_blue()!=ui::palette().orange),"The update dot is distinct from ownership and pairing accents");
   for(const auto width:{-1000,10000}){{std::ofstream output(root/"ui-settings.json");output<<Json{{"theme","system"},{"sidebarWidth",width}};}
     reset_preferences();ui::load_theme(root);require(ui::sidebar_width==(width<0?180:480),"Bound persisted sidebar widths");}
   {std::ofstream output(root/"ui-settings.json");output<<"{ invalid settings";}
