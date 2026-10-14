@@ -1,5 +1,6 @@
 #include "xenon/vault.hpp"
 #include "xenon/local_security.hpp"
+#include <sqlite3.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -128,6 +129,66 @@ void pending_lifetime(const std::filesystem::path& root) {
   vault.set_locked(false);
   require(vault.pending_logins().empty() && error_code(vault.accept_login(tokens[1])) == "candidate_unavailable", "Unlock revived a discarded candidate");
 }
+std::string group_of(const Vault& vault, const std::string& id) {
+  const auto listed = vault.list_accounts();
+  for (const auto& account : listed.at("result").at("accounts"))
+    if (account.at("accountId") == id) return account.at("group").get<std::string>();
+  return {};
+}
+void account_groups(const std::filesystem::path& root) {
+  const auto path = root / "groups" / "vault.sqlite";
+  const std::string origin = "https://groups.test";
+  std::string legacy_id, default_id, prompt_id;
+  {
+    Vault vault(path);
+    legacy_id = vault.save(origin, "legacy-user", "legacy-password", "Legacy").at("result").at("accountId").get<std::string>();
+    require(group_of(vault, legacy_id) == "sensitive", "Accounts are Sensitive unless a Default group is chosen");
+  }
+  {
+    // Recreate the schema used before account groups existed.
+    const auto text = path.u8string();
+    const std::string name(reinterpret_cast<const char*>(text.data()), text.size());
+    sqlite3* db{};
+    const bool opened = sqlite3_open_v2(name.c_str(), &db, SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK;
+    const bool dropped = opened && sqlite3_exec(db, "ALTER TABLE accounts DROP COLUMN access_group", nullptr, nullptr, nullptr) == SQLITE_OK;
+    sqlite3_close(db);
+    require(dropped, "Pre-group vault fixture could not be created");
+  }
+  {
+    Vault vault(path);
+    require(group_of(vault, legacy_id) == "sensitive", "Accounts saved before groups existed migrate to Sensitive");
+    require(vault.get_secret(legacy_id, origin)->password() == "legacy-password", "Group migration damaged an encrypted credential");
+    default_id = vault.save(origin, "default-user", "default-password", "Default", {}, AccountGroup::default_group).at("result").at("accountId").get<std::string>();
+    require(group_of(vault, default_id) == "default", "A new account joins the chosen Default group");
+    const auto metadata = vault.account_metadata(default_id);
+    require(metadata && metadata->origin == origin && metadata->group == AccountGroup::default_group, "Broker lookup reports the exact origin and group");
+    require(vault.save(origin, "default-user", "rotated-password", {}, default_id, AccountGroup::sensitive).at("result").at("status") == "updated" &&
+            group_of(vault, default_id) == "default", "Updating a saved password keeps the account's group");
+    require(vault.set_group(default_id, AccountGroup::sensitive).at("ok") && vault.account_metadata(default_id)->group == AccountGroup::sensitive, "Native reclassification moves an account to Sensitive");
+    require(vault.set_group(default_id, AccountGroup::default_group).at("result").at("group") == "default", "Native reclassification moves an account to Default");
+    require(error_code(vault.set_group("missing-account", AccountGroup::default_group)) == "account_not_found" && !vault.account_metadata("missing-account"), "Unknown accounts are neither classified nor resolved");
+    auto created = vault.propose_login(origin, "prompt-user", "prompt-password");
+    require(created && !created->update, "New-account save proposal missing");
+    prompt_id = vault.accept_login(created->candidate_id, {}, AccountGroup::default_group).at("result").at("accountId").get<std::string>();
+    require(group_of(vault, prompt_id) == "default", "Save prompt applies the chosen group to a new account");
+    require(vault.set_group(prompt_id, AccountGroup::sensitive).at("ok"), "Prompt account could not be reclassified");
+    auto updated = vault.propose_login(origin, "prompt-user", "prompt-password-2");
+    require(updated && updated->update && vault.accept_login(updated->candidate_id, {}, AccountGroup::default_group).at("result").at("status") == "updated", "Update proposal could not be confirmed");
+    require(group_of(vault, prompt_id) == "sensitive", "Confirming an update never changes the account's group");
+    vault.set_locked(true);
+    require(error_code(vault.set_group(default_id, AccountGroup::sensitive)) == "vault_locked" && !vault.account_metadata(default_id), "A locked vault neither reclassifies nor resolves accounts");
+    vault.set_locked(false);
+  }
+  Vault reopened(path);
+  require(group_of(reopened, default_id) == "default" && group_of(reopened, prompt_id) == "sensitive" && group_of(reopened, legacy_id) == "sensitive", "Account groups are durable");
+  const auto csv = root / "groups.csv";
+  write(csv, "url,username,password\nhttps://groups.test,prompt-user,csv-password\nhttps://imported.test,imported-user,imported-password\n");
+  const auto imported = reopened.import_csv(csv, true, {}, AccountGroup::default_group);
+  require(imported.at("result").at("created") == 1 && imported.at("result").at("updated") == 1, "Grouped import fixture failed");
+  const auto accounts = reopened.list_accounts("https://imported.test").at("result").at("accounts");
+  require(accounts.size() == 1 && accounts[0].at("group") == "default", "Import applies the chosen group to new accounts");
+  require(group_of(reopened, prompt_id) == "sensitive", "Import replacement keeps an existing account's group");
+}
 }
 int main() {
   try {
@@ -135,6 +196,7 @@ int main() {
     pending_credentials(scratch.root);
     pending_conflicts(scratch.root);
     pending_lifetime(scratch.root);
+    account_groups(scratch.root);
     const auto db = scratch.root / "state" / "vault.sqlite";
     const std::string user = "VAULT_USERNAME_CANARY_95739@example.test";
     const std::string password = "VAULT_PASSWORD_CANARY_73927!";

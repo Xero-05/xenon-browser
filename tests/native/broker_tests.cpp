@@ -10,6 +10,8 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -383,6 +385,74 @@ void client_policy_boundaries(const std::filesystem::path& directory){
   require(broker.allow_download(human["result"]["tabId"]),"Human-owned browsing retains native downloads");
   auto listed=call(broker,"new-client","workspaces.list");bool named=false;for(const auto& row:listed["result"]["workspaces"])if(row["workspaceId"]==workspace)named=row["displayName"]=="Research workspace"&&!row["effectivePermissions"]["downloads"].get<bool>();require(named,"Authorized workspace listing exposes names and intersected permissions");
   require(broker.state()["workspaces"].size()==2,"Manual workspace does not consume the automatic quota");
+}
+void default_account_group(const std::filesystem::path& directory){
+  // Synthetic vault metadata. The fake engine lists allowed-account at
+  // https://example.test and other-account at https://other.test.
+  std::map<std::string,AccountMetadata> accounts{{"allowed-account",{"https://example.test",AccountGroup::default_group}},{"other-account",{"https://other.test",AccountGroup::sensitive}},
+    {"portal-account",{"https://portal.example.test:8443",AccountGroup::default_group}}};
+  std::mutex accounts_mutex;bool vault_locked=false;
+  const auto lookup=[&](const std::string& id)->std::optional<AccountMetadata>{
+    std::lock_guard lock(accounts_mutex);if(vault_locked)return std::nullopt;auto found=accounts.find(id);if(found==accounts.end())return std::nullopt;return found->second;};
+  const auto ids=[](const Json& reply){std::set<std::string> result;for(const auto& account:reply["result"]["accounts"])result.insert(account["accountId"].get<std::string>());return result;};
+  std::string client,shared;
+  {
+    FakeEngine engine;Broker broker(engine,directory);
+    client=pair(broker,"group","Group client")["clientId"].get<std::string>();auto agent=worker(broker,"group","Group worker");
+    require(ids(call(broker,"group","auth.accounts",agent.base())).empty(),"Without a group grant Default accounts stay unavailable");
+    auto policy=ClientPolicy::legacy(256);policy.default_accounts=true;require(broker.configure_client(client,policy),"Client Default-group grant is saved natively");
+    require(ids(call(broker,"group","auth.accounts",agent.base())).empty(),"A Default-group grant needs the native vault directory");
+    broker.set_account_directory(lookup);
+    require(ids(call(broker,"group","auth.accounts",agent.base()))==std::set<std::string>{"allowed-account"},"An automatic workspace inherits the client's Default group, never Sensitive accounts");
+    require(broker.account_clients(agent.workspace,"allowed-account")==std::vector<std::string>{client}&&broker.account_clients(agent.workspace,"other-account").empty(),"Native access summary uses the same evaluation");
+    auto login=action_params(broker,agent,"default-login");login["accountId"]="allowed-account";login["grantedOrigin"]="https://attacker.test";Json login_result;
+    broker.dispatch("group",{{"method","auth.login"},{"params",login}},[&](Json value){login_result=std::move(value);});engine.wait_pending(1);
+    require(engine.pending_params("default-login")["grantedOrigin"]=="https://example.test","Default-group login uses the vault's exact origin, never a claimed one");
+    engine.complete("default-login");require(login_result.value("ok",false),"Default-group login reaches the protected engine path");
+    auto portal=action_params(broker,agent,"portal-login");portal["accountId"]="portal-account";Json portal_result;
+    broker.dispatch("group",{{"method","auth.login"},{"params",portal}},[&](Json value){portal_result=std::move(value);});engine.wait_pending(1);
+    require(engine.pending_params("portal-login")["grantedOrigin"]=="https://portal.example.test:8443","Each Default account keeps its own exact origin and port");
+    engine.complete("portal-login");require(portal_result.value("ok",false),"A second Default account needs no additional grant");
+    auto sensitive=action_params(broker,agent,"sensitive-login");sensitive["accountId"]="other-account";
+    require(code(call(broker,"group","auth.login",sensitive))=="ACCOUNT_DENIED","Sensitive accounts are excluded from the Default group");
+    require(broker.grant_client_account(client,"other-account","https://other.test"),"A Sensitive account can still be granted individually");
+    require(ids(call(broker,"group","auth.accounts",agent.base()))==std::set<std::string>{"allowed-account","other-account"},"Individual and Default-group grants combine");
+    engine.delay_metadata=true;Json relocated;broker.dispatch("group",{{"method","auth.accounts"},{"params",agent.base()}},[&](Json value){relocated=std::move(value);});
+    {auto finish=std::move(engine.held_metadata.at("auth.accounts"));engine.held_metadata.clear();finish(success({{"accounts",Json::array({{{"accountId","allowed-account"},{"origin","https://attacker.test"},{"label","Synthetic"}}})}}));}
+    require(relocated.value("ok",false)&&relocated["result"]["accounts"].empty(),"Default-group access is bound to the origin stored in the vault");
+    engine.delay_metadata=false;engine.delay_guard=true;
+    auto queued=action_params(broker,agent,"reclassified-login");queued["accountId"]="allowed-account";Json reclassified;
+    broker.dispatch("group",{{"method","auth.login"},{"params",queued}},[&](Json value){reclassified=std::move(value);});engine.wait_guard("reclassified-login");
+    {std::lock_guard lock(accounts_mutex);accounts["allowed-account"].group=AccountGroup::sensitive;}
+    engine.dispatch_guard("reclassified-login");engine.delay_guard=false;
+    require(code(reclassified)=="DISPATCH_CANCELLED"&&reclassified["dispatchStatus"]=="not_dispatched","Moving an account to Sensitive stops a queued Default-group login before dispatch");
+    require(ids(call(broker,"group","auth.accounts",agent.base()))==std::set<std::string>{"other-account"},"Reclassification removes group access at once while individual grants remain");
+    {std::lock_guard lock(accounts_mutex);accounts["allowed-account"].group=AccountGroup::default_group;vault_locked=true;}
+    require(ids(call(broker,"group","auth.accounts",agent.base()))==std::set<std::string>{"other-account"},"A locked vault grants no Default-group access");
+    {std::lock_guard lock(accounts_mutex);vault_locked=false;}
+    Json human;broker.open_human_workspace("about:blank",[&](Json value){human=value;},false,"Shared");shared=human["result"]["workspaceId"].get<std::string>();
+    require(broker.share_workspace(shared,client),"Workspace is shared with the client");
+    WorkspaceAccess access;access.capabilities=Capabilities::full();require(broker.configure_workspace_client(shared,client,access),"Workspace access without account inheritance");
+    auto peer=worker(broker,"group","Shared worker",shared);
+    require(ids(call(broker,"group","auth.accounts",peer.base())).empty(),"A client's Default group reaches only workspaces that inherit client accounts");
+    access.default_accounts=true;require(broker.configure_workspace_client(shared,client,access),"Workspace Default-group grant is saved");
+    require(ids(call(broker,"group","auth.accounts",peer.base()))==std::set<std::string>{"allowed-account"},"A workspace Default group covers Default accounts without inheriting individual client grants");
+    access.restrict_accounts=true;require(broker.configure_workspace_client(shared,client,access),"Empty account restriction is saved");
+    require(ids(call(broker,"group","auth.accounts",peer.base())).empty(),"Workspace restrictions also narrow the Default group");
+    access.capabilities.saved_accounts=false;access.restrict_accounts=false;require(broker.configure_workspace_client(shared,client,access),"Saved-account use is disabled for the workspace");
+    require(broker.account_clients(shared,"allowed-account").empty(),"The Default group requires the saved-account capability");
+    access.capabilities.saved_accounts=true;access.restrict_accounts=true;access.account_ids.insert("allowed-account");require(broker.configure_workspace_client(shared,client,access),"Restriction selecting a Default account is saved");
+    require(ids(call(broker,"group","auth.accounts",peer.base()))==std::set<std::string>{"allowed-account"},"A restriction can select a Default account");
+    broker.set_account_directory([](const std::string&)->std::optional<AccountMetadata>{throw std::runtime_error("Synthetic vault failure");});
+    require(ids(call(broker,"group","auth.accounts",peer.base())).empty()&&broker.account_clients(shared,"allowed-account").empty(),"A failing vault lookup denies instead of failing open");
+  }
+  FakeEngine engine;Broker restarted(engine,directory);const auto state=restarted.state();bool client_saved=false,workspace_saved=false;
+  for(const auto& row:state["clients"])if(row["clientId"]==client)client_saved=row["policy"].value("defaultAccounts",false);
+  for(const auto& row:state["workspaces"])if(row["workspaceId"]==shared)workspace_saved=row["access"].value(client,Json::object()).value("defaultAccounts",false);
+  require(client_saved&&workspace_saved,"Client and workspace Default-group grants persist across restart");
+  require(restarted.account_clients(shared,"allowed-account").empty(),"After restart, Default-group access waits for the vault directory");
+  restarted.set_account_directory(lookup);
+  require(restarted.account_clients(shared,"allowed-account")==std::vector<std::string>{client}&&restarted.account_clients(shared,"other-account").empty(),"Restored Default-group grant follows the vault again");
 }
 void legacy_policy_migration(const std::filesystem::path& directory){
   std::filesystem::create_directories(directory);const auto token=local_security::random_hex(32);
@@ -1210,6 +1280,7 @@ int main() {
     batch_recovery(root / "batch-recovery");
     worker_capacity_and_churn(root / "worker-churn");
     client_policy_boundaries(root / "client-policy");
+    default_account_group(root / "default-account-group");
     legacy_policy_migration(root / "policy-migration");
     worker_retirement_boundaries(root / "worker-retirement");
     worker_late_callbacks(root / "worker-callbacks");

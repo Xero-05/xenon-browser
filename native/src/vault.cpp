@@ -277,7 +277,7 @@ struct Vault::Impl {
     return std::nullopt;
   }
   Json save_locked(const std::string& origin, const std::string& username, const std::string& password,
-                   const std::string& label, const std::string& replacement) {
+                   const std::string& label, const std::string& replacement, AccountGroup group) {
     const auto existing = matching(origin, username);
     if (existing && local_security::equal_secret(existing->second.password(), password) &&
         (replacement.empty() || (replacement == existing->first && label.empty())))
@@ -293,9 +293,10 @@ struct Vault::Impl {
     } else id = local_security::random_hex(16);
     const auto encrypted = encrypt(username, password);
     const auto actual_label = !label.empty() ? label : !previous_label.empty() ? previous_label : "Account " + id.substr(0, 8);
-    Statement write(db, "INSERT INTO accounts(id,origin,label,payload) VALUES(?1,?2,?3,?4) "
+    // The group is chosen only when an account is created; updates keep it.
+    Statement write(db, "INSERT INTO accounts(id,origin,label,payload,access_group) VALUES(?1,?2,?3,?4,?5) "
                         "ON CONFLICT(id) DO UPDATE SET label=excluded.label,payload=excluded.payload");
-    write.text(1, id); write.text(2, origin); write.text(3, actual_label); write.bytes(4, encrypted); write.next();
+    write.text(1, id); write.text(2, origin); write.text(3, actual_label); write.bytes(4, encrypted); write.text(5, account_group_name(group)); write.next();
     return success({{"accountId", id}, {"status", replacement.empty() ? "created" : "updated"}});
   }
 };
@@ -310,8 +311,18 @@ Vault::Vault(const std::filesystem::path& database, PendingClock pending_clock) 
   local_security::restrict_path(database);
   check_sql(sqlite3_busy_timeout(impl_->db, 3000));
   exec_sql(impl_->db, "PRAGMA journal_mode=DELETE; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY; PRAGMA trusted_schema=OFF;"
-                    "CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,origin TEXT NOT NULL,label TEXT NOT NULL,payload BLOB NOT NULL);"
+                    "CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,origin TEXT NOT NULL,label TEXT NOT NULL,payload BLOB NOT NULL,"
+                    "access_group TEXT NOT NULL DEFAULT 'sensitive');"
                     "CREATE INDEX IF NOT EXISTS accounts_origin ON accounts(origin);");
+  // Accounts saved before groups existed become Sensitive, so no existing
+  // account gains agent access until a person moves it to Default.
+  const auto grouped = [&] {
+    Statement columns(impl_->db, "PRAGMA table_info(accounts)");
+    while (columns.next()) if (columns.text(1) == "access_group") return true;
+    return false;
+  };
+  if (!grouped() && sqlite3_exec(impl_->db, "ALTER TABLE accounts ADD COLUMN access_group TEXT NOT NULL DEFAULT 'sensitive'", nullptr, nullptr, nullptr) != SQLITE_OK && !grouped())
+    throw std::runtime_error("Credential storage migration failed");
 }
 Vault::~Vault() = default;
 
@@ -378,22 +389,23 @@ Json Vault::list_accounts(std::optional<std::string> https_origin) const {
   try {
     std::optional<std::string> origin;
     if (https_origin) { origin = normalize_https_origin(*https_origin); if (!origin) return failure("invalid_origin", "Saved accounts require an exact HTTPS origin."); }
-    Statement query(impl_->db, origin ? "SELECT id,origin,label FROM accounts WHERE origin=?1 ORDER BY label,id" : "SELECT id,origin,label FROM accounts ORDER BY origin,label,id");
+    Statement query(impl_->db, origin ? "SELECT id,origin,label,access_group FROM accounts WHERE origin=?1 ORDER BY label,id" : "SELECT id,origin,label,access_group FROM accounts ORDER BY origin,label,id");
     if (origin) query.text(1, *origin);
     Json accounts = Json::array();
-    while (query.next()) accounts.push_back({{"accountId", query.text(0)}, {"origin", query.text(1)}, {"label", query.text(2)}});
+    while (query.next()) accounts.push_back({{"accountId", query.text(0)}, {"origin", query.text(1)}, {"label", query.text(2)},
+                                             {"group", account_group_name(read_account_group(query.text(3)))}});
     return success({{"accounts", std::move(accounts)}});
   } catch (...) { return failure("vault_unavailable", "Saved account metadata is unavailable."); }
 }
 Json Vault::save(const std::string& origin_or_url, const std::string& username, const std::string& password,
-                 const std::string& label, const std::string& replace_account_id) {
+                 const std::string& label, const std::string& replace_account_id, AccountGroup group) {
   const auto origin = normalize_https_origin(origin_or_url);
   if (!origin) return failure("invalid_origin", "Only valid HTTPS website logins can be saved.");
   if (!valid_secret(username, true) || !valid_secret(password, false) || !valid_label(label))
     return failure("invalid_credential", "The credential contains unsupported or oversized fields.");
   std::lock_guard lock(impl_->mutex);
   if (impl_->is_locked) return failure("vault_locked", "Unlock Xenon before saving an account.");
-  try { return impl_->save_locked(*origin, username, password, label, replace_account_id); }
+  try { return impl_->save_locked(*origin, username, password, label, replace_account_id, group); }
   catch (...) { return failure("vault_unavailable", "The credential could not be saved."); }
 }
 std::optional<Secret> Vault::get_secret(const std::string& account_id, const std::string& expected_https_origin) const {
@@ -414,6 +426,24 @@ Json Vault::remove(const std::string& account_id) {
     Statement remove(impl_->db, "DELETE FROM accounts WHERE id=?1"); remove.text(1, account_id); remove.next();
     return success({{"removed", sqlite3_changes(impl_->db) == 1}});
   } catch (...) { return failure("vault_unavailable", "The account could not be removed."); }
+}
+Json Vault::set_group(const std::string& account_id, AccountGroup group) {
+  std::lock_guard lock(impl_->mutex);
+  if (impl_->is_locked) return failure("vault_locked", "Unlock Xenon before changing an account.");
+  try {
+    Statement update(impl_->db, "UPDATE accounts SET access_group=?2 WHERE id=?1"); update.text(1, account_id); update.text(2, account_group_name(group)); update.next();
+    if (sqlite3_changes(impl_->db) != 1) return failure("account_not_found", "The account is unavailable.");
+    return success({{"accountId", account_id}, {"group", account_group_name(group)}});
+  } catch (...) { return failure("vault_unavailable", "The account group could not be changed."); }
+}
+std::optional<AccountMetadata> Vault::account_metadata(const std::string& account_id) const {
+  std::lock_guard lock(impl_->mutex);
+  if (impl_->is_locked || account_id.empty()) return std::nullopt;
+  try {
+    Statement query(impl_->db, "SELECT origin,access_group FROM accounts WHERE id=?1"); query.text(1, account_id);
+    if (!query.next()) return std::nullopt;
+    return AccountMetadata{query.text(0), read_account_group(query.text(1))};
+  } catch (...) { return std::nullopt; }
 }
 std::optional<PendingCredential> Vault::propose_login(const std::string& origin_or_url,
                                                      const std::string& username,
@@ -459,7 +489,7 @@ std::vector<PendingCredential> Vault::pending_logins() const {
   for (const auto& candidate : impl_->pending) result.push_back(candidate.metadata);
   return result;
 }
-Json Vault::accept_login(const std::string& candidate_id, const std::string& label) {
+Json Vault::accept_login(const std::string& candidate_id, const std::string& label, AccountGroup group) {
   if (!valid_label(label)) return failure("invalid_credential", "Use a short account label without control characters.");
   std::lock_guard lock(impl_->mutex);
   if (impl_->is_locked) return failure("vault_locked", "Unlock Xenon before saving an account.");
@@ -479,7 +509,7 @@ Json Vault::accept_login(const std::string& candidate_id, const std::string& lab
     if (!Impl::same_record(candidate.expected, current))
       return failure("candidate_stale", "The saved account changed after this request. Log in again before confirming an update.");
     const auto result = impl_->save_locked(candidate.metadata.origin, secret.username(), secret.password(), label,
-                                          candidate.expected ? candidate.expected->id : std::string{});
+                                          candidate.expected ? candidate.expected->id : std::string{}, group);
     if (result.at("ok").get<bool>()) transaction.commit();
     return result;
   } catch (...) { return failure("vault_unavailable", "The credential could not be saved. Log in again to create a new save request."); }
@@ -535,7 +565,7 @@ Json Vault::preview_csv(const std::filesystem::path& path) const {
                     {"conflicts", conflicts}, {"duplicates", duplicates}, {"preview", std::move(preview)}, {"previewTruncated", valid > 100}});
   } catch (...) { return failure("preview_failed", "The credential import preview is unavailable. Nothing was imported."); }
 }
-Json Vault::import_csv(const std::filesystem::path& path, bool replace_conflicts, const std::string& expected_file_digest) {
+Json Vault::import_csv(const std::filesystem::path& path, bool replace_conflicts, const std::string& expected_file_digest, AccountGroup group) {
   SensitiveText input;
   Rows rows;
   const auto loaded = load_csv(path, input, rows);
@@ -567,7 +597,7 @@ Json Vault::import_csv(const std::filesystem::path& path, bool replace_conflicts
         if (replace_conflicts) replacement = existing->first;
         else { ++conflicts; conflict_accounts.push_back({{"row", row_number + 1}, {"accountId", existing->first}, {"origin", *origin}}); continue; }
       }
-      const auto result = impl_->save_locked(*origin, row[username_column], row[password_column], {}, replacement);
+      const auto result = impl_->save_locked(*origin, row[username_column], row[password_column], {}, replacement, group);
       if (!result.at("ok").get<bool>()) throw std::runtime_error("Import failed");
       const auto status = result.at("result").at("status").get<std::string>();
       if (status == "created") ++created; else if (status == "updated") ++updated; else ++unchanged;

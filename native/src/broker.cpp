@@ -160,6 +160,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   uint64_t inactive_order{};
   const Limits limits;
   std::function<void()> ui_state_callback;
+  AccountDirectory account_directory;
   struct UiChange {
     Impl* self;
     ~UiChange() { try { self->notify_ui(); } catch(...) {} }
@@ -298,7 +299,15 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     if(access.restrict_accounts&&!access.account_ids.contains(account))return {};
     for(const auto& grant:account_grants)if(grant.client==client&&grant.account==account&&
       (grant.workspace==workspace||(grant.workspace.empty()&&access.inherit_accounts)))return grant.origin;
-    return {};
+    // A Default-group grant covers each account the vault currently marks
+    // Default, at the origin the vault stores for it. Sensitive, removed or
+    // unavailable accounts fall through to denial.
+    const bool group=access.default_accounts||(access.inherit_accounts&&clients.at(client).policy.default_accounts);
+    if(!group||!account_directory||account.empty())return {};
+    std::optional<AccountMetadata> metadata;
+    try{metadata=account_directory(account);}catch(...){return {};}
+    if(!metadata||metadata->group!=AccountGroup::default_group||!exact_https_origin(metadata->origin))return {};
+    return metadata->origin;
   }
   size_t client_workers(const std::string& client) const {
     return static_cast<size_t>(std::count_if(workers.begin(),workers.end(),[&](const auto& entry){return entry.second.client==client&&entry.second.connected&&!entry.second.retiring;}));
@@ -1205,6 +1214,18 @@ bool Broker::allow_download(const std::string& id) const {
     impl_->effective(worker->second.client,tab->second.workspace).downloads;
 }
 void Broker::set_ui_state_callback(std::function<void()> callback) {std::lock_guard lock(impl_->mutex);impl_->ui_state_callback=std::move(callback);}
+void Broker::set_account_directory(AccountDirectory directory) {
+  Impl::UiChange notification{impl_.get()};std::vector<Delivery> output;
+  {std::lock_guard lock(impl_->mutex);impl_->account_directory=std::move(directory);
+    for(const auto& [id,value]:impl_->clients)impl_->invalidate_policy_locked(id,output);}
+  deliver(std::move(output));
+}
+std::vector<std::string> Broker::account_clients(const std::string& workspace,const std::string& account) const {
+  std::lock_guard lock(impl_->mutex);std::vector<std::string> result;
+  if(account.empty()||!impl_->workspaces.contains(workspace)||impl_->removed_workspaces.contains(workspace))return result;
+  for(const auto& [id,client]:impl_->clients)if(impl_->granted(id,workspace)&&!impl_->account_origin(id,workspace,account).empty())result.push_back(id);
+  return result;
+}
 bool Broker::grant_account(const std::string& client, const std::string& workspace, const std::string& account, const std::string& origin) {
   if (account.empty() || account.size() > 160 || !exact_https_origin(origin)) return false;
   std::lock_guard lock(impl_->mutex); if (!impl_->granted(client, workspace)) return false;

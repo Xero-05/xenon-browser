@@ -4,6 +4,7 @@
 #include "xenon/permissions.hpp"
 #include <filesystem>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -42,6 +43,15 @@ class Broker {
   void set_ui_state_callback(std::function<void()> callback);
   bool grant_account(const std::string& client_id, const std::string& workspace_id,
                      const std::string& account_id, const std::string& origin);
+  // Native vault metadata lookup used for Default-group grants. It is read on
+  // every check, so reclassifying, removing or locking takes effect at once;
+  // without it, or when it returns nothing, only individual grants apply. The
+  // lookup must not call back into the broker.
+  using AccountDirectory = std::function<std::optional<AccountMetadata>(const std::string& account_id)>;
+  void set_account_directory(AccountDirectory directory);
+  // Native UI only: paired clients that may currently use this account in the
+  // workspace, through an individual or Default-group grant.
+  std::vector<std::string> account_clients(const std::string& workspace_id, const std::string& account_id) const;
   RevocationStatus revoke_client(const std::string& client_id);
   // Native human action only. Saves a permanent tombstone before revoking
   // access, then closes the workspace after accepted finite input drains.

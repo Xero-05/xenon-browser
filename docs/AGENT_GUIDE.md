@@ -95,7 +95,7 @@ When `humanPaused` becomes false, obtain a fresh observation before continuing. 
 
 ## Credentials and files
 
-`xenon_accounts` lists only native-granted account handles, origin and human label for the current permitted HTTPS site. To sign in as part of the authorized task, call `xenon_login` with that `accountId` and the normal mutation/evidence fields. Passwords and usernames are not tool parameters or results. The account grant is exact to client, workspace, account and HTTPS origin. Sharing a workspace exposes its existing website sessions but does not grant vault use.
+`xenon_accounts` lists only native-granted account handles, origin and human label for the current permitted HTTPS site. To sign in as part of the authorized task, call `xenon_login` with that `accountId` and the normal mutation/evidence fields. Passwords and usernames are not tool parameters or results. The account grant is exact to client, workspace, account and HTTPS origin; a human may grant one account or every account in their native Default password group, and can withdraw either at any time. Sharing a workspace exposes its existing website sessions but does not grant vault use.
 
 Protected sign-in withholds page evidence and screenshots. MFA, passkeys, CAPTCHA, unsupported forms and native prompts require the human. Do not use screenshots or another channel to recover a secret. The human can use the native saved-account list without granting an agent account access. **Save/Update** and **Resume after login** are also native human actions; there are no MCP confirmation endpoints. A filled form or completed native call does not prove successful authentication.
 

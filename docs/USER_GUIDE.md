@@ -154,15 +154,17 @@ Usernames and passwords are encrypted with Windows DPAPI for your Windows accoun
 
 There are three entry paths:
 
-1. **Native Save/Update bubble.** After you type and submit a supported login, Xenon can offer to save that submitted password in a small bubble under the toolbar's key, as Chrome does. It shows the original login origin and a masked username, never the password. Click **Save** or **Update** only if the password is correct; the offer is not proof that login succeeded. **Not now** or **Escape** discards it.
-2. **Save account in Controls.** Enter the HTTPS origin, username, password and an optional recognizable label, then click **Save account**.
-3. **Import CSV.** Export passwords using your existing browser, then select **Import CSV** in Controls. Review the masked preview and choose whether to replace or skip conflicts.
+1. **Native Save/Update bubble.** After you type and submit a supported login, Xenon can offer to save that submitted password in a small bubble under the toolbar's key, as Chrome does. It shows the original login origin and a masked username, never the password. A new account joins the Default group unless you tick **Sensitive**. Click **Save** or **Update** only if the password is correct; the offer is not proof that login succeeded. **Not now** or **Escape** discards it.
+2. **Save account in Controls.** Enter the HTTPS origin, username, password and an optional recognizable label. Tick **Sensitive account** if needed, then click **Save account**.
+3. **Import CSV.** Export passwords using your existing browser, then select **Import CSV** in Controls. Review the masked preview, choose the group for newly imported accounts (Sensitive is preselected), and choose whether to replace or skip conflicts.
+
+Updating a saved password keeps its group.
 
 CSV import supports the exported formats used by Chrome, Edge and Firefox for supported HTTPS logins. It does not copy a browser's live profile, cookies, bookmarks or all settings. The exported CSV contains plaintext passwords; Xenon leaves it on disk, so remove it when finished and avoid shared folders.
 
 Automatic Save/Update covers top-level HTTPS sign-in with one current password. A conventional form posting to its own site is offered when you submit it. Sign-in pages that work through script, such as Google's two-step page, are offered after you press **Enter** or the sign-in button and the page moves on (it navigates or removes the password box); if the password box stays, Xenon assumes the attempt failed and offers nothing. When the password step does not show the account, Xenon uses the account you typed on the previous step of the same site in that tab. Private workspaces, agent-filled logins, registration/new-password fields, OTP fields, ambiguous and embedded cross-site forms are excluded. Use manual entry/import for unsupported forms.
 
-The encrypted pending offer stays bound to the original login origin through HTTPS SSO redirects and ordinary MFA input. It expires after ten minutes; lock, source-tab closure, non-HTTPS navigation, agent mutation or a new qualifying password edit cancels it. Unchanged credentials do not generate another prompt. Pending offers are not exposed to MCP and saving creates no agent grant.
+The encrypted pending offer stays bound to the original login origin through HTTPS SSO redirects and ordinary MFA input. It expires after ten minutes; lock, source-tab closure, non-HTTPS navigation, agent mutation or a new qualifying password edit cancels it. Unchanged credentials do not generate another prompt. Pending offers are not exposed to MCP. Saving creates no individual agent grant; a Default account is available only to clients and workspaces you allowed all Default passwords.
 
 ### Fill an account yourself
 
@@ -172,7 +174,7 @@ On a supported login page:
 2. Click an account, or use **Up**/**Down** and **Enter**. Clicks in the first half second after the list appears are ignored so a click meant for the page cannot choose an account. **Escape**, typing or clicking elsewhere closes the list.
 3. Continue on the website yourself. Native human fill does not submit the form.
 
-Each account row also shows its agent access: **Agents: no access**, or the names of paired clients granted that account for this workspace or for all of their workspaces. An agent with access gets only an opaque account handle; it never receives the username or password, which Xenon fills natively when the agent requests sign-in (see below). **Manage passwords…** and **Agent access…** at the bottom of the list open Controls' Passwords section with this site's account selected. If the page has no fillable form, the key opens that section instead.
+Each account row also shows its agent access: **Agents: no access**, or the names of paired clients that can currently use that account in this workspace, through an individual grant or the Default group. An agent with access gets only an opaque account handle; it never receives the username or password, which Xenon fills natively when the agent requests sign-in (see below). **Manage passwords…** and **Agent access…** at the bottom of the list open Controls' Passwords section with this site's account selected. If the page has no fillable form, the key opens that section instead.
 
 Ordinary two-field forms need one editable username and an empty password. Separate username/password steps need explicit `username`/`current-password` autocomplete hints. After filling only the username, continue on the website and use **Fill selected login tab** again at the password step.
 
@@ -182,9 +184,16 @@ Human fill needs no agent account grant and creates none. It pauses agent effect
 
 ### Let an agent use an account
 
-This is the agent handle on a saved account. Pair the client and share the intended workspace first. Choose the client and workspace in their sections, then select the saved account in **Passwords** and choose **Grant in workspace**, or **Grant to client** for an inheritable client-level resource. Enable saved-account use in both policies. Verify the exact HTTPS origin; subdomains and different ports are different origins.
+This is the agent handle on a saved account. Pair the client and share the intended workspace first, and enable saved-account use in both the client and workspace configuration.
 
-The agent receives an opaque account ID, origin and label through `xenon_accounts`. It requests protected sign-in with `xenon_login`; the vault does not return the username or password through MCP. The agent path can fill and submit supported same-origin POST forms, including a bounded username-first flow. Saving, pairing, workspace sharing and human autofill do not themselves add account grants.
+Saved accounts are in one of two groups, shown in **Passwords**:
+
+- **Default** accounts are granted as a group. In **Clients → Configure**, tick **Allow all Default passwords** to let that client use every Default account in workspaces that inherit client accounts (automatic workspaces do). In **Workspaces → Configure**, the same option grants the Default group to the selected client in that workspace only. New logins you save as Default are then available to those agents without another grant.
+- **Sensitive** accounts are granted one at a time. Choose the client and workspace in their sections, then select the saved account in **Passwords** and choose **Grant in workspace**, or **Grant to client** for an inheritable client-level resource.
+
+Select an account and choose **Make sensitive** or **Make default** to move it. Moving an account to Sensitive takes away group access at once while keeping any individual grants. Accounts saved before groups existed start as Sensitive. A workspace's **Restrict accounts to checked items** limits both kinds. Verify the exact HTTPS origin; subdomains and different ports are different origins. Keep banking, email, administrator and other high-impact accounts Sensitive: a Default-group grant lets that agent sign in to every Default account's site.
+
+The agent receives an opaque account ID, origin and label through `xenon_accounts`. It requests protected sign-in with `xenon_login`; the vault does not return the username or password through MCP. The agent path can fill and submit supported same-origin POST forms, including a bounded username-first flow. Pairing, workspace sharing and human autofill do not add account grants; saving adds none beyond an existing Default-group grant.
 
 Protected login withholds detailed observations and screenshots. If protection remains after you finish signing in, select the tab and click **Resume after login** only when no password, code or other secret is visible. The agent then needs fresh evidence.
 
