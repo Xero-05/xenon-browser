@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.5",
+  "capturedUtc": "2026-10-15T20:14:36Z",
+  "publishedUtc": "2026-10-15T20:07:42Z",
+  "passed": true,
+  "sourceCommit": "4304b06d96f845015f1f420c4ddcc72f3e6d6bf8",
+  "sourceTree": "a5fec09b56103f8fffc25d106c9495c7850dd0a9",
+  "tag": "v0.1.5",
+  "tagKind": "lightweight, pointing directly at the source commit",
+  "url": "https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.5",
+  "releaseId": 414224700,
+  "draft": false,
+  "prerelease": false,
+  "latest": true,
+  "windowsCi": {
+    "url": "https://github.com/Xero-05/xenon-browser/actions/runs/38797299895",
+    "workflow": "Windows release",
+    "headSha": "4304b06d96f845015f1f420c4ddcc72f3e6d6bf8",
+    "event": "push",
+    "conclusion": "success",
+    "attempt": 1,
+    "jobs": [
+      {"name": "build-test", "runner": "windows-2022", "conclusion": "success"},
+      {"name": "adapter-linux", "runner": "ubuntu-latest", "conclusion": "success", "steps": "npm run typecheck and npm test both succeeded; their counts are not recorded here."}
+    ],
+    "artifactId": 12002633130,
+    "artifactDigest": "sha256:f0a54118a6d883adbebccc5c19909873bb21d8a0ef8b546e6ed4a1ecd1c7a23a",
+    "artifactBytes": 436858187,
+    "liveResultsArtifactId": 12003271655,
+    "liveResultsArtifactDigest": "sha256:93e7a396e7df2601bacd5f984100e054f82b3df966c31fc1017964e6b9d6bc30"
+  },
+  "pullRequests": [
+    {"number": 20, "url": "https://github.com/Xero-05/xenon-browser/pull/20", "mergeCommit": "b156c0b7625dd8177a7e6afca17028e17445737f", "purpose": "Passkey gate for agent-controlled tabs"},
+    {"number": 21, "url": "https://github.com/Xero-05/xenon-browser/pull/21", "mergeCommit": "eee4e0f41dab193e8bc76bafe5ad7fad8b259a36", "purpose": "Default and Sensitive saved-account groups"},
+    {"number": 22, "url": "https://github.com/Xero-05/xenon-browser/pull/22", "mergeCommit": "d695500b76b351482852ce000c8ccf9f82f2d60f", "purpose": "Read-only page_changed retry after packaged tab creation"},
+    {"number": 23, "url": "https://github.com/Xero-05/xenon-browser/pull/23", "mergeCommit": "af515d84dad43e866d2046eb122c02c60886c68d", "purpose": "Toolbar control repaint during window resize"},
+    {"number": 24, "url": "https://github.com/Xero-05/xenon-browser/pull/24", "mergeCommit": "4304b06d96f845015f1f420c4ddcc72f3e6d6bf8", "purpose": "Version bump and release notes"}
+  ],
+  "assets": [
+    {"name": "Xenon-0.1.5-windows-x64-setup-unsigned.exe", "size": 203769014, "digest": "sha256:e06ca9b0283946aba4be586a32fb5543aec52c8cd21b4320783e7da8512c6275", "state": "uploaded"},
+    {"name": "Xenon-0.1.5-windows-x64-setup-unsigned.exe.sha256", "size": 109, "digest": "sha256:89a296f4376a02311eb8aec755d67dac241a96ecce55d748de1a954e9e27cc92", "state": "uploaded"},
+    {"name": "Xenon-0.1.5-windows-x64-unsigned.zip", "size": 234452657, "digest": "sha256:7523acf222fd3bfa5824271e353629ae61784e5974b2f95860f7787f93310f0e", "state": "uploaded"},
+    {"name": "Xenon-0.1.5-windows-x64-unsigned.zip.sha256", "size": 103, "digest": "sha256:c6e2c41a434847d96502a07cc8d1e9cb81ada36e826b7cbcff3519ba9e91b4a4", "state": "uploaded"}
+  ],
+  "assetVerification": "The CI artifact, downloaded with gh run download into a scratch directory, holds exactly these four files; each file's size and SHA-256 equal the published asset's size and GitHub digest. Each .sha256 file names its asset and that asset's hash. scripts/verify-package.ps1 passed again locally on the downloaded ZIP, verifying its checksum and all 1,319 manifest hashes.",
+  "binaries": {
+    "source": "release-manifest.json inside the published ZIP; every listed hash verified by verify-package.ps1.",
+    "manifestFiles": 1319,
+    "productionExecutableSha256": "17cb3517ec7392855b54b0ba9e6b6c7a99c2339898d5c2b29097180d7000cbbf",
+    "productionDllSha256": "92e74729b47b6c33a42dd77b5e00d0b2a699eaa45464cd68854e8aeca03a01f6",
+    "cefDllSha256": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7"
+  },
+  "hostedCi": {
+    "runUrl": "https://github.com/Xero-05/xenon-browser/actions/runs/38797299895",
+    "runner": "windows-2022, Windows light app mode",
+    "build": {"command": "./scripts/build.ps1 -Test", "passed": true},
+    "unit": [
+      {"name": "native", "report": "native-tests.xml", "passed": true, "checks": 16, "reportSha256": "5623e7c0896c97690e10c7c8c3fcba4da5b12da54907ab9bdac047bf1c861539"},
+      {"name": "adapter", "report": "adapter-tests.xml", "passed": true, "checks": 22, "reportSha256": "09b6b5696dcd6e6348e786b0187f802600fa9ead1cf8fa456d8fd497655f2a63"},
+      {"name": "login-capture", "report": "login-capture-tests.xml", "passed": true, "checks": 42, "reportSha256": "88aacfa72ae8cdf4b0dc460cfa84b08641c725d580985fe1e11bd85a9fb71a30"},
+      {"name": "human-autofill", "report": "human-autofill-tests.xml", "passed": true, "checks": 31, "reportSha256": "4a103b55e8fe2af60430455a107c78f82dfed7773084f12bae64d3d9ced15379"},
+      {"name": "protected-login", "report": "protected-login-tests.xml", "passed": true, "checks": 10, "reportSha256": "880af2511795a1aef93497a62b992998f5fa2a81827a08c1d98689c0f6bf0c11"},
+      {"name": "form-fill", "report": "form-fill-tests.xml", "passed": true, "checks": 6, "reportSha256": "7af14511e296c8eb97fcdfa3d84cf388e7d2df0b6bfb997ff75f28a199e71956"},
+      {"name": "passkey-guard", "report": "passkey-guard-tests.xml", "passed": true, "checks": 8, "reportSha256": "e1ed90ce926419e76d65ebd19b120e7cae2e3f4e4fc855b613a6bc9ebc99a287"},
+      {"name": "branding", "report": "branding-results.json", "passed": true, "checks": 5, "reportSha256": "a166bf8d57e6381b76c96c7f3ca0617bc245956da07411e3a439b071d6c72e98"}
+    ],
+    "supplementalFromJobLog": {
+      "downloaderExtractorChecks": 18,
+      "isolatedInstallerChecks": 47
+    },
+    "packageVerification": {"command": "./scripts/verify-package.ps1", "passed": true, "manifestFilesVerified": 1319, "localRerunPassed": true},
+    "packageSmoke": {"command": "node tests/package-smoke.mjs <extracted ZIP>", "report": "package-smoke-results.json", "passed": true, "checks": 6, "applicationDllSha256": "92e74729b47b6c33a42dd77b5e00d0b2a699eaa45464cd68854e8aeca03a01f6", "reportSha256": "906486686e638a36f1e756271fedfa0fed27ddf87d76dedab35f2c67391e73da"},
+    "liveSuites": {
+      "binding": "build/app/Release/Xenon.dll required to equal the packaged manifest's Xenon.dll before the suites ran; every report records this DLL, and those with an end-of-run hash record it unchanged.",
+      "applicationDllSha256": "92e74729b47b6c33a42dd77b5e00d0b2a699eaa45464cd68854e8aeca03a01f6",
+      "passed": true,
+      "checks": 61,
+      "suites": [
+        {"name": "integration", "checks": 17, "passed": true, "report": "integration-results.json", "reportSha256": "be27bb436e8e9e12ee33d03d43260e8cd63c5d94d7900da8f105b4cba55e14f5"},
+        {"name": "batch-integration", "checks": 7, "passed": true, "report": "batch-1792094501010-e73d3fb9.json", "reportSha256": "cf30ed09a390c8d39be75f81b9c80b48955e98b41558fe6f293856e1966feed2"},
+        {"name": "visibility-integration", "checks": 11, "passed": true, "report": "visibility-integration-results.json", "reportSha256": "5fde7d712c213ed2cf8d68068bc4018a905c65cb85446d1912a300f04c79d147"},
+        {"name": "worker-lifecycle-integration", "checks": 4, "passed": true, "report": "worker-lifecycle-integration-results.json", "reportSha256": "44ec9c6bffe5f81331e664495c8870b999192acbb5bd4677e70e3b5456478154"},
+        {"name": "upload-entry-integration", "checks": 11, "passed": true, "report": "upload-entry-1792094531104-a960bfba.json", "reportSha256": "8936ee2531a3d07239cf6ee63d119a85d8241098022be618863d4c2cebe9f19b"},
+        {"name": "persistence-integration", "checks": 3, "passed": true, "report": "persistence-integration-results.json", "reportSha256": "66ecf067066c8af03756be514c0ff9bb54984cd73899807743e07e0726b02af3"},
+        {"name": "theme-integration", "checks": 4, "passed": true, "windowsAppMode": "light", "report": "theme-integration-1792094587057-973e7996.json", "reportSha256": "7af246f68765448b35c022e799f3f94738bde5642037b8a2384e74344d35f5a5"},
+        {"name": "passkey-integration", "checks": 4, "passed": true, "report": "passkey-integration-1792094599910-c9ede9cd.json", "reportSha256": "29a4d95ea859b61dd92bc7f2cb7040af98273804af641c50b4e239bfe2c4d2aa"}
+      ]
+    },
+    "reportNote": "Reports were read from the run's two artifacts, downloaded outside the repository. package-smoke-1792094460116.json and persistence-crash-results.json are byte-identical copies of the package-smoke and persistence reports above."
+  },
+  "dependencies": {
+    "unchanged": true,
+    "basis": "dependencies.lock.json is byte-identical at v0.1.4 and the source commit; package-lock.json changes only the root package version.",
+    "cef": {
+      "version": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+      "archive": "cef_binary_154.0.34+g14c5a08+chromium-154.0.8037.98_windows64_minimal.tar.bz2",
+      "sha1": "be54bbaf3222191dec59ffd9c9ec7e8a7f44a26d",
+      "sha256": "c81c34d048d87276f4a18f0b000206710a1709bb67dd658948b87100e1a538da"
+    }
+  },
+  "cefMaintenance": {
+    "checkedUtc": "2026-10-15T20:10:19Z",
+    "indexSource": "https://cef-builds.spotifycdn.com/index.json",
+    "indexBytes": 10514265,
+    "indexSha256": "d4b07f84b079cfc4dcfba91441d6c163c0ace0599e97eba20296172cb8b606eb",
+    "highestStableObserved": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "pinnedVersion": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "pinnedPresent": true,
+    "pinnedArchiveSha1MatchesIndex": true,
+    "highestBetaObserved": "156.0.7+g47dbc1d+chromium-156.0.8078.17",
+    "cef156Channels": ["beta"],
+    "chromeWindowsStable": {
+      "source": "https://versionhistory.googleapis.com/v1/chrome/platforms/win64/channels/stable/versions",
+      "version": "156.0.8078.36"
+    },
+    "note": "The release retains the upstream CEF security-update lag and does not claim parity with current Chrome."
+  },
+  "coverage": "Hosted CI on synthetic loopback fixtures and disposable profiles, plus a local re-run of package verification on the downloaded ZIP. No local browser suite, operator-driven check or native update download ran for this record.",
+  "limits": [
+    "The password-group controls (Save bubble Sensitive checkbox, Passwords page Make sensitive/Make default, import group question, Allow all Default passwords) have never been displayed or clicked in a validation run.",
+    "No suite performs a real WebAuthn ceremony through Windows Hello, a security key or a phone; passkey-integration uses already-aborted requests with no authenticator or Windows prompt, and passkey-guard a synthetic CredentialsContainer.",
+    "Native update discovery and download of 0.1.5 from an earlier version were not exercised.",
+    "Physical input, high contrast, other DPI, assistive technology and real accounts remain unverified.",
+    "Downloads are unsigned; hashes establish byte integrity, not publisher identity."
+  ],
+  "privacy": "Synthetic CI reports only. The user's installed browser and profile were not tested, modified or replaced; no tokens, raw calls, browsing logs, vault data or screenshots are recorded."
+}

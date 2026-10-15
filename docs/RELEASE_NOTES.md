@@ -1,8 +1,22 @@
 # Release notes
 
-## Unreleased
+## 0.1.5
+
+The [0.1.5 notes](RELEASE-0.1.5.md) also cover the toolbar resize repaint fix and the release checks.
 
 **Password groups.** Saved accounts are now **Default** or **Sensitive**. Tick **Allow all Default passwords** when configuring a client (inherited by workspaces that inherit client accounts) or a workspace, and that client can use every Default account at its exact HTTPS origin, including logins saved later, without granting each one. Sensitive accounts still need an individual grant. The Save bubble saves new logins as Default unless you tick **Sensitive**; **Save account** and **Import CSV** ask for the group too, and **Make sensitive**/**Make default** in Controls → Passwords moves an account. Moving an account to Sensitive withdraws group access immediately. Existing accounts start as Sensitive, so no account gains agent access until you choose. The autofill list's **Agents:** line now counts both kinds of access. Groups are native-only; MCP sees the same opaque handles plus a `defaultAccounts` flag in `clientPolicy`.
+
+**Passkeys** go through Chromium's WebAuthn support and the Windows authenticator, and only the human can start them. Tabs the human controls are unchanged. In a tab an agent controls, a passkey request reaches Windows only right after the human's own click or key press in that tab, so no handoff is needed; a request an agent's action causes is refused with `NotAllowedError` before Windows is asked, and `xenon_control_status` reports `passkeyNeedsHuman` until the tab navigates. A ceremony the human starts pauses agent input until it ends, and passkey suggestions in sign-in fields are off in tabs the human does not control. Tabs Xenon opens now load their website only after this gate is installed, and cross-origin frames wait for it; a popup's first document is not covered. See [security](SECURITY.md).
+
+The [0.1.5 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.5) publishes both unsigned formats and their checksums as the latest regular release. The four files are the artifacts of the merged release commit's Windows CI run; the [publication record](test-results/release-0.1.5-publication.json) binds the uploaded digests to that run and its test reports.
+
+## 0.1.4
+
+See the [0.1.4 notes](RELEASE-0.1.4.md) for the visibility-filter, uncertain-click collection, address-bar and selection-styling changes.
+
+## 0.1.3
+
+The [0.1.3 notes](RELEASE-0.1.3.md) describe its native developer tools. 0.1.3 also shipped the desktop shell, tab, saved-account, update and extension changes below.
 
 **Desktop browser layout.** Each window now has a Chrome/Edge-style toolbar across the top: back, forward and reload, a rounded address box with a saved-password key and bookmark star, an ownership chip, and Extensions, Controls and ⋮ menu buttons. Vertical tabs sit below it in a compact sidebar with **New tab** at the top. Find floats over the page instead of resizing it. The menu is regrouped (Zoom, Appearance, Help submenus) and adds new window, reopen closed tab, passwords, extensions and workspace cleanup. Chromium shortcuts were added: **Ctrl+N**, **Ctrl+Shift+T/N/W**, **Ctrl+Tab**, **Ctrl+PgUp/PgDn**, **Ctrl+1–9**, **Alt+D**, **F6** and **Ctrl+R**; tab-switching and focus shortcuts do not pause agents. Page link context menus offer opening in a new tab or window and copying the link.
 
@@ -17,8 +31,6 @@
 **Updates.** Xenon now checks for a newer release about 20 seconds after start and every six hours, unless turned off in the Updates window. An available update puts a blue dot on the Controls button, adds **Update Xenon to …** at the top of the ⋮ menu and labels the Controls update button with the version. Checking never downloads or installs anything.
 
 **Shell polish.** The page outline has rounded corners on all four sides. The tab sidebar's scrollbar is on its outer edge so it no longer separates the selected tab from the page, and a new tab scrolls into view. A workspace heading's **+** keeps its place with **…** appearing beside it on hover, and a quick second click on **+** opens another tab instead of collapsing the workspace; adding a tab to a collapsed workspace expands it. Title changes no longer rebuild the sidebar, which removes flicker and scroll jumps while pages load, and the toolbar no longer shifts (leaving a stale bookmark star) while a new tab opens.
-
-**Passkeys** go through Chromium's WebAuthn support and the Windows authenticator, and only the human can start them. Tabs the human controls are unchanged. In a tab an agent controls, a passkey request reaches Windows only right after the human's own click or key press in that tab, so no handoff is needed; a request an agent's action causes is refused with `NotAllowedError` before Windows is asked, and `xenon_control_status` reports `passkeyNeedsHuman` until the tab navigates. A ceremony the human starts pauses agent input until it ends, and passkey suggestions in sign-in fields are off in tabs the human does not control. Tabs Xenon opens now load their website only after this gate is installed, and cross-origin frames wait for it; a popup's first document is not covered. See [security](SECURITY.md).
 
 **Extensions.** **Controls → Extensions** adds unpacked Manifest V3 Chromium extensions, which Xenon copies into its data directory and loads into persistent workspaces at the next start. Extensions can be turned off, removed, and their options or popup pages opened in a human tab. Chrome Web Store installation and extension toolbar popups are not supported. Extensions can read and change the sites they run on, including pages agents use; see [security](SECURITY.md#extensions).
 
