@@ -80,8 +80,9 @@ try {
     const deadline = Date.now() + 5000;
     while (true) {
       const response = await client.callTool({ name: 'xenon_observe', arguments: args });
-      // Retry only the documented transient read, never a mutation.
-      if (response.isError && response.structuredContent?.error?.code === 'privacy_guard_initializing' && Date.now() < deadline) {
+      // A new tab commits about:blank before its URL, so an early read can see the
+      // document change. Retry only these transient reads, never a mutation.
+      if (response.isError && ['privacy_guard_initializing', 'page_changed'].includes(response.structuredContent?.error?.code) && Date.now() < deadline) {
         await sleep(100); continue;
       }
       assert(!response.isError, `Release observation failed: ${JSON.stringify(response.structuredContent)}`);
