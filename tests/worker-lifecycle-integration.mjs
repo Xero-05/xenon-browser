@@ -157,7 +157,15 @@ try {
   ownerClient = await connect(0, 'modern'); otherClient = await connect(1, 'legacy');
   owner = await createWorker(ownerClient, 'Initial lifecycle owner');
   liveTab = await tool(ownerClient, 'tab_create', { agentSessionId: owner.agentSessionId, workspaceId, url: `${origin}/` });
-  await until(async () => (await observe()).nodes.some(node => node.name === 'Worker lifecycle ready'));
+  await until(async () => {
+    // A new tab commits about:blank before its URL, so only this first wait tolerates
+    // that document change; later reads stay strict to catch handoff reloads.
+    const response = await raw(ownerClient, 'observe', { ...scope(owner), maxNodes: 1000 });
+    lastObservation = response;
+    if (response.isError && ['privacy_guard_initializing', 'page_changed'].includes(response.structuredContent?.error?.code)) return false;
+    assert(!response.isError, `observe: ${JSON.stringify(response.structuredContent ?? response.content)}`);
+    return response.structuredContent.nodes.some(node => node.name === 'Worker lifecycle ready');
+  });
 
   await check('Modern and legacy clients cannot retire each other’s workers', async () => {
     const denied = await raw(otherClient, 'worker_retire', { agentSessionId: owner.agentSessionId });
