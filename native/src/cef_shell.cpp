@@ -245,7 +245,12 @@ struct BrowserShell::Impl {
       if(controls.contains(DeveloperList)){auto list=controls.at(DeveloperList);ListView_SetBkColor(list,colors.surface);ListView_SetTextBkColor(list,colors.surface);ListView_SetTextColor(list,colors.ink);}
       SetWindowTheme(tooltips,L"",L"");SendMessageW(tooltips,TTM_SETTIPBKCOLOR,colors.surface,0);SendMessageW(tooltips,TTM_SETTIPTEXTCOLOR,colors.ink,0);
       for(const auto& [id,control]:controls){ui::control_theme(control);InvalidateRect(control,nullptr,TRUE);}InvalidateRect(window,nullptr,TRUE);InvalidateRect(find_bar,nullptr,TRUE);}
-    void place(int id,int x,int y,int width,int height){MoveWindow(controls.at(id),d(x),d(y),d(width),d(height),TRUE);}
+    // A moved child discards its copied pixels and repaints whole. Otherwise a
+    // live window resize repaints only each right-anchored button's newly
+    // exposed strip and leaves slivers of earlier frames across the rest.
+    void reposition(HWND target,HWND after,int x,int y,int width,int height,UINT flags){RECT now{};GetWindowRect(target,&now);MapWindowPoints(nullptr,GetParent(target),reinterpret_cast<POINT*>(&now),2);
+      if(now.left!=x||now.top!=y)flags|=SWP_NOCOPYBITS;SetWindowPos(target,after,x,y,width,height,flags);}
+    void place(int id,int x,int y,int width,int height){reposition(controls.at(id),nullptr,d(x),d(y),d(width),d(height),SWP_NOZORDER|SWP_NOACTIVATE);}
     // Chip text: a transient status message, otherwise the selected tab's owner
     // once the broker reports it. A tab that is still opening shows no chip, so
     // the omnibox does not shrink and regrow for every new tab.
@@ -279,7 +284,7 @@ struct BrowserShell::Impl {
       panel_bounds={d(sidebar),d(ToolbarHeight),rect.right-d(8),rect.bottom-d(8)};
       const int developer_width=developer_visible?std::clamp(developer_preferred_width,240,std::max(240,width-sidebar-168)):0;
       if(developer_visible)panel_bounds.right-=d(developer_width+8);
-      SetWindowPos(developer_panel,nullptr,panel_bounds.right+d(8),d(ToolbarHeight),d(developer_width),std::max<int>(1,rect.bottom-d(ToolbarHeight+8)),SWP_NOACTIVATE|SWP_NOZORDER|(developer_visible?SWP_SHOWWINDOW:SWP_HIDEWINDOW));
+      reposition(developer_panel,nullptr,panel_bounds.right+d(8),d(ToolbarHeight),d(developer_width),std::max<int>(1,rect.bottom-d(ToolbarHeight+8)),SWP_NOACTIVATE|SWP_NOZORDER|(developer_visible?SWP_SHOWWINDOW:SWP_HIDEWINDOW));
       if(developer_visible){const int panel_height=height-ToolbarHeight-8,space=std::max(140,panel_height-188),list_height=std::clamp(static_cast<int>(space*developer_split),80,space-60);developer_split_y=166+list_height;
         place(DeveloperTitle,12,12,developer_width-24,24);place(DeveloperHint,12,42,developer_width-24,48);
         place(DeveloperFilter,12,96,developer_width/2-12,24);place(DeveloperPick,developer_width/2,96,developer_width/2-12,24);place(DeveloperList,12,128,developer_width-24,list_height);
@@ -290,7 +295,7 @@ struct BrowserShell::Impl {
         if(host.browser)SetWindowPos(host.browser,nullptr,0,0,std::max<int>(1,inner.right-inner.left),std::max<int>(1,inner.bottom-inner.top),SWP_NOACTIVATE|SWP_NOZORDER);}
       // Find floats over the page's top-right corner, as in Chromium; it
       // never resizes the page.
-      SetWindowPos(find_bar,HWND_TOP,inner.right-d(356),inner.top+d(6),d(344),d(40),SWP_NOACTIVATE|(find_visible?SWP_SHOWWINDOW:SWP_HIDEWINDOW));
+      reposition(find_bar,HWND_TOP,inner.right-d(356),inner.top+d(6),d(344),d(40),SWP_NOACTIVATE|(find_visible?SWP_SHOWWINDOW:SWP_HIDEWINDOW));
       MoveWindow(find_text,d(12),d(9),d(200),d(22),TRUE);MoveWindow(controls.at(FindPrevious),d(220),d(4),d(32),d(32),TRUE);MoveWindow(controls.at(FindNext),d(256),d(4),d(32),d(32),TRUE);MoveWindow(controls.at(FindClose),d(304),d(4),d(32),d(32),TRUE);
       InvalidateRect(window,nullptr,TRUE);
     }
