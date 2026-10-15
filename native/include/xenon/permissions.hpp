@@ -22,22 +22,35 @@ struct Capabilities {
   }
   bool operator==(const Capabilities&) const = default;
 };
+// Saved-account group, chosen natively by the human. A Default account is
+// covered by a client's or workspace's Default-group grant; a Sensitive
+// account needs its own grant. Unknown or missing values read as Sensitive.
+enum class AccountGroup { default_group, sensitive };
+inline const char* account_group_name(AccountGroup group) { return group==AccountGroup::default_group?"default":"sensitive"; }
+inline AccountGroup read_account_group(const std::string& value) { return value=="default"?AccountGroup::default_group:AccountGroup::sensitive; }
+// Native vault metadata the broker reads to evaluate Default-group grants.
+struct AccountMetadata { std::string origin; AccountGroup group{AccountGroup::sensitive}; };
 struct ClientPolicy {
   Capabilities capabilities;
   bool automatic_workspaces{};
   // Zero means no additional client quota, for migrated legacy clients.
   size_t max_workers{4}, max_automatic_workspaces{4};
+  // Client-level grant of every Default-group account at its exact origin.
+  // Workspaces receive it only when they inherit client accounts.
+  bool default_accounts{};
   static ClientPolicy legacy(size_t global_workers) {
     return {Capabilities::full(),true,global_workers,0};
   }
   bool valid() const { return max_workers<=256&&max_automatic_workspaces<=64; }
   Json json() const {
     auto value=capabilities.json(); value["automaticWorkspaces"]=automatic_workspaces;
-    value["maxWorkers"]=max_workers;value["maxAutomaticWorkspaces"]=max_automatic_workspaces;return value;
+    value["maxWorkers"]=max_workers;value["maxAutomaticWorkspaces"]=max_automatic_workspaces;
+    value["defaultAccounts"]=default_accounts;return value;
   }
   static ClientPolicy read(const Json& value) {
     return {Capabilities::read(value),value.value("automaticWorkspaces",false),
-      value.value("maxWorkers",size_t{4}),value.value("maxAutomaticWorkspaces",size_t{4})};
+      value.value("maxWorkers",size_t{4}),value.value("maxAutomaticWorkspaces",size_t{4}),
+      value.value("defaultAccounts",false)};
   }
 };
 struct WorkspaceAccess {
@@ -46,6 +59,8 @@ struct WorkspaceAccess {
   // A restriction with an empty set intentionally grants no inherited resource.
   bool restrict_files{}, restrict_accounts{};
   std::set<std::string> file_ids, account_ids;
+  // Workspace-level grant of every Default-group account for this client.
+  bool default_accounts{};
   static WorkspaceAccess legacy() { WorkspaceAccess value;value.capabilities=Capabilities::full();return value; }
   static WorkspaceAccess automatic(const ClientPolicy& policy) {
     WorkspaceAccess value;value.capabilities=policy.capabilities;
@@ -54,12 +69,13 @@ struct WorkspaceAccess {
   Json json() const {
     auto value=capabilities.json();value["inheritFiles"]=inherit_files;value["inheritAccounts"]=inherit_accounts;
     value["restrictFiles"]=restrict_files;value["restrictAccounts"]=restrict_accounts;
-    value["fileIds"]=file_ids;value["accountIds"]=account_ids;return value;
+    value["fileIds"]=file_ids;value["accountIds"]=account_ids;value["defaultAccounts"]=default_accounts;return value;
   }
   static WorkspaceAccess read(const Json& value) {
     WorkspaceAccess access;access.capabilities=Capabilities::read(value);
     access.inherit_files=value.value("inheritFiles",false);access.inherit_accounts=value.value("inheritAccounts",false);
     access.restrict_files=value.value("restrictFiles",false);access.restrict_accounts=value.value("restrictAccounts",false);
+    access.default_accounts=value.value("defaultAccounts",false);
     for(const auto& id:value.value("fileIds",Json::array()))if(id.is_string())access.file_ids.insert(id.get<std::string>());
     for(const auto& id:value.value("accountIds",Json::array()))if(id.is_string())access.account_ids.insert(id.get<std::string>());
     return access;

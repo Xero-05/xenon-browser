@@ -117,6 +117,8 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       engine_->set_vault(vault_.get());
       engine_->set_file_policy(files_.get());
       broker_=std::make_unique<Broker>(*engine_,root_,limits_);
+      // The vault outlives the broker (see stop()), and its lookups never call the broker.
+      broker_->set_account_directory([vault=vault_.get()](const std::string& account){return vault->account_metadata(account);});
       const auto removed=broker_->removed_workspaces();
       engine_->exclude_workspaces(removed);
       // OnContextInitialized runs only after CEF acquired this data root's

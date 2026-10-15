@@ -40,7 +40,8 @@ enum Id { Pairings=101,Approve,Deny,Clients,Workspaces,Share,Tabs,Take,Workers,G
           Origin,Username,Password,Label,Save,Import,Accounts,DeleteAccount,Grant,NewWorkspace,UploadGrant,Status,Revoke,PrivateWorkspace,RestoreSession,DialogAccept,DialogDismiss,DialogText,RemoveWorkspace,FillSavedAccount,CheckUpdates,PageClients,PageWorkspaces,PagePasswords,ConfigureClient,ConfigureWorkspace,ClientFiles,ClientAccountGrant,AccountRevoke,DialogMessage,SectionTitle,Brand,
           PageExtensions,ExtensionList,ExtensionLoad,ExtensionToggle,ExtensionRemove,ExtensionOptions,ExtensionPopup,CloseWorkspaceTabs,
           PageDeveloper,DeveloperToggle,DeveloperClear,DeveloperCommands,DeveloperDetails,DeveloperImage,
-          UncertainClickToggle,UncertainClickFolder,UncertainClickClear,UncertainClickStatus };
+          UncertainClickToggle,UncertainClickFolder,UncertainClickClear,UncertainClickStatus,
+          AccountGroupToggle,SaveSensitive };
 constexpr UINT LoginNotice=WM_APP+41;
 constexpr UINT DialogNotice=WM_APP+42;
 constexpr UINT RemovalNotice=WM_APP+43;
@@ -112,7 +113,7 @@ struct NativeUi::Impl {
   HWND file_window{},file_list{};std::string file_scope;std::vector<Json> file_rows;
   struct LoginNoticeEntry {std::string id;HWND owner{};};
   std::deque<LoginNoticeEntry> login_notices;
-  HWND login_window{},login_accept{},login_status{};
+  HWND login_window{},login_accept{},login_status{},login_sensitive{};
   std::string login_candidate;
   struct AutofillNoticeEntry {Json offer;HWND owner{};bool manual{};};
   std::deque<AutofillNoticeEntry> autofill_notices;
@@ -155,26 +156,30 @@ struct NativeUi::Impl {
       if(result.value("ok",false))for(auto item:result["result"][key])if(added.insert(str(item,id)).second){item["resourceId"]=str(item,id);item["kind"]=command?"Folder":"File";item["scope"]=resource_scope;config.resource_rows.push_back(std::move(item));}
     }
     const auto state=broker.state();const auto accounts=vault.list_accounts();
-    if(accounts.value("ok",false))for(auto account:accounts["result"]["accounts"]){bool granted=false;
-      for(const auto& grant:state["accountGrants"])if(str(grant,"clientId")==config.client&&str(grant,"accountId")==str(account,"accountId")&&(!config.workspace||str(grant,"workspaceId").empty()||str(grant,"workspaceId")==config.id))granted=true;
-      if(config.workspace&&!granted)continue;account["resourceId"]=str(account,"accountId");account["name"]=str(account,"label")+" · "+str(account,"origin");account["kind"]="Account";account["granted"]=granted;config.resource_rows.push_back(std::move(account));
-    }
     WorkspaceAccess access;for(const auto& workspace:state["workspaces"])if(str(workspace,"workspaceId")==config.id)if(workspace["access"].contains(config.client))access=WorkspaceAccess::read(workspace["access"][config.client]);
-    int index=0;for(const auto& item:config.resource_rows){auto title=wide(str(item,"name"));LVITEMW row{};row.mask=LVIF_TEXT;row.iItem=index;row.pszText=title.data();ListView_InsertItem(config.resources,&row);auto kind=wide(ui::tr8(str(item,"kind").c_str()));ListView_SetItemText(config.resources,index,1,kind.data());
+    bool client_defaults=false;for(const auto& client:state["clients"])if(str(client,"clientId")==config.client)client_defaults=client.value("policy",Json::object()).value("defaultAccounts",false);
+    if(accounts.value("ok",false))for(auto account:accounts["result"]["accounts"]){bool granted=false;const bool default_group=str(account,"group")=="default";
+      for(const auto& grant:state["accountGrants"])if(str(grant,"clientId")==config.client&&str(grant,"accountId")==str(account,"accountId")&&(!config.workspace||str(grant,"workspaceId").empty()||str(grant,"workspaceId")==config.id))granted=true;
+      // A workspace lists the accounts this client can reach there, so Default
+      // accounts covered by a group grant can still form a restriction.
+      if(config.workspace&&!granted&&!(default_group&&(client_defaults||access.default_accounts)))continue;
+      account["resourceId"]=str(account,"accountId");account["name"]=str(account,"label")+" · "+str(account,"origin");account["kind"]="Account";account["kindLabel"]=default_group?"Default account":"Sensitive account";account["granted"]=granted;config.resource_rows.push_back(std::move(account));
+    }
+    int index=0;for(const auto& item:config.resource_rows){auto title=wide(str(item,"name"));LVITEMW row{};row.mask=LVIF_TEXT;row.iItem=index;row.pszText=title.data();ListView_InsertItem(config.resources,&row);auto kind=wide(ui::tr8(item.contains("kindLabel")?str(item,"kindLabel").c_str():str(item,"kind").c_str()));ListView_SetItemText(config.resources,index,1,kind.data());
       const auto id=str(item,"resourceId");const bool account=str(item,"kind")=="Account";
       ListView_SetCheckState(config.resources,index,config.workspace?(account?(!access.restrict_accounts||access.account_ids.contains(id)):(!access.restrict_files||access.file_ids.contains(id))):item.value("granted",false));++index;
     }
   }
   void load_configuration(Configuration& config){
     const auto state=broker.state();Json policy=Json::object();bool allowed=false;
-    for(int id=20;id<=28;++id)EnableWindow(config_control(config,id),!config.workspace||!config.client.empty());
+    for(int id=20;id<=29;++id)EnableWindow(config_control(config,id),!config.workspace||!config.client.empty());
     if(config.workspace){for(const auto& workspace:state["workspaces"])if(str(workspace,"workspaceId")==config.id){
       if(GetFocus()!=config_control(config,10))SetWindowTextW(config_control(config,10),wide(str(workspace,"displayName")).c_str());
       if(workspace["access"].contains(config.client)){policy=workspace["access"][config.client];allowed=true;}
     }}else for(const auto& client:state["clients"])if(str(client,"clientId")==config.client)policy=client["policy"];
     check(config,20,policy.value("interaction",false));check(config,21,policy.value("uploads",false));check(config,22,policy.value("downloads",false));check(config,23,policy.value("savedAccounts",false));
     check(config,24,config.workspace?allowed:policy.value("automaticWorkspaces",false));check(config,25,policy.value("inheritFiles",false));check(config,26,policy.value("inheritAccounts",false));
-    check(config,27,policy.value("restrictFiles",false));check(config,28,policy.value("restrictAccounts",false));
+    check(config,27,policy.value("restrictFiles",false));check(config,28,policy.value("restrictAccounts",false));check(config,29,policy.value("defaultAccounts",false));
     SetWindowTextW(config_control(config,30),std::to_wstring(policy.value("maxWorkers",4)).c_str());SetWindowTextW(config_control(config,31),std::to_wstring(policy.value("maxAutomaticWorkspaces",4)).c_str());config_resources(config);
   }
   void save_configuration(Configuration& config){
@@ -186,12 +191,12 @@ struct NativeUi::Impl {
       bool saved=false;
       if(config.workspace){saved=broker.rename_workspace(config.id,name);if(!config.client.empty()){
           if(!checked(config,24))saved=broker.configure_workspace_client(config.id,config.client,std::nullopt)&&saved;
-          else {WorkspaceAccess access;access.capabilities=capabilities;access.inherit_files=checked(config,25);access.inherit_accounts=checked(config,26);access.restrict_files=checked(config,27);access.restrict_accounts=checked(config,28);
+          else {WorkspaceAccess access;access.capabilities=capabilities;access.inherit_files=checked(config,25);access.inherit_accounts=checked(config,26);access.restrict_files=checked(config,27);access.restrict_accounts=checked(config,28);access.default_accounts=checked(config,29);
             for(size_t n=0;n<config.resource_rows.size();++n)if(ListView_GetCheckState(config.resources,n)){auto item=config.resource_rows[n];(str(item,"kind")=="Account"?access.account_ids:access.file_ids).insert(str(item,"resourceId"));}
             saved=broker.configure_workspace_client(config.id,config.client,access)&&saved;}
         }}else {const auto workers=ui::text(config_control(config,30)),workspaces=ui::text(config_control(config,31));
           if(workers.empty()||workspaces.empty()||!std::all_of(workers.begin(),workers.end(),::isdigit)||!std::all_of(workspaces.begin(),workspaces.end(),::isdigit))throw std::runtime_error("Enter numeric quotas.");
-          ClientPolicy policy{capabilities,checked(config,24),std::stoul(workers),std::stoul(workspaces)};saved=broker.configure_client(config.client,policy);
+          ClientPolicy policy{capabilities,checked(config,24),std::stoul(workers),std::stoul(workspaces),checked(config,29)};saved=broker.configure_client(config.client,policy);
           for(size_t n=0;n<config.resource_rows.size();++n){const auto& item=config.resource_rows[n];if(str(item,"kind")!="Account")continue;const auto account=str(item,"accountId");
             if(ListView_GetCheckState(config.resources,n))saved=broker.grant_client_account(config.client,account,str(item,"origin"))&&saved;
             else saved=broker.revoke_account(config.client,"",account)&&saved;
@@ -222,7 +227,7 @@ struct NativeUi::Impl {
       const int x=config->workspace?260:20,w=width-x-20;
       if(!config->workspace){ShowWindow(config_control(*config,11),SW_HIDE);ShowWindow(config_control(*config,12),SW_HIDE);}
       for(int n=0;n<4;++n)move(20+n,x,98+n*30,w,26);
-      move(24,x,226,w,26);move(25,x,260,w/2,26);move(26,x+w/2,260,w/2,26);move(27,x,292,w/2,26);move(28,x+w/2,292,w/2,26);
+      move(24,x,226,w/2,26);move(29,x+w/2,226,w/2,26);move(25,x,260,w/2,26);move(26,x+w/2,260,w/2,26);move(27,x,292,w/2,26);move(28,x+w/2,292,w/2,26);
       move(32,x,265,145,24);move(30,x+150,261,70,28);move(33,x+240,265,180,24);move(31,x+425,261,70,28);
       move(34,x,328,w,25);move(13,x,357,w,std::max(80,height-505));move(3,x,height-140,130,30);move(4,x+138,height-140,130,30);move(5,x+276,height-140,150,30);
       move(40,x,height-100,w,40);move(1,x,height-52,160,32);move(2,width-140,height-52,120,32);return 0;
@@ -247,6 +252,7 @@ struct NativeUi::Impl {
     if(!creating){config->clients=make(11,L"LISTBOX",L"",WS_BORDER|WS_VSCROLL|WS_TABSTOP|LBS_NOTIFY);make(12,L"STATIC",ui::tr(L"Paired clients"));
       const wchar_t* caps[]{ui::tr(L"Interact with pages and create tabs"),ui::tr(L"Upload approved files"),ui::tr(L"Download files"),ui::tr(L"Use permitted saved accounts")};for(int n=0;n<4;++n)make(20+n,L"BUTTON",caps[n],BS_AUTOCHECKBOX|WS_TABSTOP);
       make(24,L"BUTTON",workspace?ui::tr(L"Allow this client in this workspace"):ui::tr(L"Allow automatic workspace creation"),BS_AUTOCHECKBOX|WS_TABSTOP);
+      make(29,L"BUTTON",ui::tr(L"Allow all Default passwords"),BS_AUTOCHECKBOX|WS_TABSTOP);
       make(25,L"BUTTON",ui::tr(L"Inherit client files"),BS_AUTOCHECKBOX|WS_TABSTOP);make(26,L"BUTTON",ui::tr(L"Inherit client accounts"),BS_AUTOCHECKBOX|WS_TABSTOP);make(27,L"BUTTON",ui::tr(L"Restrict files to checked items"),BS_AUTOCHECKBOX|WS_TABSTOP);make(28,L"BUTTON",ui::tr(L"Restrict accounts to checked items"),BS_AUTOCHECKBOX|WS_TABSTOP);
       make(32,L"STATIC",ui::tr(L"Concurrent workers"));make(30,L"EDIT",L"4",WS_BORDER|WS_TABSTOP|ES_NUMBER);make(33,L"STATIC",ui::tr(L"Automatic workspaces"));make(31,L"EDIT",L"4",WS_BORDER|WS_TABSTOP|ES_NUMBER);
       for(int n:{25,26,27,28})ShowWindow(config_control(*config,n),workspace?SW_SHOW:SW_HIDE);for(int n:{30,31,32,33})ShowWindow(config_control(*config,n),workspace?SW_HIDE:SW_SHOW);
@@ -515,7 +521,7 @@ struct NativeUi::Impl {
     button_style(found->second,version.empty()?ButtonTone::normal:ButtonTone::primary);InvalidateRect(found->second,nullptr,TRUE);
   }
   void close_login_prompt(bool dismiss){
-    auto id=std::exchange(login_candidate,{});auto h=std::exchange(login_window,nullptr);login_accept=nullptr;login_status=nullptr;
+    auto id=std::exchange(login_candidate,{});auto h=std::exchange(login_window,nullptr);login_accept=nullptr;login_status=nullptr;login_sensitive=nullptr;
     if(dismiss&&!id.empty()){try{vault.dismiss_login(id);}catch(...){}}
     if(h&&IsWindow(h))DestroyWindow(h);
   }
@@ -587,7 +593,7 @@ struct NativeUi::Impl {
     const int accounts=static_cast<int>(autofill_accounts());
     if(row>=accounts){
       close_autofill(true);
-      if(row==accounts+1)status(ui::tr(L"To let an agent sign in with an account without seeing its password, select the client in Clients, then choose Grant to client or Grant in workspace."));
+      if(row==accounts+1)status(ui::tr(L"Agents allowed Default passwords can sign in with Default accounts without seeing the password. For a Sensitive account, select the client in Clients, then choose Grant to client or Grant in workspace."));
       show_section(2,origin);return;
     }
     if(vault.locked()||!engine.autofill_offer_valid(offer)){close_autofill(true);status(ui::tr(L"That login page changed. Open saved accounts again on the current login form."));return;}
@@ -652,15 +658,16 @@ struct NativeUi::Impl {
     return DefWindowProcW(h,message,wp,lp);
   }
   static bool engine_valid(Impl& self){return !self.vault.locked()&&self.engine.autofill_offer_valid(str(self.autofill_offer,"offerId"));}
-  // Clients granted each offered account for the offer's workspace. Grants
-  // are native decisions; agents receive an opaque handle, never the secret.
+  // Clients that can use each offered account in the offer's workspace, by an
+  // individual or Default-group grant, as the broker evaluates it. Grants are
+  // native decisions; agents receive an opaque handle, never the secret.
   std::vector<std::wstring> account_agents(const Json& offer){
     std::vector<std::wstring> result;const auto state=broker.state();std::map<std::string,std::string> names;
     for(const auto& client:state["clients"])names[str(client,"clientId")]=str(client,"name");
     const auto workspace=str(offer,"workspaceId");
     for(const auto& account:offer["accounts"]){
       std::set<std::string> granted;
-      for(const auto& grant:state["accountGrants"])if(str(grant,"accountId")==str(account,"accountId")&&(str(grant,"workspaceId").empty()||str(grant,"workspaceId")==workspace)&&names.contains(str(grant,"clientId")))granted.insert(names[str(grant,"clientId")]);
+      for(const auto& client:broker.account_clients(workspace,str(account,"accountId")))if(names.contains(client))granted.insert(names[client]);
       std::string joined;for(const auto& name:granted){if(!joined.empty())joined+=", ";joined+=name;}
       result.push_back(wide(compact(joined,80)));
     }
@@ -785,7 +792,10 @@ struct NativeUi::Impl {
     // command is connected to confirmation, and no plaintext is fetched here.
     try{
       if(vault.locked()){clear_login_prompts();return;}
-      auto result=vault.accept_login(login_candidate);
+      // New accounts join Default unless the person ticked Sensitive. An
+      // update has no checkbox; the vault keeps the account's group.
+      const auto group=login_sensitive&&SendMessageW(login_sensitive,BM_GETCHECK,0,0)==BST_CHECKED?AccountGroup::sensitive:AccountGroup::default_group;
+      auto result=vault.accept_login(login_candidate,{},group);
       if(result.value("ok",false)){
         const bool updated=str(result.value("result",Json::object()),"status")=="updated";
         close_login_prompt(false);status(updated?ui::tr(L"Saved password updated in Xenon."):ui::tr(L"Password saved in Xenon."));refresh();PostMessageW(window,LoginNotice,0,0);
@@ -805,7 +815,7 @@ struct NativeUi::Impl {
     if(message==WM_KEYDOWN&&wp==VK_ESCAPE){self->close_login_prompt(true);PostMessageW(self->window,LoginNotice,0,0);return 0;}
     if(message==WM_DESTROY&&self->login_window==h){
       // An owned popup also disappears if its Chromium owner is destroyed.
-      auto id=std::exchange(self->login_candidate,{});self->login_window=nullptr;self->login_accept=nullptr;self->login_status=nullptr;
+      auto id=std::exchange(self->login_candidate,{});self->login_window=nullptr;self->login_accept=nullptr;self->login_status=nullptr;self->login_sensitive=nullptr;
       if(!id.empty()){try{self->vault.dismiss_login(id);}catch(...){}}
       PostMessageW(self->window,LoginNotice,0,0);return 0;
     }
@@ -816,7 +826,8 @@ struct NativeUi::Impl {
   void show_login_prompt(const PendingCredential& candidate,HWND owner){
     WNDCLASSW wc{};wc.style=CS_DROPSHADOW;wc.lpfnWndProc=login_proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonSavePassword";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
     const auto d=[&](int value){return ui::dip(owner,value);};
-    const int width=d(372),height=d(236);
+    // A new account offers a Sensitive checkbox; an update keeps its group.
+    const int offset=candidate.update?0:26,width=d(372),height=d(236+offset);
     RECT source{};GetWindowRect(owner,&source);int x=source.right-width-d(14),y=source.top+d(52);
     if(const auto key=GetDlgItem(owner,ui::password_anchor_id);key&&IsWindowVisible(key)){RECT anchor{};GetWindowRect(key,&anchor);x=anchor.right-width+d(8);y=anchor.bottom+d(6);}
     MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST),&monitor);
@@ -833,10 +844,15 @@ struct NativeUi::Impl {
     auto origin=wide(candidate.origin);text_style(add(10,L"STATIC",origin.c_str(),20,44,330,20,SS_ENDELLIPSIS|SS_NOPREFIX),TextTone::muted,small_font);
     text_style(add(0,L"STATIC",ui::tr(L"Username"),20,76,96,20),TextTone::muted,small_font);add(0,L"STATIC",wide(candidate.username_label).c_str(),120,76,230,20,SS_ENDELLIPSIS|SS_NOPREFIX);
     text_style(add(0,L"STATIC",ui::tr(L"Password"),20,100,96,20),TextTone::muted,small_font);add(0,L"STATIC",L"••••••••",120,100,230,20);
-    text_style(add(0,L"STATIC",ui::tr(L"Save only if this password is correct. Saving does not give agents access; grant it in Controls → Passwords."),20,130,332,36),TextTone::muted,small_font);
-    login_status=add(0,L"STATIC",L"",20,172,140,48);text_style(login_status,TextTone::status,small_font);
-    login_accept=add(1,L"BUTTON",candidate.update?ui::tr(L"Update"):ui::tr(L"Save"),168,186,88,32,WS_TABSTOP|BS_PUSHBUTTON);
-    add(2,L"BUTTON",ui::tr(L"Not now"),264,186,88,32,WS_TABSTOP|BS_PUSHBUTTON);
+    if(!candidate.update){
+      // Not routed through add(): button_style would turn the checkbox into a push button.
+      login_sensitive=CreateWindowExW(0,L"BUTTON",ui::tr(L"Sensitive: agents need an individual grant"),WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,d(20),d(126),d(332),d(22),login_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(3)),wc.hInstance,nullptr);
+      SendMessageW(login_sensitive,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);ui::control_theme(login_sensitive);
+    }
+    text_style(add(0,L"STATIC",candidate.update?ui::tr(L"Update only if this password is correct. The account keeps its current Default or Sensitive group."):ui::tr(L"Save only if this password is correct. Unless marked sensitive, agents allowed Default passwords can use it."),20,130+offset,332,36),TextTone::muted,small_font);
+    login_status=add(0,L"STATIC",L"",20,172+offset,140,48);text_style(login_status,TextTone::status,small_font);
+    login_accept=add(1,L"BUTTON",candidate.update?ui::tr(L"Update"):ui::tr(L"Save"),168,186+offset,88,32,WS_TABSTOP|BS_PUSHBUTTON);
+    add(2,L"BUTTON",ui::tr(L"Not now"),264,186+offset,88,32,WS_TABSTOP|BS_PUSHBUTTON);
     // Appearance changes neither browser focus nor agent ownership. Clicking a
     // native button later is an explicit human action.
     remember_prompt(login_window);
@@ -904,7 +920,7 @@ struct NativeUi::Impl {
         bool interactive=false;for(const auto& workspace:s["workspaces"])if(str(workspace,"workspaceId")==selected_workspace){const auto access=workspace["access"].value(str(worker,"clientId"),Json::object());interactive=access.value("effectivePermissions",Json::object()).value("interaction",false);}
         worker["canControl"]=interactive&&worker.value("connected",false)&&str(worker,"state")!="retiring";filtered_workers.push_back(std::move(worker));}
       list(Workers,filtered_workers,"agentSessionId",[](auto& j){return str(j,"name")+"  ·  "+str(j,"agentSessionId").substr(0,10)+(str(j,"state")=="retiring"?ui::tr8(" (retiring)"):j.value("connected",false)?"":ui::tr8(" (offline)"));});
-      auto accounts=vault.list_accounts();if(accounts.value("ok",false))list(Accounts,accounts["result"]["accounts"],"accountId",[](auto& j){return str(j,"label")+"  |  "+str(j,"origin");});
+      auto accounts=vault.list_accounts();if(accounts.value("ok",false))list(Accounts,accounts["result"]["accounts"],"accountId",[](auto& j){return str(j,"label")+"  |  "+str(j,"origin")+"  |  "+(str(j,"group")=="default"?ui::tr8("Default"):ui::tr8("Sensitive"));});
       const bool pairing=!str(selected(Pairings),"requestId").empty(),client=!str(selected(Clients),"clientId").empty(),workspace=!str(selected(Workspaces),"workspaceId").empty();
       for(int id:{Approve,Deny})EnableWindow(controls.at(id),pairing);
       for(int id:{ConfigureClient,ClientFiles,Revoke})EnableWindow(controls.at(id),client);
@@ -917,6 +933,8 @@ struct NativeUi::Impl {
       if(text(DialogMessage)!=dialog_message)SetWindowTextW(controls.at(DialogMessage),wide(dialog_message).c_str());
       EnableWindow(controls.at(ResumeAuth),has_tab&&tab.value("protected",false));for(int id:{DialogAccept,DialogDismiss,DialogText})EnableWindow(controls.at(id),dialog);
       const bool account=!str(selected(Accounts),"accountId").empty();EnableWindow(controls.at(DeleteAccount),account);EnableWindow(controls.at(FillSavedAccount),has_tab);
+      EnableWindow(controls.at(AccountGroupToggle),account);const auto group_action=str(selected(Accounts),"group")=="default"?ui::tr(L"Make sensitive"):ui::tr(L"Make default");
+      if(text(AccountGroupToggle)!=utf8(group_action))SetWindowTextW(controls.at(AccountGroupToggle),group_action);
       EnableWindow(controls.at(ClientAccountGrant),account&&client);EnableWindow(controls.at(AccountRevoke),account&&client);EnableWindow(controls.at(Grant),account&&client&&workspace);
     }catch(const std::exception&){status(ui::tr(L"Some controls are unavailable while the vault is locked."));}
   }
@@ -1100,7 +1118,8 @@ struct NativeUi::Impl {
       else if(id==DialogAccept||id==DialogDismiss){engine.answer_native_dialog(str(selected(Tabs),"tabId"),id==DialogAccept,text(DialogText));SetWindowTextW(controls[DialogText],L"");status(ui::tr(L"Selected tab's script dialog answered."));}
       else if(id==FillSavedAccount)request_autofill();
       else if(id==Save){
-        auto user=text(Username),pass=text(Password);result(vault.save(text(Origin),user,pass,text(Label)));SecureZeroMemory(user.data(),user.size());SecureZeroMemory(pass.data(),pass.size());SetWindowTextW(controls[Password],L"");SetWindowTextW(controls[Username],L"");
+        const auto group=SendMessageW(controls.at(SaveSensitive),BM_GETCHECK,0,0)==BST_CHECKED?AccountGroup::sensitive:AccountGroup::default_group;
+        auto user=text(Username),pass=text(Password);result(vault.save(text(Origin),user,pass,text(Label),{},group));SecureZeroMemory(user.data(),user.size());SecureZeroMemory(pass.data(),pass.size());SetWindowTextW(controls[Password],L"");SetWindowTextW(controls[Username],L"");
       }
       else if(id==Import){
         auto path=pick(true);
@@ -1121,13 +1140,16 @@ struct NativeUi::Impl {
           if(data.at("validRows").get<size_t>()==0){status(ui::tr(L"The CSV contains no supported HTTPS logins. Nothing was imported."));return;}
           details+=ui::tr(L"\nImport these logins? The source CSV remains unencrypted on disk until you remove it.");
           if(MessageBoxW(window,details.c_str(),ui::tr(L"Preview password import"),MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)!=IDYES){status(ui::tr(L"Import canceled. Nothing was imported."));return;}
+          const auto group_answer=MessageBoxW(window,ui::tr(L"Which group should newly imported accounts join?\n\nYes: Default. Clients and workspaces that allow Default passwords can use them.\nNo: Sensitive. Each account needs its own grant.\nCancel: import nothing.\n\nAccounts that already exist keep their group."),ui::tr(L"Choose password group"),MB_YESNOCANCEL|MB_ICONQUESTION|MB_DEFBUTTON2);
+          if(group_answer==IDCANCEL){status(ui::tr(L"Import canceled. Nothing was imported."));return;}
+          const auto group=group_answer==IDYES?AccountGroup::default_group:AccountGroup::sensitive;
           bool replace=false;
           if(data.at("conflicts").get<size_t>()>0){
             const auto answer=MessageBoxW(window,ui::tr(L"Some accounts have different passwords in the CSV.\n\nYes: replace conflicting saved passwords with the CSV values.\nNo: keep existing passwords and skip conflicting rows.\nCancel: import nothing."),ui::tr(L"Resolve password conflicts"),MB_YESNOCANCEL|MB_ICONQUESTION|MB_DEFBUTTON2);
             if(answer==IDCANCEL){status(ui::tr(L"Import canceled. Nothing was imported."));return;}
             replace=answer==IDYES;
           }
-          auto imported=vault.import_csv(path,replace,str(data,"fileDigest"));result(imported);
+          auto imported=vault.import_csv(path,replace,str(data,"fileDigest"),group);result(imported);
           if(imported.value("ok",false)){
             const auto& counts=imported.at("result");
             status(ui::tr(L"Imported ")+std::to_wstring(counts.at("created").get<size_t>())+ui::tr(L", updated ")+std::to_wstring(counts.at("updated").get<size_t>())+
@@ -1137,6 +1159,10 @@ struct NativeUi::Impl {
       }
       else if(id==ClientAccountGrant){auto a=selected(Accounts);status(broker.grant_client_account(str(selected(Clients),"clientId"),str(a,"accountId"),str(a,"origin"))?ui::tr(L"Account granted to this client for its exact HTTPS origin."):ui::tr(L"Select a client and saved account."));}
       else if(id==AccountRevoke){auto a=selected(Accounts);status(broker.revoke_account(str(selected(Clients),"clientId"),"",str(a,"accountId"))?ui::tr(L"Client account permission revoked."):ui::tr(L"Account access blocked; the change could not be saved."));}
+      else if(id==AccountGroupToggle){auto account=selected(Accounts);if(!account.empty()){const bool to_default=str(account,"group")!="default";
+        auto changed=vault.set_group(str(account,"accountId"),to_default?AccountGroup::default_group:AccountGroup::sensitive);
+        if(!changed.value("ok",false))result(changed);
+        else{if(!to_default)broker.resource_changed("");status(to_default?ui::tr(L"Account moved to Default. Clients and workspaces that allow Default passwords can use it."):ui::tr(L"Account moved to Sensitive. Only its individual grants still apply."));}}}
       else if(id==DeleteAccount){auto account=selected(Accounts);if(!account.empty()&&MessageBoxW(window,ui::tr(L"Remove this saved account from Xenon?"),ui::tr(L"Remove account"),MB_YESNO|MB_ICONQUESTION)==IDYES){result(vault.remove(str(account,"accountId")));broker.resource_changed("");}}
       else if(id==Grant){auto a=selected(Accounts);status(broker.grant_account(str(selected(Clients),"clientId"),str(selected(Workspaces),"workspaceId"),str(a,"accountId"),str(a,"origin"))?ui::tr(L"Selected account allowed for this client, workspace, and exact origin."):ui::tr(L"Select an account, a paired client, and a shared workspace."));}
       else if(id==NewWorkspace){show_configuration(true,true);}
@@ -1186,10 +1212,11 @@ struct NativeUi::Impl {
     button(Take,ui::tr(L"Take ownership"),24,545,145);button(Give,ui::tr(L"Give to agent"),181,545,140);button(ResumeAuth,ui::tr(L"Resume after login"),333,545,175);button(DialogAccept,ui::tr(L"Accept dialog"),520,545,135);button(DialogDismiss,ui::tr(L"Dismiss"),667,545,100);add(DialogText,L"EDIT",L"",779,545,157,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
     building_page=2;
     label(ui::tr(L"Saved accounts · shared encrypted vault"),24,116,870,TextTone::heading);add(Accounts,L"LISTBOX",L"",24,149,912,148,WS_BORDER|WS_VSCROLL|LBS_NOTIFY|WS_TABSTOP);
-    button(Import,ui::tr(L"Import CSV"),24,309,135);button(DeleteAccount,ui::tr(L"Remove account"),171,309,160);button(FillSavedAccount,ui::tr(L"Fill selected login tab"),343,309,210);
-    label(ui::tr(L"Selected client/workspace come from the other sections. Grants use exact HTTPS origins."),24,356,912,TextTone::muted);button(ClientAccountGrant,ui::tr(L"Grant to client"),24,388,190);button(AccountRevoke,ui::tr(L"Revoke client grant"),226,388,190);button(Grant,ui::tr(L"Grant in workspace"),428,388,195);
+    button(Import,ui::tr(L"Import CSV"),24,309,135);button(DeleteAccount,ui::tr(L"Remove account"),171,309,160);button(FillSavedAccount,ui::tr(L"Fill selected login tab"),343,309,210);button(AccountGroupToggle,ui::tr(L"Make sensitive"),565,309,170);
+    text_style(add(0,L"STATIC",ui::tr(L"Default accounts reach every client and workspace that allows Default passwords. Grant Sensitive accounts individually with the client and workspace selected in the other sections. Grants use exact HTTPS origins."),24,345,912,38),TextTone::muted,small_font);button(ClientAccountGrant,ui::tr(L"Grant to client"),24,388,190);button(AccountRevoke,ui::tr(L"Revoke client grant"),226,388,190);button(Grant,ui::tr(L"Grant in workspace"),428,388,195);
     label(ui::tr(L"HTTPS origin"),24,439,430,TextTone::muted);label(ui::tr(L"Account label"),490,439,446,TextTone::muted);add(Origin,L"EDIT",L"",24,464,445,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);add(Label,L"EDIT",L"",490,464,446,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);
     label(ui::tr(L"Username"),24,507,445,TextTone::muted);label(ui::tr(L"Password"),490,507,446,TextTone::muted);add(Username,L"EDIT",L"",24,532,445,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);add(Password,L"EDIT",L"",490,532,446,28,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL|ES_PASSWORD);button(Save,ui::tr(L"Save account"),24,582,165);
+    add(SaveSensitive,L"BUTTON",ui::tr(L"Sensitive account (grant individually)"),205,582,400,28,BS_AUTOCHECKBOX|WS_TABSTOP);
     building_page=4;
     label(ui::tr(L"Agent commands and returned evidence"),24,116,870,TextTone::heading);
     label(ui::tr(L"Captured only while enabled. Tokens and input values are redacted. Clear or disable to erase."),24,144,912,TextTone::muted);

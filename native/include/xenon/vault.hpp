@@ -1,5 +1,6 @@
 #pragma once
 #include "xenon/contracts.hpp"
+#include "xenon/permissions.hpp"
 #include <chrono>
 #include <filesystem>
 #include <functional>
@@ -45,13 +46,21 @@ class Vault {
   Vault(const Vault&) = delete;
   Vault& operator=(const Vault&) = delete;
   // Accounts are metadata only; labels must be human-selected descriptions.
+  // Each row includes its group: "default" or "sensitive".
   Json list_accounts(std::optional<std::string> https_origin = std::nullopt) const;
+  // The group applies when an account is created. Updating an existing
+  // account keeps its group; use set_group to change it.
   Json save(const std::string& origin_or_url, const std::string& username,
             const std::string& password, const std::string& label = {},
-            const std::string& replace_account_id = {});
+            const std::string& replace_account_id = {},
+            AccountGroup group = AccountGroup::sensitive);
   std::optional<Secret> get_secret(const std::string& account_id,
                                  const std::string& expected_https_origin) const;
   Json remove(const std::string& account_id);
+  // Native human action only. Never expose reclassification to agents.
+  Json set_group(const std::string& account_id, AccountGroup group);
+  // Origin and group for broker grant checks; empty when locked or missing.
+  std::optional<AccountMetadata> account_metadata(const std::string& account_id) const;
   // Pending secrets are DPAPI-encrypted in memory, never persisted, and cleared
   // on lock. Invalid, locked or unchanged credentials produce no proposal.
   std::optional<PendingCredential> propose_login(const std::string& origin_or_url,
@@ -60,13 +69,17 @@ class Vault {
   std::vector<PendingCredential> pending_logins() const;
   // Confirmation consumes the token. A saved record changed since proposal
   // requires a fresh proposal; an old prompt can never overwrite that change.
-  Json accept_login(const std::string& candidate_id, const std::string& label = {});
+  // The group applies only when the confirmation creates a new account.
+  Json accept_login(const std::string& candidate_id, const std::string& label = {},
+                    AccountGroup group = AccountGroup::sensitive);
   void dismiss_login(const std::string& candidate_id);
   // The path comes from a native file picker. Never expose this method to agents.
   // Conflicts are skipped unless the native user explicitly chose replacement.
   Json preview_csv(const std::filesystem::path& path) const;
+  // New accounts join the chosen group; replaced conflicts keep theirs.
   Json import_csv(const std::filesystem::path& path, bool replace_conflicts = false,
-                  const std::string& expected_file_digest = {});
+                  const std::string& expected_file_digest = {},
+                  AccountGroup group = AccountGroup::sensitive);
   void set_locked(bool locked);
   bool locked() const;
   static std::optional<std::string> normalize_https_origin(const std::string& url);
