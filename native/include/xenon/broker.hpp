@@ -40,6 +40,8 @@ class Broker {
   bool revoke_account(const std::string& client_id, const std::string& workspace_id, const std::string& account_id);
   void resource_changed(const std::string& client_id);
   bool allow_download(const std::string& tab_id) const;
+  // The human owns the tab and no handoff away from the human is pending.
+  bool human_controls(const std::string& tab_id) const;
   void set_ui_state_callback(std::function<void()> callback);
   bool grant_account(const std::string& client_id, const std::string& workspace_id,
                      const std::string& account_id, const std::string& origin);

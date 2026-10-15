@@ -33,6 +33,8 @@ class CefEngine final : public BrowserEngine {
                           std::function<void(const std::string&,HWND)> created,
                           std::function<void(const std::string&)> closed);
   void set_download_callback(std::function<bool(const std::string&)> allowed);
+  // True when the human currently controls the tab; other tabs gate passkeys.
+  void set_passkey_control_callback(std::function<bool(const std::string&)> human_controls);
   void set_permission_callback(std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> callback);
   void native_pointer(HWND page,POINT screen,bool substantive=false);
   void select_native_tab(const std::string& tab_id);

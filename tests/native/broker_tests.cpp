@@ -635,11 +635,24 @@ void security_and_handoff(const std::filesystem::path& directory) {
   engine.event("auth.protected", {{"tabId", first.tab["tabId"]}, {"protected", false}});
   auto nav = shared; nav["operationId"] = "bad-navigation"; nav["ownershipGeneration"] = state["ownershipGeneration"]; nav["url"] = "file:///C:/private";
   require(code(call(broker, "bob", "page.navigate", nav)) == "URL_DENIED", "File navigation is not delegated");
+  require(!broker.human_controls(first.tab["tabId"]), "An agent-owned tab keeps the passkey gate");
   count = engine.call_count(); broker.human_acquire(first.tab["tabId"]);
   require(engine.call_count() == count, "Human ownership acquisition changes only broker metadata");
   require(call(broker, "bob", "control.status", shared)["result"]["ownerSessionId"] == "human", "Human can take control");
+  require(broker.human_controls(first.tab["tabId"]), "A human-owned tab uses passkeys without the agent gate");
   broker.human_release(first.tab["tabId"], second.session);
   require(engine.call_count() == count, "Human release changes only broker metadata");
+  require(!broker.human_controls(first.tab["tabId"]), "Releasing to an agent restores the passkey gate");
+  require(!broker.human_controls("missing-tab"), "Unknown tabs are never human-controlled");
+  const auto before_refusal = call(broker, "bob", "control.status", shared)["result"];
+  require(!before_refusal["passkeyNeedsHuman"].get<bool>(), "No passkey request has been refused yet");
+  engine.event("passkey.refused", {{"tabId", first.tab["tabId"]}});
+  const auto after_refusal = call(broker, "bob", "control.status", shared)["result"];
+  require(after_refusal["passkeyNeedsHuman"].get<bool>(), "A refused passkey request tells the agent that the human must act");
+  require(after_refusal["ownerSessionId"] == before_refusal["ownerSessionId"] && after_refusal["ownershipGeneration"] == before_refusal["ownershipGeneration"],
+    "A refused passkey request does not change ownership");
+  engine.event("tab.navigated", {{"tabId", first.tab["tabId"]}, {"documentId", "after-passkey-refusal"}});
+  require(!call(broker, "bob", "control.status", shared)["result"]["passkeyNeedsHuman"].get<bool>(), "Navigation clears the passkey notice");
   std::ifstream file(directory / "broker-state.json"); std::string saved((std::istreambuf_iterator<char>(file)), {});
   require(saved.find(alice["token"].get<std::string>()) == std::string::npos, "Pair token is not persisted in plaintext");
 }

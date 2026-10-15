@@ -131,6 +131,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       engine_->set_host_callbacks([this](const std::string& workspace,const std::string& tab,bool human,const std::string& opener){return shell_->create_host(workspace,tab,human,opener);},
         [this](const std::string& tab,HWND browser){shell_->tab_created(tab,browser);},[this](const std::string& tab){shell_->tab_closed(tab);});
       engine_->set_download_callback([this](const std::string& tab){return broker_->allow_download(tab);});
+      engine_->set_passkey_control_callback([this](const std::string& tab){return broker_->human_controls(tab);});
       engine_->set_permission_callback([this](const std::string& tab,const std::string& origin,const std::string& description,std::function<void(bool)> answer){shell_->permission(tab,origin,description,std::move(answer));});
       broker_->set_ui_state_callback([this]{if(shell_)shell_->refresh();});
       engine_->set_controls_callback([this]{native_->show();});
@@ -169,7 +170,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     if(engine_)engine_->set_native_key_callback({});
     if(engine_){engine_->set_controls_callback({});engine_->set_updates_callback({});engine_->set_private_workspace_callback({});engine_->set_open_link_callback({});}
     if(broker_)broker_->set_ui_state_callback({});
-    if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_permission_callback({});}
+    if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_passkey_control_callback({});engine_->set_permission_callback({});}
     if(server_)server_->stop();server_.reset();native_.reset();shell_.reset();broker_.reset();engine_.reset();files_.reset();vault_.reset();
   }
  private:
