@@ -1,5 +1,13 @@
 # Validation
 
+## 0.1.5 release
+
+0.1.5 is a regular GitHub release, marked latest. It adds Default and Sensitive password groups, the passkey gate and the resize repaint fix for toolbar controls. Dependency pins are unchanged.
+
+The [publication record](test-results/release-0.1.5-publication.json) binds the `v0.1.5` tag and all four uploaded asset digests to the artifacts of the push CI run for merged commit `4304b06d96f845015f1f420c4ddcc72f3e6d6bf8`. That run passed 16 native groups; 22 adapter, 42 login-capture, 31 human-autofill, 10 protected-login, 6 form-fill and 8 passkey-guard checks; 5 branding checks; and 47 isolated installer checks. It verified all 1,319 ZIP manifest hashes, passed 6 package smoke checks on the extracted ZIP, and then ran eight live suites on the packaged DLL: 61 checks, including the passkey gate, with the theme suite in Windows light mode. The downloaded ZIP passed `verify-package.ps1` again locally. The CEF index checked October 15 still lists the pinned 154.0.34 as its highest stable Windows x64 build, with CEF 156 only in beta, while Chrome's Windows stable channel is at 156.0.8078.36.
+
+The record covers that hosted run and the local package re-verification only. The password-group controls have never been displayed or clicked, and no suite runs a real WebAuthn ceremony. Native update discovery of 0.1.5 was not exercised. Physical input, high contrast, other DPI, assistive technology and real accounts remain unverified. Downloads remain unsigned: published hashes establish byte integrity, not publisher identity.
+
 ## Password groups candidate
 
 This candidate adds Default and Sensitive saved-account groups, client- and workspace-level Default-group grants, and native controls for choosing and changing an account's group.
