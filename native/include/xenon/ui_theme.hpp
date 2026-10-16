@@ -80,6 +80,8 @@ inline COLORREF selection_ink() {return palette().contrast?GetSysColor(COLOR_HIG
 // The notification dot for an available update, distinct from the ownership
 // accents (teal/orange) used for agents and pairing requests.
 inline COLORREF notice_blue() {const auto colors=palette();return colors.contrast?GetSysColor(COLOR_HOTLIGHT):colors.dark?RGB(96,165,250):RGB(0,103,192);}
+// A dangerous connection (a certificate error), as in Chromium's "Not secure".
+inline COLORREF danger_red() {const auto colors=palette();return colors.contrast?GetSysColor(COLOR_WINDOWTEXT):colors.dark?RGB(242,139,130):RGB(197,34,31);}
 // Native chrome motion follows the Windows "Animation effects" setting and is
 // off in high contrast. Website geometry never animates; only shell paint does.
 inline int motion_override=-1;
@@ -183,7 +185,7 @@ inline bool keyboard_focus(HWND control) {return (SendMessageW(control,WM_QUERYU
 inline void focus_mark(HDC dc,RECT rect,HWND control,int radius=6) {
   if(!keyboard_focus(control))return;outline(dc,rect,palette().ink,dip(control,radius),dip(control,2));
 }
-enum class Icon {none,back,forward,reload,stop,go,controls,menu,plus,up,down,chevron_right,close,extensions,key,star,star_filled,pin,muted,more};
+enum class Icon {none,back,forward,reload,stop,go,controls,menu,plus,up,down,chevron_right,close,extensions,key,star,star_filled,pin,muted,more,search,history,globe,lock,warning,info,cookie,settings};
 // The browser toolbar's saved-password button. Native credential bubbles
 // anchor to it inside their source window when it is visible.
 inline constexpr int password_anchor_id=2015;
@@ -210,6 +212,15 @@ inline void icon(HDC dc,RECT rect,Icon kind,COLORREF ink,HWND window) {
       if(kind==Icon::star_filled)graphics.FillPolygon(&brush,points,10);graphics.DrawPolygon(&pen,points,10);}
     else if(kind==Icon::pin){graphics.DrawRectangle(&pen,cx-3*scale,cy-7*scale,6*scale,6*scale);line(-5.5f,-1,5.5f,-1);line(0,-1,0,7);}
     else if(kind==Icon::muted){Gdiplus::PointF speaker[]{{cx-7*scale,cy-2.5f*scale},{cx-4*scale,cy-2.5f*scale},{cx,cy-6*scale},{cx,cy+6*scale},{cx-4*scale,cy+2.5f*scale},{cx-7*scale,cy+2.5f*scale}};graphics.DrawPolygon(&pen,speaker,6);line(3,-3,7.5f,3);line(3,3,7.5f,-3);}
+    else if(kind==Icon::search){graphics.DrawEllipse(&pen,cx-6.5f*scale,cy-6.5f*scale,10*scale,10*scale);line(2,2,6.5f,6.5f);}
+    else if(kind==Icon::history){graphics.DrawEllipse(&pen,cx-7*scale,cy-7*scale,14*scale,14*scale);line(0,0,0,-4.5f);line(0,0,3.5f,2);}
+    else if(kind==Icon::globe){graphics.DrawEllipse(&pen,cx-7*scale,cy-7*scale,14*scale,14*scale);graphics.DrawEllipse(&pen,cx-3*scale,cy-7*scale,6*scale,14*scale);line(-7,0,7,0);}
+    else if(kind==Icon::lock){graphics.DrawRectangle(&pen,cx-5.5f*scale,cy-1.5f*scale,11*scale,8.5f*scale);graphics.DrawArc(&pen,cx-3.5f*scale,cy-7.5f*scale,7*scale,8*scale,180.0f,180.0f);line(-3.5f,-3.5f,-3.5f,-1.5f);line(3.5f,-3.5f,3.5f,-1.5f);}
+    else if(kind==Icon::warning){Gdiplus::PointF corners[]{{cx,cy-7.5f*scale},{cx+8*scale,cy+6.5f*scale},{cx-8*scale,cy+6.5f*scale}};graphics.DrawPolygon(&pen,corners,3);line(0,-2.5f,0,1.5f);graphics.FillEllipse(&brush,cx-1.2f*scale,cy+3*scale,2.4f*scale,2.4f*scale);}
+    else if(kind==Icon::info){graphics.DrawEllipse(&pen,cx-7*scale,cy-7*scale,14*scale,14*scale);line(0,-0.5f,0,4);graphics.FillEllipse(&brush,cx-1.2f*scale,cy-4.5f*scale,2.4f*scale,2.4f*scale);}
+    else if(kind==Icon::cookie){graphics.DrawEllipse(&pen,cx-7*scale,cy-7*scale,14*scale,14*scale);for(const auto& [x,y]:{std::pair{-2.5f,-2.5f},std::pair{2.5f,0.5f},std::pair{-1.5f,3.5f}})graphics.FillEllipse(&brush,cx+(x-1.2f)*scale,cy+(y-1.2f)*scale,2.4f*scale,2.4f*scale);}
+    else if(kind==Icon::settings){graphics.DrawEllipse(&pen,cx-5*scale,cy-5*scale,10*scale,10*scale);graphics.DrawEllipse(&pen,cx-2*scale,cy-2*scale,4*scale,4*scale);
+      for(int n=0;n<8;++n){const float angle=n*0.785398f,x=std::cos(angle),y=std::sin(angle);line(x*5,y*5,x*7.5f,y*7.5f);}}
     return;}
   const int unit=dip(window,1),cx=(rect.left+rect.right)/2,cy=(rect.top+rect.bottom)/2;auto d=[&](int v){return dip(window,v);};
   auto pen=CreatePen(PS_SOLID,std::max(1,d(2)),ink);auto old_pen=SelectObject(dc,pen),old_brush=SelectObject(dc,GetStockObject(NULL_BRUSH));
@@ -229,6 +240,14 @@ inline void icon(HDC dc,RECT rect,Icon kind,COLORREF ink,HWND window) {
     auto brush=kind==Icon::star_filled?CreateSolidBrush(ink):nullptr;if(brush)SelectObject(dc,brush);Polygon(dc,points,10);if(brush){SelectObject(dc,GetStockObject(NULL_BRUSH));DeleteObject(brush);}}
   else if(kind==Icon::pin){Rectangle(dc,cx-d(3),cy-d(7),cx+d(3),cy-d(1));line(-5,-1,5,-1);line(0,-1,0,7);}
   else if(kind==Icon::muted){POINT speaker[]{{cx-d(7),cy-d(2)},{cx-d(4),cy-d(2)},{cx,cy-d(6)},{cx,cy+d(6)},{cx-d(4),cy+d(2)},{cx-d(7),cy+d(2)}};Polygon(dc,speaker,6);line(3,-3,7,3);line(3,3,7,-3);}
+  else if(kind==Icon::search){Ellipse(dc,cx-d(7),cy-d(7),cx+d(4),cy+d(4));line(2,2,6,6);}
+  else if(kind==Icon::history){Ellipse(dc,cx-d(7),cy-d(7),cx+d(7),cy+d(7));line(0,0,0,-4);line(0,0,3,2);}
+  else if(kind==Icon::globe){Ellipse(dc,cx-d(7),cy-d(7),cx+d(7),cy+d(7));Ellipse(dc,cx-d(3),cy-d(7),cx+d(3),cy+d(7));line(-7,0,7,0);}
+  else if(kind==Icon::lock){Rectangle(dc,cx-d(5),cy-d(1),cx+d(6),cy+d(7));Arc(dc,cx-d(3),cy-d(7),cx+d(4),cy+d(1),cx+d(4),cy-d(3),cx-d(3),cy-d(3));line(-3,-3,-3,-1);line(3,-3,3,-1);}
+  else if(kind==Icon::warning){POINT corners[]{{cx,cy-d(7)},{cx+d(8),cy+d(6)},{cx-d(8),cy+d(6)}};Polygon(dc,corners,3);line(0,-2,0,1);line(0,3,0,4);}
+  else if(kind==Icon::info){Ellipse(dc,cx-d(7),cy-d(7),cx+d(7),cy+d(7));line(0,0,0,4);line(0,-4,0,-3);}
+  else if(kind==Icon::cookie){Ellipse(dc,cx-d(7),cy-d(7),cx+d(7),cy+d(7));line(-3,-3,-2,-2);line(2,0,3,1);line(-2,3,-1,4);}
+  else if(kind==Icon::settings){Ellipse(dc,cx-d(5),cy-d(5),cx+d(5),cy+d(5));Ellipse(dc,cx-d(2),cy-d(2),cx+d(2),cy+d(2));line(0,-7,0,-5);line(0,5,0,7);line(-7,0,-5,0);line(5,0,7,0);}
   SelectObject(dc,old_brush);SelectObject(dc,old_pen);DeleteObject(pen);
 }
 // Replaces {0}, {1}... in translated native copy with already-wide values.
@@ -323,5 +342,9 @@ inline void control_theme(HWND control) {auto colors=palette();SetWindowTheme(co
   // Win32 reports built-in names as Button/ListBox even when they were created
   // with uppercase names. Class-name comparisons must be case-insensitive.
   if(_wcsicmp(type,L"BUTTON")==0)SetWindowSubclass(control,hover_proc,1,0);
-  if(_wcsicmp(type,L"LISTBOX")==0)SendMessageW(control,LB_SETITEMHEIGHT,0,dip(control,28));}
+  if(_wcsicmp(type,L"LISTBOX")==0)SendMessageW(control,LB_SETITEMHEIGHT,0,dip(control,28));
+  // Windows keeps the dark combo-box parts in the CFD theme, not Explorer. The
+  // drop-down list is a separate window with its own scrollbar theme.
+  if(_wcsicmp(type,L"COMBOBOX")==0){SetWindowTheme(control,colors.dark?L"DarkMode_CFD":L"CFD",nullptr);
+    COMBOBOXINFO parts{sizeof(parts)};if(GetComboBoxInfo(control,&parts)&&parts.hwndList)SetWindowTheme(parts.hwndList,colors.dark?L"DarkMode_Explorer":L"Explorer",nullptr);}}
 }

@@ -67,17 +67,29 @@ BrowserData::Document& BrowserData::load(const std::string& workspace,bool priva
 }
 Json BrowserData::list(const std::string& workspace,bool private_mode){return load(workspace,private_mode).value;}
 bool BrowserData::bookmark(const std::string& workspace,bool private_mode,const std::string& url,const std::string& title){
-  if(!web(url))return false;auto& document=load(workspace,private_mode);for(auto& item:document.value["bookmarks"])if(item["url"]==url){item["title"]=title.substr(0,1024);document.dirty=true;return flush();}
-  if(document.value["bookmarks"].size()>=10000)return false;document.value["bookmarks"].push_back({{"url",url},{"title",title.substr(0,1024)}});document.dirty=true;return flush();
+  if(!web(url))return false;auto& document=load(workspace,private_mode);for(auto& item:document.value["bookmarks"])if(item["url"]==url){item["title"]=title.substr(0,1024);document.dirty=true;document.index.reset();return flush();}
+  if(document.value["bookmarks"].size()>=10000)return false;document.value["bookmarks"].push_back({{"url",url},{"title",title.substr(0,1024)}});document.dirty=true;document.index.reset();return flush();
 }
 bool BrowserData::remove_bookmark(const std::string& workspace,bool private_mode,const std::string& url){auto& document=load(workspace,private_mode);
-  auto& entries=document.value["bookmarks"];for(auto item=entries.begin();item!=entries.end();)if(item->value("url",std::string{})==url)item=entries.erase(item);else ++item;document.dirty=true;return flush();}
+  auto& entries=document.value["bookmarks"];for(auto item=entries.begin();item!=entries.end();)if(item->value("url",std::string{})==url)item=entries.erase(item);else ++item;document.dirty=true;document.index.reset();return flush();}
 void BrowserData::visit(const std::string& workspace,bool private_mode,bool protected_auth,const std::string& url,const std::string& title){
   if(protected_auth||!web(url))return;auto& document=load(workspace,private_mode);auto& history=document.value["history"];
   if(!history.empty()&&history[0].value("url",std::string{})==url)return;
   const auto time=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-  if(history.size()>=100000)history.erase(history.end()-1);
+  // Evicting the oldest visit needs a rebuild; a new visit updates the index.
+  if(history.size()>=100000){history.erase(history.end()-1);document.index.reset();}
   history.insert(history.begin(),Json{{"url",url},{"title",title.substr(0,1024)},{"visitedAt",time}});document.dirty=true;
+  if(document.index)omnibox::add_visit(*document.index,url,title.substr(0,1024),time);
+}
+std::vector<omnibox::Match> BrowserData::suggest(const std::string& workspace,bool private_mode,const std::string& input,bool inline_completion,size_t limit){
+  auto& document=load(workspace,private_mode);
+  if(!document.index)document.index=std::make_shared<omnibox::Index>(omnibox::build(document.value["bookmarks"],document.value["history"]));
+  const auto now=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  return omnibox::suggest(*document.index,input,inline_completion,now,limit);
+}
+bool BrowserData::remove_history(const std::string& workspace,bool private_mode,const std::string& url){auto& document=load(workspace,private_mode);
+  auto& history=document.value["history"];const auto removed=std::remove_if(history.begin(),history.end(),[&](const Json& item){return item.is_object()&&omnibox::string_of(item,"url")==url;});
+  if(removed==history.end())return true;history.erase(removed,history.end());document.dirty=true;document.index.reset();return flush();
 }
 bool BrowserData::flush(){bool success=true;
   for(auto& [workspace,document]:documents_)if(document.dirty){if(document.private_mode){document.dirty=false;continue;}
