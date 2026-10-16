@@ -1,5 +1,7 @@
 // Synthetic loopback pages for tests/browser-essentials-integration.ps1. Every
-// request logs its path and the fixture cookies it carried.
+// request logs its path and the fixture cookies it carried. The test's link
+// scheme is this server's argument; no request text is placed in a page
+// without HTML escaping.
 import http from 'node:http';
 import zlib from 'node:zlib';
 
@@ -12,7 +14,9 @@ function redIcon() {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', zlib.deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
 }
 const icon = redIcon();
-const page = (title, body = '') => `<!doctype html><title>${title}</title><body style="margin:0">${body}<h1>${title}</h1></body>`;
+const scheme = /^[a-z][a-z0-9+.-]{1,63}$/.test(process.argv[2] ?? '') ? process.argv[2] : 'xenon-essentials-unset';
+const escapeHtml = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const page = (title, body = '') => `<!doctype html><title>${escapeHtml(title)}</title><body style="margin:0">${body}<h1>${escapeHtml(title)}</h1></body>`;
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
@@ -25,7 +29,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/icon-page') html = `<!doctype html><title>Essentials icon</title><link rel="icon" href="/icon.png"><h1>Essentials icon</h1>`;
   else if (url.pathname === '/cookie') { headers['Set-Cookie'] = ['xenon_essentials=synthetic; Path=/; Max-Age=3600']; html = page('Essentials cookie'); }
   // A page that asks Windows to open another app as soon as it loads.
-  else if (url.pathname === '/app-link') html = page('Essentials app link', `<script>location.href=${JSON.stringify(url.searchParams.get('scheme') + ':probe value "quoted"&x=1')}</script>`);
+  else if (url.pathname === '/app-link') html = page('Essentials app link', `<script>location.href=${JSON.stringify(scheme + ':probe value "quoted"&x=1')}</script>`);
   else if (url.pathname === '/denied-link') html = page('Essentials denied link', `<script>location.href='ms-msdt:/id PCWDiagnostic'</script>`);
   // The whole page is a button that asks to share the screen.
   else if (url.pathname === '/share') html = page('Essentials share', `<button id="share" style="position:fixed;inset:0;width:100%;height:100%" onclick="navigator.mediaDevices.getDisplayMedia({video:true}).then(()=>document.title='Share allowed',e=>document.title='Share '+e.name)">Share</button>`);

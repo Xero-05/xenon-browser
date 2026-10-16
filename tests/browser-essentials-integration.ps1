@@ -117,13 +117,14 @@ function Read-Metadata {
 }
 function Last-Request([string]$Path) { Get-Content -LiteralPath $taskServerLog | Where-Object { $_ -like "GET $Path COOKIES *" } | Select-Object -Last 1 }
 
+# A synthetic scheme whose registered app records the arguments it received.
+# The fixture server takes it as an argument, never from a request.
+$taskScheme = 'xenon-essentials-' + $taskRun.Substring(11, 12)
 $taskServerLog = Join-Path $taskOut "$taskRun-server.log"
-$taskServer = Start-Process -FilePath 'node' -ArgumentList ('"' + (Join-Path $taskRoot 'tests/fixtures/browser-essentials-server.mjs') + '"') -RedirectStandardOutput $taskServerLog -WindowStyle Hidden -PassThru
+$taskServer = Start-Process -FilePath 'node' -ArgumentList ('"' + (Join-Path $taskRoot 'tests/fixtures/browser-essentials-server.mjs') + '" ' + $taskScheme) -RedirectStandardOutput $taskServerLog -WindowStyle Hidden -PassThru
 $taskProcess = $null
 $taskProfile = Join-Path $taskRoot ".cache/$taskRun"
 $taskPipe = "xenon-$taskRun"
-# A synthetic scheme whose registered app records the arguments it received.
-$taskScheme = 'xenon-essentials-' + $taskRun.Substring(11, 12)
 $taskSchemeKey = "HKCU:\Software\Classes\$taskScheme"
 $taskSink = Join-Path $taskOut "$taskRun-protocol.json"
 $expected = 9
@@ -208,7 +209,7 @@ try {
 
   # A site link for another app asks first, then reaches the registered app as
   # one escaped argument. Dangerous schemes never reach a prompt.
-  Open-Page $shell "$base/app-link?scheme=$taskScheme" 'Essentials app link'
+  Open-Page $shell "$base/app-link" 'Essentials app link'
   $prompt = Wait-Window 'XenonBrowserPanel' 'Open link in another app'
   $text = [XenonEssentials]::Captions($prompt) -join "`n"
   Require ($text -like "*Website: http://127.0.0.1:$port*" -and $text -like "*$($taskScheme): link*") "App-link prompt: $text"
