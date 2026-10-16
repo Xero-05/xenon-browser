@@ -1,0 +1,56 @@
+{
+  "candidate": "browser-essentials",
+  "completedUtc": "2026-10-16T23:24:11Z",
+  "branch": "claude/browser-essentials",
+  "base": "0a5c06e",
+  "cefVersion": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+  "cefDistribution": "locally built media-enabled distribution (proprietary_codecs=true), as in the website video record",
+  "binaryHashes": {
+    "Xenon.dll": "42d2f45840e007ee9ead4f8678ba37462258a2fe02f18f3dfb849a7f7a5ee2c5",
+    "Xenon.exe": "ba68e3eb2f4938469d6fedba716d25a7df3fdcae2756a67d8d604eb59bf42a18",
+    "libcef.dll": "b34071176b690d9a4509dfafce37d6685677efbc4833b806a196177fe0743c1f"
+  },
+  "native": {
+    "groups": 19,
+    "failures": 0,
+    "newGroup": "browser_import_tests",
+    "extendedGroups": ["native_ui_tests (search engine persistence)"]
+  },
+  "installer": {
+    "command": "./tests/installer-tests.ps1",
+    "checks": 51,
+    "failures": 0,
+    "newChecks": [
+      "link handler passes each link as one argument to the chosen executable",
+      "browser capabilities claim only http and https links",
+      "registered application points at its capabilities",
+      "fixture never registers as a real Windows browser"
+    ],
+    "binaryIndependent": "synthetic payload; run before the final DLL build, installer script unchanged since"
+  },
+  "liveSuitesOnFinalBinary": [
+    {"suite": "browser-essentials-integration.ps1", "run": "essentials-5181330f9a3f4f28acc658a6803d1bb7", "checks": 9, "failures": 0},
+    {"suite": "agent-gates-integration.mjs", "run": "agent-gates-integration-1792192725360-9b1a57d7", "checks": 2, "failures": 0},
+    {"suite": "omnibox-integration.ps1", "run": "omnibox-3cd2694377694591a20e4a5b02122c3f", "checks": 10, "failures": 0},
+    {"suite": "site-info-integration.ps1", "run": "site-info-4a85601d976c47ea8564fc8561b024ad", "checks": 7, "failures": 0},
+    {"suite": "ui-language-integration.ps1", "run": "ui-language-f3bb52fce82141269b0a3e21d0825861", "checks": 6, "failures": 0},
+    {"suite": "passkey-integration.mjs", "run": "passkey-integration-1792192922150-3591507e", "checks": 4, "failures": 0},
+    {"suite": "integration.mjs", "checks": 17, "failures": 0},
+    {"suite": "branding-resources.mjs", "checks": 5, "failures": 0}
+  ],
+  "earlierFailuresFixed": [
+    "A link handed to a running browser did not open: with CEF command-line arguments disabled, Chromium's relaunch notice carries only CEF's own switches. Links now go through Xenon's own hand-off window.",
+    "A relaunch link containing spaces could open twice, whole and split. --single-argument now takes precedence over split arguments.",
+    "The first browser-essentials script failed to parse in Windows PowerShell 5.1 without a UTF-8 byte-order mark, and two log patterns missed an added query field; both were test defects."
+  ],
+  "coverage": "Native message driver with Xenon thread activation in windows parked beyond every monitor; posted, not physical, input; MCP agent clicks through the production adapter. A temporary HKCU test scheme recorded the link it received and was removed afterwards.",
+  "notCovered": [
+    "Full screen (F11, a website's fullscreen request, Esc, the notice and the agent outline) was not run: entering it would cover the real monitor.",
+    "Allowing screen sharing, the sharing indicator and screenshot withholding while a tab captures: approving would capture the real screen.",
+    "A human click on an app link inside an agent-controlled tab (the recent-input path).",
+    "Opening the Import window, which lists the real Chrome/Edge profiles on this computer; import itself is covered only by synthetic native tests.",
+    "Make Xenon your default browser with a registered installation, and Windows' Default apps choice.",
+    "Move to..., the bookmark tree's label editing, Chinese text in the new windows, high contrast, other DPI, physical input, assistive technology and real websites.",
+    "Adapter, typecheck and credential-script suites were not rerun; the adapter is unchanged."
+  ]
+}

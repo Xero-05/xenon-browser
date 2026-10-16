@@ -1,5 +1,25 @@
 # Release notes
 
+## Unreleased
+
+**Full screen.** **F11** (or **Menu → Full screen**) hides Xenon's toolbar and sidebar. A website's own full-screen request, such as a video player's, now takes over the screen for a tab you control, with a notice naming the site; **Esc** or switching tabs ends it. Pages in agent-controlled tabs still fill only their tab area.
+
+**Site icons** appear on tabs.
+
+**Links for other apps.** `mailto:`, meeting-app and similar links now open their registered Windows app after a native prompt naming the site, the app and the link. Only the page you are looking at can ask, after your own input or in a tab you control; agent-caused requests are blocked. Schemes that run programs, files, searches or diagnostics are never offered, and links are escaped before Windows receives them.
+
+**Screen sharing.** Video-call sites can share your screen after a **Website permission request** that explains Xenon shares every display, not a single window. Agents cannot start sharing, and their screenshots of a sharing tab fail with the new `screen_sharing` error. A red icon marks a sharing tab, and its menu can stop sharing by reloading the page.
+
+**Default browser.** The installer registers Xenon with Windows for `http` and `https` links; **Settings** opens Windows' Default apps page for Xenon and shows whether it is the default. Links from Windows open in a new Personal tab, or start Xenon with the link; a second launch hands its link to the running browser.
+
+**Bookmarks and history.** **Menu → Bookmarks** (**Ctrl+Shift+O**) is now a manager with folders, rename, move, delete and search. **History** can be searched and individual visits deleted. **Clear browsing data** (**Ctrl+Shift+Del**) clears a workspace's history and cookies for a time range, plus other site data and the cache; agents in that workspace pause.
+
+**Import.** Bookmarks and history import from Chrome, Edge, Brave, Vivaldi or Chromium profiles, or from a bookmark HTML file exported by any browser. Passwords and cookies are never read; passwords still come in through CSV import.
+
+**Settings** chooses the address box's search engine (Google, Bing, DuckDuckGo, Brave Search, Ecosia, Startpage or Baidu), theme and language.
+
+See [user guide](USER_GUIDE.md), [security](SECURITY.md#native-browsing-features) and [testing](TESTING.md#browser-essentials-candidate).
+
 ## 0.1.5
 
 The [0.1.5 notes](RELEASE-0.1.5.md) also cover the toolbar resize repaint fix and the release checks.

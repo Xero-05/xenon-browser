@@ -2,6 +2,7 @@
 #include "xenon/branding.hpp"
 #include "xenon/contracts.hpp"
 #include "xenon/local_security.hpp"
+#include "xenon/omnibox.hpp"
 #include "xenon/ui_language.hpp"
 #include <dwmapi.h>
 #include <commctrl.h>
@@ -41,20 +42,25 @@ inline Palette palette() {
 inline void load_theme(const std::filesystem::path& root) {
   settings_path=root/"ui-settings.json";
   language=preferred_language=Language::english;
-  introduction_completed=false;automatic_update_checks=true;
+  introduction_completed=false;automatic_update_checks=true;omnibox::search_choice=0;
   try{if(std::filesystem::exists(settings_path)&&std::filesystem::file_size(settings_path)<4096){Json value;std::ifstream(settings_path)>>value;
     const auto mode=value.value("theme",std::string("system"));theme_mode=mode=="dark"?ThemeMode::dark:mode=="light"?ThemeMode::light:ThemeMode::system;
     if(auto locale=value.find("language");locale!=value.end()&&locale->is_string())
       language=preferred_language=*locale=="zh-CN"?Language::simplified_chinese:Language::english;
     if(auto completed=value.find("introductionCompleted");completed!=value.end()&&completed->is_boolean())introduction_completed=completed->get<bool>();
     if(auto updates=value.find("automaticUpdateChecks");updates!=value.end()&&updates->is_boolean())automatic_update_checks=updates->get<bool>();
+    if(auto search=value.find("searchEngine");search!=value.end()&&search->is_string())omnibox::choose_search_engine(search->get<std::string>());
     if(auto width=value.find("sidebarWidth");width!=value.end()&&width->is_number_integer())sidebar_width=std::clamp(width->get<int>(),180,480);}}catch(...){}
 }
 inline bool save_settings() {
-  try{auto temporary=settings_path;temporary+=L".tmp";{std::ofstream stream(temporary);stream<<Json{{"version",1},{"theme",theme_mode==ThemeMode::dark?"dark":theme_mode==ThemeMode::light?"light":"system"},{"sidebarWidth",sidebar_width},{"language",language_tag(preferred_language)},{"introductionCompleted",introduction_completed},{"automaticUpdateChecks",automatic_update_checks}};stream.flush();if(!stream)return false;}
+  try{auto temporary=settings_path;temporary+=L".tmp";{std::ofstream stream(temporary);stream<<Json{{"version",1},{"theme",theme_mode==ThemeMode::dark?"dark":theme_mode==ThemeMode::light?"light":"system"},{"sidebarWidth",sidebar_width},{"language",language_tag(preferred_language)},{"introductionCompleted",introduction_completed},{"automaticUpdateChecks",automatic_update_checks},{"searchEngine",std::string(omnibox::search_engine().id)}};stream.flush();if(!stream)return false;}
     local_security::restrict_path(temporary);return MoveFileExW(temporary.c_str(),settings_path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE;}catch(...){return false;}
 }
 inline bool save_theme(ThemeMode mode) {theme_mode=mode;return save_settings();}
+inline bool save_search_engine(size_t choice) {
+  const auto previous=omnibox::search_choice;omnibox::search_choice=choice<std::size(omnibox::search_engines)?choice:0;
+  if(save_settings())return true;omnibox::search_choice=previous;return false;
+}
 inline bool save_automatic_update_checks(bool enabled) {
   const auto previous=automatic_update_checks;automatic_update_checks=enabled;
   if(save_settings())return true;automatic_update_checks=previous;return false;
@@ -185,7 +191,7 @@ inline bool keyboard_focus(HWND control) {return (SendMessageW(control,WM_QUERYU
 inline void focus_mark(HDC dc,RECT rect,HWND control,int radius=6) {
   if(!keyboard_focus(control))return;outline(dc,rect,palette().ink,dip(control,radius),dip(control,2));
 }
-enum class Icon {none,back,forward,reload,stop,go,controls,menu,plus,up,down,chevron_right,close,extensions,key,star,star_filled,pin,muted,more,search,history,globe,lock,warning,info,cookie,settings};
+enum class Icon {none,back,forward,reload,stop,go,controls,menu,plus,up,down,chevron_right,close,extensions,key,star,star_filled,pin,muted,more,search,history,globe,lock,warning,info,cookie,settings,screen,folder};
 // The browser toolbar's saved-password button. Native credential bubbles
 // anchor to it inside their source window when it is visible.
 inline constexpr int password_anchor_id=2015;
@@ -221,6 +227,8 @@ inline void icon(HDC dc,RECT rect,Icon kind,COLORREF ink,HWND window) {
     else if(kind==Icon::cookie){graphics.DrawEllipse(&pen,cx-7*scale,cy-7*scale,14*scale,14*scale);for(const auto& [x,y]:{std::pair{-2.5f,-2.5f},std::pair{2.5f,0.5f},std::pair{-1.5f,3.5f}})graphics.FillEllipse(&brush,cx+(x-1.2f)*scale,cy+(y-1.2f)*scale,2.4f*scale,2.4f*scale);}
     else if(kind==Icon::settings){graphics.DrawEllipse(&pen,cx-5*scale,cy-5*scale,10*scale,10*scale);graphics.DrawEllipse(&pen,cx-2*scale,cy-2*scale,4*scale,4*scale);
       for(int n=0;n<8;++n){const float angle=n*0.785398f,x=std::cos(angle),y=std::sin(angle);line(x*5,y*5,x*7.5f,y*7.5f);}}
+    else if(kind==Icon::screen){graphics.DrawRectangle(&pen,cx-7.5f*scale,cy-6*scale,15*scale,10*scale);line(0,4,0,7);line(-3.5f,7,3.5f,7);line(-2.5f,-1,0,-3.5f);line(0,-3.5f,2.5f,-1);line(0,-3.5f,0,1.5f);}
+    else if(kind==Icon::folder){Gdiplus::PointF outline[]{{cx-7.5f*scale,cy-5*scale},{cx-2.5f*scale,cy-5*scale},{cx-0.5f*scale,cy-3*scale},{cx+7.5f*scale,cy-3*scale},{cx+7.5f*scale,cy+6*scale},{cx-7.5f*scale,cy+6*scale}};graphics.DrawPolygon(&pen,outline,6);}
     return;}
   const int unit=dip(window,1),cx=(rect.left+rect.right)/2,cy=(rect.top+rect.bottom)/2;auto d=[&](int v){return dip(window,v);};
   auto pen=CreatePen(PS_SOLID,std::max(1,d(2)),ink);auto old_pen=SelectObject(dc,pen),old_brush=SelectObject(dc,GetStockObject(NULL_BRUSH));
@@ -248,6 +256,8 @@ inline void icon(HDC dc,RECT rect,Icon kind,COLORREF ink,HWND window) {
   else if(kind==Icon::info){Ellipse(dc,cx-d(7),cy-d(7),cx+d(7),cy+d(7));line(0,0,0,4);line(0,-4,0,-3);}
   else if(kind==Icon::cookie){Ellipse(dc,cx-d(7),cy-d(7),cx+d(7),cy+d(7));line(-3,-3,-2,-2);line(2,0,3,1);line(-2,3,-1,4);}
   else if(kind==Icon::settings){Ellipse(dc,cx-d(5),cy-d(5),cx+d(5),cy+d(5));Ellipse(dc,cx-d(2),cy-d(2),cx+d(2),cy+d(2));line(0,-7,0,-5);line(0,5,0,7);line(-7,0,-5,0);line(5,0,7,0);}
+  else if(kind==Icon::screen){Rectangle(dc,cx-d(7),cy-d(6),cx+d(8),cy+d(4));line(0,4,0,7);line(-3,7,4,7);line(-2,-1,0,-3);line(0,-3,2,-1);line(0,-3,0,1);}
+  else if(kind==Icon::folder){POINT outline[]{{cx-d(7),cy-d(5)},{cx-d(2),cy-d(5)},{cx,cy-d(3)},{cx+d(7),cy-d(3)},{cx+d(7),cy+d(6)},{cx-d(7),cy+d(6)}};Polygon(dc,outline,6);}
   SelectObject(dc,old_brush);SelectObject(dc,old_pen);DeleteObject(pen);
 }
 // Replaces {0}, {1}... in translated native copy with already-wide values.

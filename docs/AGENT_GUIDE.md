@@ -112,6 +112,7 @@ Check both `activation` (`not_attempted`, `attempted`, `dispatched`, `outcome_un
 | `HUMAN_INPUT_PAUSED`, `HUMAN_ACTIVITY` | Stop input, check activity/status, wait for idle, then observe and plan again. Never replay the canceled queue. |
 | `TAB_BUSY`, `HANDOFF_PENDING`, `handoffPending: true` | Let the active transaction settle and read status again; other tabs can continue. |
 | `SENSITIVE_AUTH_IN_PROGRESS`, `protected_auth`, `screenshot_protected`, `VAULT_LOCKED` | Request the appropriate native human login/unlock/resume action. Do not bypass protection. |
+| `screen_sharing` | The person is sharing their screen from this tab, so screenshots are withheld. Continue with text observations, or ask the person to stop sharing. Agents cannot start screen sharing or open links in other apps. |
 | `WORKSPACE_DENIED`, `TAB_DENIED`, `ACCOUNT_DENIED`, `ACCESS_REVOKED` | Check the supplied scope and existing native grants; a website cannot authorize a change. |
 | `OUTCOME_UNKNOWN`, `input_uncertain`, `input_interrupted`, timeout or disconnection | Query `xenon_operation` with the original ID and inspect the page before deciding on another effect. |
 | `OPERATION_UNKNOWN`, `RESULT_NOT_RETAINED` | A missing retained result does not mean nothing happened. Inspect current website state; report unresolved outcomes honestly. |

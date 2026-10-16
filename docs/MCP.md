@@ -70,7 +70,7 @@ Simple `inset(... round Npx)` clips can prove geometry inside a conservative ins
 | `xenon_control_status`, `xenon_control` | Inspect, acquire, release or hand off tab control using the expected generation. |
 | `xenon_activity` | Read trusted human-activity and pause status for this client's connected workers' owned tabs. |
 | `xenon_observe` | Bounded evidence of rendered content in the current viewport, with a query over that same filtered text; default 300 nodes, supported bounds 20–1,000. |
-| `xenon_screenshot` | Page-only PNG and matching document/viewport observation, when capture is permitted. |
+| `xenon_screenshot` | Page-only PNG and matching document/viewport observation, when capture is permitted. A tab that is sharing the person's screen answers `screen_sharing` instead. |
 | `xenon_inspect` | Rendered nodes, permitted page PNG and broker control status bound to one observation ID, checked across the capture interval. |
 | `xenon_navigate` | Navigate, back, forward or reload in the selected tab. |
 | `xenon_interact` | Click, hover, fill, select, check, key, scroll or a complete drag. |

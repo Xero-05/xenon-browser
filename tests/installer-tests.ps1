@@ -89,6 +89,15 @@ try {
   Assert-Fixture ((Test-Path -LiteralPath $taskUninstallKey) -and (Test-Path -LiteralPath (Join-Path $taskGroup "Xenon Installer Fixture $taskId.lnk"))) 'uninstall registration and Start Menu shortcut'
   $taskRegistration = Get-ItemProperty -LiteralPath $taskUninstallKey
   Assert-Fixture ($taskRegistration.'Inno Setup: App Path' -eq $taskInstall -and $taskRegistration.UninstallString.Contains($taskInstall)) 'uninstaller registration records the chosen folder'
+  # Fixture builds keep the default-browser registration under their own key.
+  $taskBrowser = "$taskKey\DefaultBrowser"
+  $taskCommand = (Get-ItemProperty -LiteralPath "$taskBrowser\Classes\XenonURL\shell\open\command").'(default)'
+  Assert-Fixture ($taskCommand -ceq ('"' + (Join-Path $taskInstall 'Xenon.exe') + '" --single-argument %1')) 'link handler passes each link as one argument to the chosen executable'
+  $taskCapabilities = "$taskBrowser\Clients\StartMenuInternet\Xenon Installer Fixture $taskId\Capabilities"
+  $taskAssociations = Get-ItemProperty -LiteralPath "$taskCapabilities\URLAssociations"
+  Assert-Fixture ($taskAssociations.http -ceq 'XenonURL' -and $taskAssociations.https -ceq 'XenonURL' -and @($taskAssociations.PSObject.Properties.Name | Where-Object { $_ -notlike 'PS*' }).Count -eq 2) 'browser capabilities claim only http and https links'
+  Assert-Fixture ((Get-ItemProperty -LiteralPath "$taskBrowser\RegisteredApplications")."Xenon Installer Fixture $taskId" -ceq "Software\XenonInstallerTests\$taskId\DefaultBrowser\Clients\StartMenuInternet\Xenon Installer Fixture $taskId\Capabilities") 'registered application points at its capabilities'
+  Assert-Fixture (-not (Test-Path -LiteralPath "HKCU:\Software\Clients\StartMenuInternet\Xenon Installer Fixture $taskId")) 'fixture never registers as a real Windows browser'
   $taskShell = New-Object -ComObject WScript.Shell
   $taskShortcut = $taskShell.CreateShortcut((Join-Path $taskGroup "Xenon Installer Fixture $taskId.lnk"))
   Assert-Fixture ($taskShortcut.TargetPath -eq (Join-Path $taskInstall 'Xenon.exe') -and $taskShortcut.WorkingDirectory -eq $taskInstall) 'Start Menu shortcut uses the chosen executable and working directory'

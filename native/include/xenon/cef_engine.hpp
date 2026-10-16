@@ -36,6 +36,23 @@ class CefEngine final : public BrowserEngine {
   // True when the human currently controls the tab; other tabs gate passkeys.
   void set_passkey_control_callback(std::function<bool(const std::string&)> human_controls);
   void set_permission_callback(std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> callback);
+  // Native chrome only; none of these are reachable through MCP.
+  // A page entered or left fullscreen: (tab, fullscreen).
+  void set_fullscreen_callback(std::function<void(const std::string&,bool)> callback);
+  // A website link for another app: (tab, requesting origin, url, scheme,
+  // permitted, done). `permitted` is false unless the tab is the person's or
+  // follows their own recent input in it; only then may native UI offer to
+  // open it. Call done(opened) once the prompt is answered.
+  void set_external_link_callback(std::function<void(const std::string&,const std::string&,const std::string&,const std::string&,bool,std::function<void(bool)>)> callback);
+  // A page asks to share every display: (tab, origin, with system audio, answer).
+  void set_screen_share_callback(std::function<void(const std::string&,const std::string&,bool,std::function<void(bool)>)> callback);
+  struct SiteIcon {int width{},height{};std::vector<unsigned char> pixels;};
+  // The tab's site icon as premultiplied top-down BGRA. UI thread only.
+  bool site_icon(const std::string& tab_id,SiteIcon& icon) const;
+  // Native Clear browsing data for one workspace. Cookies created since
+  // `since_unix_ms` (0: all), and for all time the stored data of `origins`
+  // and the HTTP cache. Agent input in the workspace pauses; evidence is stale.
+  void clear_browsing_data(const std::string& workspace,int64_t since_unix_ms,bool cookies,bool storage,bool cache,std::vector<std::string> origins,Reply reply);
   void native_pointer(HWND page,POINT screen,bool substantive=false);
   void select_native_tab(const std::string& tab_id);
   void native_command(const std::string& tab_id,const std::string& command,const std::string& value={},Reply reply={});
