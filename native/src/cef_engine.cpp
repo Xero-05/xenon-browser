@@ -14,6 +14,7 @@
 #include "xenon/human_autofill.hpp"
 #include "xenon/protected_login.hpp"
 #include "xenon/passkey_guard.hpp"
+#include "xenon/site_info.hpp"
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
@@ -29,6 +30,7 @@
 #include "include/cef_keyboard_handler.h"
 #include "include/cef_life_span_handler.h"
 #include "include/cef_load_handler.h"
+#include "include/cef_navigation_entry.h"
 #include "include/cef_request_context_handler.h"
 #include "include/cef_request_handler.h"
 #include "include/cef_permission_handler.h"
@@ -81,6 +83,49 @@ void on_ui(std::function<void()> f) {
 void later(int ms, std::function<void()> f) {
   CefPostDelayedTask(TID_UI, new Task(std::move(f)), ms);
 }
+// Site information for native human UI. Cookie values are never read into it.
+std::string clip_utf8(std::string s,size_t n){if(s.size()<=n)return s;while(n&&(static_cast<unsigned char>(s[n])&0xC0)==0x80)--n;s.resize(n);return s;}
+int64_t unix_ms(const cef_basetime_t& time){return time.val/1000-11644473600000LL;}
+cef_content_setting_types_t site_setting_type(std::string_view name){
+  if(name=="geolocation")return CEF_CONTENT_SETTING_TYPE_GEOLOCATION;if(name=="camera")return CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA;
+  if(name=="microphone")return CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC;if(name=="notifications")return CEF_CONTENT_SETTING_TYPE_NOTIFICATIONS;
+  return name=="popups"?CEF_CONTENT_SETTING_TYPE_POPUPS:CEF_CONTENT_SETTING_TYPE_SOUND;
+}
+std::string site_setting_value(cef_content_setting_values_t value){
+  return value==CEF_CONTENT_SETTING_VALUE_ALLOW?"allow":value==CEF_CONTENT_SETTING_VALUE_BLOCK?"block":value==CEF_CONTENT_SETTING_VALUE_ASK?"ask":"default";
+}
+// Some types report their effective browser default (pop-ups: block) rather
+// than DEFAULT, so a value equal to the value for no site is the default.
+std::string site_setting_state(const CefRefPtr<CefRequestContext>& context,const std::string& origin,cef_content_setting_types_t type){
+  const auto value=context->GetContentSetting(origin,origin,type);
+  return value==CEF_CONTENT_SETTING_VALUE_DEFAULT||value==context->GetContentSetting(CefString(),CefString(),type)?"default":site_setting_value(value);
+}
+std::string principal_name(CefRefPtr<CefX509CertPrincipal> principal){
+  if(!principal)return {};auto name=principal->GetCommonName().ToString();std::vector<CefString> organizations;principal->GetOrganizationNames(organizations);
+  const auto organization=organizations.empty()?std::string{}:organizations.front().ToString();
+  if(name.empty())return organization.empty()?principal->GetDisplayName().ToString():organization;
+  return organization.empty()||organization==name?name:name+" ("+organization+")";
+}
+// Enumerates one site's cookies on the UI thread, optionally deleting them:
+// all of them, or only the exact name/domain/path keys given. `done` receives
+// the listed metadata and match count when CEF releases the visitor.
+class SiteCookies final : public CefCookieVisitor {
+ public:
+  SiteCookies(std::string host,bool erase,std::set<std::string> keys,std::function<void(Json,int)> done):host_(std::move(host)),erase_(erase),keys_(std::move(keys)),done_(std::move(done)){}
+  ~SiteCookies()override{if(done_)try{done_(std::move(cookies_),matched_);}catch(...){}}
+  static std::string key(const std::string& name,const std::string& domain,const std::string& path){return name+'\n'+domain+'\n'+path;}
+  bool Visit(const CefCookie& cookie,int,int,bool& remove)override{
+    const auto name=CefString(&cookie.name).ToString(),domain=CefString(&cookie.domain).ToString(),path=CefString(&cookie.path).ToString();
+    if(!site::cookie_for_host(domain,host_)||(!keys_.empty()&&!keys_.contains(key(name,domain,path))))return true;
+    ++matched_;if(erase_)remove=true;
+    if(cookies_.size()<500)cookies_.push_back({{"name",clip_utf8(name,256)},{"domain",domain},{"path",clip_utf8(path,256)},{"secure",cookie.secure!=0},{"httpOnly",cookie.httponly!=0},
+      {"session",!cookie.has_expires},{"expires",cookie.has_expires?unix_ms(cookie.expires):0},{"key",key(name,domain,path)}});
+    return true;
+  }
+ private:
+  std::string host_;bool erase_;std::set<std::string> keys_;std::function<void(Json,int)> done_;Json cookies_=Json::array();int matched_{};
+  IMPLEMENT_REFCOUNTING(SiteCookies);
+};
 std::string nonce() {
   unsigned char bytes[16];
   if (BCryptGenRandom(nullptr, bytes, sizeof(bytes), BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
@@ -141,6 +186,8 @@ struct Tab {
   std::string title;
   std::string last_url;
   bool private_mode=false;
+  // Toolbar security state, refreshed at most every half second.
+  std::string security,security_url;std::chrono::steady_clock::time_point security_checked{};
   uint64_t epoch = 1;
   std::string document = nonce();
   std::string observation;
@@ -508,6 +555,23 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     if(t->upload)finish_upload(t,t->upload,failure("upload_interrupted","The document changed during file selection. Observe before deciding what to do next."));
     event("tab.navigated", {{"tabId",t->id},{"workspaceId",t->workspace},{"documentId",t->document}});
     if(t->protected_auth&&!t->auth_inflight){t->protected_auth=false;event("auth.protected",{{"tabId",t->id},{"protected",false}});}
+  }
+  // The tab for a native site action, only while it still shows that website.
+  std::shared_ptr<Tab> site_tab(const std::string& id,const std::string& origin,const Reply& reply){
+    const auto found=tabs_.find(id);if(found==tabs_.end()){reply(failure("tab_closed","Select an open tab."));return nullptr;}
+    const auto t=found->second;if(t->protected_auth){reply(failure("protected_auth","Finish signing in before changing this site."));return nullptr;}
+    if(origin.empty()||site::origin(t->browser->GetMainFrame()->GetURL().ToString())!=origin){reply(failure("site_changed","The tab moved to another site. Open site information again."));return nullptr;}
+    return t;
+  }
+  // The toolbar's site-info state. The TLS state counts only when the visible
+  // entry is the main frame's current origin, not a page being replaced.
+  std::string security(const std::shared_ptr<Tab>& t){
+    const auto url=t->browser->GetMainFrame()->GetURL().ToString();const auto now=std::chrono::steady_clock::now();
+    if(!t->security.empty()&&t->security_url==url&&now-t->security_checked<std::chrono::milliseconds(500))return t->security;
+    bool known=false,secure=false;uint32_t certificate=0,content=0;
+    if(auto entry=t->browser->GetHost()->GetVisibleNavigationEntry();entry&&site::origin(entry->GetURL().ToString())==site::origin(url))if(auto ssl=entry->GetSSLStatus()){
+      known=true;secure=ssl->IsSecureConnection();certificate=static_cast<uint32_t>(ssl->GetCertStatus());content=static_cast<uint32_t>(ssl->GetContentStatus());}
+    t->security_url=url;t->security_checked=now;return t->security=site::security_state(url,t->protected_auth,known,secure,certificate,content);
   }
   void send(const std::shared_ptr<Tab>& t, const std::string& method, Json params,
             CdpReply callback, const std::string& session = "") {
@@ -2407,10 +2471,6 @@ void CefEngine::native_command(const std::string& id,const std::string& command,
     if(command=="reparented"){host->NotifyMoveOrResizeStarted();if(reply)reply(success());return;}
     if(command=="extension-page"){if(!owner->extension_url(value)||tab->private_mode){if(reply)reply(failure("extension_unavailable","This extension page is unavailable."));return;}
       browser->GetMainFrame()->LoadURL(value);if(reply)reply(success({{"status","dispatched"}}));return;}
-    if(command=="site-reset"){auto context=host->GetRequestContext();auto origin=Vault::normalize_https_origin(browser->GetMainFrame()->GetURL().ToString());
-      if(!origin){if(reply)reply(failure("https_required","Select an HTTPS website."));return;}
-      for(auto kind:{CEF_CONTENT_SETTING_TYPE_GEOLOCATION,CEF_CONTENT_SETTING_TYPE_NOTIFICATIONS,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA,CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC})context->SetContentSetting(*origin,*origin,kind,CEF_CONTENT_SETTING_VALUE_DEFAULT);
-      if(reply)reply(success());return;}
     if(command=="navigate"&&!web_url(value)){if(reply)reply(failure("invalid_url","Only HTTP, HTTPS and blank pages are supported."));return;}
     owner->human_activity(tab,false,false);
     if(command=="navigate")browser->GetMainFrame()->LoadURL(value);
@@ -2427,6 +2487,57 @@ void CefEngine::native_command(const std::string& id,const std::string& command,
     if(reply)reply(success({{"status","dispatched"}}));
   }catch(...){if(reply)reply(failure("native_command_failed","The browser command could not be completed."));}
 });}
+void CefEngine::site_info(const std::string& id,Reply reply){on_ui([owner=impl_,id,reply]{try{
+  const auto found=owner->tabs_.find(id);if(found==owner->tabs_.end()){reply(failure("tab_closed","Select an open tab."));return;}
+  const auto t=found->second;const auto host=t->browser->GetHost();
+  Json result={{"tabId",id},{"workspaceId",t->workspace},{"private",t->private_mode},{"state",owner->security(t)}};
+  const auto origin=t->protected_auth?std::string{}:site::origin(t->browser->GetMainFrame()->GetURL().ToString());
+  if(origin.empty()){reply(success(std::move(result)));return;}
+  result["origin"]=origin;result["host"]=site::host(origin);
+  if(auto entry=host->GetVisibleNavigationEntry();entry&&site::origin(entry->GetURL().ToString())==origin)if(auto ssl=entry->GetSSLStatus();ssl&&ssl->IsSecureConnection()){
+    result["protocol"]=site::protocol_name(ssl->GetSSLVersion());
+    if(auto certificate=ssl->GetX509Certificate()){
+      Json value={{"subject",principal_name(certificate->GetSubject())},{"issuer",principal_name(certificate->GetIssuer())},{"validFrom",unix_ms(certificate->GetValidStart())},{"validTo",unix_ms(certificate->GetValidExpiry())}};
+      if(auto der=certificate->GetDEREncoded();der&&der->GetSize()>0&&der->GetSize()<=65536){std::string bytes(der->GetSize(),'\0');der->GetData(bytes.data(),bytes.size(),0);value["der"]=site::hex(bytes);}
+      result["certificate"]=std::move(value);
+    }
+  }
+  const auto context=host->GetRequestContext();Json settings=Json::object();
+  for(const auto& item:site::settings)settings[item.name]=site_setting_state(context,origin,site_setting_type(item.name));
+  result["settings"]=std::move(settings);
+  // Storage use comes from the page's own DevTools target; a closed tab replies at once.
+  auto pending=std::make_shared<Json>(std::move(result));
+  const auto finish=[owner,t,origin,pending,reply](Json cookies,int count){(*pending)["cookies"]=std::move(cookies);(*pending)["cookieCount"]=count;
+    owner->send(t,"Storage.getUsageAndQuota",{{"origin",origin}},[pending,reply](Json usage){if(cdp_ok(usage))(*pending)["storageBytes"]=usage.value("usage",0.0);reply(success(std::move(*pending)));});};
+  if(auto manager=context->GetCookieManager(nullptr))manager->VisitAllCookies(new SiteCookies(site::host(origin),false,{},finish));else finish(Json::array(),0);
+}catch(...){reply(failure("site_info_unavailable","Site information is unavailable for this tab."));}});}
+void CefEngine::set_site_setting(const std::string& id,const std::string& origin,const std::string& name,const std::string& value,Reply reply){on_ui([owner=impl_,id,origin,name,value,reply]{try{
+  if(!site::setting(name)||!site::choice(value)){reply(failure("invalid_site_setting","Choose a listed site setting."));return;}
+  const auto t=owner->site_tab(id,origin,reply);if(!t)return;
+  const auto context=t->browser->GetHost()->GetRequestContext();const auto type=site_setting_type(name);
+  context->SetContentSetting(origin,origin,type,value=="allow"?CEF_CONTENT_SETTING_VALUE_ALLOW:value=="block"?CEF_CONTENT_SETTING_VALUE_BLOCK:CEF_CONTENT_SETTING_VALUE_DEFAULT);
+  reply(success({{"setting",name},{"value",site_setting_state(context,origin,type)}}));
+}catch(...){reply(failure("site_setting_failed","The site setting could not be changed."));}});}
+void CefEngine::reset_site_settings(const std::string& id,const std::string& origin,Reply reply){on_ui([owner=impl_,id,origin,reply]{try{
+  const auto t=owner->site_tab(id,origin,reply);if(!t)return;const auto context=t->browser->GetHost()->GetRequestContext();
+  for(const auto& item:site::settings)context->SetContentSetting(origin,origin,site_setting_type(item.name),CEF_CONTENT_SETTING_VALUE_DEFAULT);
+  reply(success());
+}catch(...){reply(failure("site_setting_failed","Site settings could not be reset."));}});}
+void CefEngine::delete_site_cookies(const std::string& id,const std::string& origin,const std::vector<std::string>& keys,Reply reply){on_ui([owner=impl_,id,origin,keys,reply]{try{
+  const auto t=owner->site_tab(id,origin,reply);if(!t)return;
+  const auto manager=t->browser->GetHost()->GetRequestContext()->GetCookieManager(nullptr);if(!manager){reply(failure("cookies_unavailable","Cookies are unavailable for this workspace."));return;}
+  owner->human_activity(t,false,false);
+  manager->VisitAllCookies(new SiteCookies(site::host(origin),true,{keys.begin(),keys.end()},[reply](Json,int count){reply(success({{"deleted",count}}));}));
+}catch(...){reply(failure("cookies_unavailable","Cookies could not be deleted."));}});}
+void CefEngine::clear_site_data(const std::string& id,const std::string& origin,Reply reply){on_ui([owner=impl_,id,origin,reply]{try{
+  const auto t=owner->site_tab(id,origin,reply);if(!t)return;
+  const auto manager=t->browser->GetHost()->GetRequestContext()->GetCookieManager(nullptr);
+  owner->human_activity(t,false,false);
+  // Cookies of the site and its subdomains, then this origin's storage.
+  const auto storage=[owner,t,origin,reply](Json,int count){
+    owner->send(t,"Storage.clearDataForOrigin",{{"origin",origin},{"storageTypes","all"}},[reply,count](Json result){reply(success({{"deletedCookies",count},{"storageCleared",cdp_ok(result)}}));});};
+  if(manager)manager->VisitAllCookies(new SiteCookies(site::host(origin),true,{},storage));else storage(Json::array(),0);
+}catch(...){reply(failure("site_data_unavailable","Site data could not be deleted."));}});}
 void CefEngine::set_save_prompt_callback(std::function<void(const std::string&,CefWindowHandle)> f){impl_->save_prompt_=std::move(f);}
 void CefEngine::set_autofill_prompt_callback(std::function<void(const Json&,CefWindowHandle)> f){impl_->autofill_prompt_=std::move(f);}
 void CefEngine::request_autofill(const std::string& id,Reply reply){on_ui([p=impl_,id,reply]{
@@ -2531,7 +2642,7 @@ Json CefEngine::native_tabs(){Json result=Json::array();for(const auto& [id,t]:i
   {"pointerKnown",t->pointer_known},{"pointerX",t->pointer.x},{"pointerY",t->pointer.y},{"pointerRevision",t->pointer_revision},
   {"agentPointerRevision",t->agent_pointer_revision},{"pointerSyncRevision",t->pointer_sync_revision},{"humanPointerRevision",t->human_pointer_revision},
   {"privacyReady",t->guards.size()>=t->sessions.size()+1},{"muted",t->browser->GetHost()->IsAudioMuted()},
-  {"zoom",std::pow(1.2,t->browser->GetHost()->GetZoomLevel())}});return result;}
+  {"zoom",std::pow(1.2,t->browser->GetHost()->GetZoomLevel())},{"security",impl_->security(t)}});return result;}
 void CefEngine::answer_native_dialog(const std::string& id,bool accept,const std::string& text){on_ui([p=impl_,id,accept,text]{auto i=p->tabs_.find(id);if(i==p->tabs_.end()||!i->second->dialog)return;auto t=i->second;auto callback=t->dialog;t->dialog=nullptr;t->dialog_type.clear();t->dialog_message.clear();t->dialog_origin.clear();t->human_dialog=false;p->human_activity(t,t->human_gesture,false);callback->Continue(accept,text);});}
 CefRefPtr<CefClient> CefEngine::default_client(){return new Impl::Client(impl_,"human-default");}
 CefRefPtr<CefRequestContextHandler> CefEngine::default_context_handler(){return new Impl::ContextHandler;}

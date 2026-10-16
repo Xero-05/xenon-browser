@@ -2,6 +2,8 @@
 #include "xenon/broker.hpp"
 #include "xenon/cef_engine.hpp"
 #include "xenon/browser_data.hpp"
+#include "xenon/omnibox.hpp"
+#include "xenon/site_info.hpp"
 #include "xenon/extension_store.hpp"
 #include "xenon/native_ui.hpp"
 #include "xenon/ui_theme.hpp"
@@ -11,11 +13,12 @@
 #include "xenon/developer_elements.hpp"
 #include "xenon/local_security.hpp"
 #include "xenon/version.hpp"
-#include "include/cef_parser.h"
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shellapi.h>
 #include <windowsx.h>
+#include <wincrypt.h>
+#include <cryptuiapi.h>
 #include <algorithm>
 #include <cmath>
 #include <chrono>
@@ -32,7 +35,7 @@ namespace {
 constexpr UINT ShellChanged=WM_APP+90,ShellRun=WM_APP+91;
 // Control and command IDs are stable: native test drivers address 2004
 // (address), 2006 (Controls) and the theme commands 2111-2113 by number.
-enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,FindText,FindNext,FindPrevious,FindClose,Extensions,Passwords,BookmarkStar,
+enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,FindText,FindNext,FindPrevious,FindClose,Extensions,Passwords,BookmarkStar,SiteInfo,
   MenuFind=2100,MenuZoomIn,MenuZoomOut,MenuZoomReset,MenuBookmark,MenuBookmarks,MenuHistory,MenuDownloads,MenuPrint,MenuPdf,
   MenuPermissions,MenuThemeSystem,MenuThemeLight,MenuThemeDark,MenuAbout,MenuNotices,MenuExit,MenuPrivate,MenuCloseTab,
   MenuSidebarNarrower,MenuSidebarWider,MenuSidebarReset,MenuUpdates,MenuQuickTour,MenuDocumentation,MenuDeveloper,
@@ -42,8 +45,12 @@ enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,Find
   GroupNewTab=2350,GroupToggle,GroupCloseAll,GroupConfigure,
   OwnerTake=2370,OwnerControls,
   TabToWorkspace=2400,TabToWindow=2500,OwnerGive=2560,ExtensionItem=2600,
+  // Site-information bubble children; SiteSetting+n is the nth site::settings combo.
+  SiteClose=2700,SiteBack,SiteConnection,SiteCertificate,SiteCookies,SiteSettings,SiteReset,SiteTitle,SiteSubtitle,SiteText,SiteDetails,SitePermissions,SiteSetting=2720,SiteSettingLabel=2740,
   DeveloperTitle=2800,DeveloperHint,DeveloperFilter,DeveloperList,DeveloperStatus,DeveloperNodeDetails,DeveloperPick};
 static_assert(Passwords==ui::password_anchor_id,"Credential bubbles anchor to the toolbar key button");
+// Site-settings and cookie panel controls; SitePanelSetting+n is the nth site::settings combo.
+enum SitePanelId {SitePanelLeft=21,SitePanelRight,SitePanelMiddle,SitePanelLabel=100,SitePanelSetting=200};
 std::string str(const Json& value,const char* key){auto found=value.find(key);return found!=value.end()&&found->is_string()?found->get<std::string>():std::string{};}
 std::wstring short_title(const std::string& value,size_t maximum=55){auto text=ui::wide(value);if(text.size()>maximum)text=text.substr(0,maximum-1)+L"…";return text;}
 using Clock=std::chrono::steady_clock;
@@ -54,6 +61,8 @@ uint32_t seed(){return static_cast<uint32_t>(std::stoul(local_security::random_h
 constexpr int GlideDuration=200,AccentDuration=240,FocusDuration=160,LoadingCycle=1300;
 // Desktop toolbar height, row heights and the page frame's corner radius, in DIPs.
 constexpr int ToolbarHeight=44,TabRow=34,FrameRadius=8;
+// Address suggestion row height and the list's inner top/bottom margin, in DIPs.
+constexpr int SuggestionRow=34,SuggestionInset=6;
 double elapsed(ULONGLONG start,int duration){return start&&ui::motion()?std::clamp(static_cast<double>(GetTickCount64()-start)/duration,0.0,1.0):1.0;}
 bool web_address(const std::string& url){return url.rfind("http://",0)==0||url.rfind("https://",0)==0;}
 std::string origin_of(const std::string& url){if(!web_address(url))return {};const auto start=url.find("://")+3;return url.substr(0,url.find_first_of("/?#",start));}
@@ -72,7 +81,7 @@ struct BrowserShell::Impl {
     PointerPoint display,from,to;Clock::time_point animation;int duration{120};PointerOverlayTransitions transitions;std::string recorded_url;};
   // Where the next human tab for a workspace opens: a window and position.
   struct Placement {std::string workspace;HWND frame{};std::string before;bool select{true};ULONGLONG at{};};
-  struct Panel {Impl* owner{};HWND window{},list{},message{},parent{};HFONT font{};std::string kind,workspace,tab;Json rows=Json::array();bool private_mode{},answered{};std::function<void(bool)> answer;};
+  struct Panel {Impl* owner{};HWND window{},list{},message{},parent{};HFONT font{};std::string kind,workspace,tab,origin;Json rows=Json::array(),info=Json::object();bool private_mode{},answered{};std::function<void(bool)> answer;};
   // A tab being dragged in the sidebar. Targets are recomputed on each move.
   struct Drag {HWND source{};std::string tab;bool active{},finishing{};HWND ghost{};std::wstring title,note;
     HWND target{};std::string workspace,before;bool outside{},blocked{},below{};HTREEITEM line{},group{};POINT point{};};
@@ -85,6 +94,13 @@ struct BrowserShell::Impl {
     RECT page{},panel_bounds{},omnibox{},chip{};std::wstring status,chip_text;ULONGLONG status_until{};
     int sidebar{240},drag_origin{},drag_width{};bool resizing_sidebar{},sidebar_hover{};
     bool address_dirty{},setting_address{};HTREEITEM hovered_row{};std::string pressed_close,hovered_close;
+    // Address suggestions: a list under the omnibox that never takes focus.
+    // `typed` is the person's text without any inline completion.
+    HWND suggestions{};HFONT emphasis{};std::vector<omnibox::Match> matches;std::string typed;int suggestion{-1},suggestion_hover{-1},suggestion_pressed{-1};bool typing{};
+    // Site information: the selected tab's toolbar security state and the open
+    // bubble, which describes one tab's website and closes when it changes.
+    struct SiteRow {ui::Icon icon{};std::wstring detail;bool chevron{};COLORREF tint{};};
+    std::string security;HWND site_bubble{};std::string site_tab,site_origin;Json site=Json::object();bool site_details{};ULONGLONG site_closed{};HFONT site_title{},site_small{};std::map<int,SiteRow> site_rows;
     // Sampled while painting; animate() only invalidates what is still moving.
     ui::Fade address_focus;std::map<HTREEITEM,ui::Fade> row_fades;RECT glide_from{},pill{};ULONGLONG glide_start{},accent_start{};
     COLORREF accent_from{},accent_to{};bool accent_ready{},pill_valid{},tree_moving{},window_moving{},was_loading{};
@@ -214,9 +230,10 @@ struct BrowserShell::Impl {
       SendMessageW(tooltips,TTM_SETDELAYTIME,TTDT_INITIAL,400);SendMessageW(tooltips,TTM_SETMAXTIPWIDTH,0,d(280));
       find_bar=CreateWindowExW(WS_EX_CONTROLPARENT,L"XenonFindBar",L"",WS_CHILD|WS_CLIPSIBLINGS|WS_CLIPCHILDREN,0,0,10,10,window,nullptr,branding_module(),this);
       for(const auto& [id,title]:std::vector<std::pair<int,const wchar_t*>>{{Back,ui::tr(L"Back")},{Forward,ui::tr(L"Forward")},{Reload,ui::tr(L"Reload")},{Extensions,ui::tr(L"Extensions")},{Controls,ui::tr(L"Controls")},{Menu,ui::tr(L"Menu")},
-          {Passwords,ui::tr(L"Saved passwords for this site")},{BookmarkStar,ui::tr(L"Bookmark this tab")},{NewTab,ui::tr(L"New tab")},{FindPrevious,ui::tr(L"Previous match")},{FindNext,ui::tr(L"Next match")},{FindClose,ui::tr(L"Close find")}}){
+          {Passwords,ui::tr(L"Saved passwords for this site")},{BookmarkStar,ui::tr(L"Bookmark this tab")},{SiteInfo,ui::tr(L"View site information")},{NewTab,ui::tr(L"New tab")},{FindPrevious,ui::tr(L"Previous match")},{FindNext,ui::tr(L"Next match")},{FindClose,ui::tr(L"Close find")}}){
         const bool find=id==FindPrevious||id==FindNext||id==FindClose;auto control=add(id,L"BUTTON",title,BS_OWNERDRAW|WS_TABSTOP,find?find_bar:nullptr);tip(control,title);}
-      for(int id:{Passwords,BookmarkStar,FindPrevious,FindNext,FindClose})SetPropW(controls.at(id),L"XenonSurface",reinterpret_cast<HANDLE>(1));
+      for(int id:{Passwords,BookmarkStar,SiteInfo,FindPrevious,FindNext,FindClose})SetPropW(controls.at(id),L"XenonSurface",reinterpret_cast<HANDLE>(1));
+      site_title=ui::font(window,15,FW_SEMIBOLD);site_small=ui::font(window,12);
       address=add(Address,L"EDIT",L"",WS_TABSTOP|ES_AUTOHSCROLL);
       find_text=add(FindText,L"EDIT",L"",WS_TABSTOP|ES_AUTOHSCROLL,find_bar);
       tree=add(Tree,WC_TREEVIEWW,ui::tr(L"Workspace tabs"),WS_TABSTOP|TVS_HASBUTTONS|TVS_LINESATROOT|TVS_SHOWSELALWAYS|TVS_FULLROWSELECT|TVS_NOHSCROLL);
@@ -225,6 +242,9 @@ struct BrowserShell::Impl {
       // the selected tab from the page frame it joins.
       SetWindowLongPtrW(tree,GWL_EXSTYLE,GetWindowLongPtrW(tree,GWL_EXSTYLE)|WS_EX_LEFTSCROLLBAR);SetWindowPos(tree,nullptr,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
       SetWindowSubclass(address,edit_proc,1,reinterpret_cast<DWORD_PTR>(this));SetWindowSubclass(find_text,edit_proc,2,reinterpret_cast<DWORD_PTR>(this));
+      emphasis=ui::font(window,14,FW_SEMIBOLD);
+      suggestions=CreateWindowExW(WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,L"XenonAddressSuggestions",ui::tr(L"Address suggestions"),WS_POPUP,0,0,10,10,window,nullptr,branding_module(),this);
+      if(suggestions){ui::frame(suggestions);ui::popup_corners(suggestions);}
       cursor=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,L"XenonAgentCursor",ui::tr(L"Agent pointer"),WS_POPUP,0,0,25,30,window,nullptr,branding_module(),this);
       SetLayeredWindowAttributes(cursor,RGB(255,0,255),255,LWA_COLORKEY);
       developer_panel=CreateWindowExW(WS_EX_CONTROLPARENT,L"XenonElementsPanel",ui::tr(L"Agent page elements"),WS_CHILD|WS_CLIPCHILDREN,0,0,10,10,window,nullptr,branding_module(),this);
@@ -244,7 +264,8 @@ struct BrowserShell::Impl {
     void theme(){auto colors=ui::palette();ui::frame(window);TreeView_SetBkColor(tree,colors.canvas);TreeView_SetTextColor(tree,colors.ink);TreeView_SetLineColor(tree,colors.border);
       if(controls.contains(DeveloperList)){auto list=controls.at(DeveloperList);ListView_SetBkColor(list,colors.surface);ListView_SetTextBkColor(list,colors.surface);ListView_SetTextColor(list,colors.ink);}
       SetWindowTheme(tooltips,L"",L"");SendMessageW(tooltips,TTM_SETTIPBKCOLOR,colors.surface,0);SendMessageW(tooltips,TTM_SETTIPTEXTCOLOR,colors.ink,0);
-      for(const auto& [id,control]:controls){ui::control_theme(control);InvalidateRect(control,nullptr,TRUE);}InvalidateRect(window,nullptr,TRUE);InvalidateRect(find_bar,nullptr,TRUE);}
+      for(const auto& [id,control]:controls){ui::control_theme(control);InvalidateRect(control,nullptr,TRUE);}InvalidateRect(window,nullptr,TRUE);InvalidateRect(find_bar,nullptr,TRUE);
+      if(suggestions){ui::frame(suggestions);InvalidateRect(suggestions,nullptr,FALSE);}}
     // A moved child discards its copied pixels and repaints whole. Otherwise a
     // live window resize repaints only each right-anchored button's newly
     // exposed strip and leaves slivers of earlier frames across the rest.
@@ -270,7 +291,10 @@ struct BrowserShell::Impl {
       const bool key=saved_accounts>0&&!is_private();ShowWindow(controls.at(Passwords),key?SW_SHOWNA:SW_HIDE);
       // Keep the complete child surfaces inside the omnibox's curved edge.
       place(BookmarkStar,omni_right-36,10,24,24);place(Passwords,omni_right-64,10,24,24);
-      place(Address,omni_left+16,13,std::max(60,omni_right-(key?68:38)-(omni_left+16)),19);
+      // The site-info button leads the omnibox, as in Chromium.
+      const int info=site_button_width();ShowWindow(controls.at(SiteInfo),info?SW_SHOWNA:SW_HIDE);if(info)place(SiteInfo,omni_left+6,10,info,24);
+      const int address_left=info?omni_left+12+info:omni_left+16;
+      place(Address,address_left,13,std::max(60,omni_right-(key?68:38)-address_left),19);
       // A widened address edit can cover where a moved button was drawn; the
       // edit does not repaint that newly covered strip on its own.
       if(address)RedrawWindow(address,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_FRAME);
@@ -297,6 +321,7 @@ struct BrowserShell::Impl {
       // never resizes the page.
       reposition(find_bar,HWND_TOP,inner.right-d(356),inner.top+d(6),d(344),d(40),SWP_NOACTIVATE|(find_visible?SWP_SHOWWINDOW:SWP_HIDEWINDOW));
       MoveWindow(find_text,d(12),d(9),d(200),d(22),TRUE);MoveWindow(controls.at(FindPrevious),d(220),d(4),d(32),d(32),TRUE);MoveWindow(controls.at(FindNext),d(256),d(4),d(32),d(32),TRUE);MoveWindow(controls.at(FindClose),d(304),d(4),d(32),d(32),TRUE);
+      if(suggesting())place_suggestions();
       InvalidateRect(window,nullptr,TRUE);
     }
     bool sidebar_hit(POINT point) const {RECT bounds{};GetClientRect(window,&bounds);return point.x>=d(sidebar-6)&&point.x<d(sidebar+1)&&point.y>=d(ToolbarHeight)&&point.y<bounds.bottom-d(8);}
@@ -306,6 +331,201 @@ struct BrowserShell::Impl {
     RECT sidebar_grip() const {RECT bounds{};GetClientRect(window,&bounds);const auto middle=(d(ToolbarHeight)+bounds.bottom)/2;return {d(sidebar-5),middle-d(16),d(sidebar-2),middle+d(16)};}
     void invalidate_grip(){auto rect=sidebar_grip();InvalidateRect(window,&rect,FALSE);}
     void set_address(const std::string& value){if(ui::text(address)==value)return;setting_address=true;SetWindowTextW(address,ui::wide(value).c_str());setting_address=false;}
+    // Address text chosen by a suggestion. Text after `selected_from` bytes is
+    // the inline completion, left selected so typing replaces it.
+    void show_text(const std::string& value,size_t selected_from=std::string::npos){
+      setting_address=true;SetWindowTextW(address,ui::wide(value).c_str());setting_address=false;const int length=GetWindowTextLengthW(address);
+      const int start=selected_from==std::string::npos?length:static_cast<int>(ui::wide(value.substr(0,selected_from)).size());
+      SendMessageW(address,EM_SETSEL,start,length);SendMessageW(address,EM_SCROLLCARET,0,0);
+    }
+    bool suggesting() const {return suggestions&&IsWindowVisible(suggestions);}
+    void hide_suggestions(){suggestion_hover=suggestion_pressed=-1;if(suggesting())ShowWindow(suggestions,SW_HIDE);}
+    // The list hangs below the omnibox at its width, over the page frame.
+    void place_suggestions(){
+      if(!suggestions||matches.empty()||GetFocus()!=address||!IsWindowVisible(window)||IsIconic(window)){hide_suggestions();return;}
+      RECT box=omnibox;MapWindowPoints(window,nullptr,reinterpret_cast<POINT*>(&box),2);
+      const int height=2*d(SuggestionInset)+static_cast<int>(matches.size())*d(SuggestionRow);
+      SetWindowPos(suggestions,HWND_TOP,box.left,box.bottom+d(4),box.right-box.left,height,SWP_NOACTIVATE|SWP_NOOWNERZORDER|SWP_SHOWWINDOW);InvalidateRect(suggestions,nullptr,FALSE);
+    }
+    // Suggestions for the address after each edit. Only a character typed at the
+    // end completes inline, so deleting, pasting or undoing never brings one back.
+    void suggest(){
+      const auto text=ui::text(address);DWORD start{},end{};SendMessageW(address,EM_GETSEL,reinterpret_cast<WPARAM>(&start),reinterpret_cast<LPARAM>(&end));
+      const bool typed_character=std::exchange(typing,false),at_end=start==end&&end==static_cast<DWORD>(GetWindowTextLengthW(address));
+      typed=text;suggestion=-1;matches.clear();
+      try{matches=shell.data.suggest(workspace(),is_private(),text,typed_character&&at_end);}catch(...){}
+      if(!matches.empty()){suggestion=0;if(!matches[0].completion.empty())show_text(matches[0].fill,text.size());}
+      place_suggestions();
+    }
+    // Up and Down move through the list and show the row's address, as in
+    // Chromium; on a closed list they open it for the current text.
+    void step_suggestion(int step){
+      if(!suggesting()){if(GetWindowTextLengthW(address)>0){typing=false;suggest();}return;}
+      const int next=std::clamp(suggestion+step,0,static_cast<int>(matches.size())-1);if(next==suggestion)return;suggestion=next;
+      const auto& match=matches[static_cast<size_t>(next)];show_text(match.fill,match.completion.empty()?std::string::npos:typed.size());InvalidateRect(suggestions,nullptr,FALSE);
+    }
+    // Shift+Delete deletes the selected history suggestion's visits.
+    bool remove_suggestion(){
+      if(!suggesting()||suggestion<0||static_cast<size_t>(suggestion)>=matches.size()||!matches[static_cast<size_t>(suggestion)].removable)return false;
+      bool removed=false;try{removed=shell.data.remove_history(workspace(),is_private(),matches[static_cast<size_t>(suggestion)].destination);}catch(...){}
+      if(!removed)set_status(ui::tr(L"History could not be updated."));
+      show_text(typed);typing=false;suggest();return true;
+    }
+    int suggestion_at(int y) const {const int top=d(SuggestionInset);if(y<top)return -1;const int row=(y-top)/d(SuggestionRow);return row<static_cast<int>(matches.size())?row:-1;}
+    // Draws text left to right with matched characters in bold and advances
+    // area.left. Text past `limit` pixels ends in an ellipsis.
+    void runs(HDC dc,RECT& area,const std::wstring& text,const std::vector<bool>& marked,COLORREF ink,int limit) const {
+      int room=std::min<int>(limit,area.right-area.left);
+      for(size_t at=0;at<text.size()&&room>0;){
+        const bool strong=marked[at];size_t end=at;while(end<text.size()&&marked[end]==strong)++end;
+        const auto face=strong?emphasis:font;const auto old=SelectObject(dc,face);SIZE size{};GetTextExtentPoint32W(dc,text.c_str()+at,static_cast<int>(end-at),&size);SelectObject(dc,old);
+        const bool last=size.cx>room;RECT cell{area.left,area.top,area.left+(last?room:size.cx),area.bottom};
+        ui::text(dc,cell,last?text.substr(at):text.substr(at,end-at),face,ink,DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|DT_END_ELLIPSIS);
+        room-=cell.right-cell.left;area.left=cell.right;if(last)break;at=end;
+      }
+    }
+    // Rows read like Chromium's: the URL in link color, then the page title.
+    // Titles are website text; they are shown only here, to the person.
+    void paint_suggestions(HDC dc,RECT bounds) const {
+      const auto colors=ui::palette();ui::fill(dc,bounds,colors.surface);ui::outline(dc,bounds,colors.border,0,1);
+      const auto query=ui::wide(typed);const auto plain=[](const std::wstring& text){return std::vector<bool>(text.size());};
+      for(size_t n=0;n<matches.size();++n){
+        const auto& match=matches[n];const int top=d(SuggestionInset)+static_cast<int>(n)*d(SuggestionRow);RECT row{d(6),top,bounds.right-d(6),top+d(SuggestionRow)};
+        const bool chosen=static_cast<int>(n)==suggestion,hot=static_cast<int>(n)==suggestion_hover;
+        // High contrast uses the system highlight for hover too, never a blend.
+        if(chosen||hot){const auto fill=chosen||colors.contrast?ui::hover_background():ui::mix(colors.surface,ui::hover_background(),0.5);ui::rounded(dc,row,fill,fill,d(6));}
+        const bool inverse=(chosen||hot)&&colors.contrast;const auto ink=inverse?ui::selection_ink():colors.ink,muted=inverse?ui::selection_ink():colors.muted,link=inverse?ui::selection_ink():ui::notice_blue();
+        RECT glyph{row.left+d(4),row.top,row.left+d(32),row.bottom};
+        ui::icon(dc,glyph,match.kind==omnibox::Kind::search?ui::Icon::search:match.kind==omnibox::Kind::bookmark?ui::Icon::star_filled:match.kind==omnibox::Kind::history?ui::Icon::history:ui::Icon::globe,muted,window);
+        RECT area{row.left+d(40),row.top,row.right-d(10),row.bottom};const int width=area.right-area.left;const std::wstring dash=L" – ";
+        if(match.kind==omnibox::Kind::search){const auto text=omnibox::printable(ui::wide(match.display)),label=dash+ui::tr(L"Google Search");runs(dc,area,text,plain(text),ink,width*3/4);runs(dc,area,label,plain(label),muted,width);continue;}
+        const auto url=omnibox::printable(ui::wide(match.display)),title=omnibox::printable(ui::wide(match.title));
+        runs(dc,area,url,omnibox::emphasis(url,query),link,title.empty()?width:width*3/5);
+        if(!title.empty()){runs(dc,area,dash,plain(dash),muted,width);runs(dc,area,title,omnibox::emphasis(title,query),ink,width);}
+      }
+    }
+    // ---- Site information ---------------------------------------------------
+    // The toolbar button is an icon, widened into a "Not secure" chip for HTTP
+    // and certificate errors, as in Chromium. Blank and internal pages hide it.
+    bool not_secure() const {return security=="insecure"||security=="dangerous";}
+    int site_button_width() const {return security.empty()||security=="internal"?0:not_secure()?text_width(ui::tr(L"Not secure"))+34:24;}
+    ui::Icon site_icon() const {return security=="secure"||security=="protected"?ui::Icon::lock:not_secure()?ui::Icon::warning:ui::Icon::info;}
+    void draw_site_button(const DRAWITEMSTRUCT& item){ui::buffered(item,[&](const DRAWITEMSTRUCT& copy){const auto colors=ui::palette();auto rect=copy.rcItem;ui::fill(copy.hDC,rect,colors.surface);
+      const double hover=ui::hover_amount(copy);const auto background=site_bubble||(copy.itemState&ODS_SELECTED)?ui::selection():ui::mix(colors.surface,ui::hover_background(),hover);
+      ui::rounded(copy.hDC,rect,background,background,d(12));
+      const auto ink=colors.contrast&&(hover>=0.5||site_bubble)?ui::selection_ink():security=="dangerous"?ui::danger_red():not_secure()?colors.muted:colors.ink;
+      RECT glyph{rect.left,rect.top,rect.left+d(24),rect.bottom};ui::icon(copy.hDC,glyph,site_icon(),ink,copy.hwndItem);
+      if(not_secure()){RECT caption{rect.left+d(23),rect.top,rect.right-d(6),rect.bottom};ui::text(copy.hDC,caption,ui::tr(L"Not secure"),font,ink);}
+      if(copy.itemState&ODS_FOCUS)ui::focus_mark(copy.hDC,rect,copy.hwndItem,12);});}
+    void close_site(){if(!site_bubble)return;const auto bubble=std::exchange(site_bubble,nullptr);site_closed=GetTickCount64();DestroyWindow(bubble);if(controls.contains(SiteInfo))InvalidateRect(controls.at(SiteInfo),nullptr,FALSE);}
+    // Site information is read when the bubble opens; the engine rechecks the
+    // tab's website before every change made from it.
+    void open_site(){if(!shell.hosts.contains(selected))return;const auto tab=selected;const auto target=window;auto& owner=shell;
+      shell.engine.site_info(tab,[&owner,target,tab](Json value){owner.post([&owner,target,tab,value=std::move(value)]{auto frame=owner.frame_of(target);if(!frame||frame->selected!=tab)return;
+        if(!value.value("ok",false)){frame->set_status(ui::error_text(str(value.value("error",Json::object()),"message")));return;}frame->show_site(value["result"]);});});}
+    void show_site(const Json& info){close_site();site=info;site_tab=selected;site_origin=str(info,"origin");site_details=false;
+      site_bubble=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_CONTROLPARENT,L"XenonSiteInfo",ui::tr(L"Site information"),WS_POPUP|WS_CLIPCHILDREN,0,0,10,10,window,nullptr,branding_module(),this);
+      if(!site_bubble)return;ui::frame(site_bubble);ui::popup_corners(site_bubble);
+      // Focus rings show when the button was reached with the keyboard; Tab shows them later too.
+      SendMessageW(site_bubble,WM_CHANGEUISTATE,MAKEWPARAM(ui::keyboard_focus(controls.at(SiteInfo))?UIS_CLEAR:UIS_SET,UISF_HIDEFOCUS),0);
+      build_site();InvalidateRect(controls.at(SiteInfo),nullptr,FALSE);}
+    HWND site_control(int id,const wchar_t* type,const std::wstring& text,DWORD style,HFONT face){
+      auto control=CreateWindowExW(0,type,text.c_str(),WS_CHILD|WS_VISIBLE|style,0,0,10,10,site_bubble,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),branding_module(),nullptr);
+      SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(face),TRUE);ui::control_theme(control);return control;}
+    // Wrapped text height in DIPs for a bubble label of `width` DIPs.
+    int text_height(const std::wstring& text,HFONT face,int width) const {auto dc=GetDC(window);auto old=SelectObject(dc,face);RECT bounds{0,0,d(width),0};
+      DrawTextW(dc,text.c_str(),static_cast<int>(text.size()),&bounds,DT_CALCRECT|DT_WORDBREAK|DT_NOPREFIX);SelectObject(dc,old);ReleaseDC(window,dc);return MulDiv(bounds.bottom,96,GetDpiForWindow(window))+2;}
+    static std::wstring date_text(int64_t milliseconds){if(milliseconds<=0)return {};ULARGE_INTEGER value{};value.QuadPart=static_cast<ULONGLONG>(milliseconds+11644473600000LL)*10000;FILETIME utc{value.LowPart,value.HighPart},local{};SYSTEMTIME system{};
+      if(!FileTimeToLocalFileTime(&utc,&local)||!FileTimeToSystemTime(&local,&system))return {};wchar_t date[80]{};GetDateFormatEx(LOCALE_NAME_USER_DEFAULT,DATE_SHORTDATE,&system,nullptr,date,80,nullptr);return date;}
+    static std::wstring cookie_count(int count){return count<=0?ui::tr(L"None"):count==1?ui::tr(L"1 cookie"):ui::format(ui::tr(L"{0} cookies"),{std::to_wstring(count)});}
+    // Chromium's wording for each connection state.
+    std::pair<std::wstring,std::wstring> connection_text() const {const auto state=str(site,"state");
+      if(state=="secure")return {ui::tr(L"Connection is secure"),ui::tr(L"Your information (for example, passwords or credit card numbers) is private when it is sent to this site.")};
+      if(state=="mixed")return {ui::tr(L"Connection is not fully secure"),ui::tr(L"Parts of this page, such as images, are loaded over an insecure connection.")};
+      if(state=="dangerous")return {ui::tr(L"Connection is not secure"),ui::tr(L"This site's certificate has a problem. Attackers might be trying to steal your information.")};
+      if(state=="local")return {ui::tr(L"Connection is not secure"),ui::tr(L"This page is served from this computer over HTTP, without encryption.")};
+      if(state=="pending")return {ui::tr(L"Connection details are not available yet"),ui::tr(L"Reload the page if this does not change.")};
+      return {ui::tr(L"Connection is not secure"),ui::tr(L"You should not enter any sensitive information on this site (for example, passwords or credit cards), because it could be stolen by attackers.")};}
+    // Lays out the bubble's main or connection view from `site` and shows it
+    // below the button. Children are real controls, so Tab, Enter and screen
+    // readers work as in any dialog.
+    void build_site(){
+      for(HWND child=GetWindow(site_bubble,GW_CHILD);child;){const auto next=GetWindow(child,GW_HWNDNEXT);DestroyWindow(child);child=next;}site_rows.clear();
+      const int width=360;int y=10;std::vector<std::tuple<HWND,int,int,int,int>> placed;HWND first{};
+      // Focus starts on the first row, as in Chromium, not on Close.
+      const auto put=[&](HWND control,int x,int top,int w,int h){placed.emplace_back(control,x,top,w,h);if(!first&&(GetWindowLongPtrW(control,GWL_STYLE)&WS_TABSTOP)&&GetDlgCtrlID(control)!=SiteClose)first=control;};
+      const auto label=[&](int id,const std::wstring& text,HFONT face,int x,int w){const int h=text_height(text,face,w);put(site_control(id,L"STATIC",text,SS_LEFT|SS_NOPREFIX,face),x,y,w,h);y+=h;};
+      const auto row=[&](int id,ui::Icon icon,const std::wstring& text,const std::wstring& detail,bool chevron,COLORREF tint=0){site_rows[id]={icon,detail,chevron,tint};put(site_control(id,L"BUTTON",text,BS_OWNERDRAW|WS_TABSTOP,font),8,y,width-16,40);y+=40;};
+      const auto state=str(site,"state");const auto [headline,explanation]=connection_text();
+      const auto connection_icon=state=="secure"?ui::Icon::lock:state=="insecure"||state=="dangerous"?ui::Icon::warning:ui::Icon::info;const COLORREF tint=state=="dangerous"?ui::danger_red():0;
+      put(site_control(SiteClose,L"BUTTON",ui::tr(L"Close"),BS_OWNERDRAW|WS_TABSTOP,font),width-40,8,28,28);
+      if(site_details){
+        row(SiteBack,ui::Icon::back,ui::tr(L"Connection security"),{},false);y+=4;
+        label(SiteTitle,headline,site_title,16,width-32);y+=6;label(SiteText,explanation,font,16,width-32);
+        const auto certificate=site.value("certificate",Json::object());std::wstring details;
+        if(!certificate.empty()){details=ui::format(ui::tr(L"Issued to: {0}"),{ui::wide(str(certificate,"subject"))})+L"\n"+ui::format(ui::tr(L"Issued by: {0}"),{ui::wide(str(certificate,"issuer"))})+L"\n"+
+          ui::format(ui::tr(L"Valid until: {0}"),{date_text(certificate.value("validTo",int64_t{}))});}
+        if(!str(site,"protocol").empty())details+=(details.empty()?L"":L"\n")+ui::format(ui::tr(L"Protocol: {0}"),{ui::wide(str(site,"protocol"))});
+        if(!details.empty()){y+=8;label(SiteDetails,details,site_small,16,width-32);}
+        if(!str(certificate,"der").empty()){y+=6;row(SiteCertificate,ui::Icon::lock,ui::tr(L"Certificate details"),{},true);}
+      }else{
+        const auto workspace=ui::wide(ui::tr8("Workspace: ")+(shell.workspace_names.contains(workspace_id())?shell.workspace_names.at(workspace_id()):workspace_id()));
+        if(state=="protected"){label(SiteTitle,ui::tr(L"Protected sign-in"),site_title,16,width-64);label(SiteSubtitle,workspace,site_small,16,width-64);y+=10;
+          label(SiteText,ui::tr(L"Site controls are unavailable while a protected sign-in is in progress."),font,16,width-32);}
+        else{
+          label(SiteTitle,ui::wide(str(site,"host")),site_title,16,width-64);label(SiteSubtitle,workspace,site_small,16,width-64);y+=8;
+          row(SiteConnection,connection_icon,headline,{},true,tint);
+          row(SiteCookies,ui::Icon::cookie,ui::tr(L"Cookies and site data"),cookie_count(site.value("cookieCount",0)),true);
+          // As in Chromium, the bubble lists only settings changed from their default.
+          const auto settings=site.value("settings",Json::object());bool changed=false;
+          for(size_t n=0;n<std::size(site::settings);++n){const auto& item=site::settings[n];const auto value=str(settings,item.name);if(value!="allow"&&value!="block")continue;
+            if(!changed){y+=8;label(SitePermissions,ui::tr(L"Permissions"),site_small,16,width-32);y+=2;changed=true;}
+            put(site_control(SiteSettingLabel+static_cast<int>(n),L"STATIC",ui::tr(item.label),SS_LEFT|SS_NOPREFIX|SS_CENTERIMAGE,font),16,y,width-200,30);
+            auto combo=site_control(SiteSetting+static_cast<int>(n),L"COMBOBOX",{},CBS_DROPDOWNLIST|WS_TABSTOP|WS_VSCROLL,font);
+            for(const char* choice:{"default","allow","block"})SendMessageW(combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(ui::tr(site::value_label(item.name,choice))));
+            SendMessageW(combo,CB_SETCURSEL,value=="allow"?1:2,0);put(combo,width-176,y+2,160,200);y+=34;}
+          if(changed){put(site_control(SiteReset,L"BUTTON",ui::tr(L"Reset permissions"),BS_OWNERDRAW|WS_TABSTOP,font),width-176,y+2,160,30);y+=38;}
+          y+=4;row(SiteSettings,ui::Icon::settings,ui::tr(L"Site settings"),{},true);
+        }
+      }
+      const int height=y+10;RECT anchor{};GetWindowRect(controls.at(SiteInfo),&anchor);RECT box=omnibox;MapWindowPoints(window,nullptr,reinterpret_cast<POINT*>(&box),2);
+      MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromWindow(window,MONITOR_DEFAULTTONEAREST),&monitor);
+      const int x=std::clamp<int>(anchor.left-d(4),monitor.rcWork.left,std::max<int>(monitor.rcWork.left,monitor.rcWork.right-d(width))),top=std::clamp<int>(box.bottom+d(4),monitor.rcWork.top,std::max<int>(monitor.rcWork.top,monitor.rcWork.bottom-d(height)));
+      for(const auto& [control,cx,cy,cw,ch]:placed)SetWindowPos(control,nullptr,d(cx),d(cy),d(cw),d(ch),SWP_NOZORDER|SWP_NOACTIVATE);
+      SetWindowPos(site_bubble,HWND_TOP,x,top,d(width),d(height),SWP_SHOWWINDOW);InvalidateRect(site_bubble,nullptr,TRUE);if(first)SetFocus(first);
+    }
+    std::string workspace_id() const {auto found=shell.hosts.find(site_tab);return found==shell.hosts.end()?workspace():found->second.workspace;}
+    void draw_site_row(const DRAWITEMSTRUCT& item){const auto found=site_rows.find(static_cast<int>(item.CtlID));if(found==site_rows.end())return;const auto row=found->second;
+      ui::buffered(item,[&](const DRAWITEMSTRUCT& copy){const auto colors=ui::palette();auto rect=copy.rcItem;ui::fill(copy.hDC,rect,colors.canvas);
+        const double hover=ui::hover_amount(copy);const bool pressed=(copy.itemState&ODS_SELECTED)!=0;
+        if(hover>0||pressed){const auto fill=pressed?ui::selection():ui::mix(colors.canvas,ui::hover_background(),hover);ui::rounded(copy.hDC,rect,fill,fill,d(6));}
+        const bool inverse=colors.contrast&&(hover>=0.5||pressed);const auto ink=inverse?ui::selection_ink():colors.ink,muted=inverse?ui::selection_ink():colors.muted;
+        RECT glyph{rect.left+d(4),rect.top,rect.left+d(32),rect.bottom};ui::icon(copy.hDC,glyph,row.icon,row.tint&&!inverse?row.tint:ink,copy.hwndItem);
+        RECT text{rect.left+d(40),rect.top,rect.right-d(row.chevron?30:10),rect.bottom};
+        if(!row.detail.empty()){const auto old=SelectObject(copy.hDC,font);SIZE size{};GetTextExtentPoint32W(copy.hDC,row.detail.c_str(),static_cast<int>(row.detail.size()),&size);SelectObject(copy.hDC,old);
+          RECT detail{std::max<LONG>(text.left,text.right-size.cx),rect.top,text.right,rect.bottom};ui::text(copy.hDC,detail,row.detail,font,muted,DT_SINGLELINE|DT_VCENTER|DT_RIGHT|DT_NOPREFIX|DT_END_ELLIPSIS);text.right=detail.left-d(8);}
+        wchar_t caption[256]{};GetWindowTextW(copy.hwndItem,caption,256);ui::text(copy.hDC,text,caption,font,ink,DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX);
+        if(row.chevron){RECT arrow{rect.right-d(30),rect.top,rect.right-d(8),rect.bottom};ui::icon(copy.hDC,arrow,ui::Icon::chevron_right,muted,copy.hwndItem);}
+        if(copy.itemState&ODS_FOCUS){auto ring=rect;ui::focus_mark(copy.hDC,ring,copy.hwndItem,6);}});}
+    // Bubble buttons. Rows that open panels or dialogs close the bubble first.
+    void site_command(int id){const auto tab=site_tab,origin=site_origin;auto& owner=shell;const auto target=window;
+      if(id==SiteClose){close_site();return;}
+      if(id==SiteConnection||id==SiteBack){site_details=id==SiteConnection;build_site();return;}
+      if(id==SiteCertificate){const auto der=str(site.value("certificate",Json::object()),"der");close_site();show_certificate(der);return;}
+      if(id==SiteCookies||id==SiteSettings){close_site();shell.panel(*this,id==SiteCookies?"cookies":"site",{},{},tab);return;}
+      if(id==SiteReset)shell.engine.reset_site_settings(tab,origin,[&owner,target,tab](Json value){owner.post([&owner,target,tab,value=std::move(value)]{auto frame=owner.frame_of(target);if(!frame)return;
+        if(!value.value("ok",false)){frame->set_status(ui::error_text(str(value.value("error",Json::object()),"message")));return;}
+        frame->set_status(ui::tr(L"Site settings reset."));if(frame->site_bubble&&frame->site_tab==tab)frame->open_site();});});
+    }
+    void change_site_setting(size_t index,HWND combo){const auto choice=SendMessageW(combo,CB_GETCURSEL,0,0);if(choice<0||choice>2||index>=std::size(site::settings))return;
+      constexpr const char* values[]{"default","allow","block"};auto& owner=shell;const auto target=window;
+      shell.engine.set_site_setting(site_tab,site_origin,site::settings[index].name,values[choice],[&owner,target](Json value){if(value.value("ok",false))return;
+        owner.post([&owner,target,value=std::move(value)]{if(auto frame=owner.frame_of(target)){frame->set_status(ui::error_text(str(value.value("error",Json::object()),"message")));frame->close_site();}});});}
+    // The site's certificate in the Windows certificate viewer, owned by this window.
+    void show_certificate(const std::string& encoded){std::string bytes;if(!site::unhex(encoded,bytes)||bytes.empty())return;
+      const auto context=CertCreateCertificateContext(X509_ASN_ENCODING|PKCS_7_ASN_ENCODING,reinterpret_cast<const BYTE*>(bytes.data()),static_cast<DWORD>(bytes.size()));
+      if(!context){set_status(ui::tr(L"The certificate could not be shown."));return;}
+      CryptUIDlgViewContext(CERT_STORE_CERTIFICATE_CONTEXT,context,window,ui::tr(L"Certificate"),0,nullptr);CertFreeCertificateContext(context);}
     void set_status(std::wstring text){status=std::move(text);status_until=GetTickCount64()+6000;layout();}
     void finish_sidebar(bool save){if(!resizing_sidebar)return;resizing_sidebar=false;RemovePropW(window,L"XenonSidebarDrag");if(GetCapture()==window)ReleaseCapture();if(save)shell.save_sidebar(*this);}
     void resize_sidebar(int width){RECT bounds{};GetClientRect(window,&bounds);const auto maximum=std::max(180,std::min(480,MulDiv(bounds.right,96,GetDpiForWindow(window))-400));const auto next=std::clamp(width,180,maximum);
@@ -332,7 +552,7 @@ struct BrowserShell::Impl {
     int group_button_at(POINT point,std::string& group) const {const auto item=item_at(point);const auto [id,is_group]=key_of(item);if(id.empty()||!is_group)return -1;
       for(int index:{GroupPlus,GroupMore}){if(index==GroupMore&&item!=hovered_row)continue;auto rect=group_button(item,index);if(PtInRect(&rect,point)){group=id;return index;}}return -1;}
     void choose(const std::string& id,bool focus){auto found=shell.hosts.find(id);if(found==shell.hosts.end()||found->second.frame!=this)return;
-      if(selected!=id){clear_developer(ui::tr(L"Waiting for rendered page evidence…"));RECT from{};const bool visible=pill_rect(from);glide_from=from;glide_start=visible&&ui::motion()?GetTickCount64():0;address_dirty=false;set_address(str(found->second.metadata,"url"));
+      if(selected!=id){clear_developer(ui::tr(L"Waiting for rendered page evidence…"));RECT from{};const bool visible=pill_rect(from);glide_from=from;glide_start=visible&&ui::motion()?GetTickCount64():0;address_dirty=false;hide_suggestions();matches.clear();close_site();set_address(str(found->second.metadata,"url"));
         // Keyboard tab switching can choose a row outside the visible sidebar.
         // A scrolled sidebar has no meaningful glide origin.
         if(auto item=item_of(id)){const auto top=TreeView_GetFirstVisible(tree);TreeView_EnsureVisible(tree,item);if(TreeView_GetFirstVisible(tree)!=top)glide_start=0;}}selected=id;
@@ -368,6 +588,9 @@ struct BrowserShell::Impl {
       enable(BookmarkStar,found!=shell.hosts.end()&&!metadata.value("protected",false)&&web_address(str(metadata,"url")));
       retitle(Reload,metadata.value("loading",false)?ui::tr(L"Stop"):ui::tr(L"Reload"));
       retitle(BookmarkStar,bookmarked?ui::tr(L"Remove bookmark"):ui::tr(L"Bookmark this tab"));
+      if(const auto state=found==shell.hosts.end()?std::string{}:str(metadata,"security");state!=security){security=state;layout();InvalidateRect(controls.at(SiteInfo),nullptr,FALSE);}
+      // The bubble describes one website and closes once the tab leaves it.
+      if(site_bubble&&(selected!=site_tab||site::origin(str(metadata,"url"))!=site_origin))close_site();
       auto title=found==shell.hosts.end()?ui::tr(L"Xenon Browser"):short_title(ui::tab_title(str(metadata,"title"),str(metadata,"url")),100)+L" — Xenon";if(ui::text(window)!=ui::utf8(title))SetWindowTextW(window,title.c_str());
       // An available update marks Controls with a blue dot until it is installed.
       if(auto version=shell.native.available_update();version!=update_version){update_version=std::move(version);InvalidateRect(controls.at(Controls),nullptr,FALSE);}
@@ -529,14 +752,17 @@ struct BrowserShell::Impl {
       RECT rect{};GetClientRect(host.window,&rect);const double scale=GetDpiForWindow(host.window)/96.0*host.metadata.value("zoom",1.0);POINT point{static_cast<LONG>(std::clamp(host.display.x*scale,0.0,std::max(0.0,rect.right-25.0))),static_cast<LONG>(std::clamp(host.display.y*scale,0.0,std::max(0.0,rect.bottom-30.0)))};ClientToScreen(host.window,&point);
       SetWindowPos(cursor,nullptr,point.x,point.y,d(25),d(30),SWP_NOACTIVATE|SWP_NOZORDER|SWP_SHOWWINDOW);InvalidateRect(cursor,nullptr,FALSE);
     }
-    std::string navigate_value(){auto input=ui::text(address);if(input=="about:blank"||input.rfind("http://",0)==0||input.rfind("https://",0)==0)return input;
-      // Ctrl+Enter completes a single word as www.<word>.com, as in Chromium.
-      if((GetKeyState(VK_CONTROL)&0x8000)&&!input.empty()&&input.find_first_of(" .:/")==std::string::npos)return "https://www."+input+".com";
-      if(input.find(' ')==std::string::npos&&input.find('.')!=std::string::npos&&input.find(':')==std::string::npos)return "https://"+input;
-      return "https://www.google.com/search?q="+CefURIEncode(input,true).ToString();
+    // Enter opens the selected suggestion while its text is shown; otherwise
+    // the typed text. Ctrl+Enter completes a single word as www.<word>.com, as
+    // in Chromium, from what was typed rather than an inline completion.
+    void submit(){const bool control=(GetKeyState(VK_CONTROL)&0x8000)!=0;auto text=ui::text(address);
+      const bool shown=suggesting()&&suggestion>=0&&static_cast<size_t>(suggestion)<matches.size()&&text==matches[static_cast<size_t>(suggestion)].fill;
+      if(shown&&!control){navigate(matches[static_cast<size_t>(suggestion)].destination);return;}
+      if(shown&&!matches[static_cast<size_t>(suggestion)].completion.empty())text=typed;
+      navigate(omnibox::typed_destination(text,control));
     }
-    void navigate(){if(!shell.hosts.contains(selected)){open_tab(workspace(),navigate_value());address_dirty=false;return;}
-      const auto value=navigate_value();address_dirty=false;const auto target=window;auto& shell_ref=shell;
+    void navigate(std::string value){hide_suggestions();matches.clear();address_dirty=false;if(!shell.hosts.contains(selected)){open_tab(workspace(),value);return;}
+      const auto target=window;auto& shell_ref=shell;
       shell.engine.native_command(selected,"navigate",value,[&shell_ref,target](Json result){if(!result.value("ok",false))shell_ref.post([&shell_ref,target]{if(auto frame=shell_ref.frame_of(target))frame->set_status(ui::tr(L"This address could not be opened."));});});
       shell.engine.native_command(selected,"focus");}
     void show_find(){find_visible=true;layout();SetFocus(find_text);SendMessageW(find_text,EM_SETSEL,0,-1);}
@@ -550,7 +776,7 @@ struct BrowserShell::Impl {
       item(popup_menu,MenuHistory,ui::tr(L"History\tCtrl+H"));item(popup_menu,MenuDownloads,ui::tr(L"Downloads\tCtrl+J"));item(popup_menu,MenuBookmarks,ui::tr(L"Bookmarks"));item(popup_menu,MenuPasswords,ui::tr(L"Passwords"));item(popup_menu,MenuManageExtensions,ui::tr(L"Extensions"));separator(popup_menu);
       item(popup_menu,MenuReopenTab,ui::tr(L"Reopen closed tab\tCtrl+Shift+T"),!shell.closed_tabs.empty());item(popup_menu,MenuCloseWorkspaceTabs,ui::tr(L"Close all tabs in this workspace…"),shell.workspace_tab_count(workspace())>0);separator(popup_menu);
       auto zoom=CreatePopupMenu();item(zoom,MenuZoomIn,ui::tr(L"Zoom in\tCtrl++"));item(zoom,MenuZoomOut,ui::tr(L"Zoom out\tCtrl+-"));item(zoom,MenuZoomReset,ui::tr(L"Reset zoom\tCtrl+0"));AppendMenuW(popup_menu,MF_POPUP,reinterpret_cast<UINT_PTR>(zoom),ui::tr(L"Zoom"));
-      item(popup_menu,MenuFind,ui::tr(L"Find on page\tCtrl+F"));item(popup_menu,MenuBookmark,ui::tr(L"Bookmark this page\tCtrl+D"));item(popup_menu,MenuPrint,ui::tr(L"Print\tCtrl+P"));item(popup_menu,MenuPdf,ui::tr(L"Save as PDF…"));item(popup_menu,MenuPermissions,ui::tr(L"Site permissions"));separator(popup_menu);
+      item(popup_menu,MenuFind,ui::tr(L"Find on page\tCtrl+F"));item(popup_menu,MenuBookmark,ui::tr(L"Bookmark this page\tCtrl+D"));item(popup_menu,MenuPrint,ui::tr(L"Print\tCtrl+P"));item(popup_menu,MenuPdf,ui::tr(L"Save as PDF…"));item(popup_menu,MenuPermissions,ui::tr(L"Site settings"));separator(popup_menu);
       auto appearance=CreatePopupMenu();item(appearance,MenuThemeSystem,ui::tr(L"Theme: System"));item(appearance,MenuThemeLight,ui::tr(L"Theme: Light"));item(appearance,MenuThemeDark,ui::tr(L"Theme: Dark"));
       CheckMenuRadioItem(appearance,MenuThemeSystem,MenuThemeDark,ui::theme_mode==ui::ThemeMode::system?MenuThemeSystem:ui::theme_mode==ui::ThemeMode::light?MenuThemeLight:MenuThemeDark,MF_BYCOMMAND);
       AppendMenuW(appearance,MF_SEPARATOR,0,nullptr);item(appearance,MenuSidebarNarrower,ui::tr(L"Narrower sidebar"));item(appearance,MenuSidebarWider,ui::tr(L"Wider sidebar"));item(appearance,MenuSidebarReset,ui::tr(L"Reset sidebar width"));
@@ -599,9 +825,17 @@ struct BrowserShell::Impl {
     void group_menu(const std::string& workspace_id,POINT at);
     void command(int id);
     static LRESULT CALLBACK edit_proc(HWND control,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR owner){auto self=reinterpret_cast<Frame*>(owner);
-      if(message==WM_KEYDOWN&&wp==VK_RETURN){if(control==self->address)self->navigate();
+      if(message==WM_KEYDOWN&&wp==VK_RETURN){if(control==self->address)self->submit();
         else {const auto text=ui::text(control);self->shell.engine.native_command(self->selected,(GetKeyState(VK_SHIFT)&0x8000)?"find-previous":text==self->last_find?"find-next":"find",text);self->last_find=text;}return 0;}
-      if(message==WM_KEYDOWN&&wp==VK_ESCAPE){if(control==self->find_text)self->hide_find();else {self->address_dirty=false;auto found=self->shell.hosts.find(self->selected);self->set_address(found==self->shell.hosts.end()?std::string{}:str(found->second.metadata,"url"));self->shell.engine.native_command(self->selected,"focus");}return 0;}
+      // The first Escape closes suggestions and restores the typed text.
+      if(message==WM_KEYDOWN&&wp==VK_ESCAPE){if(control==self->find_text)self->hide_find();else if(self->suggesting()){self->hide_suggestions();self->show_text(self->typed);}else {self->address_dirty=false;auto found=self->shell.hosts.find(self->selected);self->set_address(found==self->shell.hosts.end()?std::string{}:str(found->second.metadata,"url"));self->shell.engine.native_command(self->selected,"focus");}return 0;}
+      if(control==self->address){
+        if(message==WM_KEYDOWN&&(wp==VK_UP||wp==VK_DOWN)){self->step_suggestion(wp==VK_DOWN?1:-1);return 0;}
+        if(message==WM_KEYDOWN&&wp==VK_DELETE&&(GetKeyState(VK_SHIFT)&0x8000)&&self->remove_suggestion())return 0;
+        // Only a printable character permits inline completion of the next change.
+        if(message==WM_CHAR)self->typing=wp>=0x20&&wp!=0x7f;
+        else if((message==WM_KEYDOWN&&(wp==VK_DELETE||wp==VK_INSERT))||message==WM_PASTE||message==WM_CUT||message==WM_CLEAR||message==WM_UNDO||message==EM_UNDO||message==WM_SETTEXT)self->typing=false;
+      }
       // The first click into the address selects all of it, as in Chromium.
       if(message==WM_LBUTTONDOWN&&control==self->address&&GetFocus()!=control){SetFocus(control);SendMessageW(control,EM_SETSEL,0,-1);return 0;}
       if(message==WM_NCDESTROY)RemoveWindowSubclass(control,edit_proc,control==self->address?1:2);
@@ -663,7 +897,7 @@ struct BrowserShell::Impl {
   void save_sidebar(Frame& frame){if(!ui::save_settings())frame.set_status(ui::tr(L"Sidebar resized for this run; saving failed."));InvalidateRect(frame.window,nullptr,FALSE);}
   size_t workspace_tab_count(const std::string& workspace) const {return static_cast<size_t>(std::count_if(states.begin(),states.end(),[&](const auto& entry){return str(entry.second,"workspaceId")==workspace;}));}
   void theme_all(){const auto colors=ui::palette();for(auto& frame:frames)if(frame->window)frame->theme();
-    for(auto& panel:panels)if(panel->window){ui::icons(panel->window);if(panel->list){ListView_SetBkColor(panel->list,colors.canvas);ListView_SetTextBkColor(panel->list,colors.canvas);ListView_SetTextColor(panel->list,colors.ink);}InvalidateRect(panel->window,nullptr,TRUE);}
+    for(auto& panel:panels)if(panel->window){ui::icons(panel->window);for(auto child=GetWindow(panel->window,GW_CHILD);child;child=GetWindow(child,GW_HWNDNEXT))ui::control_theme(child);if(panel->list){ListView_SetBkColor(panel->list,colors.canvas);ListView_SetTextBkColor(panel->list,colors.canvas);ListView_SetTextColor(panel->list,colors.ink);}InvalidateRect(panel->window,nullptr,TRUE);}
     engine.native_command("","theme");}
   Frame* create_frame(const RECT* bounds=nullptr){
     auto frame=std::make_unique<Frame>(*this);auto raw=frame.get();frames.push_back(std::move(frame));
@@ -829,6 +1063,13 @@ struct BrowserShell::Impl {
     std::erase_if(frames,[&](const auto& frame){return !frame->window&&std::none_of(hosts.begin(),hosts.end(),[&](const auto& entry){return entry.second.frame==frame.get();});});
   }
   void panel(Frame& frame,const std::string& kind,const std::string& description={},std::function<void(bool)> answer={},const std::string& source_tab={});
+  // Site settings and cookie panels describe one tab's website. Replies may
+  // arrive after the panel closed, so each checks that it is still open.
+  bool panel_alive(const Panel* raw,HWND window) const {return window&&std::any_of(panels.begin(),panels.end(),[&](const auto& item){return item.get()==raw&&item->window==window;});}
+  void load_site(Panel* raw,std::wstring notice={});
+  void fill_site(Panel& target,const Json& value,const std::wstring& notice);
+  void site_panel_command(Panel& target,int id);
+  void panel_setting(Panel& target,size_t index,HWND combo);
   static LRESULT CALLBACK panel_proc(HWND,UINT,WPARAM,LPARAM);
   static LRESULT CALLBACK host_proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){if(msg==WM_NCHITTEST)return HTCLIENT;return DefWindowProcW(h,msg,wp,lp);}
   static LRESULT CALLBACK elements_proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){
@@ -887,6 +1128,55 @@ struct BrowserShell::Impl {
     if(message==WM_PAINT){PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT rect{};GetClientRect(h,&rect);const auto colors=ui::palette();ui::fill(dc,rect,colors.surface);ui::outline(dc,rect,colors.border,ui::dip(h,8),ui::dip(h,1));EndPaint(h,&paint);return 0;}
     return DefWindowProcW(h,message,wp,lp);
   }
+  // Address suggestions. The list never activates, so keyboard focus and
+  // typing stay in the address box while rows respond to the pointer.
+  static LRESULT CALLBACK suggestions_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){try{auto self=reinterpret_cast<Frame*>(GetWindowLongPtrW(h,GWLP_USERDATA));
+    if(message==WM_NCCREATE){self=static_cast<Frame*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}
+    if(!self)return DefWindowProcW(h,message,wp,lp);
+    if(message==WM_MOUSEACTIVATE)return MA_NOACTIVATE;
+    if(message==WM_ERASEBKGND)return 1;
+    if(message==WM_MOUSEMOVE){const int row=self->suggestion_at(GET_Y_LPARAM(lp));if(row!=self->suggestion_hover){self->suggestion_hover=row;InvalidateRect(h,nullptr,FALSE);}
+      TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,h,0};TrackMouseEvent(&track);return 0;}
+    if(message==WM_MOUSELEAVE){if(self->suggestion_hover>=0){self->suggestion_hover=-1;InvalidateRect(h,nullptr,FALSE);}return 0;}
+    if(message==WM_LBUTTONDOWN||message==WM_LBUTTONDBLCLK){self->suggestion_pressed=self->suggestion_at(GET_Y_LPARAM(lp));SetCapture(h);return 0;}
+    if(message==WM_LBUTTONUP){const int row=std::exchange(self->suggestion_pressed,-1);if(GetCapture()==h)ReleaseCapture();
+      if(row>=0&&row==self->suggestion_at(GET_Y_LPARAM(lp)))self->navigate(self->matches[static_cast<size_t>(row)].destination);return 0;}
+    if(message==WM_CAPTURECHANGED){self->suggestion_pressed=-1;return 0;}
+    if(message==WM_PAINT){PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT bounds{};GetClientRect(h,&bounds);auto memory=CreateCompatibleDC(dc);auto bitmap=CreateCompatibleBitmap(dc,std::max<LONG>(1,bounds.right),std::max<LONG>(1,bounds.bottom));
+      if(memory&&bitmap){auto old=SelectObject(memory,bitmap);self->paint_suggestions(memory,bounds);BitBlt(dc,0,0,bounds.right,bounds.bottom,memory,0,0,SRCCOPY);SelectObject(memory,old);}else self->paint_suggestions(dc,bounds);
+      if(bitmap)DeleteObject(bitmap);if(memory)DeleteDC(memory);EndPaint(h,&paint);return 0;}
+    if(message==WM_PRINTCLIENT){RECT bounds{};GetClientRect(h,&bounds);self->paint_suggestions(reinterpret_cast<HDC>(wp),bounds);return 0;}
+    if(message==WM_NCDESTROY)self->suggestions=nullptr;
+    return DefWindowProcW(h,message,wp,lp);
+  }catch(...){return message==WM_NCCREATE?FALSE:0;}}
+  // The site-information bubble. Like Chromium's, it takes focus for keyboard
+  // use and closes when it loses activation or on Escape.
+  static LRESULT CALLBACK site_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){try{auto self=reinterpret_cast<Frame*>(GetWindowLongPtrW(h,GWLP_USERDATA));
+    if(message==WM_NCCREATE){self=static_cast<Frame*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}
+    if(!self)return DefWindowProcW(h,message,wp,lp);
+    LRESULT result{};
+    if(message==WM_CTLCOLORSTATIC){ui::ctl_color(message,wp,lp,result);const int id=GetDlgCtrlID(reinterpret_cast<HWND>(lp));if(id==SiteSubtitle||id==SiteDetails||id==SitePermissions)SetTextColor(reinterpret_cast<HDC>(wp),ui::palette().muted);return result;}
+    if(ui::ctl_color(message,wp,lp,result))return result;
+    switch(message){
+      case WM_ACTIVATE:if(LOWORD(wp)==WA_INACTIVE)PostMessageW(h,WM_CLOSE,0,0);return 0;
+      case WM_CLOSE:if(self->site_bubble==h)self->close_site();else DestroyWindow(h);return 0;
+      case WM_ERASEBKGND:return 1;
+      case WM_PAINT:case WM_PRINTCLIENT:{PAINTSTRUCT paint{};auto dc=message==WM_PAINT?BeginPaint(h,&paint):reinterpret_cast<HDC>(wp);RECT rect{};GetClientRect(h,&rect);const auto colors=ui::palette();
+        ui::fill(dc,rect,colors.canvas);ui::outline(dc,rect,colors.border,0,1);if(message==WM_PAINT)EndPaint(h,&paint);return 0;}
+      case WM_DRAWITEM:{auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(!item||item->CtlType!=ODT_BUTTON)break;
+        if(self->site_rows.contains(static_cast<int>(item->CtlID)))self->draw_site_row(*item);else ui::button(*item,self->font,item->CtlID==SiteClose?ui::Icon::close:ui::Icon::none);return TRUE;}
+      case WM_COMMAND:{const int id=LOWORD(wp);
+        if(id==IDCANCEL){self->close_site();return 0;}
+        // Enter activates the focused row or button.
+        if(id==IDOK){const auto focus=GetFocus();wchar_t type[16]{};if(focus&&IsChild(h,focus)&&GetClassNameW(focus,type,16)&&_wcsicmp(type,L"BUTTON")==0)PostMessageW(h,WM_COMMAND,MAKEWPARAM(GetDlgCtrlID(focus),BN_CLICKED),reinterpret_cast<LPARAM>(focus));return 0;}
+        if(HIWORD(wp)==CBN_SELCHANGE&&id>=SiteSetting&&id<SiteSetting+static_cast<int>(std::size(site::settings))){self->change_site_setting(static_cast<size_t>(id-SiteSetting),reinterpret_cast<HWND>(lp));return 0;}
+        // Posted, so rebuilding or closing never destroys the clicked control inside its own notification.
+        if(HIWORD(wp)==BN_CLICKED){PostMessageW(h,WM_APP,static_cast<WPARAM>(id),0);return 0;}break;}
+      case WM_APP:self->site_command(static_cast<int>(wp));return 0;
+      case WM_NCDESTROY:if(self->site_bubble==h)self->site_bubble=nullptr;break;
+    }
+    return DefWindowProcW(h,message,wp,lp);
+  }catch(...){return message==WM_NCCREATE?FALSE:0;}}
   static LRESULT CALLBACK message_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){auto self=reinterpret_cast<Impl*>(GetWindowLongPtrW(h,GWLP_USERDATA));
     if(message==WM_NCCREATE){self=static_cast<Impl*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}
     if(!self)return DefWindowProcW(h,message,wp,lp);
@@ -907,7 +1197,8 @@ struct BrowserShell::Impl {
     // The omnibox edit sits on the omnibox surface, not the window canvas.
     if(message==WM_CTLCOLOREDIT&&reinterpret_cast<HWND>(lp)==self->address){const auto colors=ui::palette();auto dc=reinterpret_cast<HDC>(wp);SetTextColor(dc,colors.ink);SetBkColor(dc,colors.surface);SetDCBrushColor(dc,colors.surface);return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));}
     LRESULT result{};if(ui::ctl_color(message,wp,lp,result))return result;
-    switch(message){case WM_CREATE:self->build();return 0;case WM_SIZE:self->layout();return 0;
+    switch(message){case WM_CREATE:self->build();return 0;case WM_SIZE:self->close_site();self->layout();return 0;
+      case WM_MOVE:self->close_site();if(self->suggesting())self->place_suggestions();break;
       case WM_ACTIVATE:if(LOWORD(wp)!=WA_INACTIVE){shell.active=self;if(!self->selected.empty())shell.engine.select_native_tab(self->selected);}break;
       case WM_SETCURSOR:{POINT point{};GetCursorPos(&point);ScreenToClient(h,&point);if(LOWORD(lp)==HTCLIENT&&(self->resizing_sidebar||self->sidebar_hit(point))){SetCursor(LoadCursorW(nullptr,IDC_SIZEWE));return TRUE;}
         if(LOWORD(lp)==HTCLIENT&&(self->resizing_developer||self->developer_width_hit(point))){SetCursor(LoadCursorW(nullptr,IDC_SIZEWE));return TRUE;}
@@ -929,19 +1220,21 @@ struct BrowserShell::Impl {
       case WM_CANCELMODE:if(shell.drag.active&&shell.drag.source==h)shell.drag_cancel();self->finish_sidebar(true);self->finish_developer_resize();break;
       case WM_KEYDOWN:if(wp==VK_ESCAPE&&self->resizing_sidebar){self->finish_sidebar(true);return 0;}if(wp==VK_ESCAPE&&shell.drag.active){shell.drag_cancel();return 0;}break;
       case WM_LBUTTONDBLCLK:if(self->sidebar_hit({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)})){self->finish_sidebar(false);self->resize_sidebar(240);shell.save_sidebar(*self);return 0;}break;
-      case WM_DPICHANGED:{const auto rect=reinterpret_cast<RECT*>(lp);SetWindowPos(h,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER|SWP_NOACTIVATE);DeleteObject(self->font);DeleteObject(self->bold);self->font=ui::font(h);self->bold=ui::font(h,13,FW_SEMIBOLD);
+      case WM_DPICHANGED:{const auto rect=reinterpret_cast<RECT*>(lp);SetWindowPos(h,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER|SWP_NOACTIVATE);DeleteObject(self->font);DeleteObject(self->bold);DeleteObject(self->emphasis);DeleteObject(self->site_title);DeleteObject(self->site_small);self->close_site();
+        self->font=ui::font(h);self->bold=ui::font(h,13,FW_SEMIBOLD);self->emphasis=ui::font(h,14,FW_SEMIBOLD);self->site_title=ui::font(h,15,FW_SEMIBOLD);self->site_small=ui::font(h,12);
         for(const auto& [id,c]:self->controls)SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(self->font),TRUE);TreeView_SetItemHeight(self->tree,self->d(TabRow));self->layout();return 0;}
       case WM_SETTINGCHANGE:case WM_THEMECHANGED:shell.theme_all();return 0;
       case WM_GETMINMAXINFO:{auto value=reinterpret_cast<MINMAXINFO*>(lp);value->ptMinTrackSize={ui::dip(h,640),ui::dip(h,420)};return 0;}
       case WM_COMMAND:if(LOWORD(wp)==DeveloperPick&&HIWORD(wp)==BN_CLICKED){self->pick_developer();}
         else if(LOWORD(wp)==DeveloperFilter&&HIWORD(wp)==BN_CLICKED){self->developer_controls_only=SendMessageW(self->controls.at(DeveloperFilter),BM_GETCHECK,0,0)==BST_CHECKED;self->developer_list();}
-        else if(LOWORD(wp)==Address&&HIWORD(wp)==EN_CHANGE&&!self->setting_address)self->address_dirty=true;
-        else if(LOWORD(wp)==Address&&(HIWORD(wp)==EN_SETFOCUS||HIWORD(wp)==EN_KILLFOCUS)){self->address_focus.set(HIWORD(wp)==EN_SETFOCUS,FocusDuration);InvalidateRect(h,&self->omnibox,FALSE);}else if(HIWORD(wp)==BN_CLICKED)self->command(LOWORD(wp));return 0;
+        else if(LOWORD(wp)==Address&&HIWORD(wp)==EN_CHANGE&&!self->setting_address){self->address_dirty=true;self->suggest();}
+        else if(LOWORD(wp)==Address&&(HIWORD(wp)==EN_SETFOCUS||HIWORD(wp)==EN_KILLFOCUS)){self->address_focus.set(HIWORD(wp)==EN_SETFOCUS,FocusDuration);InvalidateRect(h,&self->omnibox,FALSE);if(HIWORD(wp)==EN_KILLFOCUS)self->hide_suggestions();}else if(HIWORD(wp)==BN_CLICKED)self->command(LOWORD(wp));return 0;
       case WM_DRAWITEM:{auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item&&item->CtlType==ODT_BUTTON){
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
         if(self==shell.primary()&&self->controls.contains(static_cast<int>(item->CtlID))){auto& counts=shell.fixture_paints[static_cast<int>(item->CtlID)];++counts.first;if(ui::hovered(*item))++counts.second;}
 #endif
         if(item->CtlID==NewTab){self->draw_new_tab(*item);return TRUE;}
+        if(item->CtlID==SiteInfo){self->draw_site_button(*item);return TRUE;}
         ui::button(*item,self->font,self->button_icon(static_cast<int>(item->CtlID)));
         // Controls carries small dots: orange for a pending pairing request,
         // blue for an available update (below the orange one when both show).
@@ -971,7 +1264,7 @@ struct BrowserShell::Impl {
         if(ids.empty()){DestroyWindow(h);return 0;}
         self->closing=true;self->closing_since=GetTickCount64();ShowWindow(h,SW_HIDE);if(shell.active==self)shell.active=nullptr;shell.close_tabs(*self,ids);return 0;}
       case WM_DESTROY:self->clear_developer(ui::tr(L"Waiting for rendered page evidence…"));self->finish_sidebar(false);if(shell.drag.active&&(shell.drag.source==h||shell.drag.target==h))shell.drag_cancel();if(shell.active==self)shell.active=nullptr;return 0;
-      case WM_NCDESTROY:if(self->font)DeleteObject(self->font);if(self->bold)DeleteObject(self->bold);self->font=self->bold=nullptr;self->window=nullptr;return DefWindowProcW(h,message,wp,lp);
+      case WM_NCDESTROY:if(self->font)DeleteObject(self->font);if(self->bold)DeleteObject(self->bold);for(auto face:{self->emphasis,self->site_title,self->site_small})if(face)DeleteObject(face);self->font=self->bold=self->emphasis=self->site_title=self->site_small=nullptr;self->window=nullptr;return DefWindowProcW(h,message,wp,lp);
     }return DefWindowProcW(h,message,wp,lp);
   }
   void request_exit(){if(shutting_down)return;shutting_down=true;data.flush();engine.shutdown();}
@@ -1148,8 +1441,11 @@ void BrowserShell::Impl::Frame::refresh_developer(){
 void BrowserShell::Impl::Frame::command(int id){try{
   auto& engine=shell.engine;auto& hosts=shell.hosts;
   if(id==Back||id==Forward||id==Reload)engine.native_command(selected,id==Back?"back":id==Forward?"forward":hosts.contains(selected)&&hosts.at(selected).metadata.value("loading",false)?"stop":"reload");
-  else if(id==Go)navigate();else if(id==Controls)engine.show_controls();else if(id==Menu)menu();else if(id==Extensions)extensions_menu();
+  else if(id==Go)submit();else if(id==Controls)engine.show_controls();else if(id==Menu)menu();else if(id==Extensions)extensions_menu();
   else if(id==Passwords){if(hosts.contains(selected))shell.native.request_autofill(selected);}
+  // A click on the button while its bubble is open first closes the bubble
+  // by deactivating it; that click must not reopen it.
+  else if(id==SiteInfo){if(site_bubble)close_site();else if(GetTickCount64()-site_closed>300)open_site();}
   else if(id==BookmarkStar){auto found=hosts.find(selected);if(found!=hosts.end()&&!found->second.metadata.value("protected",false)){const auto url=str(found->second.metadata,"url");
       if(bookmarked)set_status(shell.data.remove_bookmark(workspace(),is_private(),url)?ui::tr(L"Bookmark removed."):ui::tr(L"Bookmark could not be removed."));
       else set_status(shell.data.bookmark(workspace(),is_private(),url,str(found->second.metadata,"title"))?ui::tr(L"Bookmark saved."):ui::tr(L"Bookmark could not be saved."));
@@ -1187,17 +1483,67 @@ void BrowserShell::Impl::Frame::command(int id){try{
 }catch(...){set_status(ui::tr(L"The browser action could not be completed. Existing data is preserved."));}}
 void BrowserShell::Impl::panel(Frame& frame,const std::string& kind,const std::string& description,std::function<void(bool)> answer,const std::string& source_tab){
   if(kind=="permission"&&std::count_if(panels.begin(),panels.end(),[](const auto& panel){return panel->kind=="permission"&&panel->window;})>=8){if(answer)answer(false);return;}
-  auto panel=std::make_unique<Panel>();panel->owner=this;panel->parent=frame.window;panel->kind=kind;panel->workspace=frame.workspace();panel->private_mode=frame.is_private();panel->tab=source_tab.empty()?frame.selected:source_tab;panel->answer=std::move(answer);auto raw=panel.get();panels.push_back(std::move(panel));
-  const auto title=ui::wide(kind=="permission"?ui::tr8("Website permission request"):kind=="bookmarks"?ui::tr8("Xenon Bookmarks"):kind=="history"?ui::tr8("Xenon History"):kind=="downloads"?ui::tr8("Xenon Downloads"):kind=="site"?ui::tr8("Xenon Site Permissions"):kind=="notices"?ui::tr8("Xenon Third-party Notices"):ui::tr8("About Xenon"));
+  auto panel=std::make_unique<Panel>();panel->owner=this;panel->parent=frame.window;panel->kind=kind;panel->workspace=frame.workspace();panel->private_mode=frame.is_private();panel->tab=source_tab.empty()?frame.selected:source_tab;if(const auto host=hosts.find(panel->tab);host!=hosts.end()){panel->workspace=host->second.workspace;panel->private_mode=host->second.metadata.value("private",false);}panel->answer=std::move(answer);auto raw=panel.get();panels.push_back(std::move(panel));
+  const auto title=ui::wide(kind=="permission"?ui::tr8("Website permission request"):kind=="bookmarks"?ui::tr8("Xenon Bookmarks"):kind=="history"?ui::tr8("Xenon History"):kind=="downloads"?ui::tr8("Xenon Downloads"):kind=="site"?ui::tr8("Xenon Site Settings"):kind=="cookies"?ui::tr8("Xenon Cookies and Site Data"):kind=="notices"?ui::tr8("Xenon Third-party Notices"):ui::tr8("About Xenon"));
   CreateWindowExW(0,L"XenonBrowserPanel",title.c_str(),WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,CW_USEDEFAULT,CW_USEDEFAULT,780,480,frame.window,nullptr,branding_module(),raw);
+  // Sizes are in DIPs of the monitor the panel opened on, so every row fits on scaled displays.
+  if(raw->window)SetWindowPos(raw->window,nullptr,0,0,ui::dip(raw->window,kind=="site"?660:780),ui::dip(raw->window,kind=="site"?520:480),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
   if(!description.empty())SetWindowTextW(raw->message,ui::wide(description).c_str());ShowWindow(raw->window,kind=="permission"?SW_SHOWNOACTIVATE:SW_SHOW);
 }
+void BrowserShell::Impl::load_site(Panel* raw,std::wstring notice){const auto window=raw->window;
+  engine.site_info(raw->tab,[this,raw,window,notice](Json value){post([this,raw,window,notice,value=std::move(value)]{if(panel_alive(raw,window))fill_site(*raw,value,notice);});});}
+void BrowserShell::Impl::fill_site(Panel& target,const Json& value,const std::wstring& notice){
+  const auto h=target.window;const auto result=value.value("result",Json::object());target.info=result;target.origin=str(result,"origin");
+  const bool usable=value.value("ok",false)&&!target.origin.empty();const auto workspace=workspace_names.contains(target.workspace)?workspace_names.at(target.workspace):target.workspace;
+  std::wstring text;
+  if(!value.value("ok",false))text=ui::error_text(str(value.value("error",Json::object()),"message"));
+  else if(str(result,"state")=="protected")text=ui::tr(L"Site controls are unavailable while a protected sign-in is in progress.");
+  else if(target.origin.empty())text=ui::tr(L"Site settings are available for websites.");
+  else{text=ui::wide(ui::tr8("Site: ")+target.origin)+L"\n"+ui::wide(ui::tr8("Workspace: ")+workspace)+L" · "+Frame::cookie_count(result.value("cookieCount",0));
+    if(result.value("storageBytes",0.0)>0)text+=L" · "+ui::format(ui::tr(L"Stored on this device: {0}"),{ui::wide(site::bytes_text(static_cast<uint64_t>(std::max(0.0,result.value("storageBytes",0.0)))))});
+    text+=L"\n"+std::wstring(target.kind=="cookies"?ui::tr(L"Cookie values are never shown."):ui::tr(L"Settings apply to this site in this workspace only."));}
+  if(!notice.empty())text=notice+L"\n"+text;
+  SetWindowTextW(target.message,text.c_str());
+  if(target.list){SendMessageW(target.list,WM_SETREDRAW,FALSE,0);ListView_DeleteAllItems(target.list);target.rows=usable?result.value("cookies",Json::array()):Json::array();int index=0;
+    for(const auto& row:target.rows){auto name=omnibox::printable(ui::wide(str(row,"name")));LVITEMW item{};item.mask=LVIF_TEXT;item.iItem=index;item.pszText=name.data();ListView_InsertItem(target.list,&item);
+      auto domain=omnibox::printable(ui::wide(str(row,"domain"))),path=omnibox::printable(ui::wide(str(row,"path")));
+      auto expires=row.value("session",false)?std::wstring(ui::tr(L"Session")):Frame::date_text(row.value("expires",int64_t{}));
+      std::wstring flags;if(row.value("secure",false))flags=ui::tr(L"Secure");if(row.value("httpOnly",false))flags+=(flags.empty()?L"":L", ")+std::wstring(L"HttpOnly");
+      ListView_SetItemText(target.list,index,1,domain.data());ListView_SetItemText(target.list,index,2,path.data());ListView_SetItemText(target.list,index,3,expires.data());ListView_SetItemText(target.list,index,4,flags.data());++index;}
+    SendMessageW(target.list,WM_SETREDRAW,TRUE,0);InvalidateRect(target.list,nullptr,TRUE);}
+  if(target.kind=="site"){const auto settings=result.value("settings",Json::object());
+    for(size_t n=0;n<std::size(site::settings);++n)if(auto combo=GetDlgItem(h,SitePanelSetting+static_cast<int>(n))){const auto current=str(settings,site::settings[n].name);
+      SendMessageW(combo,CB_SETCURSEL,current=="allow"?1:current=="block"?2:0,0);EnableWindow(combo,usable);}}
+  for(int id:{SitePanelLeft,SitePanelMiddle,SitePanelRight})if(auto button=GetDlgItem(h,id))EnableWindow(button,usable&&(target.kind!="cookies"||id!=SitePanelLeft||!target.rows.empty()));
+}
+void BrowserShell::Impl::site_panel_command(Panel& target,int id){Panel* raw=&target;const auto window=target.window;
+  const auto done=[this,raw,window](std::wstring success){return [this,raw,window,success=std::move(success)](Json value){post([this,raw,window,success,value=std::move(value)]{if(!panel_alive(raw,window))return;
+    load_site(raw,value.value("ok",false)?success:ui::error_text(str(value.value("error",Json::object()),"message")));});};};
+  if(id==SitePanelMiddle){if(auto frame=frame_of(target.parent))panel(*frame,"cookies",{},{},target.tab);return;}
+  if(id==SitePanelLeft&&target.kind=="site"){engine.reset_site_settings(target.tab,target.origin,done(ui::tr(L"Site settings reset.")));return;}
+  if(id==SitePanelLeft){std::vector<std::string> keys;
+    for(int index=ListView_GetNextItem(target.list,-1,LVNI_SELECTED);index>=0;index=ListView_GetNextItem(target.list,index,LVNI_SELECTED))if(static_cast<size_t>(index)<target.rows.size())keys.push_back(str(target.rows[index],"key"));
+    // An empty key list would mean every cookie of the site.
+    if(!keys.empty())engine.delete_site_cookies(target.tab,target.origin,keys,done(ui::tr(L"Selected cookies deleted.")));return;}
+  const auto workspace=workspace_names.contains(target.workspace)?workspace_names.at(target.workspace):target.workspace;
+  if(MessageBoxW(window,ui::format(ui::tr(L"Delete all cookies and stored data for {0} in {1}?\n\nYou may be signed out of this site, and its open pages may need to reload. Agent input in this tab pauses briefly, and agents must observe the page again."),
+      {ui::wide(target.origin),ui::wide(workspace)}).c_str(),ui::tr(L"Delete site data"),MB_OKCANCEL|MB_ICONWARNING|MB_DEFBUTTON2)!=IDOK||!panel_alive(raw,window))return;
+  engine.clear_site_data(target.tab,target.origin,done(ui::tr(L"Site data deleted. Reload the page to apply.")));
+}
+void BrowserShell::Impl::panel_setting(Panel& target,size_t index,HWND combo){const auto choice=SendMessageW(combo,CB_GETCURSEL,0,0);if(choice<0||choice>2||index>=std::size(site::settings))return;
+  constexpr const char* values[]{"default","allow","block"};Panel* raw=&target;const auto window=target.window;
+  engine.set_site_setting(target.tab,target.origin,site::settings[index].name,values[choice],[this,raw,window](Json value){if(value.value("ok",false))return;
+    post([this,raw,window,value=std::move(value)]{if(panel_alive(raw,window))load_site(raw,ui::error_text(str(value.value("error",Json::object()),"message")));});});}
 LRESULT CALLBACK BrowserShell::Impl::panel_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){try{auto panel=reinterpret_cast<Panel*>(GetWindowLongPtrW(h,GWLP_USERDATA));
   if(message==WM_NCCREATE){panel=static_cast<Panel*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);panel->window=h;SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(panel));}if(!panel)return DefWindowProcW(h,message,wp,lp);auto owner=panel->owner;
   LRESULT result{};if(ui::list_draw(message,wp,lp,h,result)||ui::ctl_color(message,wp,lp,result))return result;
   if(message==WM_CREATE){panel->font=ui::font(h);ui::icons(h);auto make=[&](int id,const wchar_t* type,const wchar_t* text,DWORD style){auto control=CreateWindowExW(0,type,text,WS_CHILD|WS_VISIBLE|style,0,0,10,10,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),branding_module(),nullptr);SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(panel->font),TRUE);ui::control_theme(control);return control;};
-    panel->message=make(10,L"STATIC",L"",SS_LEFT);make(1,L"BUTTON",panel->kind=="permission"?ui::tr(L"Allow"):panel->kind=="site"?ui::tr(L"Reset site permissions"):ui::tr(L"Open selected"),BS_OWNERDRAW|WS_TABSTOP);
-    make(2,L"BUTTON",panel->kind=="permission"?ui::tr(L"Deny"):panel->kind=="bookmarks"?ui::tr(L"Remove bookmark"):ui::tr(L"Close"),BS_OWNERDRAW|WS_TABSTOP);
+    // Site panels use button IDs beyond IDOK/IDCANCEL, so Escape closes them
+    // instead of pressing "Delete all site data".
+    const bool site_panel=panel->kind=="site"||panel->kind=="cookies";
+    panel->message=make(10,L"STATIC",L"",SS_LEFT|(site_panel?SS_NOPREFIX:0));
+    if(!site_panel){make(1,L"BUTTON",panel->kind=="permission"?ui::tr(L"Allow"):ui::tr(L"Open selected"),BS_OWNERDRAW|WS_TABSTOP);
+      make(2,L"BUTTON",panel->kind=="permission"?ui::tr(L"Deny"):panel->kind=="bookmarks"?ui::tr(L"Remove bookmark"):ui::tr(L"Close"),BS_OWNERDRAW|WS_TABSTOP);}
     const bool listing=panel->kind=="bookmarks"||panel->kind=="history"||panel->kind=="downloads";
     if(listing){panel->list=make(11,WC_LISTVIEWW,L"",LVS_REPORT|LVS_SINGLESEL|WS_TABSTOP|WS_BORDER);ListView_SetExtendedListViewStyle(panel->list,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER);
       auto colors=ui::palette();ListView_SetBkColor(panel->list,colors.canvas);ListView_SetTextBkColor(panel->list,colors.canvas);ListView_SetTextColor(panel->list,colors.ink);
@@ -1211,18 +1557,42 @@ LRESULT CALLBACK BrowserShell::Impl::panel_proc(HWND h,UINT message,WPARAM wp,LP
     else if(panel->kind=="notices"){wchar_t module[32768]{};GetModuleFileNameW(nullptr,module,32768);const auto directory=std::filesystem::path(module).parent_path();std::string notice;for(const auto& name:{"THIRD_PARTY_NOTICES.md","CEF-LICENSE.txt","NOTICE"}){auto file=directory/name;if(!std::filesystem::exists(file))file=std::filesystem::path(name);if(std::filesystem::exists(file)&&std::filesystem::file_size(file)<1024*1024){std::ifstream input(file);notice.append(std::istreambuf_iterator<char>(input),{});notice+="\n\n";}}
       if(notice.empty())notice="Xenon: Apache License 2.0.\nCEF and Chromium: see CEF-LICENSE.txt and Chromium-CREDITS.html beside Xenon.exe.\nSQLite: public domain. nlohmann/json: MIT.\nMCP SDK: MIT.";
       DestroyWindow(panel->message);panel->message=make(10,L"EDIT",ui::wide(notice).c_str(),ES_MULTILINE|ES_READONLY|WS_VSCROLL|WS_TABSTOP);SetWindowTextW(GetDlgItem(h,1),ui::tr(L"Open engine credits"));EnableWindow(GetDlgItem(h,1),std::filesystem::is_regular_file(directory/L"Chromium-CREDITS.html"));}
-    else if(panel->kind=="site"){auto found=owner->hosts.find(panel->tab);const auto url=found==owner->hosts.end()?"":str(found->second.metadata,"url");SetWindowTextW(panel->message,ui::wide(ui::tr8("Site: ")+url+ui::tr8("\n\nCamera, microphone, location and notification requests use native approval prompts.\nReset clears remembered permissions for this HTTPS origin.\nBrowser and workspace permissions are configured in Controls.")).c_str());}
+    else if(site_panel){
+      make(SitePanelLeft,L"BUTTON",panel->kind=="site"?ui::tr(L"Reset permissions"):ui::tr(L"Delete selected"),BS_OWNERDRAW|WS_TABSTOP);make(SitePanelRight,L"BUTTON",ui::tr(L"Delete all site data…"),BS_OWNERDRAW|WS_TABSTOP);
+      if(panel->kind=="cookies"){panel->list=make(11,WC_LISTVIEWW,L"",LVS_REPORT|LVS_SHOWSELALWAYS|WS_TABSTOP|WS_BORDER);ListView_SetExtendedListViewStyle(panel->list,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER|LVS_EX_LABELTIP);
+        auto colors=ui::palette();ListView_SetBkColor(panel->list,colors.canvas);ListView_SetTextBkColor(panel->list,colors.canvas);ListView_SetTextColor(panel->list,colors.ink);int column_index=0;
+        for(const auto& [width,title]:std::vector<std::pair<int,const wchar_t*>>{{170,ui::tr(L"Name")},{170,ui::tr(L"Domain")},{80,ui::tr(L"Path")},{110,ui::tr(L"Expires")},{120,ui::tr(L"Flags")}}){
+          LVCOLUMNW column{};column.mask=LVCF_TEXT|LVCF_WIDTH;column.cx=ui::dip(h,width);column.pszText=const_cast<LPWSTR>(title);ListView_InsertColumn(panel->list,column_index++,&column);}}
+      else{make(SitePanelMiddle,L"BUTTON",ui::tr(L"Manage cookies…"),BS_OWNERDRAW|WS_TABSTOP);
+        for(size_t n=0;n<std::size(site::settings);++n){const auto& item=site::settings[n];make(SitePanelLabel+static_cast<int>(n),L"STATIC",ui::tr(item.label),SS_LEFT|SS_CENTERIMAGE|SS_NOPREFIX);
+          auto combo=make(SitePanelSetting+static_cast<int>(n),L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP|WS_VSCROLL);
+          for(const char* choice:{"default","allow","block"})SendMessageW(combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(ui::tr(site::value_label(item.name,choice))));EnableWindow(combo,FALSE);}}
+      for(int id:{SitePanelLeft,SitePanelMiddle,SitePanelRight})if(auto button=GetDlgItem(h,id))EnableWindow(button,FALSE);
+      SetWindowTextW(panel->message,ui::tr(L"Loading…"));owner->load_site(panel);
+    }
     return 0;
   }
+  if(message==WM_SIZE&&(panel->kind=="site"||panel->kind=="cookies")){RECT rect{};GetClientRect(h,&rect);auto d=[&](int value){return ui::dip(h,value);};
+    MoveWindow(panel->message,d(16),d(14),rect.right-d(32),d(80),TRUE);if(panel->list)MoveWindow(panel->list,d(16),d(104),rect.right-d(32),std::max<int>(d(60),rect.bottom-d(168)),TRUE);
+    for(size_t n=0;n<std::size(site::settings);++n){const int y=d(104)+static_cast<int>(n)*d(38);
+      if(auto label=GetDlgItem(h,SitePanelLabel+static_cast<int>(n)))MoveWindow(label,d(16),y,d(220),d(30),TRUE);if(auto combo=GetDlgItem(h,SitePanelSetting+static_cast<int>(n)))MoveWindow(combo,d(244),y+d(2),d(220),d(200),TRUE);}
+    MoveWindow(GetDlgItem(h,SitePanelLeft),d(16),rect.bottom-d(48),d(180),d(30),TRUE);if(auto middle=GetDlgItem(h,SitePanelMiddle))MoveWindow(middle,d(206),rect.bottom-d(48),d(170),d(30),TRUE);
+    MoveWindow(GetDlgItem(h,SitePanelRight),rect.right-d(216),rect.bottom-d(48),d(200),d(30),TRUE);return 0;}
   if(message==WM_SIZE){RECT rect{};GetClientRect(h,&rect);auto d=[&](int value){return ui::dip(h,value);};MoveWindow(panel->message,d(16),d(14),rect.right-d(32),panel->list?d(35):rect.bottom-d(80),TRUE);if(panel->list)MoveWindow(panel->list,d(16),d(56),rect.right-d(32),rect.bottom-d(120),TRUE);MoveWindow(GetDlgItem(h,1),d(16),rect.bottom-d(48),d(200),d(30),TRUE);MoveWindow(GetDlgItem(h,2),rect.right-d(176),rect.bottom-d(48),d(160),d(30),TRUE);return 0;}
   if(message==WM_DPICHANGED){auto rect=reinterpret_cast<RECT*>(lp);auto old=panel->font;panel->font=ui::font(h);for(auto child=GetWindow(h,GW_CHILD);child;child=GetWindow(child,GW_HWNDNEXT))SendMessageW(child,WM_SETFONT,reinterpret_cast<WPARAM>(panel->font),TRUE);DeleteObject(old);SetWindowPos(h,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOACTIVATE|SWP_NOZORDER);return 0;}
-  if(message==WM_GETMINMAXINFO){auto value=reinterpret_cast<MINMAXINFO*>(lp);value->ptMinTrackSize={ui::dip(h,540),ui::dip(h,360)};return 0;}
+  if(message==WM_GETMINMAXINFO){auto value=reinterpret_cast<MINMAXINFO*>(lp);const bool site_panel=panel->kind=="site"||panel->kind=="cookies";value->ptMinTrackSize={ui::dip(h,site_panel?620:540),ui::dip(h,panel->kind=="site"?460:360)};return 0;}
+  if(message==WM_COMMAND&&HIWORD(wp)==CBN_SELCHANGE&&panel->kind=="site"){const int index=LOWORD(wp)-SitePanelSetting;
+    if(index>=0&&index<static_cast<int>(std::size(site::settings)))owner->panel_setting(*panel,static_cast<size_t>(index),reinterpret_cast<HWND>(lp));return 0;}
+  if(message==WM_COMMAND&&HIWORD(wp)==BN_CLICKED&&(panel->kind=="site"||panel->kind=="cookies")){const int id=LOWORD(wp);
+    if(id==IDCANCEL){DestroyWindow(h);return 0;}
+    // Enter presses the focused button; it never starts a deletion by default.
+    if(id==IDOK){const auto focus=GetFocus();wchar_t type[16]{};if(focus&&IsChild(h,focus)&&GetClassNameW(focus,type,16)&&_wcsicmp(type,L"BUTTON")==0)PostMessageW(h,WM_COMMAND,MAKEWPARAM(GetDlgCtrlID(focus),BN_CLICKED),reinterpret_cast<LPARAM>(focus));return 0;}
+    if(id==SitePanelLeft||id==SitePanelMiddle||id==SitePanelRight)owner->site_panel_command(*panel,id);return 0;}
   if(message==WM_DRAWITEM){auto item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);if(item&&item->CtlType==ODT_BUTTON){ui::button(*item,panel->font);return TRUE;}}
   if(message==WM_COMMAND&&HIWORD(wp)==BN_CLICKED){const int id=LOWORD(wp);
     if(panel->kind=="permission"){panel->answered=true;if(panel->answer)panel->answer(id==1);DestroyWindow(h);return 0;}
     if(id==2&&panel->kind!="bookmarks"){DestroyWindow(h);return 0;}
     if(panel->kind=="notices"&&id==1){wchar_t module[32768]{};GetModuleFileNameW(nullptr,module,32768);const auto credits=std::filesystem::path(module).parent_path()/L"Chromium-CREDITS.html";if(std::filesystem::is_regular_file(credits))ShellExecuteW(h,L"open",credits.c_str(),nullptr,nullptr,SW_SHOWNORMAL);return 0;}
-    if(panel->kind=="site"&&id==1){owner->engine.native_command(panel->tab,"site-reset",{},[panel](Json value){if(panel->window)SetWindowTextW(panel->message,value.value("ok",false)?ui::tr(L"Remembered site permissions reset."):ui::tr(L"Site permissions could not be reset."));});return 0;}
     const int index=panel->list?ListView_GetNextItem(panel->list,-1,LVNI_SELECTED):-1;
     if(index>=0&&static_cast<size_t>(index)<panel->rows.size()){const auto row=panel->rows[index];if(id==1){if(auto frame=owner->frame_of(panel->parent))owner->engine.native_command(frame->selected,"navigate",str(row,"url"));DestroyWindow(h);}
       else if(panel->kind=="bookmarks"&&owner->data.remove_bookmark(panel->workspace,panel->private_mode,str(row,"url"))){panel->rows.erase(panel->rows.begin()+index);ListView_DeleteItem(panel->list,index);}}
@@ -1237,8 +1607,10 @@ LRESULT CALLBACK BrowserShell::Impl::panel_proc(HWND h,UINT message,WPARAM wp,LP
 BrowserShell::BrowserShell(Broker& broker,CefEngine& engine,NativeUi& native,ExtensionStore& extensions,const std::filesystem::path& root):impl_(std::make_unique<Impl>(broker,engine,native,extensions,root)){
   INITCOMMONCONTROLSEX common{sizeof(common),ICC_TREEVIEW_CLASSES|ICC_LISTVIEW_CLASSES};InitCommonControlsEx(&common);
   for(const auto& [name,proc]:std::vector<std::pair<const wchar_t*,WNDPROC>>{{L"XenonBrowserShell",Impl::proc},{L"XenonTabHost",Impl::host_proc},{L"XenonAgentCursor",Impl::cursor_proc},{L"XenonBrowserPanel",Impl::panel_proc},
-      {L"XenonFindBar",Impl::find_proc},{L"XenonElementsPanel",Impl::elements_proc},{L"XenonElementOverlay",Impl::element_overlay_proc},{L"XenonTabDrag",Impl::ghost_proc},{L"XenonShellMessages",Impl::message_proc}}){
-    WNDCLASSW type{};type.style=wcscmp(name,L"XenonBrowserShell")==0?CS_DBLCLKS:wcscmp(name,L"XenonTabDrag")==0?CS_DROPSHADOW:0;type.lpfnWndProc=proc;type.hInstance=branding_module();type.lpszClassName=name;type.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&type);}
+      {L"XenonFindBar",Impl::find_proc},{L"XenonElementsPanel",Impl::elements_proc},{L"XenonElementOverlay",Impl::element_overlay_proc},{L"XenonTabDrag",Impl::ghost_proc},{L"XenonShellMessages",Impl::message_proc},
+      {L"XenonAddressSuggestions",Impl::suggestions_proc},{L"XenonSiteInfo",Impl::site_proc}}){
+    const bool shadow=wcscmp(name,L"XenonTabDrag")==0||wcscmp(name,L"XenonAddressSuggestions")==0||wcscmp(name,L"XenonSiteInfo")==0;
+    WNDCLASSW type{};type.style=wcscmp(name,L"XenonBrowserShell")==0?CS_DBLCLKS:shadow?CS_DROPSHADOW:0;type.lpfnWndProc=proc;type.hInstance=branding_module();type.lpszClassName=name;type.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&type);}
   impl_->messages=CreateWindowExW(0,L"XenonShellMessages",L"",0,0,0,0,0,HWND_MESSAGE,nullptr,branding_module(),impl_.get());
   if(!impl_->messages||!impl_->create_frame())throw std::runtime_error("Cannot create native browser shell");
   impl_->active=impl_->frames.front().get();
@@ -1275,6 +1647,7 @@ void BrowserShell::refresh(){PostMessageW(impl_->messages,ShellChanged,0,0);}
 bool BrowserShell::pretranslate(MSG& message){
   if(message.message<WM_KEYFIRST||message.message>WM_KEYLAST)return false;const auto root=GetAncestor(message.hwnd,GA_ROOT);
   for(const auto& panel:impl_->panels)if(panel->window==root)return IsDialogMessageW(root,&message)!=FALSE;
+  for(const auto& owner:impl_->frames)if(owner->site_bubble&&owner->site_bubble==root)return IsDialogMessageW(root,&message)!=FALSE;
   auto frame=impl_->frame_of(root);if(!frame)return false;
   if(message.message==WM_KEYDOWN||message.message==WM_SYSKEYDOWN){const bool control=(GetKeyState(VK_CONTROL)&0x8000)!=0,alt=(GetKeyState(VK_MENU)&0x8000)!=0,shift=(GetKeyState(VK_SHIFT)&0x8000)!=0;const auto key=message.wParam;
     const auto run=[&](int id){frame->command(id);return true;};

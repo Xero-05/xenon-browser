@@ -39,6 +39,18 @@ class CefEngine final : public BrowserEngine {
   void native_pointer(HWND page,POINT screen,bool substantive=false);
   void select_native_tab(const std::string& tab_id);
   void native_command(const std::string& tab_id,const std::string& command,const std::string& value={},Reply reply={});
+  // Native human site information for the tab's current website: connection
+  // and certificate summary, cookie metadata without values, storage use and
+  // site settings. Never exposed through MCP.
+  void site_info(const std::string& tab_id,Reply reply);
+  // Native human site actions. Each is refused unless the tab still shows
+  // `origin` outside protected authentication. Deleting cookies or site data
+  // counts as human page activity: agent input pauses and evidence is stale.
+  void set_site_setting(const std::string& tab_id,const std::string& origin,const std::string& setting,const std::string& value,Reply reply);
+  void reset_site_settings(const std::string& tab_id,const std::string& origin,Reply reply);
+  // Empty `keys` deletes every cookie of the site; otherwise only those keys.
+  void delete_site_cookies(const std::string& tab_id,const std::string& origin,const std::vector<std::string>& keys,Reply reply);
+  void clear_site_data(const std::string& tab_id,const std::string& origin,Reply reply);
   // Native diagnostic read using the agent's rendered-evidence filter. Does
   // not publish/replace agent observation tokens or actionable references.
   void developer_elements(const std::string& tab_id, Reply);
