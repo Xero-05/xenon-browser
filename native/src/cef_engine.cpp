@@ -1021,7 +1021,11 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
     // Other failures commit their own error page; a canceled navigation
     // leaves the current one, including a certificate warning, in place.
     if(!frame||!frame->IsMain()||error==ERR_ABORTED)return;
-    if(auto o=owner_.lock())if(auto t=o->find(b))t->certificate_warning=site::certificate_error(error);
+    if(auto o=owner_.lock())if(auto t=o->find(b)){
+      t->certificate_warning=site::certificate_error(error);
+      // A fixed style only; the script checks for Chromium's error document.
+      frame->ExecuteJavaScript(site::hide_enhanced_protection_script,"",1);
+    }
   }
   void OnGotFocus(CefRefPtr<CefBrowser> b)override{if(auto o=owner_.lock())if(auto t=o->find(b))if(o->active_tab_==t->id)o->active_windows_[GetAncestor(b->GetHost()->GetWindowHandle(),GA_ROOT)]=t->id;}
   bool OnBeforeBrowse(CefRefPtr<CefBrowser>,CefRefPtr<CefFrame> frame,CefRefPtr<CefRequest> request,bool,bool)override {

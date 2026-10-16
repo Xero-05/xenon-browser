@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc -p adapter/tsconfig.json",
     "typecheck": "tsc -p adapter/tsconfig.json --noEmit",
-    "test": "npm run build && node --test adapter/dist/test/*.test.js tests/login-capture-tests.mjs tests/human-autofill-tests.mjs tests/protected-login-tests.mjs tests/pointer-target-tests.mjs tests/form-fill-tests.mjs tests/passkey-guard-tests.mjs",
+    "test": "npm run build && node --test adapter/dist/test/*.test.js tests/login-capture-tests.mjs tests/human-autofill-tests.mjs tests/protected-login-tests.mjs tests/pointer-target-tests.mjs tests/form-fill-tests.mjs tests/passkey-guard-tests.mjs tests/certificate-warning-tests.mjs",
     "mcp": "node adapter/dist/src/cli.js",
     "fixtures": "node tests/fixtures/server.mjs"
   },

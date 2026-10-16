@@ -34,7 +34,7 @@ When Chromium cannot verify a site's HTTPS certificate (for example, it has expi
 - **Back to safety** leaves the site.
 - **Advanced** explains the error and, when the error can be bypassed, offers **Proceed to … (unsafe)**. The site then opens, and the site-information button stays red. Proceed only for a site you control or whose certificate you have checked, such as your own development server. Sites that require HTTPS (HSTS) offer no bypass.
 - **Learn more about this warning** opens this section in the same tab. Chromium's page points that link at Google's Chrome Help Center; Xenon replaces the address.
-- **Turn on enhanced protection** is part of Chromium's page. It does nothing in Xenon, which has no Chrome settings.
+- Chromium's suggestion to turn on Chrome's enhanced protection is hidden. Xenon has no Chrome settings, so its link would do nothing.
 
 ### Developer mode
 
