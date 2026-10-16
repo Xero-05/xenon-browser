@@ -42,6 +42,35 @@ inline std::string security_state(const std::string& url,bool protected_auth,boo
   if(content_status&ran_insecure_content)return "insecure";
   return content_status&displayed_insecure_content?"mixed":"secure";
 }
+// Net errors for which Chromium commits its certificate warning in place of
+// the page: ERR_CERT_COMMON_NAME_INVALID (-200) through the pinned Chromium's
+// last certificate error (-219), and ERR_SSL_PINNED_KEY_NOT_IN_CERT_CHAIN.
+inline bool certificate_error(int code){return (code<=-200&&code>-220)||code==-150;}
+// Google's Chrome Help Center, where Chromium's warnings send "Learn more".
+inline bool chrome_help(const std::string& url){
+  if(origin(url)!="https://support.google.com")return false;
+  const auto path=url.find_first_of("/?#",url.find("://")+3);
+  if(path==std::string::npos||url.compare(path,7,"/chrome")!=0)return false;
+  const auto next=path+7<url.size()?url[path+7]:'/';
+  return next=='/'||next=='?'||next=='#';
+}
+// Xenon's explanation of the certificate warning, opened in its place.
+inline constexpr char certificate_help_url[]="https://github.com/Xero-05/xenon-browser/blob/main/docs/USER_GUIDE.md#certificate-warnings";
+// Run in a main frame after it commits a load error. Chromium's warning pages
+// suggest Chrome's enhanced protection, whose settings exist only in a Chrome
+// browser window, so the suggestion does nothing in Xenon. Chromium's error
+// documents always have this URL; a website's document is left untouched. The
+// rule applies whenever the page reveals the suggestion.
+inline constexpr const char* hide_enhanced_protection_script = R"WARNINGJS((()=>{
+  if(document.URL!=='chrome-error://chromewebdata/')return;
+  const hide=()=>{
+    const parent=document.head||document.documentElement;if(!parent)return false;
+    const style=document.createElement('style');
+    style.textContent='#enhanced-protection-message{display:none!important}';
+    parent.appendChild(style);return true;
+  };
+  if(!hide())document.addEventListener('DOMContentLoaded',hide,{once:true});
+})())WARNINGJS";
 // Names cef_ssl_version_t values (TLS1 is 3, QUIC is 7).
 inline std::string protocol_name(int version){
   switch(version){case 1:return "SSL 2.0";case 2:return "SSL 3.0";case 3:return "TLS 1.0";case 4:return "TLS 1.1";case 5:return "TLS 1.2";case 6:return "TLS 1.3";case 7:return "QUIC";default:return {};}
