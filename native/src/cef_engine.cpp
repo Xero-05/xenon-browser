@@ -188,6 +188,8 @@ struct Tab {
   bool private_mode=false;
   // Toolbar security state, refreshed at most every half second.
   std::string security,security_url;std::chrono::steady_clock::time_point security_checked{};
+  // The main frame shows Chromium's certificate warning instead of a page.
+  bool certificate_warning=false;
   uint64_t epoch = 1;
   std::string document = nonce();
   std::string observation;
@@ -1008,9 +1010,18 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
     // Runs after the browser committed the navigation, so the reset removes
     // the placeholder about:blank entry before loading ends and Back updates.
     if(!frame||!frame->IsMain())return;
-    if(auto o=owner_.lock())if(auto t=o->find(b))if(t->prune_initial_history&&frame->GetURL().ToString()!="about:blank"){
-      t->prune_initial_history=false;o->send(t,"Page.resetNavigationHistory",Json::object(),[](Json){});
+    if(auto o=owner_.lock())if(auto t=o->find(b)){
+      t->certificate_warning=false;
+      if(t->prune_initial_history&&frame->GetURL().ToString()!="about:blank"){
+        t->prune_initial_history=false;o->send(t,"Page.resetNavigationHistory",Json::object(),[](Json){});
+      }
     }
+  }
+  void OnLoadError(CefRefPtr<CefBrowser> b,CefRefPtr<CefFrame> frame,cef_errorcode_t error,const CefString&,const CefString&)override{
+    // Other failures commit their own error page; a canceled navigation
+    // leaves the current one, including a certificate warning, in place.
+    if(!frame||!frame->IsMain()||error==ERR_ABORTED)return;
+    if(auto o=owner_.lock())if(auto t=o->find(b))t->certificate_warning=site::certificate_error(error);
   }
   void OnGotFocus(CefRefPtr<CefBrowser> b)override{if(auto o=owner_.lock())if(auto t=o->find(b))if(o->active_tab_==t->id)o->active_windows_[GetAncestor(b->GetHost()->GetWindowHandle(),GA_ROOT)]=t->id;}
   bool OnBeforeBrowse(CefRefPtr<CefBrowser>,CefRefPtr<CefFrame> frame,CefRefPtr<CefRequest> request,bool,bool)override {
@@ -1025,6 +1036,17 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
       // A human-installed extension's own pages are allowed; agent reads and
       // input refuse every non-web page in exec().
       if(auto o=owner_.lock();o&&o->extension_url(url))return false;
+      return true;
+    }
+    return false;
+  }
+  bool OnOpenURLFromTab(CefRefPtr<CefBrowser> b,CefRefPtr<CefFrame>,const CefString& target,cef_window_open_disposition_t,bool)override {
+    // The certificate warning's "Learn more" opens Google's Chrome Help
+    // Center, which Alloy hosts load in this tab. Load Xenon's explanation
+    // there instead. Its other requests, such as a captive portal's sign-in
+    // page, proceed unchanged.
+    if(auto o=owner_.lock())if(auto t=o->find(b))if(t->certificate_warning&&site::chrome_help(target.ToString())){
+      if(auto main=b->GetMainFrame())main->LoadURL(site::certificate_help_url);
       return true;
     }
     return false;

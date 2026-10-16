@@ -27,6 +27,14 @@ int main(){try{
     &&site::security_state("http://app.localhost/",false,false,false,0,0)=="local","HTTP from this computer is local");
   require(site::security_state("https://example.invalid/",true,true,true,0,0)=="protected","Protected sign-in hides site details");
   require(site::security_state("about:blank",false,false,false,0,0)=="internal","Blank pages have no site state");
+  // Chromium's certificate warning and the Help Center page it links to.
+  require(site::certificate_error(-202)&&site::certificate_error(-200)&&site::certificate_error(-219)&&site::certificate_error(-150),"Certificate errors show Chromium's warning");
+  require(!site::certificate_error(-220)&&!site::certificate_error(-199)&&!site::certificate_error(-3)&&!site::certificate_error(-105)&&!site::certificate_error(0),"Other load errors are not certificate warnings");
+  require(site::chrome_help("https://support.google.com/chrome/answer/6098869#-202")&&site::chrome_help("https://support.google.com/chrome?p=first_mode")
+    &&site::chrome_help("https://SUPPORT.google.com/chrome"),"Chrome Help Center pages are recognized");
+  require(!site::chrome_help("https://support.google.com/chromebook/answer/1")&&!site::chrome_help("https://support.google.com/accounts/answer/1")&&!site::chrome_help("https://support.google.com/")
+    &&!site::chrome_help("http://support.google.com/chrome/")&&!site::chrome_help("https://support.google.com.example.invalid/chrome/")&&!site::chrome_help("https://example.invalid/chrome/"),"Other pages are not Chrome Help");
+  require(site::origin(site::certificate_help_url)=="https://github.com"&&!site::chrome_help(site::certificate_help_url),"Xenon's explanation is an ordinary web page");
   require(site::protocol_name(6)=="TLS 1.3"&&site::protocol_name(5)=="TLS 1.2"&&site::protocol_name(7)=="QUIC"&&site::protocol_name(0).empty(),"TLS versions are named");
 
   // Cookies of the site and its subdomains, never of unrelated sites.
@@ -42,5 +50,5 @@ int main(){try{
   require(site::bytes_text(0)=="0 B"&&site::bytes_text(1536)=="1.5 KB"&&site::bytes_text(5u*1024*1024)=="5.0 MB"&&site::bytes_text(300ull*1024*1024)=="300 MB","Storage sizes are readable");
   std::string bytes;require(site::hex(std::string("\x00\x7f\xff",3))=="007fff"&&site::unhex("007FFF",bytes)&&bytes==std::string("\x00\x7f\xff",3),"Certificate bytes round-trip as hex");
   require(!site::unhex("abc",bytes)&&!site::unhex("zz",bytes),"Malformed hex is rejected");
-  std::cout<<"Site info tests passed: origins, connection states, cookie scope, settings and certificate encoding\n";return 0;
+  std::cout<<"Site info tests passed: origins, connection states, certificate warnings, cookie scope, settings and certificate encoding\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

@@ -27,6 +27,15 @@ With the Windows **Animation effects** setting on, buttons and tabs fade on hove
 
 Drag the sidebar's right edge to change its width, or use **Menu → Appearance** for keyboard access to Narrower, Wider and Reset sidebar width. Its range is 180–480 logical pixels, further bounded by space for the page. Double-clicking the edge restores the default. Xenon saves the width alongside your theme preference. Dark mode uses charcoal surfaces with visible gray hover feedback; Light mode uses white surfaces. **System** follows Windows.
 
+### Certificate warnings
+
+When Chromium cannot verify a site's HTTPS certificate (for example, it has expired, was issued for a different address, or comes from an authority Windows does not trust, as with many local development servers), Xenon shows **Your connection is not private** instead of the site, with an error code such as `NET::ERR_CERT_AUTHORITY_INVALID`. Someone on the network may be impersonating the site, so do not sign in or enter information there.
+
+- **Back to safety** leaves the site.
+- **Advanced** explains the error and, when the error can be bypassed, offers **Proceed to … (unsafe)**. The site then opens, and the site-information button stays red. Proceed only for a site you control or whose certificate you have checked, such as your own development server. Sites that require HTTPS (HSTS) offer no bypass.
+- **Learn more about this warning** opens this section in the same tab. Chromium's page points that link at Google's Chrome Help Center; Xenon replaces the address.
+- **Turn on enhanced protection** is part of Chromium's page. It does nothing in Xenon, which has no Chrome settings.
+
 ### Developer mode
 
 Drag the panel's left edge to adjust its width. Drag the grip above the code/details area to adjust the list/details split. Both sections keep a minimum usable size; the sizes remain for that browser window.
