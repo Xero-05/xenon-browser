@@ -1,6 +1,22 @@
-param([switch]$CoreOnly, [switch]$Test, [int]$Jobs = 4)
+param([switch]$CoreOnly, [switch]$Test, [int]$Jobs = 4, [string]$CefRoot)
 $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if (-not $CefRoot) {
+  $taskCache = Join-Path $taskRoot 'build/CMakeCache.txt'
+  if (Test-Path -LiteralPath $taskCache) {
+    $taskConfiguredCef = Select-String -LiteralPath $taskCache -Pattern '^CEF_ROOT:PATH=(.+)$' | Select-Object -First 1
+    if ($taskConfiguredCef) { $CefRoot = $taskConfiguredCef.Matches[0].Groups[1].Value }
+  }
+  if (-not $CefRoot) { $CefRoot = Join-Path $taskRoot 'third_party/cef' }
+}
+$CefRoot = [IO.Path]::GetFullPath($CefRoot)
+if (-not $CoreOnly) {
+  $taskCefVersion = (Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.json') -Raw | ConvertFrom-Json).cef.version
+  $taskCefHeader = Get-Content -LiteralPath (Join-Path $CefRoot 'include/cef_version.h') -Raw
+  if ($taskCefHeader -notmatch ('#define CEF_VERSION "' + [Regex]::Escape($taskCefVersion) + '"')) {
+    throw 'The selected complete CEF distribution must match dependencies.lock.json.'
+  }
+}
 $taskVsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $taskVs = & $taskVsWhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if (-not $taskVs) { throw 'Visual Studio 2022 C++ Build Tools are required.' }
@@ -9,7 +25,7 @@ $taskCtest = Join-Path (Split-Path $taskCmake) 'ctest.exe'
 if (-not (Test-Path -LiteralPath $taskCmake)) { throw 'Install the Visual Studio CMake component.' }
 $taskBuild = Join-Path $taskRoot 'build'
 $browserFlag = if ($CoreOnly) { 'OFF' } else { 'ON' }
-& $taskCmake -S $taskRoot -B $taskBuild -G 'Visual Studio 17 2022' -A x64 "-DXENON_BUILD_BROWSER=$browserFlag"
+& $taskCmake -S $taskRoot -B $taskBuild -G 'Visual Studio 17 2022' -A x64 "-DXENON_BUILD_BROWSER=$browserFlag" "-DCEF_ROOT=$CefRoot"
 if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
 & $taskCmake --build $taskBuild --config Release --parallel $Jobs
 if ($LASTEXITCODE -ne 0) { throw 'Native build failed.' }
@@ -34,7 +50,7 @@ try {
     & node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=out/passkey-guard-tests.xml 'tests/passkey-guard-tests.mjs'
     if ($LASTEXITCODE -ne 0) { throw 'Passkey guard tests failed.' }
     if (-not $CoreOnly) {
-      & node tests/branding-resources.mjs
+      & node tests/branding-resources.mjs --cef-root $CefRoot
       if ($LASTEXITCODE -ne 0) { throw 'Bootstrap branding integrity failed.' }
     }
   }

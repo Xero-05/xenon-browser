@@ -8,6 +8,33 @@ The [publication record](test-results/release-0.1.5-publication.json) binds the 
 
 The record covers that hosted run and the local package re-verification only. The password-group controls have never been displayed or clicked, and no suite runs a real WebAuthn ceremony. Native update discovery of 0.1.5 was not exercised. Physical input, high contrast, other DPI, assistive technology and real accounts remain unverified. Downloads remain unsigned: published hashes establish byte integrity, not publisher identity.
 
+## Website video regression
+
+The [2026-10-16 validation record](test-results/website-video-2026-10-16.json)
+binds the completed media-enabled Release build to passing H.264/AAC MP4,
+Media Source streaming and VP8 playback, all 18 native tests, adapter/fixed-script
+checks, bootstrap branding integrity and the production browser integration
+suite. The MP4 fixture decoded video frames and non-silent AAC samples; pause,
+seek and volume checks passed. Earlier setup failures are retained separately.
+
+`python tests/cef-media-deps-tests.py` checks the source-build manifest filter:
+only the six branded updater test archives are omitted, and changed dependency
+structure fails closed. It does not require a Chromium checkout.
+
+`node tests/media-integration.mjs` starts the production browser in a disposable
+profile and generates a synthetic VP8 clip in a loopback page. It checks decoded
+frames, advancing playback time, pause, seek and volume, and records the runtime's
+codec declarations. `node tests/media-integration.mjs --require-h264` instead
+requires the generated MP4 fixture, H.264 frames, non-silent AAC waveform decoding
+and Media Source streaming playback. It must fail on the stock CEF distribution.
+Build the optional media-enabled engine as described in [BUILD](BUILD.md#website-video-codecs)
+before running the MP4 acceptance check. Reports under `out/media-integration-*.json`
+include both application and CEF DLL hashes before and after the run.
+
+These fixtures do not establish audible speaker output, physical player-control
+input, DRM support or compatibility with every website. Run desktop suites
+serially and keep their tested binaries unchanged throughout each run.
+
 ## Password groups candidate
 
 This candidate adds Default and Sensitive saved-account groups, client- and workspace-level Default-group grants, and native controls for choosing and changing an account's group.
