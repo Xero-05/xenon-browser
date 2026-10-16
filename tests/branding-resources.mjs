@@ -188,9 +188,14 @@ function checkVersion(pe, allowedNames, fileType) {
   return { fileVersion: expectedResourceVersion, productVersion: expectedResourceVersion, productName: 'Xenon Browser', originalFilenames: [...names] };
 }
 
-export async function verifyBranding({ release = resolve(root, 'build/app/Release') } = {}) {
+export async function verifyBranding({ release = resolve(root, 'build/app/Release'), cefRoot } = {}) {
+  if (!cefRoot) {
+    try { cefRoot = /^CEF_ROOT:PATH=(.+)$/m.exec(await readFile(resolve(root, 'build/CMakeCache.txt'), 'utf8'))?.[1].trim(); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    cefRoot ??= resolve(root, 'third_party/cef');
+  }
   const results = [];
-  const bytes = await Promise.all([readFile(resolve(root, 'third_party/cef/Release/bootstrap.exe')), readFile(resolve(release, 'Xenon.exe')),
+  const bytes = await Promise.all([readFile(resolve(cefRoot, 'Release/bootstrap.exe')), readFile(resolve(release, 'Xenon.exe')),
     readFile(resolve(release, 'Xenon.dll')), readFile(resolve(root, 'assets/branding/xenon-icon.ico'))]);
   const [original, exe, dll] = bytes.slice(0, 3).map(parsePe);
   const check = (name, action) => { const details = action(); results.push({ name, passed: true, details }); };
@@ -207,8 +212,14 @@ export async function verifyBranding({ release = resolve(root, 'build/app/Releas
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   let report;
   try {
-    const args = process.argv.slice(2); assert(args.length === 0 || (args.length === 2 && args[0] === '--release'), 'Usage: node tests/branding-resources.mjs [--release <extracted-release-directory>]');
-    report = await verifyBranding(args.length ? { release: resolve(args[1]) } : {});
+    const args = process.argv.slice(2), options = {};
+    for (let index = 0; index < args.length; index += 2) {
+      assert(['--release', '--cef-root'].includes(args[index]) && args[index + 1],
+        'Usage: node tests/branding-resources.mjs [--release <directory>] [--cef-root <complete CEF distribution>]');
+      const key = args[index] === '--release' ? 'release' : 'cefRoot';
+      assert(!options[key], 'Duplicate option'); options[key] = resolve(args[index + 1]);
+    }
+    report = await verifyBranding(options);
     for (const result of report.results) console.log('PASS ' + result.name);
   } catch (error) {
     report = { run: 'branding-' + Date.now(), capturedAt: new Date().toISOString(), passed: false, results: [{ name: 'Branding resource integrity', passed: false, error: error.message }] };

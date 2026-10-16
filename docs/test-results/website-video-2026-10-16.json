@@ -1,0 +1,276 @@
+{
+  "completedUtc": "2026-10-16T19:32:03.4835526Z",
+  "cefVersion": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+  "binaryHashes": {
+    "Xenon.dll": "3b956967775abe1396a8cf083503309b80e9ccbde799f3edb2859afd12dd5116",
+    "Xenon.exe": "ba68e3eb2f4938469d6fedba716d25a7df3fdcae2756a67d8d604eb59bf42a18",
+    "libcef.dll": "b34071176b690d9a4509dfafce37d6685677efbc4833b806a196177fe0743c1f"
+  },
+  "suites": [
+    {
+      "name": "native-tests",
+      "cases": 18,
+      "failures": 0
+    },
+    {
+      "name": "adapter-tests",
+      "cases": 22,
+      "failures": 0
+    },
+    {
+      "name": "login-capture-tests",
+      "cases": 42,
+      "failures": 0
+    },
+    {
+      "name": "human-autofill-tests",
+      "cases": 31,
+      "failures": 0
+    },
+    {
+      "name": "protected-login-tests",
+      "cases": 10,
+      "failures": 0
+    },
+    {
+      "name": "form-fill-tests",
+      "cases": 6,
+      "failures": 0
+    },
+    {
+      "name": "passkey-guard-tests",
+      "cases": 8,
+      "failures": 0
+    }
+  ],
+  "brandingChecksPassed": 5,
+  "manifestFilterChecksPassed": 3,
+  "downloaderChecksPassed": 18,
+  "mp4": {
+    "run": "media-integration-1792179042982-3c7a6e02",
+    "startHashes": {
+      "Xenon.dll": "3b956967775abe1396a8cf083503309b80e9ccbde799f3edb2859afd12dd5116",
+      "libcef.dll": "b34071176b690d9a4509dfafce37d6685677efbc4833b806a196177fe0743c1f"
+    },
+    "endHashes": {
+      "Xenon.dll": "3b956967775abe1396a8cf083503309b80e9ccbde799f3edb2859afd12dd5116",
+      "libcef.dll": "b34071176b690d9a4509dfafce37d6685677efbc4833b806a196177fe0743c1f"
+    },
+    "requireH264": true,
+    "sampleSha256": "ed1d8c7d1cc639affd0e4028628a2ac6fee0386eca4ac8788490e531ce614e5a",
+    "fragmentedSampleSha256": "0318fd5100dc310551100a83835a153ad85bd25d42bd5290ecf6609b1157a3f7",
+    "coverage": "Synthetic H.264/AAC MP4 playback, AAC waveform decode, Media Source playback, pause, seek and volume. No physical input, audible output or DRM validation.",
+    "report": {
+      "codecs": {
+        "vp8": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "vp9": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "av1": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "h264": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "aac": {
+          "canPlay": "probably",
+          "mediaSource": true
+        }
+      },
+      "audio": {
+        "duration": 4.021333333333334,
+        "sampleRate": 48000,
+        "rms": 0.08810564172025234
+      },
+      "playback": {
+        "time": 0.522357,
+        "frames": 11,
+        "width": 320,
+        "height": 180,
+        "error": null
+      },
+      "pause": {
+        "paused": true,
+        "stable": true
+      },
+      "seek": 0.3,
+      "volume": 0.4,
+      "streaming": {
+        "time": 0.661046,
+        "frames": 13,
+        "error": null
+      }
+    },
+    "passed": true
+  },
+  "webm": {
+    "run": "media-integration-1792179049040-61b2641b",
+    "startHashes": {
+      "Xenon.dll": "3b956967775abe1396a8cf083503309b80e9ccbde799f3edb2859afd12dd5116",
+      "libcef.dll": "b34071176b690d9a4509dfafce37d6685677efbc4833b806a196177fe0743c1f"
+    },
+    "endHashes": {
+      "Xenon.dll": "3b956967775abe1396a8cf083503309b80e9ccbde799f3edb2859afd12dd5116",
+      "libcef.dll": "b34071176b690d9a4509dfafce37d6685677efbc4833b806a196177fe0743c1f"
+    },
+    "requireH264": false,
+    "sampleSha256": "ed1d8c7d1cc639affd0e4028628a2ac6fee0386eca4ac8788490e531ce614e5a",
+    "fragmentedSampleSha256": "0318fd5100dc310551100a83835a153ad85bd25d42bd5290ecf6609b1157a3f7",
+    "coverage": "Synthetic VP8 decode, pause, seek and volume; codec capability declarations. No physical input, audible output, H.264 decode or DRM validation.",
+    "report": {
+      "codecs": {
+        "vp8": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "vp9": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "av1": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "h264": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "aac": {
+          "canPlay": "probably",
+          "mediaSource": true
+        }
+      },
+      "playback": {
+        "time": 0.700362,
+        "frames": 14,
+        "width": 320,
+        "height": 180,
+        "error": null
+      },
+      "pause": {
+        "paused": true,
+        "stable": true
+      },
+      "seek": 0.3,
+      "volume": 0.4
+    },
+    "passed": true
+  },
+  "browserIntegration": {
+    "run": "integration-1792179055257-f17dd1ee",
+    "applicationDllSha256": "3b956967775abe1396a8cf083503309b80e9ccbde799f3edb2859afd12dd5116",
+    "passed": true,
+    "results": [
+      {
+        "name": "Four separate adapters, three live tabs each",
+        "passed": true,
+        "elapsedMs": 3998
+      },
+      {
+        "name": "Workspace and result isolation",
+        "passed": true,
+        "elapsedMs": 898
+      },
+      {
+        "name": "A pending wait does not block other adapters",
+        "passed": true,
+        "elapsedMs": 4203
+      },
+      {
+        "name": "Page-only screenshots through real MCP image output",
+        "passed": true,
+        "elapsedMs": 38
+      },
+      {
+        "name": "Replaced nodes reject stale references",
+        "passed": true,
+        "elapsedMs": 1914
+      },
+      {
+        "name": "Overlay hit testing rejects obscured input",
+        "passed": true,
+        "elapsedMs": 1728
+      },
+      {
+        "name": "Same-origin and cross-origin frames expose usable references",
+        "passed": true,
+        "elapsedMs": 1685
+      },
+      {
+        "name": "Shadow DOM actionability and semantics",
+        "passed": true,
+        "elapsedMs": 657
+      },
+      {
+        "name": "Visual coordinates require a current screenshot",
+        "passed": true,
+        "elapsedMs": 1336
+      },
+      {
+        "name": "JavaScript dialogs are handled without blocking other tabs",
+        "passed": true,
+        "elapsedMs": 1228
+      },
+      {
+        "name": "Website JavaScript links and logout confirmations remain usable",
+        "passed": true,
+        "elapsedMs": 2963,
+        "detail": {
+          "scriptLinkExecuted": true,
+          "confirmationAcceptedAndDismissed": true
+        }
+      },
+      {
+        "name": "Download namespace reports opaque scoped metadata",
+        "passed": true,
+        "elapsedMs": 1354
+      },
+      {
+        "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+        "passed": true,
+        "elapsedMs": 2788,
+        "detail": {
+          "documentPreserved": true,
+          "websiteEventsAdded": 0
+        }
+      },
+      {
+        "name": "Related popups transfer as one ownership group",
+        "passed": true,
+        "elapsedMs": 1113
+      },
+      {
+        "name": "Mid-drag handoff waits for release before changing ownership",
+        "passed": true,
+        "elapsedMs": 1199
+      },
+      {
+        "name": "Four workers behind one adapter, three tabs each",
+        "passed": true,
+        "elapsedMs": 20350
+      },
+      {
+        "name": "Disconnect/reconnect preserves page and never replays mutations",
+        "passed": true,
+        "elapsedMs": 1526
+      }
+    ]
+  },
+  "previousFailures": [
+    "Stock CEF correctly failed the H.264/AAC acceptance check.",
+    "Defender quarantined an unused Chrome updater test archive. The separate dependency manifest omits branded updater test archives; no antivirus exclusions or quarantine restoration were used.",
+    "The first compile failed because ATL was missing. Microsoft ATL was installed and the source-build prerequisite check now detects it.",
+    "A resume guard rejected standard CEF patches. The generated dependency manifest now reads the pinned Git revision without reverting CEF patches."
+  ],
+  "limitations": [
+    "Synthetic loopback website playback only.",
+    "Physical player input, audible speaker output, protected DRM playback and arbitrary website compatibility were not validated.",
+    "This is the local build/app/Release output; no installer was published or installed over another browser copy."
+  ]
+}

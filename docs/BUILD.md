@@ -82,6 +82,59 @@ Publish the ZIP, installer and both `.sha256` files as assets on a release tagge
 
 The native updater uses GitHub HTTPS metadata and asset hashes; it does not yet verify an Authenticode publisher. No signing private key belongs in the repository. Introducing signed releases requires a reviewed expected-publisher verification policy, signing after branding, timestamping, regeneration of manifests/checksums after signing, and signing the final installer. Keep unsigned filenames and labels until that complete path is configured.
 
+## Website video codecs
+
+The stock CEF archive in `dependencies.lock.json` supports WebM but omits
+H.264/AAC. Those codecs require a CEF source build; a Xenon runtime switch or
+an extra player script cannot enable them in the stock binary.
+
+The optional `cef.mediaSourceBuild` recipe pins the same CEF and Chromium source
+revisions, the automation script hash and depot_tools revision. Build it in a
+dedicated directory without spaces, with hundreds of GB free, Python 3,
+Visual Studio 2022 C++ tools with the C++ ATL component
+(`Microsoft.VisualStudio.Component.VC.ATL`) and Windows SDK 10.0.28000 (including Debugging
+Tools). The first build can take hours:
+
+```powershell
+./scripts/build-cef-media.ps1 -WorkDirectory E:\XenonCefMedia-154 -Python C:\Python312\python.exe
+$cefVersion = (Get-Content ./dependencies.lock.json -Raw | ConvertFrom-Json).cef.version
+$cefMedia = "E:\XenonCefMedia-154\chromium\src\cef\binary_distrib\cef_binary_${cefVersion}_windows64_minimal"
+./scripts/build.ps1 -CefRoot $cefMedia -Test
+node tests/media-integration.mjs --require-h264
+node tests/media-integration.mjs
+```
+
+The source script resumes only a directory marked with its exact recipe. It
+uses `proprietary_codecs=true ffmpeg_branding=Chrome`, produces the matching
+CEF sandbox bootstrap and complete distribution, and leaves the downloaded
+stock distribution intact. `build.ps1 -CefRoot` checks the CEF version and uses
+that distribution for both compilation and bootstrap branding verification.
+Later builds reuse the selected distribution from CMake's cache. To switch
+back to the stock distribution, pass `-CefRoot ./third_party/cef` explicitly.
+The branding check also uses that cached distribution unless `--cef-root` is
+specified, including when checking an extracted package from this build.
+
+`-Jobs` bounds compilation parallelism (default four). `-UseGitHubMirror` fetches
+Chromium from its official GitHub mirror and still verifies the pinned commit.
+The checkout omits prebuilt branded Chrome updater test executables through
+a generated `DEPS.xenon-media` manifest, derived from the pinned Git revision.
+The filter does not edit `DEPS` or undo CEF's own patches on resumed builds;
+all other dependencies, pins and hooks from that revision are preserved.
+These executables belong to Chromium's `testonly`
+`old_updater` target and are not used by CEF. This also avoids downloading an
+updater test package quarantined by Defender during local validation; no
+antivirus exclusions or quarantine restoration are required.
+Keep failed-attempt logs. If an initial checkout was interrupted before it
+wrote `chrome/VERSION`, preserve that incomplete `chromium` directory under a
+different name before retrying; completed checkouts and builds are resumable.
+
+This enables codecs, not DRM services or a universal website compatibility
+guarantee. Before distributing a codec-enabled engine, address the applicable
+codec licensing requirements described by [CEF](https://github.com/chromiumembedded/cef/issues/3559)
+and retain the generated `LICENSE.txt` and `CREDITS.html`. Run the native and
+live browser suites against the rebuilt binary; a capability declaration is
+not sufficient evidence of successful decoding.
+
 ## CEF security maintenance
 
 CEF dependency updates remain manual maintainer work. Before each public release, inspect the current stable [CEF build index](https://cef-builds.spotifycdn.com/index.html) and [Chromium security releases](https://chromereleases.googleblog.com/search/label/Stable%20updates). Pick the complete matching Windows x64 CEF distribution, verify the publisher checksum, record a locally verified SHA-256, update the lockfile, and rebuild from a clean dependency directory. Review CEF API changes, bootstrap/sandbox requirements and Chromium licensing notices. Run native, SDK and live acceptance tests on the new runtime before distributing it. Never update just `libcef.dll` inside an older ZIP.

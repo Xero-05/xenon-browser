@@ -3,7 +3,16 @@
     "version": "154.0.34+g14c5a08+chromium-154.0.8037.98",
     "archive": "cef_binary_154.0.34+g14c5a08+chromium-154.0.8037.98_windows64_minimal.tar.bz2",
     "sha1": "be54bbaf3222191dec59ffd9c9ec7e8a7f44a26d",
-    "sha256": "c81c34d048d87276f4a18f0b000206710a1709bb67dd658948b87100e1a538da"
+    "sha256": "c81c34d048d87276f4a18f0b000206710a1709bb67dd658948b87100e1a538da",
+    "mediaSourceBuild": {
+      "cefCommit": "14c5a089e8452874cb1a556dc3fde26ed2d87723",
+      "chromiumCommit": "b859317bf11f6be47f9b7799ec690a0a42a1fb33",
+      "branch": "8037",
+      "depotToolsCommit": "382c208a9973e1a6c0867b6d8664dc6dc9116e30",
+      "automateSha256": "fe0c880fd2a91ac3ab4c82301f596295cecc1901e503507e36300a5b58578dcd",
+      "windowsSdk": "10.0.28000.0",
+      "gnDefines": "is_official_build=true use_thin_lto=false chrome_pgo_phase=0 symbol_level=0 proprietary_codecs=true ffmpeg_branding=Chrome"
+    }
   },
   "sqlite": { "version": "3.53.4", "url": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip", "sha256": "1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d" },
   "json": { "version": "3.12.0", "url": "https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp", "sha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63" },
