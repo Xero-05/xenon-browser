@@ -1,6 +1,6 @@
 # Using Xenon
 
-Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes **0.1.6**; see the [release notes](RELEASE_NOTES.md#016) for what changed. Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
+Xenon is a Windows x64 browser for human browsing and external MCP agents. This guide describes the source after **0.1.5**, whose 0.1.6 release is on hold; see the [release notes](RELEASE_NOTES.md#016) for what changed. Start with [installation and pairing](GETTING_STARTED.md) if you have not connected a client.
 
 ## Browser and Controls
 

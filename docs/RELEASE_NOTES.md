@@ -2,6 +2,8 @@
 
 ## 0.1.6
 
+**Withdrawn; see the end of this section.**
+
 The [0.1.6 notes](RELEASE-0.1.6.md) also cover address suggestions, the site-information button, the certificate warning's links, the agent cursor glow, website video and the release checks.
 
 **Agents can ask for your help.** The new `xenon_attention` MCP tool lets an agent mark a tab it controls as needing you, for a CAPTCHA, MFA, a passkey or an approval. The tab's border pulses orange until you have been at it, and a background window's taskbar button flashes. **Settings → Agents** can also show a Windows notification, off by default, that opens the tab when selected. **Dismiss help request** withdraws a request.
@@ -26,7 +28,7 @@ The [0.1.6 notes](RELEASE-0.1.6.md) also cover address suggestions, the site-inf
 
 See [user guide](USER_GUIDE.md), [security](SECURITY.md#native-browsing-features) and [testing](TESTING.md#browser-essentials-candidate).
 
-The [0.1.6 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.6) publishes both unsigned formats and their checksums as the latest regular release. The four files were built, packaged and tested locally with the codec-enabled engine; the [publication record](test-results/release-0.1.6-publication.json) binds the uploaded digests to that build and its test reports.
+0.1.6 was published on October 17 as the latest regular release and switched back to a draft the same day because codec licensing for distributing its built-in H.264 and AAC decoders had not been confirmed. Its four files, built and tested locally with the codec-enabled engine, and the `v0.1.6` tag are kept unchanged; v0.1.5 is the latest published release again. The [publication record](test-results/release-0.1.6-publication.json) binds the uploaded digests to that build and records the withdrawal.
 
 ## 0.1.5
 

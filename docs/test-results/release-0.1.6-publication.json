@@ -12,11 +12,36 @@
   "tagKind": "lightweight, pointing directly at the source commit",
   "url": "https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.6",
   "releaseId": 415681190,
-  "draft": false,
+  "draft": true,
   "prerelease": false,
-  "latest": true,
+  "latest": false,
+  "status": "withdrawn",
+  "withdrawal": {
+    "recordedUtc": "2026-10-17T09:09:41Z",
+    "action": "Release switched back to a draft. The v0.1.6 tag, the four assets and their digests were kept unchanged; v0.1.5 is the latest published release again, so the native updater no longer offers 0.1.6.",
+    "reason": "Codec licensing for distributing the built-in H.264 and AAC decoders had not been confirmed.",
+    "downloadsAtWithdrawal": [
+      {
+        "name": "Xenon-0.1.6-windows-x64-setup-unsigned.exe",
+        "count": 2
+      },
+      {
+        "name": "Xenon-0.1.6-windows-x64-setup-unsigned.exe.sha256",
+        "count": 1
+      },
+      {
+        "name": "Xenon-0.1.6-windows-x64-unsigned.zip",
+        "count": 1
+      },
+      {
+        "name": "Xenon-0.1.6-windows-x64-unsigned.zip.sha256",
+        "count": 1
+      }
+    ],
+    "downloadsNote": "One download of each file is the post-publication verification download described in assetVerification. The setup executable was downloaded once more between publication (08:39:55Z) and withdrawal; its source is unknown and could be the maintainer."
+  },
   "publicationPath": "Built, packaged and tested locally with the codec-enabled CEF engine, uploaded as a draft, checked against the local files' sizes and SHA-256, then published. Hosted CI builds only the stock engine, so its artifacts were not published.",
-  "codecLicensing": "The maintainer stated before publication that codec licensing for distributing H.264/AAC had been handled. This record does not verify it.",
+  "codecLicensing": "Not confirmed. An earlier version of this record said the maintainer had stated codec licensing was handled. That was wrong: the words came from a reply button Claude wrote, and the maintainer clicked it to ask for video support without having looked into licensing.",
   "pullRequests": [
     {
       "number": 26,
@@ -354,6 +379,7 @@
   },
   "coverage": "Local build and tests with the published binaries on synthetic loopback fixtures and disposable profiles, plus re-verification of the downloaded release. No operator-driven check or native update download ran for this record.",
   "limits": [
+    "The release was withdrawn because codec licensing for its built-in H.264/AAC decoders was never confirmed.",
     "Hosted CI cannot reproduce these binaries because it builds the stock engine; reproducing them needs the multi-hour cef.mediaSourceBuild source build.",
     "Video was checked only with synthetic loopback MP4 and WebM fixtures: no real website, audible speaker output, physical player input or DRM. Widevine is not included.",
     "Full screen was not entered, screen sharing was not allowed, the Import window was not opened and Windows Default apps registration was not exercised; help requests have no live suite.",
