@@ -19,5 +19,9 @@ ffmpeg -i synthetic-h264-aac-fragmented.mp4 -c copy -movflags '+faststart' synth
 
 Run `node tests/media-integration.mjs` for the stock engine's synthetic WebM
 baseline, and `node tests/media-integration.mjs --require-h264` to require MP4,
-AAC waveform decoding and Media Source playback. Both use disposable profiles
+nonblank decoded pictures, non-silent AAC from the media element, seek/resume,
+and Media Source playback with video and audio. Use `--windows-codecs` for the
+Windows-decoder build; this additionally verifies its engine provenance.
+Web Audio `decodeAudioData` is recorded separately and is not required for the
+Windows path. Both modes use disposable profiles
 and loopback HTTP. The MP4 check must fail against the stock CEF distribution.

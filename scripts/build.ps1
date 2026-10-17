@@ -29,6 +29,22 @@ $browserFlag = if ($CoreOnly) { 'OFF' } else { 'ON' }
 if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
 & $taskCmake --build $taskBuild --config Release --parallel $Jobs
 if ($LASTEXITCODE -ne 0) { throw 'Native build failed.' }
+if (-not $CoreOnly) {
+  $taskCodecManifest = Join-Path $CefRoot 'xenon-codec-build.json'
+  $taskOutputManifest = Join-Path $taskBuild 'app/Release/xenon-codec-build.json'
+  if (Test-Path -LiteralPath $taskCodecManifest) {
+    $taskCodecBuild = Get-Content -LiteralPath $taskCodecManifest -Raw | ConvertFrom-Json
+    $taskExpectedRecipe = (Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.json') -Raw | ConvertFrom-Json).cef.mediaSourceBuild
+    if (($taskCodecBuild.recipe | ConvertTo-Json -Depth 10 -Compress) -cne ($taskExpectedRecipe | ConvertTo-Json -Depth 10 -Compress)) {
+      throw 'The selected codec engine does not match the pinned source build recipe. Rebuild CEF first.'
+    }
+    $taskEngineHash = (Get-FileHash -LiteralPath (Join-Path $taskBuild 'app/Release/libcef.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($taskCodecBuild.files.'Release/libcef.dll' -cne $taskEngineHash) { throw 'Codec provenance does not match the built engine.' }
+    Copy-Item -LiteralPath $taskCodecManifest -Destination $taskOutputManifest -Force
+  } elseif (Test-Path -LiteralPath $taskOutputManifest) {
+    Remove-Item -LiteralPath $taskOutputManifest
+  }
+}
 Push-Location $taskRoot
 try {
   & npm.cmd run build

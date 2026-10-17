@@ -3,6 +3,8 @@ param(
   [Parameter(Mandatory=$true)][string]$Python,
   [switch]$UseGitHubMirror,
   [ValidateRange(1,32)][int]$Jobs = 4,
+  [switch]$MigrateToWindowsCodecs,
+  [switch]$BuildOnly,
   [switch]$CheckOnly
 )
 $ErrorActionPreference = 'Stop'
@@ -33,7 +35,7 @@ foreach ($taskAtlFile in @('include/atldef.h','lib/x64/atls.lib')) {
   }
 }
 $taskGit = (Get-Command git.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-if ($CheckOnly) { Write-Output "Ready for CEF $($taskLock.cef.version) with H.264/AAC in $taskWork"; return }
+if ($CheckOnly) { Write-Output "Ready for CEF $($taskLock.cef.version) with Windows H.264/AAC decoding in $taskWork"; return }
 
 # Never reuse an arbitrary checkout or delete a user's files. A matching marker
 # permits resuming this exact recipe after a download or build interruption.
@@ -42,9 +44,21 @@ $taskRecipeText = $taskRecipe | ConvertTo-Json -Compress
 if (Test-Path -LiteralPath $taskWork) {
   if (-not (Test-Path -LiteralPath $taskMarker) -or
       (Get-Content -LiteralPath $taskMarker -Raw).Trim() -cne $taskRecipeText) {
-    throw 'Use a new empty path or a directory created with this exact media build recipe.'
+    # Allow only the explicit migration from our exact, pinned FFmpeg recipe.
+    # Preserve its marker; the prior distribution is retained below as well.
+    $taskLegacyRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+    $taskLegacyRecipe.PSObject.Properties.Remove('codecBackend')
+    $taskLegacyRecipe.PSObject.Properties.Remove('patch')
+    $taskLegacyRecipe.gnDefines = 'is_official_build=true use_thin_lto=false chrome_pgo_phase=0 symbol_level=0 proprietary_codecs=true ffmpeg_branding=Chrome'
+    if (-not $MigrateToWindowsCodecs -or -not (Test-Path -LiteralPath $taskMarker) -or
+        (Get-Content -LiteralPath $taskMarker -Raw).Trim() -cne ($taskLegacyRecipe | ConvertTo-Json -Compress)) {
+      throw 'Use a new path, an exact matching recipe, or -MigrateToWindowsCodecs for the pinned legacy build.'
+    }
+    Copy-Item -LiteralPath $taskMarker -Destination ($taskMarker + '.' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff') + '.previous')
+    [IO.File]::WriteAllText($taskMarker, $taskRecipeText)
   }
 } else {
+  if ($BuildOnly) { throw '-BuildOnly requires an existing prepared source build.' }
   New-Item -ItemType Directory -Path $taskWork | Out-Null
   [IO.File]::WriteAllText($taskMarker, $taskRecipeText)
 }
@@ -73,6 +87,7 @@ try {
     $taskSaved[$taskName] = [Environment]::GetEnvironmentVariable($taskName, 'Process')
     [Environment]::SetEnvironmentVariable($taskName, $taskEnvironment[$taskName], 'Process')
   }
+  if (-not $BuildOnly) {
   # Disabling automatic Git updates also skips depot_tools' initial Windows
   # Python setup. Run its pinned bootstrap explicitly; do not add local shims.
   & (Join-Path $taskDepot 'bootstrap/win_tools.bat')
@@ -128,17 +143,34 @@ try {
     & (Join-Path $taskDepot 'gclient.bat') runhooks
     if ($LASTEXITCODE -ne 0) { throw 'Chromium dependency hooks failed.' }
   } finally { Pop-Location }
+  }
+  $taskSource = Join-Path $taskWork 'chromium/src'
+  & $Python (Join-Path $PSScriptRoot 'cef-windows-codecs.py') apply --source $taskSource
+  if ($LASTEXITCODE -ne 0) { throw 'Windows codec source patch validation/application failed.' }
+  if ($BuildOnly) {
+    $taskArguments = @($taskAutomate, "--download-dir=$taskWork", "--depot-tools-dir=$taskDepot",
+      "--branch=$($taskRecipe.branch)", "--checkout=$($taskRecipe.cefCommit)",
+      '--x64-build', '--no-chromium-history', '--no-debug-build', "--build-target=libcef -j $Jobs",
+      '--minimal-distrib-only', '--build-log-file')
+  }
+  $taskDistribution = Join-Path $taskWork ('chromium/src/cef/binary_distrib/cef_binary_' + $taskLock.cef.version + '_windows64_minimal')
+  if ($MigrateToWindowsCodecs -and (Test-Path -LiteralPath $taskDistribution)) {
+    # Copy only this exact distribution, preserving the previous working engine.
+    Copy-Item -LiteralPath $taskDistribution -Destination ($taskDistribution + '.previous-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff')) -Recurse
+  }
   $taskBuildLog = Join-Path $taskWork "build-$($taskRecipe.branch)-release.log"
   if (Test-Path -LiteralPath $taskBuildLog) {
     Copy-Item -LiteralPath $taskBuildLog -Destination ($taskBuildLog + '.' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff') + '.previous')
   }
   & $Python @taskArguments --no-update --force-build --force-distrib
   if ($LASTEXITCODE -ne 0) { throw 'CEF media build failed. The dedicated directory can be reused to resume.' }
+  & $Python (Join-Path $PSScriptRoot 'cef-windows-codecs.py') audit --source $taskSource --distribution $taskDistribution
+  if ($LASTEXITCODE -ne 0) { throw 'Windows codec build audit failed.' }
   $taskDistribution = Join-Path $taskWork ('chromium/src/cef/binary_distrib/cef_binary_' + $taskLock.cef.version + '_windows64_minimal')
   foreach ($taskFile in @('Release/libcef.dll','Release/libcef.lib','Release/bootstrap.exe','include/cef_version.h','LICENSE.txt','CREDITS.html')) {
     if (-not (Test-Path -LiteralPath (Join-Path $taskDistribution $taskFile))) { throw "Incomplete CEF distribution: $taskFile" }
   }
-  Write-Output "Complete media-enabled CEF distribution: $taskDistribution"
+  Write-Output "Complete Windows-codec CEF distribution: $taskDistribution"
   Write-Output 'Rebuild Xenon against this complete distribution, then run the media and browser acceptance suites before packaging.'
 } finally {
   foreach ($taskName in $taskSaved.Keys) { [Environment]::SetEnvironmentVariable($taskName, $taskSaved[$taskName], 'Process') }

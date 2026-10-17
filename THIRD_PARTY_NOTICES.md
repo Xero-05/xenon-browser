@@ -3,10 +3,15 @@
 Xenon source is Apache-2.0. This license does not replace the licenses of its dependencies.
 
 The optional H.264/AAC source build uses the CEF and Chromium revisions and
-build-tool pins in `cef.mediaSourceBuild` in `dependencies.lock.json`. It enables
-Chromium's FFmpeg codec configuration with `proprietary_codecs=true` and
-`ffmpeg_branding=Chrome`. Retain that build's generated CEF license and Chromium
-credits; codec patent licensing is separate from those source licenses. See
+build-tool pins in `cef.mediaSourceBuild` in `dependencies.lock.json`. The current
+recipe uses Windows GPU H.264 decoding and Windows Media Foundation AAC decoding,
+with `proprietary_codecs=true`, `ffmpeg_branding=Chromium`, and the pinned
+`scripts/patches/cef-windows-codecs.patch`. FFmpeg H.264/AAC software decoders and
+the bundled OpenH264 implementation are disabled; Windows codec DLLs are not
+redistributed. The previous `ffmpeg_branding=Chrome` build included software
+decoders and is distinct from this recipe. Retain the generated CEF license,
+Chromium credits and `xenon-codec-build.json` build provenance. This technical
+configuration is not a determination of patent licensing obligations. See
 [CEF's codec guidance](https://github.com/chromiumembedded/cef/issues/3559) and
 the [source-build instructions](docs/BUILD.md#website-video-codecs). The FFmpeg
 command-line tool used to generate synthetic test media is not a Xenon runtime

@@ -1,0 +1,354 @@
+{
+  "completedUtc": "2026-10-17T12:57:04.9894057Z",
+  "cefVersion": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+  "binaryHashes": {
+    "Xenon.exe": "a3fe0376d5d8a826d1b1320c0dc64414aae3e8a41fe1f258de08f4065302b28e",
+    "Xenon.dll": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+    "libcef.dll": "939d881c1ed5f4615d0b87e6f0b4526ba07d3238091d768cdd3230c988a5c819"
+  },
+  "codecBuild": {
+    "codecBackend": "windows",
+    "recipe": {
+      "cefCommit": "14c5a089e8452874cb1a556dc3fde26ed2d87723",
+      "chromiumCommit": "b859317bf11f6be47f9b7799ec690a0a42a1fb33",
+      "branch": "8037",
+      "depotToolsCommit": "382c208a9973e1a6c0867b6d8664dc6dc9116e30",
+      "automateSha256": "fe0c880fd2a91ac3ab4c82301f596295cecc1901e503507e36300a5b58578dcd",
+      "windowsSdk": "10.0.28000.0",
+      "gnDefines": "is_official_build=true use_thin_lto=false chrome_pgo_phase=0 symbol_level=0 proprietary_codecs=true ffmpeg_branding=Chromium xenon_windows_codecs=true media_use_openh264=false enable_ffmpeg_video_decoders=false enable_platform_hevc=false enable_hevc_parser_and_hw_decoder=false enable_platform_dolby_vision=false enable_platform_encrypted_dolby_vision=false",
+      "codecBackend": "windows",
+      "patch": {
+        "path": "scripts/patches/cef-windows-codecs.patch",
+        "sha256": "a45041db2cf1a5ad2213ef74b5683174872fd3f549efc243aa0eeb103fdfdfac"
+      }
+    },
+    "argsSha256": "5865304be74ec9e7fde18823deecd7eef140231ca7b78bbb4c731b26f1337cd8",
+    "ffmpegCodecListSha256": "34198f3f10436c12285567a8ebd131144598ed581a0823db5ccdda70c2ee5c13",
+    "ffmpegComponentsSha256": "7dc97072cead4609b4d3e8c8d98f355300e80e30c6c23ab85d0b70dc1eafc804",
+    "bundledH264AacDecoders": false,
+    "bundledOpenH264": false,
+    "files": {
+      "Release/libcef.dll": "939d881c1ed5f4615d0b87e6f0b4526ba07d3238091d768cdd3230c988a5c819",
+      "Release/bootstrap.exe": "2ceadc3b7a5efd6618d4f8aebef281e1fd27982c82e9b4411036ca3af1ef966b",
+      "LICENSE.txt": "2e69c36a7eaa4fa153426eab635c607ea0356cbc7a68a70f42a49e8ab8eb8106",
+      "CREDITS.html": "340c4839034d8130fa2c197fa4308caf01abf9f237d8373cd8604b7a18338d51"
+    },
+    "limitations": "Technical build audit only; not legal clearance. H.264 requires Windows GPU decoding. AAC uses Media Foundation. No bundled H.264/AAC software fallback."
+  },
+  "suites": [
+    {
+      "name": "native-tests",
+      "cases": 19,
+      "failures": 0
+    },
+    {
+      "name": "adapter-tests",
+      "cases": 22,
+      "failures": 0
+    },
+    {
+      "name": "login-capture-tests",
+      "cases": 42,
+      "failures": 0
+    },
+    {
+      "name": "human-autofill-tests",
+      "cases": 31,
+      "failures": 0
+    },
+    {
+      "name": "protected-login-tests",
+      "cases": 10,
+      "failures": 0
+    },
+    {
+      "name": "form-fill-tests",
+      "cases": 6,
+      "failures": 0
+    },
+    {
+      "name": "passkey-guard-tests",
+      "cases": 8,
+      "failures": 0
+    }
+  ],
+  "codecAuditTestsPassed": 7,
+  "brandingChecksPassed": 5,
+  "checks": [
+    {
+      "name": "xenon-build",
+      "exitCode": 0
+    },
+    {
+      "name": "windows-playback",
+      "exitCode": 0
+    },
+    {
+      "name": "webm-playback",
+      "exitCode": 0
+    },
+    {
+      "name": "browser-integration",
+      "exitCode": 0
+    }
+  ],
+  "mp4": {
+    "run": "media-integration-1792241771750-c85b7df8",
+    "startHashes": {
+      "Xenon.dll": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+      "libcef.dll": "939d881c1ed5f4615d0b87e6f0b4526ba07d3238091d768cdd3230c988a5c819"
+    },
+    "endHashes": {
+      "Xenon.dll": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+      "libcef.dll": "939d881c1ed5f4615d0b87e6f0b4526ba07d3238091d768cdd3230c988a5c819"
+    },
+    "requireH264": true,
+    "windowsCodecs": true,
+    "sampleSha256": "ed1d8c7d1cc639affd0e4028628a2ac6fee0386eca4ac8788490e531ce614e5a",
+    "fragmentedSampleSha256": "0318fd5100dc310551100a83835a153ad85bd25d42bd5290ecf6609b1157a3f7",
+    "coverage": "Synthetic H.264/AAC MP4 and Media Source playback with nonblank decoded pictures and measured audio PCM, pause, seek/resume and volume. MCP click supplies user activation. decodeAudioData capability recorded separately. No physical input, audible output or DRM validation.",
+    "report": {
+      "codecs": {
+        "vp8": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "vp9": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "av1": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "h264": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "aac": {
+          "canPlay": "probably",
+          "mediaSource": true
+        }
+      },
+      "audio": {
+        "duration": 4.021354,
+        "sampleRate": 48000,
+        "rms": 0.09235213017644955,
+        "state": "running"
+      },
+      "playback": {
+        "time": 0.56,
+        "frames": 12,
+        "width": 320,
+        "height": 180,
+        "error": null,
+        "picture": {
+          "mean": 124.25390625,
+          "range": 156
+        }
+      },
+      "pause": {
+        "paused": true,
+        "stable": true
+      },
+      "seek": 0.3,
+      "volume": 0.4,
+      "resume": {
+        "time": 0.98,
+        "additionalFrames": 10,
+        "audioRms": 0.03589265688328329
+      },
+      "streaming": {
+        "time": 0.639203,
+        "frames": 13,
+        "audioRms": 0.035898561307363755,
+        "error": null,
+        "picture": {
+          "mean": 123.89713541666669,
+          "range": 168.33333333333331
+        }
+      },
+      "audioBufferDecode": {
+        "supported": false,
+        "error": "EncodingError"
+      }
+    },
+    "passed": true
+  },
+  "webm": {
+    "run": "media-integration-1792241780171-ef364ae5",
+    "startHashes": {
+      "Xenon.dll": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+      "libcef.dll": "939d881c1ed5f4615d0b87e6f0b4526ba07d3238091d768cdd3230c988a5c819"
+    },
+    "endHashes": {
+      "Xenon.dll": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+      "libcef.dll": "939d881c1ed5f4615d0b87e6f0b4526ba07d3238091d768cdd3230c988a5c819"
+    },
+    "requireH264": false,
+    "windowsCodecs": false,
+    "sampleSha256": "ed1d8c7d1cc639affd0e4028628a2ac6fee0386eca4ac8788490e531ce614e5a",
+    "fragmentedSampleSha256": "0318fd5100dc310551100a83835a153ad85bd25d42bd5290ecf6609b1157a3f7",
+    "coverage": "Synthetic VP8 decode, pause, seek and volume; codec capability declarations. No physical input, audible output, H.264 decode or DRM validation.",
+    "report": {
+      "codecs": {
+        "vp8": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "vp9": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "av1": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "h264": {
+          "canPlay": "probably",
+          "mediaSource": true
+        },
+        "aac": {
+          "canPlay": "probably",
+          "mediaSource": true
+        }
+      },
+      "playback": {
+        "time": 0.700546,
+        "frames": 13,
+        "width": 320,
+        "height": 180,
+        "error": null,
+        "picture": {
+          "mean": 105.333333333333,
+          "range": 0
+        }
+      },
+      "pause": {
+        "paused": true,
+        "stable": true
+      },
+      "seek": 0.3,
+      "volume": 0.4
+    },
+    "passed": true
+  },
+  "integration": {
+    "run": "integration-1792241787679-79f7e6c2",
+    "capturedAt": "2026-10-17T12:57:03.642Z",
+    "binary": "build/app/Release/Xenon.exe",
+    "applicationDllSha256": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+    "passed": true,
+    "results": [
+      {
+        "name": "Four separate adapters, three live tabs each",
+        "passed": true,
+        "elapsedMs": 4584
+      },
+      {
+        "name": "Workspace and result isolation",
+        "passed": true,
+        "elapsedMs": 949
+      },
+      {
+        "name": "A pending wait does not block other adapters",
+        "passed": true,
+        "elapsedMs": 4196
+      },
+      {
+        "name": "Page-only screenshots through real MCP image output",
+        "passed": true,
+        "elapsedMs": 67
+      },
+      {
+        "name": "Replaced nodes reject stale references",
+        "passed": true,
+        "elapsedMs": 656
+      },
+      {
+        "name": "Overlay hit testing rejects obscured input",
+        "passed": true,
+        "elapsedMs": 1104
+      },
+      {
+        "name": "Same-origin and cross-origin frames expose usable references",
+        "passed": true,
+        "elapsedMs": 1721
+      },
+      {
+        "name": "Shadow DOM actionability and semantics",
+        "passed": true,
+        "elapsedMs": 674
+      },
+      {
+        "name": "Visual coordinates require a current screenshot",
+        "passed": true,
+        "elapsedMs": 1254
+      },
+      {
+        "name": "JavaScript dialogs are handled without blocking other tabs",
+        "passed": true,
+        "elapsedMs": 1127
+      },
+      {
+        "name": "Website JavaScript links and logout confirmations remain usable",
+        "passed": true,
+        "elapsedMs": 2632,
+        "detail": {
+          "scriptLinkExecuted": true,
+          "confirmationAcceptedAndDismissed": true
+        }
+      },
+      {
+        "name": "Download namespace reports opaque scoped metadata",
+        "passed": true,
+        "elapsedMs": 894
+      },
+      {
+        "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+        "passed": true,
+        "elapsedMs": 1661,
+        "detail": {
+          "documentPreserved": true,
+          "websiteEventsAdded": 0
+        }
+      },
+      {
+        "name": "Related popups transfer as one ownership group",
+        "passed": true,
+        "elapsedMs": 850
+      },
+      {
+        "name": "Mid-drag handoff waits for release before changing ownership",
+        "passed": true,
+        "elapsedMs": 1357
+      },
+      {
+        "name": "Four workers behind one adapter, three tabs each",
+        "passed": true,
+        "elapsedMs": 5546
+      },
+      {
+        "name": "Disconnect/reconnect preserves page and never replays mutations",
+        "passed": true,
+        "elapsedMs": 1901
+      }
+    ]
+  },
+  "priorFailure": {
+    "run": "media-integration-1792240789866-fd6d4ccb",
+    "engineSha256": "4f5a4c83ff1553fcc5800ac23fc5853f97bc28b3d0a568b81d470f7167cf5ce9",
+    "failure": "Media Source AAC must decode to non-silent audio",
+    "streamingAudioRms": 0,
+    "resolution": "MP4 streaming now preserves raw AAC access units for Media Foundation instead of prepending FFmpeg ADTS headers. The same playback assertions passed on the corrected engine."
+  },
+  "coverageLimits": [
+    "Production browser with disposable synthetic loopback profiles; no real account or browsing data.",
+    "H.264 constrained-baseline/AAC-LC MP4 and fragmented MP4: nonblank decoded picture, non-silent audio PCM, pause, seek/resume and volume. VP8 WebM playback also tested.",
+    "MCP input supplies user activation; physical input and audible speaker output were not validated.",
+    "H.264 requires supported Windows GPU decoding; AAC requires Windows Media Foundation. No bundled H.264/AAC software fallback.",
+    "AAC Web Audio decodeAudioData reports EncodingError; media-element audio and its Web Audio output pass.",
+    "Other codec profiles, arbitrary websites, DRM services and other GPU/Windows configurations are not established by these tests.",
+    "Technical codec configuration and playback validation only, not patent licensing clearance. No release was published."
+  ]
+}

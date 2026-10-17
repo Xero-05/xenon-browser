@@ -1,2 +1,5 @@
 # Illustrator source artwork must retain its original binary bytes.
 *.ai binary
+# Build recipes verify patch bytes on Windows and in CI.
+# Unified diff context lines retain their required single-space prefix.
+scripts/patches/*.patch text eol=lf whitespace=-blank-at-eol
