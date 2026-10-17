@@ -201,6 +201,34 @@ for (const era of ['legacy', 'modern'] as const) {
         assert.equal(rejected.isError, true, `${name} must reject unsupported worker parameters`);
       }
       const scope = { agentSessionId: 'worker', workspaceId: 'workspace', tabId: 'tab' };
+      const attentionTool = listed.tools.find(t => t.name === 'xenon_attention');
+      assert.ok(attentionTool);
+      assert.equal(attentionTool.annotations?.readOnlyHint, false);
+      assert.equal(attentionTool.annotations?.destructiveHint, false);
+      assert.equal(attentionTool.annotations?.idempotentHint, true);
+      assert.deepEqual([...(attentionTool.inputSchema.required ?? [])].sort(), ['action', 'agentSessionId', 'ownershipGeneration', 'tabId', 'workspaceId']);
+      assert.match(attentionTool.description ?? '', /flashes the tab's border orange/);
+      for (const [action, extra] of [['request', { reason: '需要您完成验证码 👩‍💻' }], ['clear', {}]] as const) {
+        const args = { ...scope, ownershipGeneration: 3, action, ...extra };
+        const attention = await client.callTool({ name: 'xenon_attention', arguments: args });
+        assert.equal(attention.isError, undefined);
+        assert.deepEqual(attention.structuredContent, { method: `attention.${action}`, params: args });
+      }
+      const scopedAttention = await new ScopedXenonTab(client, scope).attention('request', 4, 'Approve the payment');
+      assert.deepEqual(scopedAttention.structuredContent?.params, { action: 'request', ownershipGeneration: 4, reason: 'Approve the payment', ...scope });
+      for (const args of [
+        { ...scope, action: 'request' },
+        { ...scope, ownershipGeneration: 1, action: 'flash' },
+        { ...scope, ownershipGeneration: 1, action: 'request', reason: '' },
+        { ...scope, ownershipGeneration: 1, action: 'request', reason: '   ' },
+        { ...scope, ownershipGeneration: 1, action: 'request', reason: 'two\nlines' },
+        { ...scope, ownershipGeneration: 1, action: 'request', reason: `${String.fromCodePoint(0x202e)}desrever` },
+        { ...scope, ownershipGeneration: 1, action: 'request', reason: 'x'.repeat(201) },
+        { ...scope, ownershipGeneration: 1, action: 'request', notify: true },
+      ]) {
+        const rejected = await client.callTool({ name: 'xenon_attention', arguments: args });
+        assert.equal(rejected.isError, true, `xenon_attention must reject ${JSON.stringify(args)}`);
+      }
       const bound = await new ScopedXenonTab(client, scope).observe();
       assert.deepEqual(bound.structuredContent?.params, scope);
       const batch = {

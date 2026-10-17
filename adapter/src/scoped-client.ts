@@ -49,7 +49,7 @@ function noScopeOverrides(args: Record<string, unknown>): void {
 }
 const workspaceTools = new Set(['xenon_tabs', 'xenon_folders', 'xenon_files', 'xenon_downloads']);
 const tabTools = new Set(['xenon_observe', 'xenon_inspect', 'xenon_screenshot', 'xenon_control_status', 'xenon_control', 'xenon_accounts',
-  'xenon_interact', 'xenon_batch', 'xenon_wait', 'xenon_upload', 'xenon_login', 'xenon_navigate', 'xenon_dialog', 'xenon_tab_close']);
+  'xenon_interact', 'xenon_batch', 'xenon_wait', 'xenon_upload', 'xenon_login', 'xenon_navigate', 'xenon_dialog', 'xenon_tab_close', 'xenon_attention']);
 
 export class ScopedXenonTab {
   readonly scope: Readonly<TabScope>;
@@ -65,6 +65,10 @@ export class ScopedXenonTab {
   inspect(args: { maxNodes?: number; query?: string } = {}) { return this.call('xenon_inspect', args); }
   observe(args: { maxNodes?: number; query?: string } = {}) { return this.call('xenon_observe', args); }
   status() { return this.call('xenon_control_status'); }
+  // Ask the person to come to this tab, or withdraw that request.
+  attention(action: 'request' | 'clear', ownershipGeneration: number, reason?: string) {
+    return this.call('xenon_attention', { action, ownershipGeneration, ...(reason === undefined ? {} : { reason }) });
+  }
   files(args: { folderId?: string; cursor?: string; query?: string; limit?: number } = {}) { return this.call('xenon_files', args); }
   operation(operationId: string) { return invoke(this.client, 'xenon_operation', { operationId: handle(operationId) }); }
 

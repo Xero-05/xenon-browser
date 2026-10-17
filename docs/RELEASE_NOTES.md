@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+**Agents can ask for your help.** The new `xenon_attention` MCP tool lets an agent mark a tab it controls as needing you, for a CAPTCHA, MFA, a passkey or an approval. The tab's border pulses orange until you have been at it, and a background window's taskbar button flashes. **Settings → Agents** can also show a Windows notification, off by default, that opens the tab when selected. **Dismiss help request** withdraws a request.
+
 **Full screen.** **F11** (or **Menu → Full screen**) hides Xenon's toolbar and sidebar. A website's own full-screen request, such as a video player's, now takes over the screen for a tab you control, with a notice naming the site; **Esc** or switching tabs ends it. Pages in agent-controlled tabs still fill only their tab area.
 
 **Site icons** appear on tabs.

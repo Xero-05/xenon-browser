@@ -147,6 +147,12 @@ int main(){try{
   require(!ui::automatic_update_checks,"Other saves preserve a disabled automatic update preference");
   ui::settings_path=root/"missing"/"ui-settings.json";require(!ui::save_automatic_update_checks(true)&&!ui::automatic_update_checks,"Failed update preference save keeps the previous choice");
   ui::settings_path=root/"ui-settings.json";require(ui::save_automatic_update_checks(true),"Re-enable automatic update checks");
+  require(!ui::agent_help_notifications,"Agent help notifications default off");
+  require(ui::save_agent_help_notifications(true),"Save the agent help notification preference");reset_preferences();ui::load_theme(root);
+  require(ui::agent_help_notifications&&ui::automatic_update_checks&&ui::introduction_completed,"Restore agent help notifications with other settings");
+  ui::settings_path=root/"missing"/"ui-settings.json";require(!ui::save_agent_help_notifications(false)&&ui::agent_help_notifications,"Failed notification preference save keeps the previous choice");
+  ui::settings_path=root/"ui-settings.json";require(ui::save_agent_help_notifications(false),"Turn agent help notifications off");reset_preferences();ui::load_theme(root);
+  require(!ui::agent_help_notifications,"A disabled notification preference is restored");
   require(omnibox::search_engine().id=="google"&&omnibox::search_url("a b")=="https://www.google.com/search?q=a+b","Google remains the default search engine");
   require(ui::save_search_engine(std::size(omnibox::search_engines)-1)&&omnibox::search_engine().id=="baidu","Save a chosen search engine");reset_preferences();ui::load_theme(root);
   require(omnibox::search_engine().id=="baidu"&&omnibox::search_url("a b")=="https://www.baidu.com/s?wd=a+b"&&ui::automatic_update_checks,"Restore the chosen search engine with other settings");

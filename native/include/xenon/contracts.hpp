@@ -67,6 +67,9 @@ class BrowserEngine {
 // Every accepted command captures the activity epoch, so an interrupted
 // continuation remains invalid after idle. Prior observations are discarded.
 // Native explicit takeover/release and agent handoff remain ownership changes.
+// Broker-only attention.request {scope, ownershipGeneration, reason?} and
+// attention.clear let a tab's owner ask the person for help. They change
+// broker metadata only; native UI flashes the tab and may notify the person.
 // Broker-only control.activity needs authentication but no worker/workspace
 // arguments. It returns {tabs:[...]} only for this client's connected workers'
 // owned, granted tabs, with retained activity status and no page content.

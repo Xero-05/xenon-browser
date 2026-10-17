@@ -505,7 +505,14 @@ inline constexpr Translation translations[]{
   {L"Cookies, which may sign you out of websites",L"Cookie（可能会让您退出网站登录）"},{L"Other site data, for all time",L"其他网站数据（全部时间）"},{L"Cached images and files, for all time",L"缓存的图片和文件（全部时间）"},
   {L"Saved passwords, bookmarks and downloads are kept. Agents working in this workspace pause and must observe their pages again.",L"已保存的密码、书签和下载内容会保留。在此工作区中工作的代理会暂停，并需要重新观察页面。"},
   {L"Clear data",L"清除数据"},{L"Browsing data cleared.",L"已清除浏览数据。"},{L"Site data cleared, but history could not be saved.",L"已清除网站数据，但无法保存历史记录。"},
-  {L"Browsing history cleared.",L"已清除浏览历史记录。"},{L"History could not be saved.",L"无法保存历史记录。"}
+  {L"Browsing history cleared.",L"已清除浏览历史记录。"},{L"History could not be saved.",L"无法保存历史记录。"},
+  // Agent help requests: the flashing tab, its notification and the setting.
+  {L" · Needs your help",L" · 需要您的帮助"},{L"Dismiss help request",L"忽略求助请求"},{L"{0} needs your help",L"{0} 需要您的帮助"},
+  {L"{0} needs your help in this tab.",L"{0} 需要您在此标签页中提供帮助。"},{L"{0} needs your help: “{1}”",L"{0} 需要您的帮助：“{1}”"},
+  {L"A tab is waiting for you.",L"有一个标签页正在等待您。"},{L"Agents",L"代理"},
+  {L"Show a Windows notification when an agent needs your help",L"代理需要您的帮助时显示 Windows 通知"},
+  {L"The notification preference could not be saved.",L"无法保存通知设置。"},
+  {L"Agent help notifications are on.",L"已开启代理求助通知。"},{L"Agent help notifications are off.",L"已关闭代理求助通知。"}
 };
 // Call only for Xenon-owned UI copy, never website content, names, IDs or commands.
 inline const wchar_t* tr(const wchar_t* english) {

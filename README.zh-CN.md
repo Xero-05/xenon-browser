@@ -81,6 +81,7 @@ Xenon 通过严格校验参数的 TypeScript MCP stdio 适配器提供 **26 个�
 | `xenon_tabs`, `xenon_tab_create`, `xenon_tab_close` | 在授权范围内列出、打开和关闭标签页。 |
 | `xenon_control_status`, `xenon_control` | 查看控制权，并凭当前控制权版本号获取、释放或交接控制权。 |
 | `xenon_activity` | 读取可信的用户活动与暂停元数据，不含输入内容和页面文本。支持的宿主还可订阅 `xenon://control/activity`。 |
+| `xenon_attention` | 请用户前往你控制的标签页：其边框会闪烁橙色，用户开启后还会显示可打开该标签页的 Windows 通知。完成后清除请求。 |
 | `xenon_observe`, `xenon_screenshot` | 获取有界视口证据和只含网页内容的图像，并检查文档身份与证据是否仍然有效。 |
 | `xenon_inspect` | 在同一个 `observationId` 下返回已渲染节点、允许的网页截图和控制状态，可用于元素操作或坐标操作。采集期间发生变化的证据不会返回；这是经过校验的采集区间，而非原子快照。 |
 | `xenon_batch` | 在一次调用中按顺序执行最多 16 个已观察到的填写、选择、勾选或点击操作，并报告每一步的结果。 |

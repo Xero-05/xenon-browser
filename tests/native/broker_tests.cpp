@@ -2,6 +2,7 @@
 #include "xenon/local_security.hpp"
 #include "xenon/pipe_server.hpp"
 #include "xenon/dialog_notices.hpp"
+#include "xenon/attention_notices.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <chrono>
@@ -58,6 +59,27 @@ void human_dialog_notices() {
   const auto paused_notice=paused_worker.take(worker_state,worker_dialogs,false);
   require(paused_notice&&paused_notice->tab_id=="paused-worker","A human-triggered dialog surfaces on a physically paused agent-owned tab");
   require(!paused_worker.take(worker_state,worker_dialogs,false),"Unpaused agent-owned dialogs do not surface as human activity");
+}
+void attention_notices() {
+  const auto tab=[](bool requested,uint64_t sequence,bool seen=false){Json value{{"attentionRequested",requested},{"attentionSeen",seen}};if(requested)value["attentionSequence"]=sequence;return value;};
+  AttentionNotices notices;std::map<std::string,Json> tabs{{"a",tab(false,0)},{"b",tab(true,4)}};
+  auto arrivals=notices.update(tabs,1000);
+  require(arrivals.size()==1&&arrivals[0].tab_id=="b"&&arrivals[0].sequence==4,"A new help request arrives once");
+  require(notices.update(tabs,1100).empty(),"Polling the same request does not alert again");
+  require(!notices.acknowledge("b",900)&&!notices.acknowledge("b",1000),"Input before the request arrived does not acknowledge it");
+  require(notices.acknowledge("b",1001)&&!notices.acknowledge("b",1500),"Input after arrival acknowledges a request once");
+  require(!notices.acknowledge("a",2000)&&!notices.acknowledge("missing",2000),"A tab without a request is never acknowledged");
+  tabs["b"]=tab(true,4,true);require(notices.update(tabs,1200).empty(),"Seeing a request is not a new arrival");
+  tabs["b"]=tab(false,0);notices.update(tabs,1300);tabs["b"]=tab(true,9);
+  arrivals=notices.update(tabs,1400);require(arrivals.size()==1&&arrivals[0].sequence==9,"A later request on the same tab arrives again");
+  require(!notices.acknowledge("b",1350)&&notices.acknowledge("b",1401),"A new request needs input after its own arrival");
+  tabs["c"]=tab(true,10,true);require(notices.update(tabs,1500).empty(),"An already seen request does not alert");
+  require(AttentionNotices::pending(tab(true,1))&&!AttentionNotices::pending(tab(true,1,true))&&!AttentionNotices::pending(tab(false,0)),"Only unseen requests flash");
+  AttentionNotices wrapped;std::map<std::string,Json> one{{"w",tab(true,1)}};
+  require(wrapped.update(one,0xfffffff0u).size()==1&&!wrapped.acknowledge("w",0xffffffe0u)&&wrapped.acknowledge("w",0x10u),"Input tick comparisons survive wraparound");
+  require(notices.allow_alert("b",0)&&!notices.allow_alert("b",59999)&&notices.allow_alert("b",60000),"Alerts for one tab are limited to one a minute");
+  require(notices.allow_alert("c",60001),"Each tab has its own alert limit");
+  tabs.erase("b");notices.update(tabs,1600);require(notices.allow_alert("b",60001),"A closed tab's alert limit is forgotten");
 }
 struct FakeEngine final : BrowserEngine {
   struct Pending { std::string command; Json params; Reply reply; };
@@ -655,6 +677,92 @@ void security_and_handoff(const std::filesystem::path& directory) {
   require(!call(broker, "bob", "control.status", shared)["result"]["passkeyNeedsHuman"].get<bool>(), "Navigation clears the passkey notice");
   std::ifstream file(directory / "broker-state.json"); std::string saved((std::istreambuf_iterator<char>(file)), {});
   require(saved.find(alice["token"].get<std::string>()) == std::string::npos, "Pair token is not persisted in plaintext");
+}
+Json native_tab(Broker& broker,const Json& tab_id) {
+  const auto state=broker.state();
+  for(const auto& row:state["tabs"])if(row["tabId"]==tab_id)return row;
+  throw std::runtime_error("Expected the tab in native state");
+}
+void attention_requests(const std::filesystem::path& directory) {
+  FakeEngine engine; Broker broker(engine, directory);
+  const auto owner_client = pair(broker, "attention", "Attention host"); const auto peer_client = pair(broker, "attention-peer", "Peer host");
+  auto owner = worker(broker, "attention", "Owner");
+  require(share_fixture(broker, owner.workspace, peer_client["clientId"]), "Human shares the workspace with another client");
+  auto peer = worker(broker, "attention-peer", "Peer", owner.workspace);
+  const auto tab_id = owner.tab["tabId"];
+  auto status = call(broker, "attention", "control.status", owner.base())["result"];
+  require(!status["attentionRequested"].get<bool>() && !status["attentionSeen"].get<bool>() && !native_tab(broker, tab_id)["attentionRequested"].get<bool>(), "No help request exists by default");
+  auto request = owner.base(); request["ownershipGeneration"] = status["ownershipGeneration"]; request["reason"] = "Solve the CAPTCHA, then tell me to continue.";
+  const auto calls = engine.call_count();
+  auto shared = peer.base(); shared["tabId"] = tab_id;
+  auto foreign = shared; foreign["ownershipGeneration"] = status["ownershipGeneration"];
+  require(code(call(broker, "attention-peer", "attention.request", foreign)) == "NOT_OWNER" && code(call(broker, "attention-peer", "attention.clear", foreign)) == "NOT_OWNER", "Only the owner can ask for or withdraw help on a shared tab");
+  auto stale = request; stale["ownershipGeneration"] = status["ownershipGeneration"].get<uint64_t>() + 1;
+  require(code(call(broker, "attention", "attention.request", stale)) == "OWNERSHIP_CHANGED", "A stale generation cannot raise a request");
+  auto missing = request; missing.erase("ownershipGeneration");
+  require(code(call(broker, "attention", "attention.request", missing)) == "OWNERSHIP_CHANGED", "A request requires the current generation");
+  for (const Json& reason : {Json(""), Json("   "), Json("two\nlines"), Json("tab\tseparated"), Json("\xE2\x80\xAE" "desrever"), Json("hidden\xE2\x80\x8B" "space"), Json(std::string(201, 'a')), Json("\xC0\xAF"), Json(5)}) {
+    auto invalid = request; invalid["reason"] = reason;
+    require(code(call(broker, "attention", "attention.request", invalid)) == "INVALID_REASON", "Malformed, multi-line, invisible or oversized notes are refused");
+  }
+  require(!native_tab(broker, tab_id)["attentionRequested"].get<bool>(), "Refused requests leave no help request behind");
+  for (const auto* reason : {"\xE9\x9C\x80\xE8\xA6\x81\xE6\x82\xA8\xE5\xAE\x8C\xE6\x88\x90\xE9\xAA\x8C\xE8\xAF\x81", "\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x92\xBB ready"}) {
+    auto valid = request; valid["reason"] = reason;
+    require(call(broker, "attention", "attention.request", valid).value("ok", false), "Ordinary Unicode notes, including joined emoji, are accepted");
+    require(call(broker, "attention", "attention.clear", valid).value("ok", false), "The owner can withdraw a request");
+  }
+  auto longest = request; longest["reason"] = std::string(200, 'a');
+  require(call(broker, "attention", "attention.request", longest).value("ok", false) && call(broker, "attention", "attention.clear", longest).value("ok", false), "A 200-character note is accepted");
+  const auto requested = call(broker, "attention", "attention.request", request);
+  require(requested.value("ok", false) && requested["result"]["attentionRequested"].get<bool>() && !requested["result"]["attentionSeen"].get<bool>() && requested["result"]["attentionReason"] == request["reason"],
+    "The owner's request is reported with its note");
+  require(!requested["result"].contains("attentionSequence"), "Native notification bookkeeping is not returned to agents");
+  require(engine.call_count() == calls, "Asking for help sends no browser command");
+  auto row = native_tab(broker, tab_id);
+  require(row["attentionRequested"].get<bool>() && row["attentionReason"] == request["reason"] && row["attentionSequence"].is_number_unsigned() && row["ownerSessionId"] == owner.session,
+    "Native UI receives the request, note and owner for its notification");
+  const auto sequence = row["attentionSequence"].get<uint64_t>();
+  const auto peer_view = call(broker, "attention-peer", "control.status", shared)["result"];
+  require(peer_view["attentionRequested"].get<bool>() && !peer_view.contains("attentionReason"), "Another client sees that help was requested, never the agent's note");
+  require(call(broker, "attention", "tabs.list", {{"agentSessionId", owner.session}, {"workspaceId", owner.workspace}}).dump().find("Solve the CAPTCHA") != std::string::npos, "The requester reads its own note in tab listings");
+  request["reason"] = "Updated note";
+  require(call(broker, "attention", "attention.request", request).value("ok", false), "Repeating an active request succeeds");
+  row = native_tab(broker, tab_id);
+  require(row["attentionSequence"] == sequence && row["attentionReason"] == "Updated note", "Repeating an active request updates its note without a new notification");
+  engine.event("human.input", {{"tabId", tab_id}, {"busy", true}, {"pauseUntil", nullptr}});
+  require(native_tab(broker, tab_id)["attentionRequested"].get<bool>(), "The person's page input while helping keeps the request and ownership");
+  engine.event("human.idle", {{"tabId", tab_id}});
+  broker.attention_seen("missing-tab");
+  broker.attention_seen(tab_id);
+  status = call(broker, "attention", "control.status", owner.base())["result"];
+  require(status["attentionRequested"].get<bool>() && status["attentionSeen"].get<bool>(), "Native presence marks the request seen without withdrawing it");
+  require(call(broker, "attention", "attention.request", request)["result"]["attentionSeen"].get<bool>(), "Repeating a seen request keeps it seen");
+  require(call(broker, "attention", "attention.clear", request).value("ok", false) && !call(broker, "attention", "control.status", owner.base())["result"]["attentionRequested"].get<bool>(), "Clearing withdraws the request");
+  require(call(broker, "attention", "attention.clear", request).value("ok", false), "Clearing with no request is harmless");
+  require(call(broker, "attention", "attention.request", request).value("ok", false), "The owner can ask again");
+  row = native_tab(broker, tab_id);
+  require(row["attentionSequence"].get<uint64_t>() > sequence && !row["attentionSeen"].get<bool>(), "A new request is distinct and unseen");
+  broker.dismiss_attention(tab_id);
+  require(!native_tab(broker, tab_id)["attentionRequested"].get<bool>(), "The person can dismiss a request natively");
+  require(call(broker, "attention", "attention.request", request).value("ok", false), "Dismissal does not revoke the owner's ability to ask again");
+  broker.human_acquire(tab_id);
+  require(!native_tab(broker, tab_id)["attentionRequested"].get<bool>() && code(call(broker, "attention", "attention.request", request)) == "OWNERSHIP_CHANGED", "Taking ownership ends the request");
+  broker.human_release(tab_id, owner.session);
+  status = call(broker, "attention", "control.status", owner.base())["result"];
+  require(status["ownerSessionId"] == owner.session && !status["attentionRequested"].get<bool>(), "A request does not return with an ownership round trip");
+  request["ownershipGeneration"] = status["ownershipGeneration"];
+  require(call(broker, "attention", "attention.request", request).value("ok", false), "The returned owner can ask with its new generation");
+  ClientPolicy read_only; read_only.capabilities = {};
+  require(broker.configure_client(owner_client["clientId"], read_only), "The person narrows the client to read-only");
+  require(!native_tab(broker, tab_id)["attentionRequested"].get<bool>(), "Losing interaction permission ends the request");
+  require(code(call(broker, "attention", "attention.request", request)) == "PERMISSION_DENIED", "A read-only client cannot ask for help");
+  status = call(broker, "attention-peer", "control.status", peer.base())["result"];
+  auto peer_request = peer.base(); peer_request["ownershipGeneration"] = status["ownershipGeneration"];
+  require(call(broker, "attention-peer", "attention.request", peer_request).value("ok", false) && native_tab(broker, peer.tab["tabId"])["attentionRequested"].get<bool>(), "A request without a note is allowed");
+  require(!native_tab(broker, peer.tab["tabId"]).contains("attentionReason"), "No note is reported when none was given");
+  broker.disconnect("attention-peer");
+  require(!native_tab(broker, peer.tab["tabId"])["attentionRequested"].get<bool>(), "Disconnecting the worker ends its request");
+  require(engine.call_count() == calls, "Requests, dismissals and their lapses never send browser commands");
 }
 void observation_races(const std::filesystem::path& directory) {
   FakeEngine engine; Broker broker(engine, directory); pair(broker, "observer", "Observation host"); auto agent = worker(broker, "observer", "reader");
@@ -1285,6 +1393,7 @@ void developer_mode(const std::filesystem::path& directory) {
 int main() {
   try {
     human_dialog_notices();
+    attention_notices();
     const auto root = std::filesystem::absolute(std::filesystem::path("build") / "broker-test-data" / local_security::random_hex(8));
     developer_mode(root / "developer-mode");
     batch_operations(root / "batch-operations");
@@ -1298,6 +1407,7 @@ int main() {
     worker_retirement_boundaries(root / "worker-retirement");
     worker_late_callbacks(root / "worker-callbacks");
     security_and_handoff(root / "handoff");
+    attention_requests(root / "attention");
     concurrent_workers_and_disconnect(root / "concurrency");
     persistence_and_deny(root / "persistence");
     observation_races(root / "observation-races");

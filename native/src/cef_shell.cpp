@@ -9,6 +9,7 @@
 #include "xenon/native_ui.hpp"
 #include "xenon/ui_theme.hpp"
 #include "xenon/agent_overlay.hpp"
+#include "xenon/attention_notices.hpp"
 #include "xenon/introduction.hpp"
 #include "xenon/pointer_motion.hpp"
 #include "xenon/pointer_overlay.hpp"
@@ -38,7 +39,7 @@
 
 namespace xenon {
 namespace {
-constexpr UINT ShellChanged=WM_APP+90,ShellRun=WM_APP+91;
+constexpr UINT ShellChanged=WM_APP+90,ShellRun=WM_APP+91,ShellHelpNotice=WM_APP+92;
 // Control and command IDs are stable: native test drivers address 2004
 // (address), 2006 (Controls) and the theme commands 2111-2113 by number.
 enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,FindText,FindNext,FindPrevious,FindClose,Extensions,Passwords,BookmarkStar,SiteInfo,
@@ -48,9 +49,9 @@ enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,Find
   MenuNewWindow,MenuReopenTab,MenuCloseWorkspaceTabs,MenuCloseWindow,MenuManageExtensions,MenuPasswords,MenuNewTab,
   MenuFullscreen,MenuSettings,MenuClearData,MenuImport,
   MenuLanguageEnglish=2200,MenuLanguageChinese,
-  TabNewBelow=2300,TabReload,TabDuplicate,TabPin,TabMute,TabCopyLink,TabBookmark,TabNewWindow,TabTakeOwnership,TabControls,TabClose,TabCloseOthers,TabCloseBelow,TabCloseWorkspace,TabStopSharing,
+  TabNewBelow=2300,TabReload,TabDuplicate,TabPin,TabMute,TabCopyLink,TabBookmark,TabNewWindow,TabTakeOwnership,TabControls,TabClose,TabCloseOthers,TabCloseBelow,TabCloseWorkspace,TabStopSharing,TabDismissHelp,
   GroupNewTab=2350,GroupToggle,GroupCloseAll,GroupConfigure,
-  OwnerTake=2370,OwnerControls,
+  OwnerTake=2370,OwnerControls,OwnerDismissHelp,OwnerHelpNote,
   TabToWorkspace=2400,TabToWindow=2500,OwnerGive=2560,ExtensionItem=2600,
   // Site-information bubble children; SiteSetting+n is the nth site::settings combo.
   SiteClose=2700,SiteBack,SiteConnection,SiteCertificate,SiteCookies,SiteSettings,SiteReset,SiteTitle,SiteSubtitle,SiteText,SiteDetails,SitePermissions,SiteSetting=2720,SiteSettingLabel=2740,
@@ -59,18 +60,23 @@ static_assert(Passwords==ui::password_anchor_id,"Credential bubbles anchor to th
 // Site-settings and cookie panel controls; SitePanelSetting+n is the nth site::settings combo.
 enum SitePanelId {SitePanelLeft=21,SitePanelRight,SitePanelMiddle,SitePanelLabel=100,SitePanelSetting=200};
 std::string str(const Json& value,const char* key){auto found=value.find(key);return found!=value.end()&&found->is_string()?found->get<std::string>():std::string{};}
+// Menus treat '&' as a mnemonic marker; show other parties' text literally.
+std::wstring menu_text(std::wstring text){for(size_t at=text.find(L'&');at!=std::wstring::npos;at=text.find(L'&',at+2))text.insert(at,1,L'&');return text;}
 std::wstring short_title(const std::string& value,size_t maximum=55){auto text=ui::wide(value);if(text.size()>maximum)text=text.substr(0,maximum-1)+L"…";return text;}
 using Clock=std::chrono::steady_clock;
 double fraction(Clock::time_point start,int duration){return std::clamp(std::chrono::duration<double,std::milli>(Clock::now()-start).count()/duration,0.0,1.0);}
 uint32_t seed(){return static_cast<uint32_t>(std::stoul(local_security::random_hex(4),nullptr,16));}
 // Native chrome motion timings in milliseconds. Website pixels and geometry
 // never animate; these only change how the shell around the page is painted.
-constexpr int GlideDuration=200,AccentDuration=240,FocusDuration=160,LoadingCycle=1300;
+constexpr int GlideDuration=200,AccentDuration=240,FocusDuration=160,LoadingCycle=1300,HelpCycle=1100;
 // Desktop toolbar height, row heights and the page frame's corner radius, in DIPs.
 constexpr int ToolbarHeight=44,TabRow=34,FrameRadius=8;
 // Address suggestion row height and the list's inner top/bottom margin, in DIPs.
 constexpr int SuggestionRow=34,SuggestionInset=6;
 double elapsed(ULONGLONG start,int duration){return start&&ui::motion()?std::clamp(static_cast<double>(GetTickCount64()-start)/duration,0.0,1.0):1.0;}
+// How strongly a tab waiting for the person's help shows orange: a slow pulse,
+// or steady full strength when Windows animation effects are off.
+double help_pulse(){if(!ui::motion())return 1.0;const double phase=static_cast<double>(GetTickCount64()%HelpCycle)/HelpCycle;return 0.5-0.5*std::cos(phase*2*3.14159265358979323846);}
 bool web_address(const std::string& url){return url.rfind("http://",0)==0||url.rfind("https://",0)==0;}
 std::string origin_of(const std::string& url){if(!web_address(url))return {};const auto start=url.find("://")+3;return url.substr(0,url.find_first_of("/?#",start));}
 // The app Windows registered for a link scheme, for the person's prompt; empty
@@ -131,6 +137,9 @@ struct BrowserShell::Impl {
     RECT page{},panel_bounds{},omnibox{},chip{};std::wstring status,chip_text;ULONGLONG status_until{};
     int sidebar{240},drag_origin{},drag_width{};bool resizing_sidebar{},sidebar_hover{};
     bool address_dirty{},setting_address{};HTREEITEM hovered_row{};std::string pressed_close,hovered_close;
+    // When pulsing help rows were last repainted, and whether the taskbar
+    // button was flashed for a help request.
+    ULONGLONG help_painted{};bool help_flashed{};
     // Address suggestions: a list under the omnibox that never takes focus.
     // `typed` is the person's text without any inline completion.
     HWND suggestions{};HFONT emphasis{};std::vector<omnibox::Match> matches;std::string typed;int suggestion{-1},suggestion_hover{-1},suggestion_pressed{-1};bool typing{};
@@ -663,11 +672,24 @@ struct BrowserShell::Impl {
     std::vector<std::string> visual_tabs() const {std::vector<std::string> result;for(const auto& [id,group]:tree_keys)if(!group&&shell.hosts.contains(id))result.push_back(id);return result;}
     void cycle(int step){const auto tabs=visual_tabs();if(tabs.empty())return;auto at=std::find(tabs.begin(),tabs.end(),selected);const int index=at==tabs.end()?0:static_cast<int>(at-tabs.begin());const int count=static_cast<int>(tabs.size());choose(tabs[static_cast<size_t>(((index+step)%count+count)%count)],true);}
     void select_number(int number){const auto tabs=visual_tabs();if(tabs.empty())return;choose(number>=9?tabs.back():tabs[static_cast<size_t>(std::min<int>(number-1,static_cast<int>(tabs.size())-1))],true);}
+    bool foreground() const {return window&&!IsIconic(window)&&GetAncestor(GetForegroundWindow(),GA_ROOT)==window;}
+    bool waiting_for_help(const std::string& id) const {auto found=shell.states.find(id);return found!=shell.states.end()&&AttentionNotices::pending(found->second);}
+    bool group_needs_help(const std::string& workspace_id) const {
+      return std::any_of(shell.hosts.begin(),shell.hosts.end(),[&](const auto& entry){return entry.second.frame==this&&entry.second.workspace==workspace_id&&waiting_for_help(entry.first);});}
+    // Repaints only the rows that pulse, about 30 times a second.
+    void pulse_help(){if(!ui::motion()||GetTickCount64()-help_painted<33)return;help_painted=GetTickCount64();RECT rect{};
+      for(auto group=TreeView_GetRoot(tree);group;group=TreeView_GetNextSibling(tree,group)){
+        if(!(TreeView_GetItemState(tree,group,TVIS_EXPANDED)&TVIS_EXPANDED)){const auto [workspace_id,is_group]=key_of(group);
+          if(is_group&&group_needs_help(workspace_id)&&TreeView_GetItemRect(tree,group,&rect,FALSE))InvalidateRect(tree,&rect,FALSE);continue;}
+        for(auto item=TreeView_GetChild(tree,group);item;item=TreeView_GetNextSibling(tree,item)){const auto [id,is_group]=key_of(item);
+          if(!is_group&&waiting_for_help(id)&&TreeView_GetItemRect(tree,item,&rect,FALSE))InvalidateRect(tree,&rect,FALSE);}}
+    }
     COLORREF color(const std::string& id) const {const auto colors=ui::palette();auto found=shell.states.find(id);if(found==shell.states.end()||!found->second.value("agentAvailable",false))return colors.gray;return found->second.value("humanPaused",false)?colors.orange:colors.teal;}
     std::wstring state_text(const std::string& id) const {auto found=shell.states.find(id);if(found==shell.states.end())return ui::tr(L"Opening");const auto& state=found->second;
       auto owner=str(state,"ownerSessionId");std::wstring value=owner=="human"?ui::tr(L"You"):owner.empty()?ui::tr(L"No agent"):ui::wide(shell.names.contains(owner)?shell.names.at(owner):ui::tr8("Agent"));
       if(state.value("agentAvailable",false)&&state.value("humanPaused",false))value+=ui::tr(L" · Paused for you");else if(state.value("handoffPending",false))value+=ui::tr(L" · Handing off");
       else if(owner!="human"&&!owner.empty())value+=state.value("agentAvailable",false)?ui::tr(L" · Agent control"):ui::tr(L" · Unavailable");
+      if(state.value("attentionRequested",false))value+=ui::tr(L" · Needs your help");
       if(state.value("protected",false))value+=ui::tr(L" · Protected authentication");return value;
     }
     void retitle(int id,const wchar_t* title){if(ui::text(controls.at(id))==ui::utf8(title))return;SetWindowTextW(controls.at(id),title);TOOLINFOW tip{sizeof(tip)};tip.hwnd=window;tip.uId=reinterpret_cast<UINT_PTR>(controls.at(id));tip.lpszText=const_cast<LPWSTR>(title);SendMessageW(tooltips,TTM_UPDATETIPTEXTW,0,reinterpret_cast<LPARAM>(&tip));}
@@ -741,7 +763,7 @@ struct BrowserShell::Impl {
       // Repaint once more after motion stops so the settled frame is exact.
       if(tree_now||tree_moving)InvalidateRect(tree,nullptr,FALSE);
       if(window_now||window_moving)InvalidateRect(window,nullptr,FALSE);else if(loading_now||was_loading){auto strip=loading_strip();InvalidateRect(window,&strip,FALSE);}
-      tree_moving=tree_now;window_moving=window_now;was_loading=loading_now;
+      tree_moving=tree_now;window_moving=window_now;was_loading=loading_now;pulse_help();
       if(!status.empty()&&GetTickCount64()>=status_until){status.clear();layout();}
     }
     void draw_tree(NMTVCUSTOMDRAW& draw){const auto index=draw.nmcd.lItemlParam;if(index<=0||static_cast<size_t>(index)>tree_keys.size())return;const auto& [id,group]=tree_keys[index-1];auto colors=ui::palette();const auto dc=draw.nmcd.hdc;const auto item=reinterpret_cast<HTREEITEM>(draw.nmcd.dwItemSpec);
@@ -758,9 +780,13 @@ struct BrowserShell::Impl {
         ui::rounded(dc,pill,colors.surface,accent(),d(8),d(2));RestoreDC(dc,saved);};
       const auto& drag=shell.drag;const bool drop_here=drag.active&&drag.target==window;
       if(group){auto background=rect;InflateRect(&background,-d(2),-d(3));
+        TVITEMW value{};value.hItem=item;value.mask=TVIF_STATE;value.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&value);const bool expanded=(value.state&TVIS_EXPANDED)!=0;
         if(drop_here&&drag.group==item)ui::rounded(dc,background,ui::hover_background(),drag.blocked?colors.gray:colors.teal,d(6),d(2));
+        // A collapsed workspace pulses for a hidden tab that waits for help.
+        else if(!expanded&&group_needs_help(id)){const double pulse=help_pulse();const auto base=hover>0?hover_fill:colors.canvas;
+          ui::rounded(dc,background,ui::mix(base,colors.orange,0.16*pulse),ui::mix(base,colors.orange,0.2+0.8*pulse),d(6),d(2));}
         else if(hover>0)ui::rounded(dc,background,hover_fill,hover_fill,d(6));glide();
-        TVITEMW value{};value.hItem=item;value.mask=TVIF_STATE;value.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&value);RECT arrow=label;arrow.left=d(2);arrow.right=d(22);ui::icon(dc,arrow,value.state&TVIS_EXPANDED?ui::Icon::down:ui::Icon::chevron_right,emphasized?ui::selection_ink():colors.muted,window);
+        RECT arrow=label;arrow.left=d(2);arrow.right=d(22);ui::icon(dc,arrow,expanded?ui::Icon::down:ui::Icon::chevron_right,emphasized?ui::selection_ink():colors.muted,window);
         const bool hovered=item==hovered_row;std::vector<std::pair<int,ui::Icon>> buttons{{GroupPlus,ui::Icon::plus}};
         if(hovered)buttons.push_back({GroupMore,ui::Icon::more});
         for(const auto& [button,glyph]:buttons){auto target=group_button(item,button);const bool hot=hovered&&PtInRect(&target,pointer);if(hot)action_hover(target);
@@ -769,7 +795,12 @@ struct BrowserShell::Impl {
       const bool active=id==selected,settled=active&&!gliding();rect.left=d(4);InflateRect(&rect,0,-d(3));rect.right-=active?0:d(6);auto shape=rect;if(active)shape.right+=d(16);
       const auto state=shell.states.find(id);const bool agent=!active&&state!=shell.states.end()&&state->second.value("agentAvailable",false)&&!state->second.value("humanPaused",false);
       const auto background=settled?colors.surface:hover_fill;
-      ui::rounded(dc,shape,background,settled?accent():agent?color(id):background,d(8),d(settled?2:1));glide();
+      // A tab whose agent asked for help pulses orange until the person has
+      // been present with it in front, then keeps a quiet orange outline.
+      const bool help=state!=shell.states.end()&&state->second.value("attentionRequested",false),waiting=help&&AttentionNotices::pending(state->second);
+      const double pulse=waiting?help_pulse():0.0;
+      const auto edge=waiting?ui::mix(background,colors.orange,0.2+0.8*pulse):settled?accent():help?colors.orange:agent?color(id):background;
+      ui::rounded(dc,shape,waiting?ui::mix(background,colors.orange,0.16*pulse):background,edge,d(8),d(settled||waiting?2:1));glide();
       const auto found=shell.hosts.find(id);const bool pinned=found!=shell.hosts.end()&&found->second.pinned,muted=found!=shell.hosts.end()&&found->second.metadata.value("muted",false);
       // Close stays visible on every unpinned tab, quieter until hovered or selected.
       auto close=close_rect(item);
@@ -939,12 +970,16 @@ struct BrowserShell::Impl {
     // open Controls. These are the same native operations as in Controls.
     void owner_menu(){auto found=shell.states.find(selected);if(found==shell.states.end())return;const auto& state=found->second;const auto owner=str(state,"ownerSessionId");
       auto menu_handle=CreatePopupMenu();std::vector<std::string> recipients;
+      // The agent's own words, attributed to it; the chip has room for neither.
+      if(state.value("attentionRequested",false)){AppendMenuW(menu_handle,MF_STRING|MF_GRAYED,OwnerHelpNote,menu_text(shell.help_text(selected)).c_str());
+        AppendMenuW(menu_handle,MF_STRING,OwnerDismissHelp,ui::tr(L"Dismiss help request"));AppendMenuW(menu_handle,MF_SEPARATOR,0,nullptr);}
       AppendMenuW(menu_handle,MF_STRING|(owner=="human"?MF_GRAYED|MF_CHECKED:0),OwnerTake,ui::tr(L"Take ownership"));
       if(owner=="human")for(const auto& worker:shell.workers)if(str(worker,"workspaceId")==workspace()&&worker.value("connected",false)&&str(worker,"state")=="connected"&&recipients.size()<32){
         recipients.push_back(str(worker,"agentSessionId"));AppendMenuW(menu_handle,MF_STRING,OwnerGive+static_cast<int>(recipients.size())-1,ui::format(ui::tr(L"Give to {0}"),{ui::wide(str(worker,"name"))}).c_str());}
       AppendMenuW(menu_handle,MF_SEPARATOR,0,nullptr);AppendMenuW(menu_handle,MF_STRING,OwnerControls,ui::tr(L"Xenon Controls…"));
       POINT at{chip.left,chip.bottom};ClientToScreen(window,&at);const auto chosen=TrackPopupMenu(menu_handle,TPM_RETURNCMD|TPM_LEFTALIGN|TPM_TOPALIGN,at.x,at.y+d(2),0,window,nullptr);DestroyMenu(menu_handle);
-      if(chosen==OwnerTake){shell.broker.human_acquire(selected);set_status(ui::tr(L"Ownership requested. Current agent input finishes first."));}
+      if(chosen==OwnerDismissHelp)shell.broker.dismiss_attention(selected);
+      else if(chosen==OwnerTake){shell.broker.human_acquire(selected);set_status(ui::tr(L"Ownership requested. Current agent input finishes first."));}
       else if(chosen>=OwnerGive&&chosen<OwnerGive+32&&static_cast<size_t>(chosen-OwnerGive)<recipients.size()){shell.broker.human_release(selected,recipients[static_cast<size_t>(chosen-OwnerGive)]);set_status(ui::tr(L"Control offered to the selected agent."));}
       else if(chosen==OwnerControls)shell.native.show_section(NativeUi::Section::workspaces,workspace());
     }
@@ -1003,6 +1038,9 @@ struct BrowserShell::Impl {
   size_t pairing_count{};Clock::time_point next_state{},next_flush{},next_slow{};bool shutting_down{};
   std::deque<Placement> placements;std::deque<Closed> closed_tabs;
   std::vector<std::unique_ptr<Panel>> panels;Drag drag;
+  // Agents' help requests: arrivals, acknowledgment and alert limits, and the
+  // tray icon whose Windows notification opens `help_tab`.
+  AttentionNotices help;std::string help_tab;bool help_icon{};
   std::shared_ptr<Mailbox> mailbox=std::make_shared<Mailbox>();
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
   std::filesystem::path fixture_destination;std::map<int,std::pair<uint64_t,uint64_t>> fixture_paints;
@@ -1022,6 +1060,53 @@ struct BrowserShell::Impl {
   Frame* live_active() const {return active&&active->window&&!active->closing?active:primary();}
   void layout_all(){for(auto& frame:frames)if(frame->window)frame->layout();}
   void save_sidebar(Frame& frame){if(!ui::save_settings())frame.set_status(ui::tr(L"Sidebar resized for this run; saving failed."));InvalidateRect(frame.window,nullptr,FALSE);}
+  // ---- Agent help requests ----------------------------------------------------
+  // The requesting agent's name and note are its own words, never Xenon's or
+  // the website's; both are made printable and attributed to the agent.
+  std::wstring help_agent(const std::string& tab) const {const auto state=states.find(tab);const auto owner=state==states.end()?std::string{}:str(state->second,"ownerSessionId");
+    auto name=omnibox::printable(ui::wide(names.contains(owner)&&!names.at(owner).empty()?names.at(owner):ui::tr8("Agent")));if(name.size()>60)name=name.substr(0,59)+L"…";return name;}
+  std::wstring help_text(const std::string& tab) const {const auto state=states.find(tab);const auto note=state==states.end()?std::string{}:str(state->second,"attentionReason");
+    return note.empty()?ui::format(ui::tr(L"{0} needs your help in this tab."),{help_agent(tab)}):ui::format(ui::tr(L"{0} needs your help: “{1}”"),{help_agent(tab),omnibox::printable(ui::wide(note))});}
+  // A request flashes its tab until the person has been present with it in
+  // front. A new one also flashes the window's taskbar button and, when the
+  // person allowed it, shows a Windows notification, unless they are already
+  // in that window. None of this sends page input or changes ownership.
+  void update_help(){
+    if(shutting_down){hide_help_notice();return;}
+    for(const auto& arrival:help.update(states,GetTickCount())){
+      const auto host=hosts.find(arrival.tab_id);if(host==hosts.end()||!host->second.frame||!host->second.frame->window)continue;auto& frame=*host->second.frame;
+      if((frame.foreground()&&!frame.fullscreen())||!help.allow_alert(arrival.tab_id,GetTickCount64()))continue;
+      if(!frame.foreground()){FLASHWINFO flash{sizeof(flash),frame.window,FLASHW_TRAY,3,0};FlashWindowEx(&flash);frame.help_flashed=true;}
+      if(ui::agent_help_notifications)show_help_notice(arrival.tab_id);
+    }
+    LASTINPUTINFO input{sizeof(input)};
+    if(GetLastInputInfo(&input))for(auto& frame:frames)if(frame->window&&!frame->closing&&frame->foreground()&&frame->waiting_for_help(frame->selected)&&help.acknowledge(frame->selected,input.dwTime)){
+      broker.attention_seen(frame->selected);frame->set_status(help_text(frame->selected));}
+    if(help_icon&&(!ui::agent_help_notifications||!states.contains(help_tab)||!AttentionNotices::pending(states.at(help_tab))))hide_help_notice();
+    for(auto& frame:frames)if(frame->window&&frame->help_flashed&&std::none_of(hosts.begin(),hosts.end(),[&](const auto& entry){return entry.second.frame==frame.get()&&frame->waiting_for_help(entry.first);})){
+      FLASHWINFO stop{sizeof(stop),frame->window,FLASHW_STOP,0,0};FlashWindowEx(&stop);frame->help_flashed=false;}
+  }
+  // Explorer shows a tray icon's balloon as a Windows notification. Selecting
+  // it, or the icon while it remains, opens the tab. The notification names
+  // the agent and the tab's site, never the page title, which the site controls.
+  void show_help_notice(const std::string& tab){
+    const auto state=states.find(tab);const auto host=hosts.find(tab);if(state==states.end()||host==hosts.end())return;
+    NOTIFYICONDATAW data{};data.cbSize=sizeof(data);data.hWnd=messages;data.uID=1;data.uFlags=NIF_ICON|NIF_TIP|NIF_MESSAGE|NIF_INFO|NIF_SHOWTIP;
+    data.uCallbackMessage=ShellHelpNotice;data.hIcon=branding_icon(GetSystemMetrics(SM_CXSMICON));
+    const auto title=ui::format(ui::tr(L"{0} needs your help"),{help_agent(tab)});
+    auto note=omnibox::printable(ui::wide(str(state->second,"attentionReason")));if(note.size()>180)note=note.substr(0,179)+L"…";
+    auto body=note.empty()?std::wstring(ui::tr(L"A tab is waiting for you.")):L"“"+note+L"”";
+    if(const auto site=origin_of(str(host->second.metadata,"url"));!site.empty())body+=L"\n"+omnibox::printable(ui::wide(site.size()>70?site.substr(0,70):site));
+    wcsncpy_s(data.szTip,title.c_str(),_TRUNCATE);wcsncpy_s(data.szInfoTitle,title.c_str(),_TRUNCATE);wcsncpy_s(data.szInfo,body.c_str(),_TRUNCATE);
+    data.dwInfoFlags=NIIF_USER|NIIF_LARGE_ICON;data.hBalloonIcon=branding_icon(GetSystemMetrics(SM_CXICON)*2);
+    // Explorer may have restarted and dropped the icon; add it again.
+    if(help_icon&&!Shell_NotifyIconW(NIM_MODIFY,&data))help_icon=false;
+    if(!help_icon){if(!Shell_NotifyIconW(NIM_ADD,&data))return;data.uVersion=NOTIFYICON_VERSION_4;Shell_NotifyIconW(NIM_SETVERSION,&data);help_icon=true;}
+    help_tab=tab;
+  }
+  void hide_help_notice(){if(!help_icon)return;NOTIFYICONDATAW data{};data.cbSize=sizeof(data);data.hWnd=messages;data.uID=1;Shell_NotifyIconW(NIM_DELETE,&data);help_icon=false;help_tab.clear();}
+  void open_help_tab(){const auto tab=help_tab;hide_help_notice();const auto host=hosts.find(tab);if(host==hosts.end()||!host->second.frame||!host->second.frame->window||host->second.frame->closing)return;
+    auto& frame=*host->second.frame;if(IsIconic(frame.window))ShowWindow(frame.window,SW_RESTORE);SetForegroundWindow(frame.window);frame.choose(tab,true);}
   size_t workspace_tab_count(const std::string& workspace) const {return static_cast<size_t>(std::count_if(states.begin(),states.end(),[&](const auto& entry){return str(entry.second,"workspaceId")==workspace;}));}
   void theme_all(){const auto colors=ui::palette();for(auto& frame:frames)if(frame->window)frame->theme();
     for(auto& panel:panels)if(panel->window){ui::icons(panel->window);for(auto child=GetWindow(panel->window,GW_CHILD);child;child=GetWindow(child,GW_HWNDNEXT))ui::control_theme(child);if(panel->list){ListView_SetBkColor(panel->list,colors.canvas);ListView_SetTextBkColor(panel->list,colors.canvas);ListView_SetTextColor(panel->list,colors.ink);}
@@ -1184,6 +1269,7 @@ struct BrowserShell::Impl {
       host.agent=agent;host.paused=paused;
       if(!row.value("loading",true)&&!row.value("protected",false)&&row.value("privacyReady",false)&&str(row,"url")!=host.recorded_url){host.recorded_url=str(row,"url");try{data.visit(host.workspace,row.value("private",false),false,host.recorded_url,str(row,"title"));}catch(...){if(host.frame)host.frame->set_status(ui::tr(L"Browser history could not be saved."));}}
     }
+    update_help();
     const bool slow=Clock::now()>=next_slow;if(slow)next_slow=Clock::now()+std::chrono::seconds(1);
     for(auto& frame:frames)if(frame->window){frame->rebuild_tree();frame->sync_toolbar();if(slow)frame->refresh_page_state();frame->update_cursor();frame->animate();
       frame->refresh_developer();
@@ -1342,6 +1428,7 @@ struct BrowserShell::Impl {
     if(!self)return DefWindowProcW(h,message,wp,lp);
     try{
       if(message==ShellRun){self->run_posted();return 0;}
+      if(message==ShellHelpNotice){const auto event=LOWORD(lp);if(event==NIN_BALLOONUSERCLICK||event==NIN_SELECT||event==NIN_KEYSELECT)self->open_help_tab();return 0;}
       if(message==WM_TIMER||message==ShellChanged){self->refresh();
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
         if(message==WM_TIMER&&wp==2&&!self->fixture_destination.empty())self->fixture_snapshot(self->fixture_destination);
@@ -1427,7 +1514,7 @@ struct BrowserShell::Impl {
       case WM_NCDESTROY:if(self->font)DeleteObject(self->font);if(self->bold)DeleteObject(self->bold);for(auto face:{self->emphasis,self->site_title,self->site_small})if(face)DeleteObject(face);self->font=self->bold=self->emphasis=self->site_title=self->site_small=nullptr;self->window=nullptr;return DefWindowProcW(h,message,wp,lp);
     }return DefWindowProcW(h,message,wp,lp);
   }
-  void request_exit(){if(shutting_down)return;shutting_down=true;data.flush();engine.shutdown();}
+  void request_exit(){if(shutting_down)return;shutting_down=true;hide_help_notice();data.flush();engine.shutdown();}
 };
 
 void BrowserShell::Impl::Frame::tab_menu(const std::string& id,POINT at){
@@ -1452,6 +1539,7 @@ void BrowserShell::Impl::Frame::tab_menu(const std::string& id,POINT at){
   if(destinations.empty())item(spaces,0,ui::tr(L"No other workspace"),false);
   AppendMenuW(menu_handle,MF_POPUP|(host.metadata.value("private",false)?MF_GRAYED:0),reinterpret_cast<UINT_PTR>(spaces),ui::tr(L"Move tab to workspace"));
   AppendMenuW(menu_handle,MF_SEPARATOR,0,nullptr);
+  if(state.value("attentionRequested",false))item(menu_handle,TabDismissHelp,ui::tr(L"Dismiss help request"));
   item(menu_handle,TabTakeOwnership,ui::tr(L"Take ownership"),owner!="human");item(menu_handle,TabControls,ui::tr(L"Xenon Controls…"));AppendMenuW(menu_handle,MF_SEPARATOR,0,nullptr);
   // Chromium cannot end a page's capture on its own; reloading the page does.
   if(host.metadata.value("screenCapture",false)){item(menu_handle,TabStopSharing,ui::tr(L"Stop sharing your screen (reloads the page)"));AppendMenuW(menu_handle,MF_SEPARATOR,0,nullptr);}
@@ -1472,6 +1560,7 @@ void BrowserShell::Impl::Frame::tab_menu(const std::string& id,POINT at){
     else if(chosen==TabNewWindow){if(auto frame=shell.new_window(this))shell.move_host(host,*frame,{});}
     else if(chosen>=TabToWindow&&chosen<TabToWindow+32&&static_cast<size_t>(chosen-TabToWindow)<targets.size()){if(auto frame=shell.frame_of(targets[static_cast<size_t>(chosen-TabToWindow)]))shell.move_host(host,*frame,{});}
     else if(chosen>=TabToWorkspace&&chosen<TabToWorkspace+64&&static_cast<size_t>(chosen-TabToWorkspace)<destinations.size())shell.move_to_workspace(*this,id,destinations[static_cast<size_t>(chosen-TabToWorkspace)],{});
+    else if(chosen==TabDismissHelp)shell.broker.dismiss_attention(id);
     else if(chosen==TabTakeOwnership){shell.broker.human_acquire(id);set_status(ui::tr(L"Ownership requested. Current agent input finishes first."));}
     else if(chosen==TabControls)shell.native.show_section(NativeUi::Section::workspaces,workspace_id);
     else if(chosen==TabClose)shell.engine.native_command(id,"close");
@@ -1779,7 +1868,7 @@ LRESULT CALLBACK BrowserShell::Impl::panel_proc(HWND h,UINT message,WPARAM wp,LP
 namespace {
 enum LibraryId {LibraryOpen=1,LibraryClose=2,LibraryNewFolder=3,LibraryRename,LibraryMove,LibraryDelete,LibraryImport,LibraryClear,LibraryMessage=10,LibraryList,LibraryTree,LibrarySearch,LibraryMoveTarget=3000};
 enum FormId {FormPrimary=1,FormClose=2,FormMessage=10,FormSearchEngine=20,FormDefaultStatus,FormMakeDefault,FormTheme,FormLanguage,FormImport,FormClearData,FormPasswords,FormSource,FormBookmarks,FormHistory,
-  FormRange,FormClearHistory,FormClearCookies,FormClearStorage,FormClearCache,FormNote,FormStatus,FormHeading=60,FormLabel=80};
+  FormRange,FormClearHistory,FormClearCookies,FormClearStorage,FormClearCache,FormNote,FormStatus,FormAgentHelp,FormHeading=60,FormLabel=80};
 HWND child(HWND parent,HFONT font,int id,const wchar_t* type,const std::wstring& text,DWORD style){
   auto control=CreateWindowExW(0,type,text.c_str(),WS_CHILD|WS_VISIBLE|style,0,0,10,10,parent,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),branding_module(),nullptr);
   SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);ui::control_theme(control);return control;}
@@ -2009,6 +2098,8 @@ void BrowserShell::Impl::form_build(Panel& target){const auto h=target.window;au
     put(FormMakeDefault,L"BUTTON",ui::tr(L"Make Xenon your default browser…"),BS_OWNERDRAW|WS_TABSTOP,20,300,30);y+=38;
     section(ui::tr(L"Appearance"));row_label(ui::tr(L"Theme"));combo(FormTheme,{ui::tr(L"System"),ui::tr(L"Light"),ui::tr(L"Dark")},ui::theme_mode==ui::ThemeMode::light?1:ui::theme_mode==ui::ThemeMode::dark?2:0);y+=38;
     row_label(ui::tr(L"Language"));combo(FormLanguage,{L"English",L"简体中文"},ui::preferred_language==ui::Language::simplified_chinese?1:0);y+=38;
+    // Tabs where an agent needs the person always pulse; this adds a notification.
+    section(ui::tr(L"Agents"));check(FormAgentHelp,ui::tr(L"Show a Windows notification when an agent needs your help"),ui::agent_help_notifications);
     section(ui::tr(L"Your data"));put(FormImport,L"BUTTON",ui::tr(L"Import bookmarks and history…"),BS_OWNERDRAW|WS_TABSTOP,20,270,30);put(FormClearData,L"BUTTON",ui::tr(L"Clear browsing data…"),BS_OWNERDRAW|WS_TABSTOP,300,220,30);y+=38;
     put(FormPasswords,L"BUTTON",ui::tr(L"Passwords…"),BS_OWNERDRAW|WS_TABSTOP,20,270,30);
     child(h,target.font,FormStatus,L"STATIC",{},SS_LEFT|SS_NOPREFIX|SS_CENTERIMAGE|SS_ENDELLIPSIS);places.emplace_back(FormStatus,20,-46,460,30);
@@ -2043,6 +2134,10 @@ void BrowserShell::Impl::form_command(Panel& target,int id,int code){try{const a
         else status(ui::preferred_language==ui::language?ui::tr(L"Language preference saved."):ui::tr(L"Restart Xenon to apply the selected language. Save unfinished website work before exiting."));}
       return;}
     if(code!=BN_CLICKED)return;
+    if(id==FormAgentHelp){const bool on=checked(window,FormAgentHelp);
+      if(!ui::save_agent_help_notifications(on)){SendMessageW(GetDlgItem(window,FormAgentHelp),BM_SETCHECK,ui::agent_help_notifications?BST_CHECKED:BST_UNCHECKED,0);status(ui::tr(L"The notification preference could not be saved."));}
+      else status(on?ui::tr(L"Agent help notifications are on."):ui::tr(L"Agent help notifications are off."));
+      if(!ui::agent_help_notifications)hide_help_notice();return;}
     // Windows lets only the person choose a default browser, in its own Settings.
     if(id==FormMakeDefault){ShellExecuteW(window,L"open",L"ms-settings:defaultapps?registeredAppUser=Xenon%20Browser",nullptr,nullptr,SW_SHOWNORMAL);return;}
     if(id==FormImport||id==FormClearData){if(auto frame=panel_frame(target))panel(*frame,id==FormImport?"import":"clear");return;}
@@ -2129,7 +2224,7 @@ BrowserShell::BrowserShell(Broker& broker,CefEngine& engine,NativeUi& native,Ext
   impl_->active=impl_->frames.front().get();
   SetTimer(impl_->messages,1,16,nullptr);SetTimer(impl_->messages,2,1000,nullptr);
 }
-BrowserShell::~BrowserShell(){impl_->data.flush();if(impl_->messages){KillTimer(impl_->messages,1);KillTimer(impl_->messages,2);}
+BrowserShell::~BrowserShell(){impl_->data.flush();impl_->hide_help_notice();if(impl_->messages){KillTimer(impl_->messages,1);KillTimer(impl_->messages,2);}
   for(auto& panel:impl_->panels)if(panel->window)DestroyWindow(panel->window);if(impl_->ghost)DestroyWindow(impl_->ghost);
   for(auto& frame:impl_->frames)if(frame->window)DestroyWindow(frame->window);if(impl_->messages)DestroyWindow(impl_->messages);}
 void BrowserShell::show(){auto frame=impl_->primary();if(!frame)return;ShowWindow(frame->window,SW_SHOWNORMAL);SetWindowPos(frame->window,nullptr,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_SHOWWINDOW);SetForegroundWindow(frame->window);}
