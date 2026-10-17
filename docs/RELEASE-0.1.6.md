@@ -1,5 +1,7 @@
 # Xenon Browser 0.1.6
 
+**Withdrawn.** 0.1.6 was published on October 17, 2026 and switched back to a draft the same day because codec licensing for distributing its built-in H.264 and AAC decoders had not been confirmed. Its files and tag are kept unchanged, and v0.1.5 is the latest published release. The notes below describe the withdrawn files.
+
 This release fills in everyday browser features, plays H.264 and AAC video, and lets agents ask the person for help.
 
 **Agents can ask for your help.** The new `xenon_attention` MCP tool lets an agent mark a tab it controls as needing you, for example for a CAPTCHA, MFA, a passkey or an approval. The tab's border pulses orange in the sidebar until you have been at it, and a background window's taskbar button flashes. **Settings → Agents** can also show a Windows notification, off by default, that opens the tab. A request is metadata only: it does not pause the agent or change ownership. **Dismiss help request** withdraws it. Xenon now exposes 27 MCP tools.

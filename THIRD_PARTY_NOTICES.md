@@ -2,7 +2,7 @@
 
 Xenon source is Apache-2.0. This license does not replace the licenses of its dependencies.
 
-Release packages from 0.1.6 use the H.264/AAC source build. It uses the CEF and Chromium revisions and
+The optional H.264/AAC source build uses the CEF and Chromium revisions and
 build-tool pins in `cef.mediaSourceBuild` in `dependencies.lock.json`. It enables
 Chromium's FFmpeg codec configuration with `proprietary_codecs=true` and
 `ffmpeg_branding=Chrome`. Retain that build's generated CEF license and Chromium

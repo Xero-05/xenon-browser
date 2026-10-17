@@ -2,7 +2,7 @@
 
 ## 0.1.6 release
 
-0.1.6 is a regular GitHub release, marked latest. It is the first release whose packages use the codec-enabled CEF engine (H.264/AAC), so its files were built, packaged and tested locally rather than taken from hosted CI, which builds only the stock engine.
+0.1.6 was published on October 17 as a regular GitHub release, marked latest, and switched back to a draft the same day because codec licensing for distributing its built-in H.264 and AAC decoders had not been confirmed; v0.1.5 is the latest published release again. It was the first release whose packages used the codec-enabled CEF engine (H.264/AAC), so its files were built, packaged and tested locally rather than taken from hosted CI, which builds only the stock engine.
 
 The [publication record](test-results/release-0.1.6-publication.json) binds the `v0.1.6` tag and all four uploaded asset digests to that local build. The files were built from `24e41d5`, whose tree equals the merged source commit `4ef7617`. The build passed 19 native groups; 22 adapter, 42 login-capture, 31 human-autofill, 10 protected-login, 6 form-fill and 8 passkey-guard checks; and 5 branding checks. Package verification covered all 1,325 manifest hashes, and 50 isolated installer checks passed. The extracted ZIP passed 6 smoke checks. The packaged DLL and engine then passed the eight live suites hosted CI runs (61 checks, theme suite in Windows dark mode) and both playback suites: H.264/AAC MP4 with decoded frames, non-silent AAC and Media Source streaming, and VP8 WebM. The downloaded ZIP passed `verify-package.ps1` again after publication.
 

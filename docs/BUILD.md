@@ -78,7 +78,7 @@ $version = (Get-Content ./VERSION -Raw).Trim()
 
 The installer compiler is pinned separately and installed in portable mode in ignored build storage. The installer builder first verifies the ZIP checksum and every manifest entry, then compiles the same runtime files into `Xenon-<version>-windows-x64-setup-unsigned.exe` and writes its SHA-256. Installation requires no administrator access. Fresh installs offer an empty, writable program folder on a local fixed drive, defaulting to `%LOCALAPPDATA%\Programs\Xenon Browser`; updates reuse the recorded installation folder. Relocation requires uninstalling and reinstalling, while the separate browser data and pairing files remain. MCP host paths must point into the chosen program folder. Do not replace the signed upstream compiler with an unverified download.
 
-Release packages from 0.1.6 use the codec-enabled engine described in [website video codecs](#website-video-codecs). Hosted CI builds only the stock engine, so its artifacts lack H.264/AAC and are not published. Build the release on a maintainer machine with `./scripts/build.ps1 -CefRoot <codec-enabled distribution> -Test`, then package, verify, test the isolated installer, build the installer, smoke-test the extracted ZIP, and run the CI live suites and both `media-integration.mjs` modes on the packaged DLL.
+Do not publish packages with the codec-enabled engine described in [website video codecs](#website-video-codecs) until codec licensing for distributing it is confirmed. 0.1.6 was built that way and withdrawn the same day for this reason. Stock-engine releases are published from the hosted CI artifacts. Hosted CI builds only the stock engine, so a codec-enabled release must be built on a maintainer machine with `./scripts/build.ps1 -CefRoot <codec-enabled distribution> -Test`, then package, verify, test the isolated installer, build the installer, smoke-test the extracted ZIP, and run the CI live suites and both `media-integration.mjs` modes on the packaged DLL.
 
 Publish the ZIP, installer and both `.sha256` files as assets on a release tagged `v<version>` in `Xero-05/xenon-browser`, after reviewing checks and release notes. Mark alpha releases as prereleases; publish `MAJOR.MINOR.PATCH` versions as regular releases and mark them latest. Do not edit existing release assets in place or reuse a version for different bytes. Verify that GitHub reports each installer asset's `digest` as `sha256:<expected digest>` before publishing: the native updater refuses missing/mismatched digests, unexpected asset names and downgrades. The updater enumerates published releases, so alpha releases are eligible without relying on GitHub's stable-only latest-release endpoint.
 
@@ -90,7 +90,7 @@ The stock CEF archive in `dependencies.lock.json` supports WebM but omits
 H.264/AAC. Those codecs require a CEF source build; a Xenon runtime switch or
 an extra player script cannot enable them in the stock binary.
 
-The `cef.mediaSourceBuild` recipe, used for release packages, pins the same CEF and Chromium source
+The optional `cef.mediaSourceBuild` recipe pins the same CEF and Chromium source
 revisions, the automation script hash and depot_tools revision. Build it in a
 dedicated directory without spaces, with hundreds of GB free, Python 3,
 Visual Studio 2022 C++ tools with the C++ ATL component
