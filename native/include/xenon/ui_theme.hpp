@@ -31,6 +31,9 @@ inline bool introduction_completed{};
 // Metadata-only release checks in the background. Downloading and installing
 // always remain explicit native actions.
 inline bool automatic_update_checks=true;
+// A Windows notification when an agent asks for help. Off until the person
+// turns it on in Settings; the tab itself always flashes.
+inline bool agent_help_notifications=false;
 inline bool high_contrast() {HIGHCONTRASTW value{sizeof(value)};return SystemParametersInfoW(SPI_GETHIGHCONTRAST,sizeof(value),&value,0)&&(value.dwFlags&HCF_HIGHCONTRASTON);}
 inline Palette palette() {
   if(high_contrast())return {GetSysColor(COLOR_WINDOW),GetSysColor(COLOR_WINDOW),GetSysColor(COLOR_WINDOWTEXT),GetSysColor(COLOR_WINDOWTEXT),GetSysColor(COLOR_WINDOWFRAME),GetSysColor(COLOR_HIGHLIGHT),GetSysColor(COLOR_HIGHLIGHT),GetSysColor(COLOR_WINDOWFRAME),false,true};
@@ -42,18 +45,19 @@ inline Palette palette() {
 inline void load_theme(const std::filesystem::path& root) {
   settings_path=root/"ui-settings.json";
   language=preferred_language=Language::english;
-  introduction_completed=false;automatic_update_checks=true;omnibox::search_choice=0;
+  introduction_completed=false;automatic_update_checks=true;agent_help_notifications=false;omnibox::search_choice=0;
   try{if(std::filesystem::exists(settings_path)&&std::filesystem::file_size(settings_path)<4096){Json value;std::ifstream(settings_path)>>value;
     const auto mode=value.value("theme",std::string("system"));theme_mode=mode=="dark"?ThemeMode::dark:mode=="light"?ThemeMode::light:ThemeMode::system;
     if(auto locale=value.find("language");locale!=value.end()&&locale->is_string())
       language=preferred_language=*locale=="zh-CN"?Language::simplified_chinese:Language::english;
     if(auto completed=value.find("introductionCompleted");completed!=value.end()&&completed->is_boolean())introduction_completed=completed->get<bool>();
     if(auto updates=value.find("automaticUpdateChecks");updates!=value.end()&&updates->is_boolean())automatic_update_checks=updates->get<bool>();
+    if(auto notify=value.find("agentHelpNotifications");notify!=value.end()&&notify->is_boolean())agent_help_notifications=notify->get<bool>();
     if(auto search=value.find("searchEngine");search!=value.end()&&search->is_string())omnibox::choose_search_engine(search->get<std::string>());
     if(auto width=value.find("sidebarWidth");width!=value.end()&&width->is_number_integer())sidebar_width=std::clamp(width->get<int>(),180,480);}}catch(...){}
 }
 inline bool save_settings() {
-  try{auto temporary=settings_path;temporary+=L".tmp";{std::ofstream stream(temporary);stream<<Json{{"version",1},{"theme",theme_mode==ThemeMode::dark?"dark":theme_mode==ThemeMode::light?"light":"system"},{"sidebarWidth",sidebar_width},{"language",language_tag(preferred_language)},{"introductionCompleted",introduction_completed},{"automaticUpdateChecks",automatic_update_checks},{"searchEngine",std::string(omnibox::search_engine().id)}};stream.flush();if(!stream)return false;}
+  try{auto temporary=settings_path;temporary+=L".tmp";{std::ofstream stream(temporary);stream<<Json{{"version",1},{"theme",theme_mode==ThemeMode::dark?"dark":theme_mode==ThemeMode::light?"light":"system"},{"sidebarWidth",sidebar_width},{"language",language_tag(preferred_language)},{"introductionCompleted",introduction_completed},{"automaticUpdateChecks",automatic_update_checks},{"agentHelpNotifications",agent_help_notifications},{"searchEngine",std::string(omnibox::search_engine().id)}};stream.flush();if(!stream)return false;}
     local_security::restrict_path(temporary);return MoveFileExW(temporary.c_str(),settings_path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE;}catch(...){return false;}
 }
 inline bool save_theme(ThemeMode mode) {theme_mode=mode;return save_settings();}
@@ -64,6 +68,10 @@ inline bool save_search_engine(size_t choice) {
 inline bool save_automatic_update_checks(bool enabled) {
   const auto previous=automatic_update_checks;automatic_update_checks=enabled;
   if(save_settings())return true;automatic_update_checks=previous;return false;
+}
+inline bool save_agent_help_notifications(bool enabled) {
+  const auto previous=agent_help_notifications;agent_help_notifications=enabled;
+  if(save_settings())return true;agent_help_notifications=previous;return false;
 }
 inline bool save_language(Language value) {
   const auto previous=preferred_language;preferred_language=value;

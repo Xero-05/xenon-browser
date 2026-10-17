@@ -2,29 +2,28 @@
 
 This file is for coding agents working on Xenon's source. Agents operating the browser through MCP should use [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md); that runtime guide is not a replacement for these development instructions.
 
-## Project and source map
+## Start here
 
-Xenon is a Windows x64 alpha built with C++20, CEF's sandboxed Chrome runtime, a native capability broker, and a strict TypeScript MCP stdio adapter. It does not contain an LLM or require a model API key. Read the relevant existing implementation before changing behavior.
+Xenon is a Windows x64 alpha built with C++20, CEF's sandboxed Chrome runtime, a native capability broker, and a strict TypeScript MCP stdio adapter. It does not contain an LLM or require a model API key.
 
-| Area | Main files |
+1. Check `git status --short` and preserve existing work. Read the relevant implementation before changing behavior.
+2. Read the scoped guide below for the area you will change. These guides supplement this file; the shared invariants below apply everywhere. For changes spanning areas, read each relevant guide.
+3. Find files with `rg --files <directory>` and search with `rg -n '<symbol>' <directory-or-file>`. Start with the source maps in the scoped guides; widen only when needed. Avoid searching generated output, downloaded dependencies or test profiles (`build/`, `dist/`, `out/`, `third_party/`, `node_modules/`, `.cache/`).
+4. Make a focused change, update affected contracts/docs, and use the [test selection guide](tests/AGENTS.md) before choosing checks. Documentation-only changes need link/example verification and `git diff --check`, without a browser rebuild.
+5. Report the resulting behavior, checks actually run and remaining limits. Do not rerun expensive checks just to recover output: retain their logs and exit status, then inspect the relevant portions.
+
+| Work area | Read next |
 | --- | --- |
-| Authorization, ownership, queues, worker lifecycle and operation journal | `native/src/broker.cpp`, `native/include/xenon/broker.hpp`, `contracts.hpp`, `permissions.hpp` |
-| CEF integration, page observations, guarded input and protected login | `native/src/cef_engine.cpp`, `native/include/xenon/cef_engine.hpp`, `pointer_motion.hpp`, `pointer_target.hpp`, `pointer_overlay.hpp` |
-| Windows startup, native shell, input routing and controls | `native/src/main_win.cpp`, `cef_shell.cpp`, `native_ui.cpp`, `native/include/xenon/browser_shell.hpp`, `ui_theme.hpp`, `native_input_policy.hpp` |
-| Native bookmarks/history, folders, import and non-destructive legacy migration | `native/src/browser_data.cpp`, `native/include/xenon/browser_data.hpp`, `browser_import.hpp` |
-| Links for other apps and default-browser launch links | `native/include/xenon/external_protocol.hpp`, `launch_urls.hpp`, `native/src/main_win.cpp`, `installer/xenon.iss` |
-| Vault, CSV import, file capabilities and profile cleanup | `native/src/vault.cpp`, `file_policy.cpp`, `workspace_storage.cpp`, matching headers and `native/include/xenon/local_security.hpp` |
-| Rendered-evidence filter, fixed isolated-world credential scripts and main-world passkey gate | `native/src/visible_evidence.cpp`, `native/include/xenon/login_monitor.hpp`, `human_autofill.hpp`, `passkey_guard.hpp` |
-| MCP schemas, stdio CLI, named-pipe transport and activity resource | `adapter/src/server.ts`, `cli.ts`, `ipc.ts`, `human-activity.ts` |
-| Native/unit/live regression coverage | `tests/native/`, `adapter/test/`, `tests/*.mjs`, `tests/fixtures/` |
-| Dependency pins, build and release assembly | `dependencies.lock.json`, `package-lock.json`, `CMakeLists.txt`, `scripts/` |
-| Native update checks and Windows setup | `native/src/updater.cpp`, `native/include/xenon/updater.hpp`, `installer/`, `scripts/build-installer.ps1`, `VERSION` |
+| Native broker, CEF, Windows UI, vault, files and updater | [native/AGENTS.md](native/AGENTS.md) for source locations and build constraints |
+| MCP schemas, stdio, transport and notifications | [adapter/AGENTS.md](adapter/AGENTS.md) for source locations and protocol checks |
+| Writing or running native, adapter, live or installer tests | [tests/AGENTS.md](tests/AGENTS.md) for check selection, isolation and evidence rules; applies to test execution from any directory |
+| Dependencies, build, branding and packaging | [BUILD](docs/BUILD.md), [BRANDING](docs/BRANDING.md) and [test selection](tests/AGENTS.md); start at `dependencies.lock.json`, `package-lock.json`, `CMakeLists.txt`, `scripts/`, `installer/` and `VERSION` |
 
-Consult [ARCHITECTURE](docs/ARCHITECTURE.md), [SECURITY](docs/SECURITY.md), [MCP](docs/MCP.md) and [TESTING](docs/TESTING.md) for the contract and current limitations. Tool schemas in `adapter/src/server.ts` and broker enforcement are the source of truth when documentation differs; correct the inconsistency as part of the change.
+Read the relevant sections of [ARCHITECTURE](docs/ARCHITECTURE.md) for component boundaries, [SECURITY](docs/SECURITY.md) for security contracts, [MCP](docs/MCP.md) for the public protocol, and [TESTING](docs/TESTING.md) for live suites and recorded limitations. Tool schemas in `adapter/src/server.ts` and broker enforcement are the source of truth when documentation differs; correct the inconsistency as part of the change.
 
-## Setup and checks
+## Setup
 
-Use Windows 10/11 x64, Visual Studio 2022 C++ Build Tools with the Windows SDK and CMake component, Node 24, npm and 7-Zip (installed in `Program Files/7-Zip`). From the repository root in PowerShell:
+Use Windows 10/11 x64, Visual Studio 2022 C++ Build Tools with the Windows SDK and CMake component, Node 24, npm and 7-Zip (installed in `Program Files/7-Zip`). All commands in these guides run from the repository root in PowerShell. For a fresh checkout:
 
 ```powershell
 ./scripts/bootstrap.ps1
@@ -32,24 +31,7 @@ npm.cmd ci
 ./scripts/build.ps1 -Test
 ```
 
-Bootstrap downloads the pinned native dependencies into ignored directories. The browser output is `build/app/Release/Xenon.exe`. Keep the matching DLL, CEF libraries, resources and locales beside it. The executable is the pinned CEF sandbox bootstrap with permitted branding-resource changes; do not replace its code or disable the sandbox. See [BUILD](docs/BUILD.md) and [BRANDING](docs/BRANDING.md).
-
-Choose checks that exercise the changed behavior:
-
-| Change | Useful checks |
-| --- | --- |
-| Documentation only | Check links, examples and implementation claims; `git diff --check`. A browser rebuild is unnecessary. |
-| Dependency downloads or CI caching | `node --test tests/bootstrap-download-tests.mjs tests/bootstrap-extract-tests.mjs`, script syntax checks and the relevant hosted workflow. Do not rerun browser acceptance suites for a downloader-only change. |
-| Adapter schemas, transport or notifications | `npm.cmd run typecheck`; `npm.cmd test` includes real modern/legacy SDK clients and credential-script tests. |
-| Broker, vault or file policy | `./scripts/build.ps1 -CoreOnly -Test`; use CTest's `-R` filter for focused reruns after a targeted fix. |
-| Login capture or human autofill | Relevant native tests plus `node --test tests/login-capture-tests.mjs` or `node --test tests/human-autofill-tests.mjs`; run the matching synthetic live suite when integration changed. |
-| CEF input, evidence, ownership or native UI | Full native build and relevant live fixture suites from [TESTING](docs/TESTING.md); verify website state, not just a successful protocol reply. |
-| Branding or packaging | `node tests/branding-resources.mjs` after building; package verification and extracted-package smoke testing for release changes. |
-| Installer or native updater | Focused `updater_tests`, isolated installer fixture tests, native update UI check, package verification and the packaged-browser smoke test. Use synthetic state and test installer identities; do not install over the user's copy merely to test setup. |
-
-`-CoreOnly` reconfigures the shared `build` directory without the browser. Run the build script without that switch to restore the full configuration. Do not run concurrent builds against the same output tree, rebuild a DLL while a live suite uses it, or run desktop suites concurrently. Coordinate shared files and browser test slots when multiple contributors are working.
-
-Live suites create disposable profiles and private pipes. Use their generated synthetic credentials and fixtures. Do not import, inspect or mutate a real browser profile to make a test pass; do not terminate unrelated browser processes. Manual fixture steps must target the named test window. A restricted runner may deny Windows ACL operations: report that limitation or use the appropriate ordinary interactive-user runner, without weakening product ACLs. Administrator rights are not a normal runtime requirement.
+Bootstrap downloads the pinned native dependencies into ignored directories. On an existing checkout, use the scoped checks instead of repeating setup or a full build for every change. The browser output is `build/app/Release/Xenon.exe`; keep its matching DLL, CEF libraries, resources and locales beside it. The executable is the pinned CEF sandbox bootstrap with permitted branding-resource changes; do not replace its code or disable the sandbox.
 
 ## Security and correctness invariants
 

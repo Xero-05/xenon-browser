@@ -61,6 +61,31 @@ bool valid_batch(const Json& params) {
   }
   return true;
 }
+// An agent's note to the person asking for help: one line of at most 200
+// characters. Controls, separators and invisible formatting are refused so
+// the note cannot disguise itself as Xenon's own text.
+bool valid_attention_reason(const std::string& text) {
+  if (text.empty() || text.size() > 800) return false;
+  size_t count{}; bool visible{};
+  for (size_t index = 0; index < text.size();) {
+    const auto lead = static_cast<unsigned char>(text[index]);
+    const size_t length = lead < 0x80 ? 1 : (lead >> 5) == 0x6 ? 2 : (lead >> 4) == 0xe ? 3 : (lead >> 3) == 0x1e ? 4 : 0;
+    if (!length || index + length > text.size()) return false;
+    uint32_t point = length == 1 ? lead : length == 2 ? lead & 0x1fU : length == 3 ? lead & 0x0fU : lead & 0x07U;
+    for (size_t next = 1; next < length; ++next) {
+      const auto byte = static_cast<unsigned char>(text[index + next]);
+      if ((byte & 0xc0) != 0x80) return false;
+      point = (point << 6) | (byte & 0x3fU);
+    }
+    if ((length == 2 && point < 0x80) || (length == 3 && point < 0x800) || (length == 4 && (point < 0x10000 || point > 0x10ffff)) || (point >= 0xd800 && point <= 0xdfff)) return false;
+    if (point < 0x20 || (point >= 0x7f && point <= 0x9f) || point == 0x61c || point == 0x180e || point == 0x200b || point == 0x200e || point == 0x200f ||
+        (point >= 0x2028 && point <= 0x202e) || (point >= 0x2060 && point <= 0x206f) || point == 0xfeff || (point >= 0xe0000 && point <= 0xe007f)) return false;
+    if (point != ' ') visible = true;
+    index += length;
+    if (++count > 200) return false;
+  }
+  return visible;
+}
 bool safe_web_url(const std::string& url) {
   if (url.size() > 16384 || url.find_first_of("\r\n\t\\") != std::string::npos) return false;
   if (url == "about:blank") return true;
@@ -111,11 +136,16 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   };
   struct Observation { std::string id; uint64_t generation{}, human_epoch{}; };
   struct Command { std::string operation, session, method; uint64_t generation{}, attachment{}, human_epoch{}; Json params; std::string document; };
+  // An owner's request for the person to look at its tab. It lapses when that
+  // ownership, the worker's attachment or its interaction permission ends.
+  // `seen` is set natively once the person was present with the tab in front.
+  struct Attention { std::string session, reason; uint64_t generation{}, attachment{}, sequence{}; bool seen{}; };
   struct Tab {
     std::string workspace, owner, document, group;
     uint64_t generation{1}, state_epoch{}, human_epoch{}; bool frozen{}, human_busy{}, protected_auth{}, closing{}, passkey_refused{};
     std::optional<int64_t> human_pause_until;
     std::optional<std::string> pending_owner;
+    std::optional<Attention> attention;
     std::string active, dialog_active;
     std::deque<Command> queue;
     std::map<std::string, Observation> observations;
@@ -158,6 +188,8 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   std::mutex persistence_mutex;
   uint64_t snapshot_revision{}, written_revision{};
   uint64_t inactive_order{};
+  // Distinguishes each new help request, so native UI notifies once per request.
+  uint64_t attention_sequence{};
   const Limits limits;
   std::function<void()> ui_state_callback;
   AccountDirectory account_directory;
@@ -287,7 +319,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   bool allowed(const std::string& client,const std::string& workspace,const std::string& method) const {
     if(!clients.contains(client)||!granted(client,workspace))return false;
     const auto caps=effective(client,workspace);
-    if((write_commands.contains(method)||method=="tabs.create"||method=="control.acquire"||method=="control.handoff")&&!caps.interaction)return false;
+    if((write_commands.contains(method)||method=="tabs.create"||method=="control.acquire"||method=="control.handoff"||method=="attention.request")&&!caps.interaction)return false;
     if((method=="files.upload"||method=="files.folders"||method=="files.list")&&!caps.uploads)return false;
     if(method=="files.downloads"&&!caps.downloads)return false;
     if((method=="auth.login"||method=="auth.accounts")&&!caps.saved_accounts)return false;
@@ -509,6 +541,12 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     const auto observed = tab.observations.find(session);
     return !tab.human_busy && observed != tab.observations.end() && observed->second.generation == tab.generation && observed->second.human_epoch == tab.human_epoch;
   }
+  bool attention_active_locked(const Tab& tab) const {
+    if (!tab.attention || stopping || tab.closing || tab.pending_owner || tab.owner != tab.attention->session || tab.generation != tab.attention->generation) return false;
+    const auto worker = workers.find(tab.owner);
+    return worker != workers.end() && worker->second.connected && !worker->second.retiring && worker->second.attachment == tab.attention->attachment &&
+      effective(worker->second.client, tab.workspace).interaction;
+  }
   Json tab_json(const std::string& id, const Tab& tab, const std::string& session = {}) const {
     const auto& observing_session = session.empty() ? tab.owner : session;
     const auto owner=workers.find(tab.owner);
@@ -521,6 +559,11 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       {"activityMessage", tab.human_busy ? "Human page activity paused agent input; ownership is unchanged. Wait for the pause to end, then observe again." : tab.human_epoch ? "Human page activity occurred; use a fresh observation before continuing." : "No human page activity has been recorded for this tab."}};
     if (tab.pending_owner) result["pendingOwnerSessionId"] = *tab.pending_owner;
     if (!tab.document.empty()) result["documentId"] = tab.document;
+    // Only the requesting worker and native UI read the agent's note.
+    const bool attention = attention_active_locked(tab);
+    result["attentionRequested"] = attention; result["attentionSeen"] = attention && tab.attention->seen;
+    if (attention && (session.empty() || session == tab.attention->session) && !tab.attention->reason.empty()) result["attentionReason"] = tab.attention->reason;
+    if (attention && session.empty()) result["attentionSequence"] = tab.attention->sequence;
     return result;
   }
   void finish_locked(const std::string& id, Json value, std::vector<Delivery>& output, const std::string& final_state = {}) {
@@ -1023,6 +1066,27 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   if (found == self->tabs.end() || found->second.workspace != workspace_id) { respond(failure("TAB_DENIED", "Unknown tab in this workspace")); return; }
   auto& tab = found->second;
   if (method == "control.status") { respond(success(self->tab_json(tab_id, tab, session_id))); return; }
+  if (method == "attention.request" || method == "attention.clear") {
+    // Metadata only: the native shell flashes the tab and may notify the
+    // person. No browser command is sent and the page is not touched.
+    auto generation = params.find("ownershipGeneration");
+    if (generation == params.end() || !generation->is_number_integer() || generation->get<int64_t>() < 0 || generation->get<uint64_t>() != tab.generation) { respond(failure("OWNERSHIP_CHANGED", "Read control status and use the current ownershipGeneration")); return; }
+    if (tab.owner != session_id) { respond(failure("NOT_OWNER", "Only the tab's current owner can ask for or withdraw the person's help")); return; }
+    if (tab.pending_owner) { respond(failure("HANDOFF_PENDING", "Control of this tab is changing")); return; }
+    if (tab.closing) { respond(failure("TAB_CLOSING", "The person using Xenon is closing this tab")); return; }
+    if (method == "attention.clear") tab.attention.reset();
+    else {
+      std::string reason;
+      if (const auto value = params.find("reason"); value != params.end()) {
+        if (!value->is_string() || !valid_attention_reason(value->get_ref<const std::string&>())) { respond(failure("INVALID_REASON", "Reason must be one line of 1 to 200 visible characters without control or invisible formatting characters")); return; }
+        reason = value->get<std::string>();
+      }
+      // Repeating an active request updates its note without notifying again.
+      if (self->attention_active_locked(tab)) tab.attention->reason = std::move(reason);
+      else tab.attention = Impl::Attention{session_id, std::move(reason), tab.generation, worker->second.attachment, ++self->attention_sequence};
+    }
+    respond(success(self->tab_json(tab_id, tab, session_id))); return;
+  }
   if (method == "control.acquire" || method == "control.release" || method == "control.handoff") {
     auto expected = params.find("expectedGeneration");
     if (expected == params.end() || !expected->is_number_integer() || expected->get<int64_t>() < 0 || expected->get<uint64_t>() != tab.generation) { respond(failure("OWNERSHIP_CHANGED", "Read control status before changing ownership")); return; }
@@ -1324,6 +1388,16 @@ void Broker::human_release(const std::string& id, const std::string& session) {
   std::vector<Delivery> output; { std::lock_guard lock(impl_->mutex); auto found = impl_->tabs.find(id); auto target = impl_->workers.find(session);
   if (found == impl_->tabs.end() || found->second.owner != "human" || target == impl_->workers.end() || !target->second.connected || target->second.retiring || !impl_->granted(target->second.client, found->second.workspace)||!impl_->effective(target->second.client,found->second.workspace).interaction) return;
   impl_->begin_transfer_locked(found->second, session, output, "OWNERSHIP_CHANGED"); } deliver(std::move(output));
+}
+void Broker::attention_seen(const std::string& id) {
+  Impl::UiChange notification{impl_.get()};
+  std::lock_guard lock(impl_->mutex); auto found = impl_->tabs.find(id);
+  if (found != impl_->tabs.end() && impl_->attention_active_locked(found->second)) found->second.attention->seen = true;
+}
+void Broker::dismiss_attention(const std::string& id) {
+  Impl::UiChange notification{impl_.get()};
+  std::lock_guard lock(impl_->mutex); auto found = impl_->tabs.find(id);
+  if (found != impl_->tabs.end()) found->second.attention.reset();
 }
 void Broker::close_tabs(const std::vector<std::string>& ids, Reply reply) {
   Impl::UiChange notification{impl_.get()};

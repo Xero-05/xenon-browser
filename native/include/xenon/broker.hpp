@@ -61,6 +61,11 @@ class Broker {
   std::vector<std::string> removed_workspaces() const;
   void human_acquire(const std::string& tab_id);
   void human_release(const std::string& tab_id, const std::string& to_session);
+  // Native human chrome only; never MCP methods. The person was present with
+  // a tab whose agent asked for help in front of them, so it stops flashing;
+  // or the person dismissed that request. Ownership and the page are untouched.
+  void attention_seen(const std::string& tab_id);
+  void dismiss_attention(const std::string& tab_id);
   // Native human actions only; never MCP methods. Closing cancels each tab's
   // queued agent mutations and refuses new ones. A control group closed in
   // full is first claimed for the human. The engine closes only after

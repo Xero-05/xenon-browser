@@ -81,6 +81,7 @@ Xenon exposes **26 tools** through a strict TypeScript MCP stdio adapter. Tool r
 | `xenon_tabs`, `xenon_tab_create`, `xenon_tab_close` | List, open, and close scoped tabs. |
 | `xenon_control_status`, `xenon_control` | Inspect ownership; acquire, release, or hand off control using its current generation. |
 | `xenon_activity` | Read trusted human-activity and pause metadata without typed values or page text. Supporting hosts can also subscribe to `xenon://control/activity`. |
+| `xenon_attention` | Ask the person to come to a tab you own: its border pulses orange, and an opt-in Windows notification opens it. Clear the request when done. |
 | `xenon_observe`, `xenon_screenshot` | Obtain bounded viewport evidence and page-only images, with document identity and freshness checks. |
 | `xenon_inspect` | Capture rendered nodes, a permitted page screenshot, and control status under one `observationId` for element or coordinate actions. Evidence that changes during capture is withheld; this is a validated capture interval, not an atomic snapshot. |
 | `xenon_navigate`, `xenon_interact`, `xenon_wait`, `xenon_dialog` | Navigate, perform finite gestures, wait for rendered text, and answer agent-controlled JavaScript dialogs. Native security prompts stay with the human. |

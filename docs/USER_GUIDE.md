@@ -62,7 +62,7 @@ A record means mouse-down and mouse-up were dispatched, not that the website acc
 
 ### The ownership chip
 
-Left of the Extensions button, a dot in the page outline's color and a short label show who controls the selected tab: **You**, **No agent**, or the agent's name with its state. Click the chip to **Take ownership**, to give a tab you own to a connected agent working in that workspace, or to open Controls. Short status messages, such as a saved bookmark or a refused action, appear in the chip for a few seconds.
+Left of the Extensions button, a dot in the page outline's color and a short label show who controls the selected tab: **You**, **No agent**, or the agent's name with its state. Click the chip to **Take ownership**, to give a tab you own to a connected agent working in that workspace, or to open Controls. When the tab's agent has asked for your help, the chip adds **Needs your help** and its menu shows the agent's note and **Dismiss help request**. Short status messages, such as a saved bookmark or a refused action, appear in the chip for a few seconds.
 
 ### Tabs and windows
 
@@ -119,7 +119,7 @@ Video-call sites can share your screen after you allow it in a **Website permiss
 
 ### Settings and default browser
 
-**Menu → Settings** chooses the search engine for the address box (Google, Bing, DuckDuckGo, Brave Search, Ecosia, Startpage or Baidu), the theme and the language, and links to import, Clear browsing data and passwords.
+**Menu → Settings** chooses the search engine for the address box (Google, Bing, DuckDuckGo, Brave Search, Ecosia, Startpage or Baidu), the theme and the language, and links to import, Clear browsing data and passwords. Under **Agents**, **Show a Windows notification when an agent needs your help** is off until you turn it on; see [When an agent needs your help](#when-an-agent-needs-your-help).
 
 The installer registers Xenon with Windows as a web browser for `http` and `https` links. **Settings → Make Xenon your default browser…** opens Windows' **Default apps** settings for Xenon, where only you can choose it; Settings then shows whether Xenon is your default. A portable copy is not registered. Links that Windows or other apps open while Xenon runs appear in a new tab of the Personal workspace; if Xenon is closed, it starts with the link in its first tab.
 
@@ -177,7 +177,7 @@ The removed workspace stays unavailable across restarts. Its browser profile is 
 
 ## Ownership, human activity and handoff
 
-The selected tab and page use teal borders for an available agent owner, orange for its temporary pause for human page input, and gray for human ownership or no available agent. Background tabs only show a teal border while their agent owner is available and unpaused; paused or unowned background tabs have no border. Status text and protection labels accompany the colors. The native agent cursor stays visible while the selected page is agent-owned, parks during human input, and resumes without sending extra website input or moving the Windows mouse.
+The selected tab and page use teal borders for an available agent owner, orange for its temporary pause for human page input, and gray for human ownership or no available agent. Background tabs only show a teal border while their agent owner is available and unpaused; paused or unowned background tabs have no border. A tab whose agent asked for your help pulses orange instead (see [When an agent needs your help](#when-an-agent-needs-your-help)). Status text and protection labels accompany the colors. The native agent cursor stays visible while the selected page is agent-owned, parks during human input, and resumes without sending extra website input or moving the Windows mouse.
 
 Ownership gives a worker permission to interact with a tab. The worker automatically owns tabs it creates. Workspace permission also allows reads of permitted pages, so ownership is not a privacy barrier between clients deliberately sharing that workspace.
 
@@ -200,6 +200,14 @@ Handoff waits for accepted finite input to finish. Its ownership commit sends no
 For a website alert/confirm/prompt opened by your interaction, Controls can show the exact tab's dialog. Read the message, enter prompt text if needed, then choose **Accept dialog** or **Dismiss**. Browser security and permission prompts remain human tasks.
 
 The browser defaults to 16 concurrently connected workers across all clients, plus a separate 64-tab limit. New clients also have a quota of four concurrent workers and four automatically created workspaces, configurable in Controls. Legacy clients retain their existing capabilities and migrated global worker limit until configured. Both global and client limits apply. Retiring or disconnecting workers frees connected capacity; removing an automatic workspace frees its workspace quota. A native startup option can set the global worker limit to 1–256; these are resource limits, not tested performance claims. See [worker lifecycle](MCP.md#worker-capacity-and-retirement).
+
+### When an agent needs your help
+
+An agent can ask you to come to a tab it controls, for example to solve a CAPTCHA, finish MFA, use a passkey or approve something only you should decide. The tab's border pulses orange in the sidebar; inside a collapsed workspace, the workspace row pulses instead. If that window is in the background, its taskbar button flashes. The pulse stops once you have been at the tab: it is selected in the window you are using and you move the mouse or type. The tab then keeps a steady orange outline until the agent withdraws the request. With Windows animation effects off, the outline is steady orange from the start.
+
+Turn on **Settings → Agents → Show a Windows notification when an agent needs your help** to also get a Windows notification when you are not in that Xenon window. It names the agent, quotes its note and shows the tab's site, never the page title. Select it to bring Xenon forward on that tab. Each tab notifies at most once a minute, and Windows Focus assist and notification settings still apply.
+
+The note is the agent's own words, not Xenon's or the website's, and an agent can be wrong or misled by a page. Never type a password or code somewhere just because a note asks for it; use the site as you normally would. Asking for help does not pause the agent or change ownership; your page input pauses it as usual. **Dismiss help request** in the tab's right-click menu or the ownership chip withdraws a request; the agent can ask again. Taking ownership, closing the tab or the agent disconnecting also ends it.
 
 ## Saved accounts
 

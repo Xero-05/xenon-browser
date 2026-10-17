@@ -69,6 +69,7 @@ Simple `inset(... round Npx)` clips can prove geometry inside a conservative ins
 | `xenon_tabs`, `xenon_tab_create`, `xenon_tab_close` | List, open and close tabs within an authorized workspace. |
 | `xenon_control_status`, `xenon_control` | Inspect, acquire, release or hand off tab control using the expected generation. |
 | `xenon_activity` | Read trusted human-activity and pause status for this client's connected workers' owned tabs. |
+| `xenon_attention` | Ask the person to come to a tab you own, which pulses its border orange and can show a Windows notification, or withdraw that request. |
 | `xenon_observe` | Bounded evidence of rendered content in the current viewport, with a query over that same filtered text; default 300 nodes, supported bounds 20–1,000. |
 | `xenon_screenshot` | Page-only PNG and matching document/viewport observation, when capture is permitted. A tab that is sharing the person's screen answers `screen_sharing` instead. |
 | `xenon_inspect` | Rendered nodes, permitted page PNG and broker control status bound to one observation ID, checked across the capture interval. |
@@ -143,6 +144,8 @@ const outcome = await tab.batch([{ action: 'click', elementRef: button.ref }], {
 await worker.retire();
 ```
 
+A bound tab can also ask the person for help with `tab.attention('request', ownershipGeneration, reason)` and withdraw it with `tab.attention('clear', ownershipGeneration)`; see [Ask the person for help](#ask-the-person-for-help).
+
 `inspectAfter` performs a separate fresh, permission-checked `xenon_inspect` after the batch. Its error is returned alongside the unchanged batch outcome. Connection errors retain the generated `operationId` on the exception; inspect that operation before any further mutation. A helper is a routing convenience, not an authorization boundary.
 
 `xenon_inspect` checks document, human activity, viewport, rendered nodes and frame coverage before and after a permitted screenshot. It returns the later element references and the image under one `observationId`, with broker-produced `control` metadata checked at delivery. Changed evidence returns an error without an image. Credential protection is the same as `xenon_screenshot`; use structured observation when capture is blocked. `consistency: "validated_capture_interval"` does not freeze scripts or canvas/image content and is not an atomic page snapshot.
@@ -180,6 +183,12 @@ Ordinary tool replies also include pending activity notices as `humanActivity`, 
 Native **Take ownership** explicitly transfers the tab's control group to the human and keeps that ownership until it is explicitly given back. **Give to agent**, agent release and agent handoff retain the same generation-checked broker boundary. Simply clicking or typing in an agent tab uses the temporary pause instead.
 
 Native **Remove workspace** requires human confirmation and cannot remove Personal. It closes that workspace's tabs, cancels downloads and queued agent work, and removes its client/account/file permissions. Saved vault accounts, downloaded files and original upload files remain. Its persistent browser profile is scheduled for bounded cleanup on later launches; locked or refused data can remain on disk, while the permanent workspace tombstone blocks reuse. No MCP tool can remove a workspace. Retiring a worker or closing a tab is separate and does not delete the workspace.
+
+## Ask the person for help
+
+When a tab you own needs the person, such as for a CAPTCHA, MFA, a passkey, a payment approval or a decision only they can make, call `xenon_attention` with `action: "request"`, the current `ownershipGeneration` and an optional one-line `reason` of at most 200 characters. The tab's border pulses orange in the browser until the person has been present with it in front: the tab selected in the foreground window, followed by their keyboard or mouse input. It then keeps a steady orange outline. When the request arrives and the person is not already in that window, the window's taskbar button flashes. If the person turned on **Settings → Agents → Show a Windows notification when an agent needs your help** (off by default), Xenon also shows a Windows notification naming your worker, your reason and the tab's site; selecting it opens the tab. Alerts are limited to one per tab per minute. Repeating an active request only updates its reason. The reason is shown as your words; keep it factual and never include secrets or text copied from a website. Control characters, line breaks and invisible formatting characters are refused with `INVALID_REASON`.
+
+A request is broker metadata only. It sends no browser command, does not pause you or change ownership, and grants nothing. Only the current owner with interaction permission can make one (`NOT_OWNER`, `OWNERSHIP_CHANGED`, `HANDOFF_PENDING` or `PERMISSION_DENIED` otherwise). It ends when the owner calls `action: "clear"`, ownership changes (including native **Take ownership**), the worker disconnects or retires, interaction permission is removed, or the person chooses **Dismiss help request**. `xenon_control_status`, tab listing and `xenon_attention` replies report `attentionRequested` and `attentionSeen`. Only the requesting worker also receives `attentionReason`; other clients sharing the workspace do not. `attentionSeen` means the person was present with the tab in front, not that they finished. Their page input while helping pauses you as usual: wait until `humanPaused` is false, observe afresh, and clear the request once help is no longer needed. The activity resource does not carry these fields.
 
 ## Saved accounts and files
 
