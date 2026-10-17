@@ -8,6 +8,7 @@
 #include "xenon/extension_store.hpp"
 #include "xenon/native_ui.hpp"
 #include "xenon/ui_theme.hpp"
+#include "xenon/agent_overlay.hpp"
 #include "xenon/introduction.hpp"
 #include "xenon/pointer_motion.hpp"
 #include "xenon/pointer_overlay.hpp"
@@ -124,7 +125,8 @@ struct BrowserShell::Impl {
   struct Closed {std::string workspace,url;};
 
   struct Frame {
-    Impl& shell;HWND window{},tree{},address{},find_bar{},find_text{},cursor{},tooltips{};HFONT font{},bold{};std::map<int,HWND> controls;
+    Impl& shell;HWND window{},tree{},address{},find_bar{},find_text{},cursor{},agent_glow{},tooltips{};HFONT font{},bold{};std::map<int,HWND> controls;
+    COLORREF cursor_tint{},glow_tint{};int cursor_dpi{},glow_dpi{};SIZE glow_size{};RECT glow_panel{},glow_tab{};bool cursor_contrast{},glow_fullscreen{};
     std::string selected;std::vector<std::pair<std::string,bool>> tree_keys;Json tree_signature,tree_titles;bool rebuilding{},find_visible{},closing{};ULONGLONG closing_since{};
     RECT page{},panel_bounds{},omnibox{},chip{};std::wstring status,chip_text;ULONGLONG status_until{};
     int sidebar{240},drag_origin{},drag_width{};bool resizing_sidebar{},sidebar_hover{};
@@ -325,7 +327,7 @@ struct BrowserShell::Impl {
       suggestions=CreateWindowExW(WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,L"XenonAddressSuggestions",ui::tr(L"Address suggestions"),WS_POPUP,0,0,10,10,window,nullptr,branding_module(),this);
       if(suggestions){ui::frame(suggestions);ui::popup_corners(suggestions);}
       cursor=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,L"XenonAgentCursor",ui::tr(L"Agent pointer"),WS_POPUP,0,0,25,30,window,nullptr,branding_module(),this);
-      SetLayeredWindowAttributes(cursor,RGB(255,0,255),255,LWA_COLORKEY);
+      agent_glow=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE,L"XenonAgentCursor",L"",WS_CHILD,0,0,1,1,window,nullptr,branding_module(),this);
       developer_panel=CreateWindowExW(WS_EX_CONTROLPARENT,L"XenonElementsPanel",ui::tr(L"Agent page elements"),WS_CHILD|WS_CLIPCHILDREN,0,0,10,10,window,nullptr,branding_module(),this);
       developer_overlay=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE,L"XenonElementOverlay",L"",WS_CHILD,0,0,10,10,window,nullptr,branding_module(),this);
       add(DeveloperTitle,L"STATIC",ui::tr(L"Agent page elements"),0,developer_panel);
@@ -747,6 +749,10 @@ struct BrowserShell::Impl {
       RECT label{};TreeView_GetItemRect(tree,item,&label,TRUE);label.right=bounds.right-d(12);
       const double hover=row_hover(item);const bool emphasized=hover>=0.5&&colors.contrast;const auto hover_fill=ui::mix(colors.canvas,ui::hover_background(),hover);
       POINT pointer{};GetCursorPos(&pointer);ScreenToClient(tree,&pointer);
+      // Inline actions need their own contrast above the row's settled hover
+      // fill; using the same fill makes the individual hit target disappear.
+      const auto action_hover=[&](RECT target){const auto fill=colors.contrast?colors.surface:ui::mix(ui::hover_background(),colors.ink,0.14);
+        ui::rounded(dc,target,fill,fill,d(5),d(1));};
       // While the selection glides, each row paints its own slice of the moving pill.
       const auto glide=[&]{RECT overlap{};if(!gliding()||!pill_valid||!IntersectRect(&overlap,&pill,&row))return;const int saved=SaveDC(dc);IntersectClipRect(dc,row.left,row.top,row.right,row.bottom);
         ui::rounded(dc,pill,colors.surface,accent(),d(8),d(2));RestoreDC(dc,saved);};
@@ -757,8 +763,8 @@ struct BrowserShell::Impl {
         TVITEMW value{};value.hItem=item;value.mask=TVIF_STATE;value.stateMask=TVIS_EXPANDED;TreeView_GetItem(tree,&value);RECT arrow=label;arrow.left=d(2);arrow.right=d(22);ui::icon(dc,arrow,value.state&TVIS_EXPANDED?ui::Icon::down:ui::Icon::chevron_right,emphasized?ui::selection_ink():colors.muted,window);
         const bool hovered=item==hovered_row;std::vector<std::pair<int,ui::Icon>> buttons{{GroupPlus,ui::Icon::plus}};
         if(hovered)buttons.push_back({GroupMore,ui::Icon::more});
-        for(const auto& [button,glyph]:buttons){auto target=group_button(item,button);if(hovered&&PtInRect(&target,pointer))ui::rounded(dc,target,ui::hover_background(),ui::hover_background(),d(5));
-          ui::icon(dc,target,glyph,colors.muted,window);label.right=std::min(label.right,target.left-d(4));}
+        for(const auto& [button,glyph]:buttons){auto target=group_button(item,button);const bool hot=hovered&&PtInRect(&target,pointer);if(hot)action_hover(target);
+          ui::icon(dc,target,glyph,hot?colors.ink:emphasized?ui::selection_ink():colors.muted,window);label.right=std::min(label.right,target.left-d(4));}
         label.left=d(24);ui::text(dc,label,ui::wide(shell.workspace_names.contains(id)?shell.workspace_names.at(id):ui::tr8("Workspace")),bold,emphasized?ui::selection_ink():colors.muted);return;}
       const bool active=id==selected,settled=active&&!gliding();rect.left=d(4);InflateRect(&rect,0,-d(3));rect.right-=active?0:d(6);auto shape=rect;if(active)shape.right+=d(16);
       const auto state=shell.states.find(id);const bool agent=!active&&state!=shell.states.end()&&state->second.value("agentAvailable",false)&&!state->second.value("humanPaused",false);
@@ -767,9 +773,9 @@ struct BrowserShell::Impl {
       const auto found=shell.hosts.find(id);const bool pinned=found!=shell.hosts.end()&&found->second.pinned,muted=found!=shell.hosts.end()&&found->second.metadata.value("muted",false);
       // Close stays visible on every unpinned tab, quieter until hovered or selected.
       auto close=close_rect(item);
-      if(!pinned){if(item==hovered_row&&PtInRect(&close,pointer))ui::rounded(dc,close,ui::hover_background(),ui::hover_background(),d(5));
+      if(!pinned){const bool hot=item==hovered_row&&PtInRect(&close,pointer);if(hot)action_hover(close);
         const double reveal=colors.contrast||active?1.0:0.45+0.55*hover;
-        ui::icon(dc,close,ui::Icon::close,emphasized&&!active?ui::selection_ink():ui::mix(active?colors.surface:background,colors.muted,reveal),window);}
+        ui::icon(dc,close,ui::Icon::close,hot?colors.ink:emphasized&&!active?ui::selection_ink():ui::mix(active?colors.surface:background,colors.muted,reveal),window);}
       else close.left=close.right;
       label.left=d(14);label.right=close.left-d(3);
       if(pinned){RECT glyph{label.left-d(2),rect.top,label.left+d(16),rect.bottom};ui::icon(dc,glyph,ui::Icon::pin,colors.muted,window);label.left+=d(20);}
@@ -849,10 +855,28 @@ struct BrowserShell::Impl {
       InvalidateRect(tree,nullptr,FALSE);rebuilding=false;
     }
     PointerPoint parked(const Host& host) const {RECT rect{};GetClientRect(host.window,&rect);const double scale=GetDpiForWindow(host.window)/96.0*host.metadata.value("zoom",1.0);const auto random=seed();return {rect.right/scale*(.76+(random%100)/1000.0),rect.bottom/scale*(.76+((random/100)%100)/1000.0)};}
-    void update_cursor(){auto found=shell.hosts.find(selected);if(found==shell.hosts.end()||found->second.frame!=this||!found->second.agent||!IsWindowVisible(window)||IsIconic(window)){ShowWindow(cursor,SW_HIDE);return;}auto& host=found->second;
+    void update_agent_glow(){
+      const auto colors=ui::palette();const bool visible=IsWindowVisible(window)&&!IsIconic(window)&&shell.hosts.contains(selected)&&color(selected)!=colors.gray&&!colors.contrast&&ui::vector_rendering()&&(!fullscreen()||screen_outline);
+      if(!visible){ShowWindow(agent_glow,SW_HIDE);return;}
+      RECT bounds{},tab{};GetClientRect(window,&bounds);
+      if(!fullscreen()&&pill_rect(tab)){MapWindowPoints(tree,window,reinterpret_cast<POINT*>(&tab),2);if(tab.top<=panel_bounds.top+d(FrameRadius))tab={};}
+      const int dpi=GetDpiForWindow(window);const SIZE size{bounds.right,bounds.bottom};const auto tint=accent();
+      if(size.cx!=glow_size.cx||size.cy!=glow_size.cy||dpi!=glow_dpi||tint!=glow_tint||glow_fullscreen!=fullscreen()||!EqualRect(&glow_panel,&panel_bounds)||!EqualRect(&glow_tab,&tab)){
+        if(!ui::paint_agent_layer(agent_glow,size,[&](Gdiplus::Graphics& graphics){ui::inward_agent_glow(graphics,panel_bounds,dpi/96.0f,fullscreen()?0.0f:static_cast<float>(d(FrameRadius)),tint,tab.bottom>tab.top?&tab:nullptr);})){ShowWindow(agent_glow,SW_HIDE);return;}
+        glow_size=size;glow_dpi=dpi;glow_tint=tint;glow_fullscreen=fullscreen();glow_panel=panel_bounds;glow_tab=tab;
+      }
+      SetWindowPos(agent_glow,HWND_TOP,0,0,size.cx,size.cy,SWP_NOACTIVATE|SWP_SHOWWINDOW);
+    }
+    void update_cursor(){update_agent_glow();auto found=shell.hosts.find(selected);if(found==shell.hosts.end()||found->second.frame!=this||!agent_pointer_visible(found->second.agent,found->second.paused)||!IsWindowVisible(window)||IsIconic(window)){ShowWindow(cursor,SW_HIDE);return;}auto& host=found->second;
       if(host.animating){const auto t=fraction(host.animation,host.duration),f=t*t*(3-2*t);host.display={host.from.x+(host.to.x-host.from.x)*f,host.from.y+(host.to.y-host.from.y)*f};if(t>=1)host.animating=false;}
-      RECT rect{};GetClientRect(host.window,&rect);const double scale=GetDpiForWindow(host.window)/96.0*host.metadata.value("zoom",1.0);POINT point{static_cast<LONG>(std::clamp(host.display.x*scale,0.0,std::max(0.0,rect.right-25.0))),static_cast<LONG>(std::clamp(host.display.y*scale,0.0,std::max(0.0,rect.bottom-30.0)))};ClientToScreen(host.window,&point);
-      SetWindowPos(cursor,nullptr,point.x,point.y,d(25),d(30),SWP_NOACTIVATE|SWP_NOZORDER|SWP_SHOWWINDOW);InvalidateRect(cursor,nullptr,FALSE);
+      RECT rect{};GetClientRect(host.window,&rect);const int dpi=GetDpiForWindow(window);const double scale=GetDpiForWindow(host.window)/96.0*host.metadata.value("zoom",1.0);POINT point{static_cast<LONG>(std::clamp(host.display.x*scale,0.0,std::max(0.0,rect.right-1.0))),static_cast<LONG>(std::clamp(host.display.y*scale,0.0,std::max(0.0,rect.bottom-1.0)))};ClientToScreen(host.window,&point);
+      const auto tint=accent();const bool contrast=ui::palette().contrast;const SIZE size{d(ui::agent_pointer_width),d(ui::agent_pointer_height)};
+      if(dpi!=cursor_dpi||tint!=cursor_tint||contrast!=cursor_contrast){
+        if(!ui::paint_agent_layer(cursor,size,[&](Gdiplus::Graphics& graphics){ui::agent_pointer(graphics,dpi/96.0f,tint,contrast);})){ShowWindow(cursor,SW_HIDE);return;}
+        cursor_dpi=dpi;cursor_tint=tint;cursor_contrast=contrast;
+      }
+      // Padding belongs to the glow, not the pointer's action coordinates.
+      SetWindowPos(cursor,nullptr,point.x-d(ui::agent_pointer_hotspot),point.y-d(ui::agent_pointer_hotspot),size.cx,size.cy,SWP_NOACTIVATE|SWP_NOZORDER|SWP_SHOWWINDOW);
     }
     // Enter opens the selected suggestion while its text is shown; otherwise
     // the typed text. Ctrl+Enter completes a single word as www.<word>.com, as
@@ -1242,10 +1266,8 @@ struct BrowserShell::Impl {
   static LRESULT CALLBACK cursor_proc(HWND h,UINT message,WPARAM wp,LPARAM lp){auto self=reinterpret_cast<Frame*>(GetWindowLongPtrW(h,GWLP_USERDATA));
     if(message==WM_NCCREATE){self=static_cast<Frame*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}
     if(message==WM_NCHITTEST)return HTTRANSPARENT;if(message==WM_MOUSEACTIVATE)return MA_NOACTIVATE;
-    if(message==WM_PAINT&&self){PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT rect{};GetClientRect(h,&rect);ui::fill(dc,rect,RGB(255,0,255));
-      const int scale=GetDpiForWindow(self->window);auto d=[&](int v){return MulDiv(v,scale,96);};POINT points[]={{d(2),d(1)},{d(2),d(22)},{d(7),d(17)},{d(11),d(25)},{d(15),d(23)},{d(11),d(15)},{d(19),d(15)}};
-      auto pen=CreatePen(PS_SOLID,d(1),RGB(1,1,1));auto brush=CreateSolidBrush(RGB(250,250,250));auto old_pen=SelectObject(dc,pen),old_brush=SelectObject(dc,brush);Polygon(dc,points,7);SelectObject(dc,old_brush);DeleteObject(brush);
-      auto accent=CreateSolidBrush(self->color(self->selected));SelectObject(dc,accent);Ellipse(dc,d(17),d(21),d(24),d(28));SelectObject(dc,old_brush);SelectObject(dc,old_pen);DeleteObject(accent);DeleteObject(pen);EndPaint(h,&paint);return 0;}
+    if(message==WM_ERASEBKGND)return 1;
+    if(message==WM_PAINT){PAINTSTRUCT paint{};BeginPaint(h,&paint);EndPaint(h,&paint);return 0;}
     return DefWindowProcW(h,message,wp,lp);
   }
   // The full-screen notice at the top of the screen. It never takes input.

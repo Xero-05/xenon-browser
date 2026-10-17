@@ -16,6 +16,9 @@ int main(){try{
   }
   PointerMotion still({3,7},{3,7},3);require(still.at(1).x==3&&still.at(1).y==7,"Zero-distance endpoints remain exact");
   PointerOverlayTransitions overlay;
+  require(agent_pointer_visible(true,false),"Available agent cursor is visible while idle");
+  require(!agent_pointer_visible(true,true),"Human page activity hides the cursor without changing ownership");
+  require(!agent_pointer_visible(false,false)&&!agent_pointer_visible(false,true),"Unavailable agents never show a cursor");
   require(overlay.update(true,false,0,0,0)==PointerVisual::none,"Ownership alone sends no input transition");
   require(overlay.update(true,false,1,0,0)==PointerVisual::none,"Pointer event may arrive before broker pause");
   require(overlay.update(true,true,1,0,0)==PointerVisual::human,"Delayed pause still glides to the human event");
