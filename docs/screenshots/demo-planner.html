@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Weekend trip planner</title>
+<!-- Synthetic page for README screenshots. Served from loopback; it loads nothing else. -->
+<style>
+  :root { --bg: #f5f7fb; --card: #ffffff; --ink: #172033; --muted: #5d6779; --line: #dfe4ee; --accent: #0f766e; --accent-soft: #d8f1ee; --chip: #eef1f7; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15181e; --card: #1e232b; --ink: #e8ecf3; --muted: #9aa4b5; --line: #2e3542; --accent: #3cc7b6; --accent-soft: #163a37; --chip: #262c37; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; border-bottom: 1px solid var(--line); background: var(--card); }
+  header strong { font-size: 17px; letter-spacing: .2px; }
+  header span { color: var(--muted); font-size: 13px; }
+  main { max-width: 900px; margin: 0 auto; padding: 26px 32px 40px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 20px; color: var(--muted); }
+  form { display: grid; grid-template-columns: repeat(4, 1fr) auto; gap: 12px; align-items: end; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .2px; }
+  input, select { font: 15px "Segoe UI", system-ui, sans-serif; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; min-width: 0; }
+  button { font: 600 15px "Segoe UI", system-ui, sans-serif; color: #fff; background: var(--accent); border: 0; border-radius: 9px; padding: 10px 18px; cursor: pointer; }
+  h2 { font-size: 16px; margin: 26px 0 10px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .card h3 { margin: 0 0 2px; font-size: 16px; }
+  .card .where { color: var(--muted); font-size: 13px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 12px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 2px 9px; font-size: 12px; }
+  .price { font-size: 20px; font-weight: 700; }
+  .price small { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .best { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .tag { float: right; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 9px; }
+  .note { margin-top: 18px; background: var(--card); border: 1px dashed var(--line); border-radius: 14px; padding: 14px 16px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header><strong>Weekend trip planner</strong><span>Synthetic demo page · served from this computer</span></header>
+<main>
+  <h1>Plan a weekend in Lisbon</h1>
+  <p class="lead">Compare stays, check dates and keep a shortlist for later.</p>
+  <form onsubmit="event.preventDefault(); document.getElementById('status').textContent = 'Showing 3 stays for your dates.';">
+    <label>From <input aria-label="From" placeholder="City"></label>
+    <label>Check-in <input type="date" aria-label="Check-in"></label>
+    <label>Check-out <input type="date" aria-label="Check-out"></label>
+    <label>Guests
+      <select aria-label="Guests"><option value="1">1 guest</option><option value="2">2 guests</option><option value="3">3 guests</option><option value="4">4 guests</option></select>
+    </label>
+    <button type="submit">Search stays</button>
+  </form>
+  <h2 id="status">Suggested stays</h2>
+  <div class="grid">
+    <div class="card best"><span class="tag">Best value</span><h3>Casa do Azulejo</h3><div class="where">Alfama · 0.4 km to the river</div>
+      <div class="chips"><span class="chip">★ 4.8</span><span class="chip">Breakfast</span><span class="chip">Free cancellation</span></div>
+      <div class="price">€142 <small>/ night</small></div></div>
+    <div class="card"><h3>Miradouro Rooms</h3><div class="where">Graça · city viewpoint</div>
+      <div class="chips"><span class="chip">★ 4.6</span><span class="chip">Terrace</span></div>
+      <div class="price">€128 <small>/ night</small></div></div>
+    <div class="card"><h3>Tejo Riverside Loft</h3><div class="where">Cais do Sodré · by the tram</div>
+      <div class="chips"><span class="chip">★ 4.5</span><span class="chip">Kitchen</span><span class="chip">Pay later</span></div>
+      <div class="price">€169 <small>/ night</small></div></div>
+  </div>
+  <div class="note">Shortlist: Casa do Azulejo — ask about late check-in before booking.</div>
+</main>
+</body>
+</html>

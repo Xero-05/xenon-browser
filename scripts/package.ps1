@@ -52,6 +52,9 @@ foreach ($file in Get-ChildItem -LiteralPath $taskPackage -File -Recurse) {
 [IO.File]::WriteAllText((Join-Path $taskPackage 'release-manifest.json'), ($taskManifest | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
 $taskZip = Join-Path $taskDist ($taskName + '.zip')
 if (Test-Path -LiteralPath $taskZip) { throw "Release ZIP already exists: $taskZip. Choose a new version or explicitly move the old artifact after review." }
+# Windows PowerShell 5.1 runs on .NET Framework, whose ZipFile writes backslash
+# entry names unless this switch is off; verify-package rejects those. PowerShell 7 ignores it.
+[AppContext]::SetSwitch('Switch.System.IO.Compression.ZipFile.UseBackslash', $false)
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($taskStage, $taskZip, [IO.Compression.CompressionLevel]::Optimal, $false)
 $taskDigest = (Get-FileHash -LiteralPath $taskZip -Algorithm SHA256).Hash.ToLowerInvariant()

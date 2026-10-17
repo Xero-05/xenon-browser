@@ -1,6 +1,8 @@
 # Release notes
 
-## Unreleased
+## 0.1.6
+
+The [0.1.6 notes](RELEASE-0.1.6.md) also cover address suggestions, the site-information button, the certificate warning's links, the agent cursor glow, website video and the release checks.
 
 **Agents can ask for your help.** The new `xenon_attention` MCP tool lets an agent mark a tab it controls as needing you, for a CAPTCHA, MFA, a passkey or an approval. The tab's border pulses orange until you have been at it, and a background window's taskbar button flashes. **Settings → Agents** can also show a Windows notification, off by default, that opens the tab when selected. **Dismiss help request** withdraws a request.
 
@@ -19,6 +21,8 @@
 **Import.** Bookmarks and history import from Chrome, Edge, Brave, Vivaldi or Chromium profiles, or from a bookmark HTML file exported by any browser. Passwords and cookies are never read; passwords still come in through CSV import.
 
 **Settings** chooses the address box's search engine (Google, Bing, DuckDuckGo, Brave Search, Ecosia, Startpage or Baidu), theme and language.
+
+**Website video.** H.264 and AAC now play alongside WebM. Release packages use a CEF engine built from source with Chromium's proprietary codecs, at the same CEF and Chromium revisions; protected streaming that needs Widevine still does not play. Because hosted CI builds only the stock engine, 0.1.6 was built, packaged and tested on a maintainer machine before publication.
 
 See [user guide](USER_GUIDE.md), [security](SECURITY.md#native-browsing-features) and [testing](TESTING.md#browser-essentials-candidate).
 
