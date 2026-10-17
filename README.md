@@ -37,6 +37,7 @@ Everyday Chromium browsing for you, a native control layer for MCP agents,<br>an
 - **Agents can ask for your help.** With the new `xenon_attention` tool, an agent stuck on a CAPTCHA, MFA or an approval can make its tab pulse orange and, if you allow it, show a Windows notification that opens the tab.
 - **A smarter address box.** Suggestions from your history and bookmarks with inline completion, your choice of search engine, and a site-information button for the certificate, cookies and site settings.
 - **Everyday essentials.** Full screen (**F11**), site icons on tabs, a bookmark manager with folders, searchable history, **Clear browsing data**, a Settings window, and bookmark and history import from Chrome, Edge and other Chromium browsers.
+- **MP4 video.** H.264 and AAC now play alongside WebM, so MP4 video and streams that use those codecs work. DRM-protected streaming is not included.
 - **Better with Windows.** Make Xenon your default browser, open `mailto:` and meeting links in their apps, and share your screen in video calls, each after a native prompt.
 
 Read the [0.1.6 release notes](docs/RELEASE-0.1.6.md) or [all release notes](docs/RELEASE_NOTES.md).
@@ -52,7 +53,7 @@ Read the [0.1.6 release notes](docs/RELEASE-0.1.6.md) or [all release notes](doc
 
 ### Browse the way you are used to
 
-- **Chrome/Edge-style toolbar.** Back, forward and reload; an address box with suggestions and a site-information button; find, zoom, full screen, downloads, printing/PDF and site permissions.
+- **Chrome/Edge-style toolbar.** Back, forward and reload; an address box with suggestions and a site-information button; find, zoom, full screen, H.264/AAC and WebM video, downloads, printing/PDF and site permissions.
 - **Tabs grouped by workspace** in a resizable sidebar. Drag tabs to reorder them, between windows or into a new window. A right-click menu duplicates, pins, mutes, moves and closes tabs, and Chromium keyboard shortcuts work.
 - **Your data, your way.** A bookmark manager with folders, searchable history, Clear browsing data, import from Chromium browsers or a bookmark file, and Settings for the search engine, theme and language.
 - **Extensions.** Unpacked Manifest V3 Chromium extensions added in Controls run in persistent workspaces after a restart. Agents cannot install, configure or read them.
@@ -125,7 +126,7 @@ By default the browser allows **16 concurrently connected workers** and **64 tab
 
 ## Know the limits
 
-- **Platform and hosts:** Windows x64 and external local stdio MCP hosts. Remote-only hosts need another transport, and visual tasks need an image-capable client and model. There is no built-in model, cloud sync or signed installer, and no guarantee of proprietary DRM or arbitrary extension compatibility. Published packages use the stock CEF engine, which does not play H.264 or AAC media.
+- **Platform and hosts:** Windows x64 and external local stdio MCP hosts. Remote-only hosts need another transport, and visual tasks need an image-capable client and model. There is no built-in model, cloud sync or signed installer, and no guarantee of proprietary DRM or arbitrary extension compatibility.
 - **Credentials:** saved accounts cover a bounded set of HTTPS forms. MFA, passkeys, CAPTCHA, embedded login widgets and unusual flows need you; agents cannot start passkey prompts. Protected sign-in withholds observations and screenshots, and native Save/Fill/Resume confirmations cannot be accepted through MCP. Fixture coverage does not establish physical prompt acceptance or compatibility with every real site.
 - **Browsing features:** screen sharing always shares every display, never a single window or tab, and only after a native prompt in a tab you control. Agents cannot start it or a link for another app, and they get no screenshots of a sharing tab. Import reads only bookmarks and history; bring passwords with CSV import. Only you can choose the default browser, in Windows Settings.
 - **Files and outcomes:** directory uploads, File System Access API pickers and cross-frame chooser delegation are unsupported. Selecting a file does not prove a server received it, and a dispatched action does not prove the website succeeded. Inspect uncertain operations and the page before acting again.

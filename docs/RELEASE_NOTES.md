@@ -22,6 +22,8 @@ The [0.1.6 notes](RELEASE-0.1.6.md) also cover address suggestions, the site-inf
 
 **Settings** chooses the address box's search engine (Google, Bing, DuckDuckGo, Brave Search, Ecosia, Startpage or Baidu), theme and language.
 
+**Website video.** H.264 and AAC now play alongside WebM. Release packages use a CEF engine built from source with Chromium's proprietary codecs, at the same CEF and Chromium revisions; protected streaming that needs Widevine still does not play. Because hosted CI builds only the stock engine, 0.1.6 was built, packaged and tested on a maintainer machine before publication.
+
 See [user guide](USER_GUIDE.md), [security](SECURITY.md#native-browsing-features) and [testing](TESTING.md#browser-essentials-candidate).
 
 ## 0.1.5
