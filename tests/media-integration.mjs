@@ -6,7 +6,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
@@ -18,13 +18,14 @@ const run = `media-integration-${Date.now()}-${randomBytes(4).toString('hex')}`;
 const profile = resolve(root, '.cache', run), pipeName = `xenon-test-${run}`;
 const pipe = `\\\\.\\pipe\\${pipeName}`, configPath = resolve(profile, 'client-config.json');
 const binary = resolve(root, 'build/app/Release/Xenon.exe');
-const requireH264 = process.argv.includes('--require-h264');
+const windowsCodecs = process.argv.includes('--windows-codecs');
+const requireH264 = windowsCodecs || process.argv.includes('--require-h264');
 const sample = await readFile(resolve(root, 'tests/fixtures/media/synthetic-h264-aac.mp4'));
 const fragmentedSample = await readFile(resolve(root, 'tests/fixtures/media/synthetic-h264-aac-fragmented.mp4'));
 const runFile = promisify(execFile), sleep = ms => new Promise(r => setTimeout(r, ms));
 const hashes = async () => Object.fromEntries(await Promise.all(['Xenon.dll', 'libcef.dll'].map(async name =>
   [name, createHash('sha256').update(await readFile(resolve(binary, '..', name))).digest('hex')])));
-let browser, client, server, report, startHashes, endHashes, failure;
+let browser, client, server, report, startHashes, endHashes, failure, codecBuild;
 const alivePipe = () => new Promise(resolve => {
   const socket = net.connect(pipe);
   socket.once('connect', () => { socket.destroy(); resolve(true); });
@@ -42,9 +43,10 @@ async function tool(name, args) {
   return value.structuredContent;
 }
 const fixture = `<!doctype html><meta charset="utf-8"><title>Xenon synthetic video fixture</title>
-<h1>Website video playback</h1><video controls muted width="320" height="180"></video><p id="status">Preparing video</p>
+<h1>Website video playback</h1><button id="start">Start playback test</button>
+<video controls muted width="320" height="180"></video><p id="status">Preparing video</p>
 <script>
-(async()=>{
+document.querySelector('#start').addEventListener('click',async()=>{
   const video=document.querySelector('video'), result={codecs:{}};
   for(const [name,type] of Object.entries({vp8:'video/webm; codecs="vp8"',vp9:'video/webm; codecs="vp9"',
     av1:'video/mp4; codecs="av01.0.04M.08"',h264:'video/mp4; codecs="avc1.42E01E"',aac:'audio/mp4; codecs="mp4a.40.2"'}))
@@ -54,15 +56,39 @@ const fixture = `<!doctype html><meta charset="utf-8"><title>Xenon synthetic vid
     const timer=setTimeout(()=>reject(Error(name+' timed out')),10000);
     target.addEventListener(name,()=>{clearTimeout(timer);resolve()},{once:true});
   });
-  let stream, animation, objectUrl;
+  let stream, animation, objectUrl, context, analyser;
+  const picture=()=>{
+    const canvas=document.createElement('canvas');canvas.width=16;canvas.height=16;
+    const ctx=canvas.getContext('2d');ctx.drawImage(video,0,0,16,16);
+    const pixels=ctx.getImageData(0,0,16,16).data;
+    let min=255,max=0,total=0;
+    for(let i=0;i<pixels.length;i+=4){
+      const light=(pixels[i]+pixels[i+1]+pixels[i+2])/3;
+      min=Math.min(min,light);max=Math.max(max,light);total+=light;
+    }
+    return {mean:total/(pixels.length/4),range:max-min};
+  };
+  const sampleAudio=async()=>{
+    let rms=0;
+    const samples=new Float32Array(analyser.fftSize);
+    for(let i=0;i<12;i++){
+      await wait(50);analyser.getFloatTimeDomainData(samples);
+      let energy=0;for(const value of samples)energy+=value*value;
+      rms=Math.max(rms,Math.sqrt(energy/samples.length));
+    }
+    return rms;
+  };
   try {
     if (${requireH264}) {
       if(!result.codecs.h264.canPlay||!result.codecs.aac.canPlay)throw Error('H.264/AAC missing from this CEF build');
+      context=new AudioContext({sampleRate:48000});
+      const source=context.createMediaElementSource(video);analyser=context.createAnalyser();
+      // Measure decoded PCM from the actual media element. Silence only the
+      // final output, so tests do not play tones through the user's speakers.
+      const gain=context.createGain();gain.gain.value=0;
+      source.connect(analyser);analyser.connect(gain);gain.connect(context.destination);
+      await context.resume();video.muted=false;
       const loaded=event(video,'loadeddata');video.src='/sample.mp4';await loaded;
-      const context=new OfflineAudioContext(1,1,48000);
-      const audio=await context.decodeAudioData(await (await fetch('/sample.mp4')).arrayBuffer());
-      const samples=audio.getChannelData(0);let energy=0;for(const value of samples)energy+=value*value;
-      result.audio={duration:audio.duration,sampleRate:audio.sampleRate,rms:Math.sqrt(energy/samples.length)};
     } else {
       const canvas=document.createElement('canvas');canvas.width=320;canvas.height=180;
       const ctx=canvas.getContext('2d');let frame=0;
@@ -74,28 +100,44 @@ const fixture = `<!doctype html><meta charset="utf-8"><title>Xenon synthetic vid
       objectUrl=URL.createObjectURL(new Blob(chunks,{type:'video/webm'}));
       const loaded=event(video,'loadeddata');video.src=objectUrl;await loaded;
     }
-    await video.play();await wait(700);
+    await video.play();
+    if (${requireH264}) result.audio={duration:video.duration,sampleRate:context.sampleRate,
+      rms:await sampleAudio(),state:context.state};
+    else await wait(700);
     result.playback={time:video.currentTime,frames:video.getVideoPlaybackQuality().totalVideoFrames,
-      width:video.videoWidth,height:video.videoHeight,error:video.error?.code??null};
+      width:video.videoWidth,height:video.videoHeight,error:video.error?.code??null,picture:picture()};
     video.pause();const pausedAt=video.currentTime;await wait(250);
     result.pause={paused:video.paused,stable:video.currentTime===pausedAt};
     const seeked=event(video,'seeked');video.currentTime=0.3;await seeked;
     result.seek=video.currentTime;video.volume=0.4;result.volume=video.volume;
     if (${requireH264}) {
+      const beforeResume=video.getVideoPlaybackQuality().totalVideoFrames;
+      await video.play();const resumedAudio=await sampleAudio();
+      result.resume={time:video.currentTime,
+        additionalFrames:video.getVideoPlaybackQuality().totalVideoFrames-beforeResume,audioRms:resumedAudio};
+      video.pause();
       const media=new MediaSource(),opened=event(media,'sourceopen');
       objectUrl=URL.createObjectURL(media);video.src=objectUrl;await opened;
       const buffer=media.addSourceBuffer('video/mp4; codecs="avc1.42C01E, mp4a.40.2"');
       const bytes=await (await fetch('/sample-fragmented.mp4')).arrayBuffer();
       const appended=event(buffer,'updateend');buffer.appendBuffer(bytes);await appended;media.endOfStream();
-      await video.play();await wait(700);
-      result.streaming={time:video.currentTime,frames:video.getVideoPlaybackQuality().totalVideoFrames,error:video.error?.code??null};
+      await video.play();const audioRms=await sampleAudio();
+      result.streaming={time:video.currentTime,frames:video.getVideoPlaybackQuality().totalVideoFrames,
+        audioRms,error:video.error?.code??null,picture:picture()};
       video.pause();
+      // decodeAudioData uses a separate synchronous decoder path. Record its
+      // result explicitly; media-element success does not establish support.
+      try {
+        const offline=new OfflineAudioContext(1,1,48000);
+        const decoded=await offline.decodeAudioData(await(await fetch('/sample.mp4')).arrayBuffer());
+        result.audioBufferDecode={supported:true,duration:decoded.duration};
+      } catch(error) {result.audioBufferDecode={supported:false,error:error.name};}
     }
     document.querySelector('#status').textContent='Video playback complete';
   }catch(error){result.error=error.message;document.querySelector('#status').textContent='Video playback failed';}
-  finally{clearInterval(animation);stream?.getTracks().forEach(t=>t.stop());if(objectUrl)URL.revokeObjectURL(objectUrl);}
+  finally{clearInterval(animation);stream?.getTracks().forEach(t=>t.stop());if(objectUrl)URL.revokeObjectURL(objectUrl);await context?.close();}
   await fetch('/report',{method:'POST',body:JSON.stringify(result)});
-})();
+},{once:true});
 </script>`;
 
 try {
@@ -130,6 +172,13 @@ try {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   startHashes = await hashes();
+  if (windowsCodecs) {
+    codecBuild=JSON.parse(await readFile(resolve(binary,'..','xenon-codec-build.json'),'utf8'));
+    assert.equal(codecBuild.codecBackend,'windows');
+    assert.equal(codecBuild.bundledH264AacDecoders,false);
+    assert.equal(codecBuild.bundledOpenH264,false);
+    assert.equal(codecBuild.files['Release/libcef.dll'],startHashes['libcef.dll']);
+  }
   browser = spawn(binary, [`--user-data-dir=${profile}`, `--broker-pipe=${pipeName}`], { stdio: 'ignore' });
   let launchError; browser.once('error', error => { launchError = error; });
   await until(() => {
@@ -141,7 +190,19 @@ try {
   await client.connect(new StdioClientTransport({ command: process.execPath,
     args: [resolve(root, 'adapter/dist/src/cli.js'), 'serve', '--config', configPath], stderr: 'pipe' }));
   const worker = await tool('worker_create', { name: 'Media observer', workspaceId: 'native-default' });
-  await tool('tab_create', { agentSessionId: worker.agentSessionId, workspaceId: worker.workspaceId, url: `http://127.0.0.1:${server.address().port}/` });
+  const tab = {...worker,...await tool('tab_create', { agentSessionId: worker.agentSessionId, workspaceId: worker.workspaceId, url: `http://127.0.0.1:${server.address().port}/` })};
+  const scope={agentSessionId:tab.agentSessionId,workspaceId:tab.workspaceId,tabId:tab.tabId};
+  const observation=await until(async()=>{
+    const response=await client.callTool({name:'xenon_observe',arguments:{...scope,maxNodes:100}});
+    if(response.isError){
+      if(['privacy_guard_initializing','page_changed'].includes(response.structuredContent?.error?.code))return false;
+      throw Error(JSON.stringify(response.structuredContent));
+    }
+    return response.structuredContent.nodes?.some(n=>n.role==='button'&&n.name==='Start playback test'&&n.ref)?response.structuredContent:false;
+  },'Playback button');
+  const button=observation.nodes.find(n=>n.role==='button'&&n.name==='Start playback test'&&n.ref);
+  await tool('interact',{...scope,ownershipGeneration:tab.ownershipGeneration,operationId:randomUUID(),
+    observationId:observation.observationId,action:'click',elementRef:button.ref});
   await until(() => report, 'Video report');
   console.log(JSON.stringify(report, null, 2));
   assert(!report.error, report.error);
@@ -153,7 +214,13 @@ try {
   if (requireH264) {
     for (const codec of ['h264', 'aac']) assert(report.codecs[codec].canPlay && report.codecs[codec].mediaSource, `${codec} missing from this CEF build`);
     assert(report.audio.duration > 3.9 && report.audio.sampleRate === 48000 && report.audio.rms > 0.01, 'AAC tone must decode to non-silent audio');
+    assert.equal(report.audio.state,'running');
+    assert(report.resume.time > 0.5 && report.resume.additionalFrames > 2 && report.resume.audioRms > 0.01,
+      'Seeking and resuming must restore both decoded video and audio');
     assert(report.streaming.time > 0.2 && report.streaming.frames > 2 && report.streaming.error === null, 'Media Source MP4 must decode and advance');
+    assert(report.streaming.audioRms > 0.01,'Media Source AAC must decode to non-silent audio');
+    for(const playback of [report.playback,report.streaming])
+      assert(playback.picture.mean > 10 && playback.picture.range > 20,'The synthetic test pattern must produce nonblank decoded picture content');
   }
 } catch (error) { failure = error.message; console.error(error); process.exitCode = 1; }
 finally {
@@ -165,9 +232,9 @@ finally {
   if (JSON.stringify(startHashes) !== JSON.stringify(endHashes)) { failure = 'Browser binaries changed during the test'; process.exitCode = 1; }
   await mkdir(resolve(root, 'out'), { recursive: true });
   await writeFile(resolve(root, 'out', `${run}.json`), JSON.stringify({ run, startHashes, endHashes,
-    requireH264, sampleSha256: createHash('sha256').update(sample).digest('hex'),
+    requireH264, windowsCodecs, codecBuild, sampleSha256: createHash('sha256').update(sample).digest('hex'),
     fragmentedSampleSha256: createHash('sha256').update(fragmentedSample).digest('hex'),
-    coverage: requireH264 ? 'Synthetic H.264/AAC MP4 playback, AAC waveform decode, Media Source playback, pause, seek and volume. No physical input, audible output or DRM validation.' :
+    coverage: requireH264 ? 'Synthetic H.264/AAC MP4 and Media Source playback with nonblank decoded pictures and measured audio PCM, pause, seek/resume and volume. MCP click supplies user activation. decodeAudioData capability recorded separately. No physical input, audible output or DRM validation.' :
       'Synthetic VP8 decode, pause, seek and volume; codec capability declarations. No physical input, audible output, H.264 decode or DRM validation.',
     report, failure, passed: !failure }, null, 2));
   console.log(`Report: out/${run}.json`);

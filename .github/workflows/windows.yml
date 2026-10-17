@@ -17,6 +17,9 @@ jobs:
         shell: pwsh
         timeout-minutes: 3
         run: node --test tests/bootstrap-download-tests.mjs tests/bootstrap-extract-tests.mjs
+      - name: Test Windows codec build audit
+        shell: pwsh
+        run: python tests/cef-windows-codecs-tests.py
       - name: Restore pinned dependency downloads
         id: native-downloads
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24

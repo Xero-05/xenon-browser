@@ -59,8 +59,16 @@ The record covers that hosted run and the local package re-verification only. Th
 
 ## Website video regression
 
+The [2026-10-17 Windows-codec validation record](test-results/windows-codecs-2026-10-17.json)
+binds the Windows-decoder engine to passing MP4 and Media Source video/audio,
+seek/resume, VP8 WebM, 19 native tests, adapter/fixed-script checks, five branding
+checks and 17 production browser integration checks. Seven codec-audit tests
+also passed. An initial streamed-AAC silence failure is preserved in the record;
+passing raw AAC access units to Media Foundation corrected it without changing
+the playback assertions. Audio was measured as decoded PCM, not through speakers.
+
 The [2026-10-16 validation record](test-results/website-video-2026-10-16.json)
-binds the completed media-enabled Release build to passing H.264/AAC MP4,
+binds the earlier FFmpeg-based Release build to passing H.264/AAC MP4,
 Media Source streaming and VP8 playback, all 18 native tests, adapter/fixed-script
 checks, bootstrap branding integrity and the production browser integration
 suite. The MP4 fixture decoded video frames and non-silent AAC samples; pause,
@@ -69,16 +77,30 @@ seek and volume checks passed. Earlier setup failures are retained separately.
 `python tests/cef-media-deps-tests.py` checks the source-build manifest filter:
 only the six branded updater test archives are omitted, and changed dependency
 structure fails closed. It does not require a Chromium checkout.
+`python tests/cef-windows-codecs-tests.py` checks that the codec audit rejects
+software fallback configurations and alternate bundled codecs, and binds its
+manifest to artifact hashes. These are audit tests, not playback evidence.
 
 `node tests/media-integration.mjs` starts the production browser in a disposable
 profile and generates a synthetic VP8 clip in a loopback page. It checks decoded
 frames, advancing playback time, pause, seek and volume, and records the runtime's
 codec declarations. `node tests/media-integration.mjs --require-h264` instead
-requires the generated MP4 fixture, H.264 frames, non-silent AAC waveform decoding
-and Media Source streaming playback. It must fail on the stock CEF distribution.
+requires the generated MP4 fixture, H.264 frames with nonblank decoded pictures, non-silent decoded AAC PCM
+from the playing media element, and Media Source streaming with both frames and
+non-silent audio. Seeking and resuming must restore both video and audio.
+A guarded MCP click starts the fixture and activates its audio
+context. The final audio output is muted after measurement. It must fail on the
+stock CEF distribution. `--windows-codecs` additionally requires the Windows
+codec build manifest and verifies that it matches the actual engine DLL.
 Build the optional media-enabled engine as described in [BUILD](BUILD.md#website-video-codecs)
 before running the MP4 acceptance check. Reports under `out/media-integration-*.json`
 include both application and CEF DLL hashes before and after the run.
+
+The Windows recipe removes bundled H.264/AAC software decoding. It requires a
+supported Windows GPU for H.264 and Media Foundation for AAC. The fixture records
+Web Audio `decodeAudioData` support separately: this synchronous path does not
+gain AAC support from the Windows media-element patch. Historical results above
+describe the earlier FFmpeg build, not this Windows-decoder configuration.
 
 These fixtures do not establish audible speaker output, physical player-control
 input, DRM support or compatibility with every website. Run desktop suites
