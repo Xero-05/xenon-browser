@@ -1,4 +1,5 @@
 #include "xenon/ui_theme.hpp"
+#include "xenon/agent_overlay.hpp"
 #include "xenon/introduction.hpp"
 #include <cmath>
 #include <iostream>
@@ -7,6 +8,27 @@
 using namespace xenon;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
+void agent_overlay_pixels(){
+  for(const int scale:{1,2}){
+    Gdiplus::Bitmap pointer(ui::agent_pointer_width*scale,ui::agent_pointer_height*scale,PixelFormat32bppPARGB);
+    {Gdiplus::Graphics graphics(&pointer);graphics.Clear(Gdiplus::Color(0,0,0,0));ui::agent_pointer(graphics,static_cast<float>(scale),RGB(0,180,130),false);}
+    const auto pixel=[&](int x,int y){Gdiplus::Color value;pointer.GetPixel(x*scale,y*scale,&value);return value;};
+    require(pixel(0,0).GetA()==0,"Cursor padding stays transparent at each DPI");
+    require(pixel(16,23).GetA()==255&&pixel(16,23).GetR()>240,"Cursor has a solid white interior");
+    require(pixel(10,22).GetA()>pixel(5,22).GetA()&&pixel(5,22).GetA()>0,"Cursor glow fades outward into transparency");
+    require(pixel(10,22).GetG()>pixel(10,22).GetR(),"Cursor glow carries the status color");
+    Gdiplus::Bitmap frame(100*scale,100*scale,PixelFormat32bppPARGB);
+    {Gdiplus::Graphics graphics(&frame);graphics.Clear(Gdiplus::Color(0,0,0,0));ui::inward_agent_glow(graphics,{0,0,100*scale,100*scale},static_cast<float>(scale),8.0f*scale,RGB(0,180,130));}
+    const auto alpha=[&](int x,int y){Gdiplus::Color value;frame.GetPixel(x*scale,y*scale,&value);return value.GetA();};
+    require(alpha(3,50)>alpha(8,50)&&alpha(8,50)>alpha(13,50),"Page-frame glow fades toward the page interior");
+    require(alpha(0,50)==0&&alpha(50,50)==0,"Page-frame overlay leaves the outer edge and page center transparent");
+    Gdiplus::Bitmap connected(250*scale,140*scale,PixelFormat32bppPARGB);
+    const RECT tab{5*scale,45*scale,116*scale,79*scale};
+    {Gdiplus::Graphics graphics(&connected);graphics.Clear(Gdiplus::Color(0,0,0,0));ui::inward_agent_glow(graphics,{100*scale,0,250*scale,140*scale},static_cast<float>(scale),8.0f*scale,RGB(0,180,130),&tab);}
+    Gdiplus::Color opening,edge;connected.GetPixel(101*scale,62*scale,&opening);connected.GetPixel(60*scale,48*scale,&edge);
+    require(opening.GetA()==0&&edge.GetA()>0,"Connected tab glow has no vertical seam across the page opening");
+  }
+}
 COLORREF button_pixel(HWND button){
   const auto dc=CreateCompatibleDC(nullptr);BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=48;info.bmiHeader.biHeight=-36;info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;void* pixels{};
   auto bitmap=CreateDIBSection(dc,&info,DIB_RGB_COLORS,&pixels,nullptr,0);require(dc&&bitmap&&pixels,"Create fixed 32-bit drawing surface");const auto old=SelectObject(dc,bitmap);
@@ -29,7 +51,7 @@ LRESULT CALLBACK edit_fixture(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_
 int main(){try{
   // Hidden real Win32 controls exercise class-name normalization and subclass
   // attachment. These messages simulate native UI events, not physical input.
-  INITCOMMONCONTROLSEX common{sizeof(common),ICC_STANDARD_CLASSES};InitCommonControlsEx(&common);ui::VectorRenderer vectors;
+  INITCOMMONCONTROLSEX common{sizeof(common),ICC_STANDARD_CLASSES};InitCommonControlsEx(&common);ui::VectorRenderer vectors;agent_overlay_pixels();
   auto parent=CreateWindowExW(0,L"STATIC",L"Synthetic native UI test",WS_OVERLAPPED,0,0,200,100,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
   require(parent!=nullptr,"Create hidden fixture parent");
   auto address=CreateWindowExW(0,L"EDIT",L"http://127.0.0.1/fixture",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,0,0,180,24,parent,nullptr,GetModuleHandleW(nullptr),nullptr);

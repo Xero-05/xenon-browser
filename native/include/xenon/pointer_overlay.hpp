@@ -2,6 +2,7 @@
 #include <cstdint>
 namespace xenon {
 enum class PointerVisual {none,human,park,synchronize,follow};
+constexpr bool agent_pointer_visible(bool available,bool human_paused){return available&&!human_paused;}
 // Only selects visual transitions. This class has no page-input capability.
 struct PointerOverlayTransitions {
   bool agent{},paused{};

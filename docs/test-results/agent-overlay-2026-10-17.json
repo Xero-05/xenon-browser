@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-17",
+  "applicationDllSha256": "cbf5adbd6c624a2f832989b9938a2d3633fcb959ee0cd9993721ebb40493fc10",
+  "build": "Full Release production and AuthTest build passed",
+  "nativeTests": [
+    "native_ui_tests",
+    "pointer_motion_tests",
+    "native_input_policy_tests"
+  ],
+  "integration": {
+    "run": "integration-1792202570580-f9b9b1da",
+    "passed": true,
+    "checks": 17
+  },
+  "visual": {
+    "method": "Computer Use synthesized Windows clicks in a disposable loopback fixture",
+    "checks": [
+      "Gray frame has no glow",
+      "Selected tab and page have a continuous inward teal glow",
+      "Cursor has a colored outline and outward glow",
+      "Clicking page hides cursor during orange human pause",
+      "Cursor returns after idle with owner unchanged"
+    ],
+    "limits": [
+      "No physical-device acceptance",
+      "100% and 200% are offscreen bitmap checks, not multi-monitor UI coverage",
+      "High contrast, IME, held-input and fullscreen visual checks not run"
+    ]
+  },
+  "earlierAttempts": [
+    "Restricted MSBuild stalled before compilation; ordinary-user build passed",
+    "Initial visual fixture tabs-list request included an invalid tabId; corrected for visual run",
+    "Optional agent-click preview request lacked ownershipGeneration; no click dispatched; final production integration separately passed all checks"
+  ],
+  "arrowheadFollowup": {
+    "change": "Removed cursor stem; retained arrowhead, status outline and outward glow",
+    "applicationDllSha256": "ef5ee7a2683ece3446e84cd334a34f04db453fb15e8b498a405747fadae95614",
+    "build": "Full Release build passed",
+    "checks": [
+      "native_ui_tests passed",
+      "Computer Use preview reopened and arrowhead inspected"
+    ],
+    "scope": "Earlier 17-check integration result remains bound to the preceding DLL"
+  },
+  "sidebarHoverFollowup": {
+    "change": "Distinct rounded hover fill, border and icon contrast for workspace plus/menu and tab close actions",
+    "applicationDllSha256": "28e0e376281d82c05067c2e61975657adb480ba8cc47ea130a6f6c777fb57177",
+    "build": "Full Release build passed",
+    "checks": [
+      "native_ui_tests passed",
+      "Computer Use: workspace plus highlight",
+      "Computer Use: workspace menu highlight",
+      "Computer Use: inactive tab close highlight"
+    ],
+    "limits": [
+      "Visual checks used light theme and synthesized pointer movement",
+      "Dark theme and Windows high contrast not visually exercised",
+      "Earlier integration evidence remains bound to its recorded DLL"
+    ]
+  },
+  "borderlessHoverFollowup": {
+    "change": "Removed inline-action hover borders while retaining the distinct gray fill",
+    "applicationDllSha256": "bcb5a6a9f65d77baad4b451f64154225058bcd5cf5a25528ccdde6683101cd95",
+    "checks": [
+      "Full Release build passed",
+      "native_ui_tests passed",
+      "Computer Use: borderless gray plus-button hover inspected in light theme"
+    ],
+    "scope": "Existing shared hover painter also applies to workspace menu and tab close actions; earlier validation remains bound to its recorded binaries"
+  },
+  "prePullRequestChecks": {
+    "applicationDllSha256": "bcb5a6a9f65d77baad4b451f64154225058bcd5cf5a25528ccdde6683101cd95",
+    "nativeTests": {
+      "passed": 19,
+      "failed": 0
+    },
+    "adapterAndFixedScriptTests": {
+      "passed": 137,
+      "failed": 0
+    },
+    "diffCheck": "passed"
+  }
+}

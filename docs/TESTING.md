@@ -1,5 +1,34 @@
 # Validation
 
+## Agent cursor and connected glow
+
+The 2026-10-17 local Release build gives the agent arrow a status-colored outline
+and outward alpha glow, with one continuous inward glow around the selected tab
+and page. Gray frames have no glow, and the cursor hides during the human-input
+pause. The overlays are transparent to input and do not resize website content.
+
+The full native build and focused `native_ui_tests`, `pointer_motion_tests` and
+`native_input_policy_tests` passed. All 17 production integration checks passed
+on the connected-glow build, including website clicks, drag handoff and retained page state;
+the [validation record](test-results/agent-overlay-2026-10-17.json) binds these
+results to the binary and retains earlier harness limitations.
+Pixel tests at 100% and 200% scale check the
+opposite fade directions, transparent page center, cursor fill, and absence of
+a vertical glow seam across the tab opening. Visibility tests cover available,
+paused and unavailable agents. Computer Use on a disposable loopback fixture
+confirmed the connected teal glow, gray frame without glow, and cursor hiding
+with the orange pause and returning after idle with ownership retained. These
+were synthesized Windows clicks, not physical-device tests. High contrast,
+multi-monitor/DPI interaction, IME and held-input visual acceptance were not run.
+
+Later visual refinements remove the cursor stem and give workspace **+**, **…**
+and tab-close actions a distinct borderless gray hover fill. Each refinement
+passed a full Release build and `native_ui_tests` and was inspected in the
+disposable demo using Computer Use. The record retains each build hash; the
+17-check integration run precedes these paint-only refinements.
+Before opening the PR, all 19 native suites and all 137 adapter/fixed-script
+tests passed on the final source, and `git diff --check` passed.
+
 ## Browser essentials candidate
 
 This candidate adds full screen, site icons, links for other apps, screen sharing, default-browser registration and launch links, the bookmark manager with folders, history search and deletion, Clear browsing data, bookmark and history import, and Settings with a search-engine choice.
