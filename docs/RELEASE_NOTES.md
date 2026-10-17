@@ -26,6 +26,8 @@ The [0.1.6 notes](RELEASE-0.1.6.md) also cover address suggestions, the site-inf
 
 See [user guide](USER_GUIDE.md), [security](SECURITY.md#native-browsing-features) and [testing](TESTING.md#browser-essentials-candidate).
 
+The [0.1.6 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.6) publishes both unsigned formats and their checksums as the latest regular release. The four files were built, packaged and tested locally with the codec-enabled engine; the [publication record](test-results/release-0.1.6-publication.json) binds the uploaded digests to that build and its test reports.
+
 ## 0.1.5
 
 The [0.1.5 notes](RELEASE-0.1.5.md) also cover the toolbar resize repaint fix and the release checks.

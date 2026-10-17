@@ -1,0 +1,365 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.6",
+  "capturedUtc": "2026-10-17T08:43:35Z",
+  "publishedUtc": "2026-10-17T08:39:55Z",
+  "passed": true,
+  "sourceCommit": "4ef7617a67b5f7b7657de109a5737ca12bad42c7",
+  "sourceTree": "92d038ae255c18b87fcb070b51b6d9ccdf42bb69",
+  "builtFromCommit": "24e41d5af0d4fb33e8640ee003b4a201f2718adf",
+  "builtTreeMatchesSource": true,
+  "tag": "v0.1.6",
+  "tagKind": "lightweight, pointing directly at the source commit",
+  "url": "https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.6",
+  "releaseId": 415681190,
+  "draft": false,
+  "prerelease": false,
+  "latest": true,
+  "publicationPath": "Built, packaged and tested locally with the codec-enabled CEF engine, uploaded as a draft, checked against the local files' sizes and SHA-256, then published. Hosted CI builds only the stock engine, so its artifacts were not published.",
+  "codecLicensing": "The maintainer stated before publication that codec licensing for distributing H.264/AAC had been handled. This record does not verify it.",
+  "pullRequests": [
+    {
+      "number": 26,
+      "url": "https://github.com/Xero-05/xenon-browser/pull/26",
+      "mergeCommit": "6495875f6aa3dc6e9d16e76a939857b9a518bd90",
+      "purpose": "Address suggestions and site-information button"
+    },
+    {
+      "number": 27,
+      "url": "https://github.com/Xero-05/xenon-browser/pull/27",
+      "mergeCommit": "1afcc89190d16b0eaf9c883cbaea514b1ae6ce79",
+      "purpose": "H.264/AAC engine source build and website video validation"
+    },
+    {
+      "number": 28,
+      "url": "https://github.com/Xero-05/xenon-browser/pull/28",
+      "mergeCommit": "0a5c06eae2c8ad8066c52c6bbb66641fd6769633",
+      "purpose": "Certificate warning links stay in Xenon"
+    },
+    {
+      "number": 29,
+      "url": "https://github.com/Xero-05/xenon-browser/pull/29",
+      "mergeCommit": "7a2da7f5a534c1394e7295a71de59cf04f7e82e3",
+      "purpose": "Full screen, app links, screen sharing, default browser, bookmarks, history, import and Settings"
+    },
+    {
+      "number": 30,
+      "url": "https://github.com/Xero-05/xenon-browser/pull/30",
+      "mergeCommit": "03c693ec174dca30bfda2a96b2a68e6fd6678f60",
+      "purpose": "Agent cursor glow and sidebar hover"
+    },
+    {
+      "number": 31,
+      "url": "https://github.com/Xero-05/xenon-browser/pull/31",
+      "mergeCommit": "867c3093bcfc9d8d80ba9402628f5687708bf631",
+      "purpose": "Agent help requests (xenon_attention)"
+    },
+    {
+      "number": 32,
+      "url": "https://github.com/Xero-05/xenon-browser/pull/32",
+      "mergeCommit": "4ef7617a67b5f7b7657de109a5737ca12bad42c7",
+      "purpose": "Version bump, notes, READMEs and screenshots, codec-enabled packages, and the PowerShell 5.1 ZIP fix"
+    }
+  ],
+  "assets": [
+    {
+      "name": "Xenon-0.1.6-windows-x64-setup-unsigned.exe",
+      "size": 206953747,
+      "digest": "sha256:5a79a2a67ff18d102bbacdb05e016d2025c64c8e1ac64d4222b0325941a17237",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.6-windows-x64-setup-unsigned.exe.sha256",
+      "size": 109,
+      "digest": "sha256:4b335fb85a27a12dfd0b87df6122a50b6ed4ad7656c1885289ec21c7c798b922",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.6-windows-x64-unsigned.zip",
+      "size": 233818592,
+      "digest": "sha256:33e065f02377683939d954f02f9da0616deabb8d088b15e1f586cdb99db3463d",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.6-windows-x64-unsigned.zip.sha256",
+      "size": 103,
+      "digest": "sha256:99479164ffb40cf7ced05657f037bfc7bbbd34b8eec8b0912e1fcfc558f91ea6",
+      "state": "uploaded"
+    }
+  ],
+  "assetVerification": "The four local files were uploaded to a draft release; each published size and GitHub digest equals the local file's size and SHA-256. After publication all four were downloaded again with gh release download into a scratch directory, both .sha256 files checked their assets, and scripts/verify-package.ps1 passed on the downloaded ZIP, verifying its checksum and all 1325 manifest hashes.",
+  "binaries": {
+    "source": "release-manifest.json inside the published ZIP; every listed hash verified by verify-package.ps1.",
+    "manifestFiles": 1325,
+    "productionExecutableSha256": "a3fe0376d5d8a826d1b1320c0dc64414aae3e8a41fe1f258de08f4065302b28e",
+    "productionDllSha256": "83bdb774ad6f0c735fd7d6636cea6c565c7a4f12f495f59630f28d3ddba0db43",
+    "cefDllSha256": "b34071176b690d9a4509dfafce37d6685677efbc4833b806a196177fe0743c1f",
+    "cefEngine": "Codec-enabled source build of the pinned revisions (cef.mediaSourceBuild); libcef.dll equals the one in the 2026-10-16 website video record."
+  },
+  "localBuild": {
+    "machine": "Windows 11 Pro 10.0.26200 x64, Windows PowerShell 5.1, Windows dark app mode",
+    "cefRoot": "cef_binary_154.0.34+g14c5a08+chromium-154.0.8037.98_windows64_minimal from the local cef.mediaSourceBuild output",
+    "build": {
+      "command": "./scripts/build.ps1 -CefRoot <codec-enabled distribution> -Test",
+      "commit": "24e41d5af0d4fb33e8640ee003b4a201f2718adf",
+      "passed": true
+    },
+    "unit": [
+      {
+        "name": "native",
+        "report": "native-tests.xml",
+        "passed": true,
+        "checks": 19,
+        "reportSha256": "5507e8c94d45c0a6190cad8fdbcaa95b24c5813dd8fc7eed77641fc247845626"
+      },
+      {
+        "name": "adapter",
+        "report": "adapter-tests.xml",
+        "passed": true,
+        "checks": 22,
+        "reportSha256": "eadf0016c8d78ca6124d5ee9b700b213e0e64ce47260bdb78c904cb72f33e998"
+      },
+      {
+        "name": "login-capture",
+        "report": "login-capture-tests.xml",
+        "passed": true,
+        "checks": 42,
+        "reportSha256": "74fadfda3977eb9d5e7724957c8acc8667828534706605e9deb99b132535db1f"
+      },
+      {
+        "name": "human-autofill",
+        "report": "human-autofill-tests.xml",
+        "passed": true,
+        "checks": 31,
+        "reportSha256": "81bd0ad7542047e88b630bc470f37fa4f5652f82dfa0c596a0ee20d24275a946"
+      },
+      {
+        "name": "protected-login",
+        "report": "protected-login-tests.xml",
+        "passed": true,
+        "checks": 10,
+        "reportSha256": "75705ccdc6eb3271633b319f9a80567a0d048b1a1ae38f21e950dfcac4c944b0"
+      },
+      {
+        "name": "form-fill",
+        "report": "form-fill-tests.xml",
+        "passed": true,
+        "checks": 6,
+        "reportSha256": "2168fe10ecc239ef277f158a2fbcae405f9d1837d2de244907825f57e4fdb973"
+      },
+      {
+        "name": "passkey-guard",
+        "report": "passkey-guard-tests.xml",
+        "passed": true,
+        "checks": 8,
+        "reportSha256": "291dd5900664cd5abaaa3cfbd84a018e4bf58451a65ae35de5b6245e4ef725db"
+      },
+      {
+        "name": "branding",
+        "report": "branding-results.json",
+        "passed": true,
+        "checks": 5,
+        "reportSha256": "79c76af04655329190291b07baf5ce3633ccd3111e0eee77d676bad1eea637c8"
+      }
+    ],
+    "packageVerification": {
+      "command": "./scripts/verify-package.ps1",
+      "passed": true,
+      "manifestFilesVerified": 1325,
+      "earlierFailure": "The first package of 455aa8c failed with \"Unexpected archive path\": under Windows PowerShell 5.1, ZipFile wrote backslash entry names. 24e41d5 turns that off, and the rebuilt package verified. The rejected archive was deleted unpublished."
+    },
+    "isolatedInstaller": {
+      "command": "./tests/installer-tests.ps1",
+      "passed": true,
+      "checks": 50,
+      "source": "local log; the suite writes no report file"
+    },
+    "installerBuild": {
+      "command": "./scripts/build-installer.ps1",
+      "passed": true
+    },
+    "packageSmoke": {
+      "command": "node tests/package-smoke.mjs <extracted ZIP>",
+      "passed": true,
+      "checks": 6,
+      "applicationDllSha256": "83bdb774ad6f0c735fd7d6636cea6c565c7a4f12f495f59630f28d3ddba0db43",
+      "report": "package-smoke-1792225907407.json",
+      "reportSha256": "e70e4d49713fd03f1f651e59d88a2187b6d126fb15e88695b6cc0c19f379417c",
+      "earlierFailure": {
+        "report": "package-smoke-1792225807388.json",
+        "reportSha256": "cb029b8a61c1c23ff2a33ee82ee9344a53bfb278da0f3dc47e74c941880a25e3",
+        "failedCheck": "Packaged browser observes and performs a verified page action",
+        "error": "xenon_tab_create returned controller_unavailable (\"The tab exists but its controller did not initialize.\") about 13 s after the request; branding and adapter connection had passed. The unchanged package passed all six checks on the next run. The cause was not determined."
+      }
+    },
+    "liveSuites": {
+      "binding": "Xenon.exe, Xenon.dll and libcef.dll in build/app/Release were required to equal the extracted package before the suites ran, and Xenon.dll was rechecked unchanged after them; every report records this DLL.",
+      "applicationDllSha256": "83bdb774ad6f0c735fd7d6636cea6c565c7a4f12f495f59630f28d3ddba0db43",
+      "passed": true,
+      "checks": 61,
+      "suites": [
+        {
+          "name": "integration",
+          "checks": 17,
+          "passed": true,
+          "report": "integration-results.json",
+          "reportSha256": "2f108fea76edee0c8d5f77ca74ef9a3d4e2fe80f9f2460e9eb560ccab7557ac1"
+        },
+        {
+          "name": "batch-integration",
+          "checks": 7,
+          "passed": true,
+          "report": "batch-1792225979918-91663d58.json",
+          "reportSha256": "ca1ac24403aca540b483014b4d255a19731eb09b5bf7f111af68167b0af9f50c"
+        },
+        {
+          "name": "visibility-integration",
+          "checks": 11,
+          "passed": true,
+          "report": "visibility-integration-results.json",
+          "reportSha256": "70a84e8cf6a0000b2b9d00552f0cfa41a58c818ad3eb3b9390ce056c004b2356"
+        },
+        {
+          "name": "worker-lifecycle-integration",
+          "checks": 4,
+          "passed": true,
+          "report": "worker-lifecycle-integration-results.json",
+          "reportSha256": "d1cfd772f48b6fa6a035b44d73200a99de47390164fa471b0053a41e42a95e92"
+        },
+        {
+          "name": "upload-entry-integration",
+          "checks": 11,
+          "passed": true,
+          "report": "upload-entry-1792226017875-1ecaedfc.json",
+          "reportSha256": "a773fc583b9487c8b3659c5cd808a5ff32bde8e7c3e72be84751f6caba87ca85"
+        },
+        {
+          "name": "persistence-integration",
+          "checks": 3,
+          "passed": true,
+          "report": "persistence-integration-results.json",
+          "reportSha256": "26048270b4965734ff2a3fb45d46ef4f329fc05f3a94ac86290e09e0195fc153"
+        },
+        {
+          "name": "theme-integration",
+          "checks": 4,
+          "passed": true,
+          "report": "theme-integration-1792226078630-4e5e741a.json",
+          "reportSha256": "9873feebc3b48a7a539eb8df8a4a316bbcd2fa1b16b810f9c16d660b16b25f3f",
+          "windowsAppMode": "dark"
+        },
+        {
+          "name": "passkey-integration",
+          "checks": 4,
+          "passed": true,
+          "report": "passkey-integration-1792226096135-2d94d857.json",
+          "reportSha256": "890a963f71c8c7dc0820ee7d2ea83ea4ed9b8d69fff5bb0c5d191376cf10f704"
+        }
+      ]
+    },
+    "media": [
+      {
+        "name": "h264-aac",
+        "command": "node tests/media-integration.mjs --require-h264",
+        "passed": true,
+        "report": "media-integration-1792226103687-e1c0072f.json",
+        "reportSha256": "26847a48e3f5e5f89e476f9e896eaea827ef005d0b4e6aa7cb600499eac192e4",
+        "playback": {
+          "time": 0.471717,
+          "frames": 10,
+          "width": 320,
+          "height": 180,
+          "error": null
+        },
+        "aacRms": 0.08810564172025234,
+        "mediaSourceStreaming": {
+          "time": 0.661634,
+          "frames": 13,
+          "error": null
+        },
+        "coverage": "Synthetic H.264/AAC MP4 playback, AAC waveform decode, Media Source playback, pause, seek and volume. No physical input, audible output or DRM validation."
+      },
+      {
+        "name": "webm-vp8",
+        "command": "node tests/media-integration.mjs",
+        "passed": true,
+        "report": "media-integration-1792226111108-7120ed9c.json",
+        "reportSha256": "c4e010dd3bd2e8b90bea6c2fa8303b99861ddaad7cf20be073d9f51a3412e6c3",
+        "playback": {
+          "time": 0.690979,
+          "frames": 14,
+          "width": 320,
+          "height": 180,
+          "error": null
+        },
+        "coverage": "Synthetic VP8 decode, pause, seek and volume; codec capability declarations. No physical input, audible output, H.264 decode or DRM validation."
+      }
+    ],
+    "notRun": [
+      "Address-suggestion, site-information, browser-essentials, agent-gate, language, introduction and auth-fixture suites were not rerun for this release.",
+      "npm test, which adds the certificate-warning and pointer-target script tests, last ran locally on 867c309 with the version bump (137 passed); hosted CI ran it on the source commit.",
+      "The bootstrap downloader tests need PowerShell 7, which this machine lacks; hosted CI runs them."
+    ]
+  },
+  "hostedCi": {
+    "note": "Stock-engine builds of the same source; their artifacts were not published.",
+    "pullRequestRun": {
+      "url": "https://github.com/Xero-05/xenon-browser/actions/runs/39017376654",
+      "headSha": "24e41d5af0d4fb33e8640ee003b4a201f2718adf",
+      "conclusion": "success"
+    },
+    "mainPushRun": {
+      "url": "https://github.com/Xero-05/xenon-browser/actions/runs/39018123731",
+      "headSha": "4ef7617a67b5f7b7657de109a5737ca12bad42c7",
+      "conclusionAtCapture": "in_progress"
+    }
+  },
+  "dependencies": {
+    "unchanged": true,
+    "basis": "dependencies.lock.json, including cef.mediaSourceBuild, is byte-identical at 867c309 and the source commit; package-lock.json changes only the root package version.",
+    "cef": {
+      "version": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+      "archive": "cef_binary_154.0.34+g14c5a08+chromium-154.0.8037.98_windows64_minimal.tar.bz2",
+      "sha1": "be54bbaf3222191dec59ffd9c9ec7e8a7f44a26d",
+      "sha256": "c81c34d048d87276f4a18f0b000206710a1709bb67dd658948b87100e1a538da",
+      "mediaSourceBuild": {
+        "cefCommit": "14c5a089e8452874cb1a556dc3fde26ed2d87723",
+        "chromiumCommit": "b859317bf11f6be47f9b7799ec690a0a42a1fb33",
+        "branch": "8037",
+        "depotToolsCommit": "382c208a9973e1a6c0867b6d8664dc6dc9116e30",
+        "automateSha256": "fe0c880fd2a91ac3ab4c82301f596295cecc1901e503507e36300a5b58578dcd",
+        "windowsSdk": "10.0.28000.0",
+        "gnDefines": "is_official_build=true use_thin_lto=false chrome_pgo_phase=0 symbol_level=0 proprietary_codecs=true ffmpeg_branding=Chrome"
+      }
+    }
+  },
+  "cefMaintenance": {
+    "checkedUtc": "2026-10-17T07:49:03Z",
+    "indexSource": "https://cef-builds.spotifycdn.com/index.json",
+    "indexBytes": 10522887,
+    "indexSha256": "8a073b4dc44372c0ae9b72da5c5db59cd14b64cd8753d3e01cccf6b6c58df7ce",
+    "highestStableObserved": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "pinnedVersion": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "pinnedPresent": true,
+    "pinnedArchiveSha1MatchesIndex": true,
+    "highestBetaObserved": "156.0.7+g47dbc1d+chromium-156.0.8078.17",
+    "cef156Channels": [
+      "beta"
+    ],
+    "chromeWindowsStable": {
+      "source": "https://versionhistory.googleapis.com/v1/chrome/platforms/win64/channels/stable/versions",
+      "version": "156.0.8078.36"
+    },
+    "note": "The release retains the upstream CEF security-update lag and does not claim parity with current Chrome."
+  },
+  "coverage": "Local build and tests with the published binaries on synthetic loopback fixtures and disposable profiles, plus re-verification of the downloaded release. No operator-driven check or native update download ran for this record.",
+  "limits": [
+    "Hosted CI cannot reproduce these binaries because it builds the stock engine; reproducing them needs the multi-hour cef.mediaSourceBuild source build.",
+    "Video was checked only with synthetic loopback MP4 and WebM fixtures: no real website, audible speaker output, physical player input or DRM. Widevine is not included.",
+    "Full screen was not entered, screen sharing was not allowed, the Import window was not opened and Windows Default apps registration was not exercised; help requests have no live suite.",
+    "Native update discovery and download of 0.1.6 from an earlier version were not exercised.",
+    "Physical input, high contrast, other DPI, assistive technology and real accounts remain unverified.",
+    "Downloads are unsigned; hashes establish byte integrity, not publisher identity."
+  ],
+  "privacy": "Synthetic local reports only. The user's installed browser and profile were not tested, modified or replaced; no tokens, raw calls, browsing logs, vault data or screenshots are recorded."
+}
