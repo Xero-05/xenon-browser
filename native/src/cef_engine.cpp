@@ -15,6 +15,7 @@
 #include "xenon/protected_login.hpp"
 #include "xenon/passkey_guard.hpp"
 #include "xenon/site_info.hpp"
+#include "xenon/external_protocol.hpp"
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
@@ -71,6 +72,12 @@ class Completion final : public CefCompletionCallback {
   std::function<void()> fn_;
   IMPLEMENT_REFCOUNTING(Completion);
 };
+class ImageDownload final : public CefDownloadImageCallback {
+ public:
+  explicit ImageDownload(std::function<void(CefRefPtr<CefImage>)> done):done_(std::move(done)){}
+  void OnDownloadImageFinished(const CefString&,int,CefRefPtr<CefImage> image)override{auto done=std::move(done_);if(done)try{done(image);}catch(...){}}
+ private:std::function<void(CefRefPtr<CefImage>)> done_;IMPLEMENT_REFCOUNTING(ImageDownload);
+};
 class PdfCompletion final : public CefPdfPrintCallback {
  public:
   explicit PdfCompletion(Reply reply):reply_(std::move(reply)){}
@@ -125,6 +132,17 @@ class SiteCookies final : public CefCookieVisitor {
  private:
   std::string host_;bool erase_;std::set<std::string> keys_;std::function<void(Json,int)> done_;Json cookies_=Json::array();int matched_{};
   IMPLEMENT_REFCOUNTING(SiteCookies);
+};
+// Deletes a workspace's cookies created at or after `since` (CEF base time;
+// 0 deletes all) for native Clear browsing data. Values are never read.
+class CookieSweep final : public CefCookieVisitor {
+ public:
+  CookieSweep(int64_t since,std::function<void(int)> done):since_(since),done_(std::move(done)){}
+  ~CookieSweep()override{if(done_)try{done_(count_);}catch(...){}}
+  bool Visit(const CefCookie& cookie,int,int,bool& remove)override{if(!since_||cookie.creation.val>=since_){remove=true;++count_;}return true;}
+ private:
+  int64_t since_;std::function<void(int)> done_;int count_{};
+  IMPLEMENT_REFCOUNTING(CookieSweep);
 };
 std::string nonce() {
   unsigned char bytes[16];
@@ -190,6 +208,11 @@ struct Tab {
   std::string security,security_url;std::chrono::steady_clock::time_point security_checked{};
   // The main frame shows Chromium's certificate warning instead of a page.
   bool certificate_warning=false;
+  // Native chrome only: the page's fullscreen request, its site icon as
+  // premultiplied BGRA and whether the page captures the screen.
+  bool page_fullscreen=false;
+  std::string favicon_url,favicon_origin;std::vector<unsigned char> favicon;int favicon_width{},favicon_height{};uint64_t favicon_revision{},favicon_generation{};
+  bool screen_capture=false,media_video=false,media_audio=false,external_prompt=false,share_prompt=false;
   uint64_t epoch = 1;
   std::string document = nonce();
   std::string observation;
@@ -396,6 +419,38 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   std::function<void(const std::string&)> host_closed_;
   std::function<bool(const std::string&)> download_allowed_;
   std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> permission_;
+  std::function<void(const std::string&,bool)> fullscreen_;
+  std::function<void(const std::string&,const std::string&,const std::string&,const std::string&,bool,std::function<void(bool)>)> external_link_;
+  std::function<void(const std::string&,const std::string&,bool,std::function<void(bool)>)> screen_share_;
+  // A website link for another app. Only the person's own page input, or a tab
+  // the person controls, can reach the native prompt; nothing opens without it.
+  void external_link(const std::shared_ptr<Tab>& t,CefRefPtr<CefFrame> frame,const std::string& url,bool gesture){
+    const auto scheme=external::scheme(url);
+    if(scheme.empty()||t->closed||t->protected_auth||removed_workspaces_.contains(t->workspace)||!external_link_||t->external_prompt)return;
+    if(!frame||(!frame->IsMain()&&!gesture))return;
+    const bool human=passkey_human_controls_&&passkey_human_controls_(t->id);
+    const bool permitted=t->passkey.allow(human,false,PasskeyGate::Clock::now());
+    // The prompt names the document that asked, which may be an embedded frame.
+    auto origin=site::origin(frame->GetURL().ToString());if(origin.empty())origin=site::origin(t->browser->GetMainFrame()->GetURL().ToString());
+    if(permitted)t->external_prompt=true;
+    external_link_(t->id,origin,url,scheme,permitted,[weak=weak_from_this(),t](bool){on_ui([weak,t]{if(weak.lock())t->external_prompt=false;});});
+  }
+  // getDisplayMedia in an Alloy host shares every display; there is no source
+  // picker. Only a tab the person controls, or the person's own recent input
+  // in it, reaches the native prompt. Agents get no screenshots of the tab
+  // while it captures, since the page can show the shared screen.
+  void screen_share(const std::shared_ptr<Tab>& t,const std::string& origin,uint32_t mask,CefRefPtr<CefMediaAccessCallback> callback){
+    constexpr uint32_t desktop=CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE|CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE,device=CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE|CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE;
+    const bool human=passkey_human_controls_&&passkey_human_controls_(t->id);
+    if(!(mask&CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE)||(mask&device)||!screen_share_||t->closed||t->protected_auth||t->share_prompt||removed_workspaces_.contains(t->workspace)||
+       !t->passkey.allow(human,false,PasskeyGate::Clock::now())){callback->Cancel();return;}
+    t->share_prompt=true;const auto epoch=t->epoch;
+    screen_share_(t->id,origin,(mask&CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE)!=0,[weak=weak_from_this(),t,epoch,mask,callback](bool allowed){on_ui([weak,t,epoch,mask,callback,allowed]{
+      const auto self=weak.lock();t->share_prompt=false;
+      if(self&&allowed&&!t->closed&&t->epoch==epoch&&!t->protected_auth){t->screen_capture=true;t->screenshot.clear();callback->Continue(mask&desktop);}else callback->Cancel();});});
+  }
+  void site_icon_cleared(const std::shared_ptr<Tab>& t){++t->favicon_generation;t->favicon_url.clear();if(!t->favicon.empty()){t->favicon.clear();t->favicon_width=t->favicon_height=0;++t->favicon_revision;}}
+  void download_site_icon(const std::shared_ptr<Tab>& t,const std::string& url);
   std::function<void(const std::string&,CefWindowHandle)> save_prompt_;
   std::function<void(const Json&,CefWindowHandle)> autofill_prompt_;
   std::map<std::string,std::shared_ptr<AutofillOffer>> autofill_offers_;
@@ -972,15 +1027,28 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler()override{return this;}
   CefRefPtr<CefDisplayHandler> GetDisplayHandler()override{return this;}
   void OnTitleChange(CefRefPtr<CefBrowser> b,const CefString& title)override{if(auto o=owner_.lock())if(auto t=o->find(b))t->title=clip(title.ToString());}
+  // Without a declared icon, Chromium's default /favicon.ico is tried.
+  void OnFaviconURLChange(CefRefPtr<CefBrowser> b,const std::vector<CefString>& urls)override{
+    if(auto o=owner_.lock())if(auto t=o->find(b)){std::string chosen;
+      for(const auto& value:urls){const auto url=value.ToString();if(url.size()<=8192&&(web_url(url)||url.rfind("data:image/",0)==0)&&url!="about:blank"){chosen=url;break;}}
+      if(chosen.empty())if(const auto origin=site::origin(b->GetMainFrame()->GetURL().ToString());!origin.empty())chosen=origin+"/favicon.ico";
+      if(chosen.empty())o->site_icon_cleared(t);else o->download_site_icon(t,chosen);
+    }
+  }
+  // Alloy hosts resize their own window for page fullscreen; the shell does
+  // this only for a selected tab the person controls.
+  void OnFullscreenModeChange(CefRefPtr<CefBrowser> b,bool fullscreen)override{if(auto o=owner_.lock())if(auto t=o->find(b)){t->page_fullscreen=fullscreen;if(o->fullscreen_)o->fullscreen_(t->id,fullscreen);}}
+  // Screen capture ends with the page's last video stream.
+  void OnMediaAccessChange(CefRefPtr<CefBrowser> b,bool video,bool audio)override{if(auto o=owner_.lock())if(auto t=o->find(b)){t->media_video=video;t->media_audio=audio;if(!video)t->screen_capture=false;}}
   bool OnConsoleMessage(CefRefPtr<CefBrowser>,cef_log_severity_t,const CefString&,const CefString&,int)override{
     // A site can echo typed credentials to its console. Never forward page
     // console content into native logs or MCP observations.
     return true;
   }
-  bool OnBeforePopup(CefRefPtr<CefBrowser> b,CefRefPtr<CefFrame>,int popup_id,const CefString& target,const CefString&,
-                    CefLifeSpanHandler::WindowOpenDisposition,bool,const CefPopupFeatures&,CefWindowInfo& window_info,
+  bool OnBeforePopup(CefRefPtr<CefBrowser> b,CefRefPtr<CefFrame> frame,int popup_id,const CefString& target,const CefString&,
+                    CefLifeSpanHandler::WindowOpenDisposition,bool gesture,const CefPopupFeatures&,CefWindowInfo& window_info,
                     CefRefPtr<CefClient>& client,CefBrowserSettings&,CefRefPtr<CefDictionaryValue>&,bool*)override {
-    if(!target.empty()&&!web_url(target.ToString()))return true;
+    if(!target.empty()&&!web_url(target.ToString())){if(auto o=owner_.lock())if(auto t=o->find(b))o->external_link(t,frame,target.ToString(),gesture);return true;}
     if(auto o=owner_.lock())if(auto t=o->find(b)){
       if(o->removed_workspaces_.contains(t->workspace))return true;
       const auto id=nonce();client=new Client(owner_,t->workspace,id,t->id);
@@ -1012,6 +1080,8 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
     if(!frame||!frame->IsMain())return;
     if(auto o=owner_.lock())if(auto t=o->find(b)){
       t->certificate_warning=false;
+      // Another site's icon must not stay beside the new page.
+      if(const auto origin=site::origin(frame->GetURL().ToString());origin!=t->favicon_origin){t->favicon_origin=origin;o->site_icon_cleared(t);}
       if(t->prune_initial_history&&frame->GetURL().ToString()!="about:blank"){
         t->prune_initial_history=false;o->send(t,"Page.resetNavigationHistory",Json::object(),[](Json){});
       }
@@ -1028,7 +1098,7 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
     }
   }
   void OnGotFocus(CefRefPtr<CefBrowser> b)override{if(auto o=owner_.lock())if(auto t=o->find(b))if(o->active_tab_==t->id)o->active_windows_[GetAncestor(b->GetHost()->GetWindowHandle(),GA_ROOT)]=t->id;}
-  bool OnBeforeBrowse(CefRefPtr<CefBrowser>,CefRefPtr<CefFrame> frame,CefRefPtr<CefRequest> request,bool,bool)override {
+  bool OnBeforeBrowse(CefRefPtr<CefBrowser> b,CefRefPtr<CefFrame> frame,CefRefPtr<CefRequest> request,bool gesture,bool)override {
     const auto url=request->GetURL().ToString();
     // Chromium password management is replaced by the Xenon vault.
     if(url.rfind("chrome://password-manager",0)==0||url.rfind("chrome://settings/passwords",0)==0) {
@@ -1040,6 +1110,9 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
       // A human-installed extension's own pages are allowed; agent reads and
       // input refuse every non-web page in exec().
       if(auto o=owner_.lock();o&&o->extension_url(url))return false;
+      // Links for other apps never navigate the tab; at most they reach the
+      // person as a native prompt.
+      if(auto o=owner_.lock())if(auto t=o->find(b))o->external_link(t,frame,url,gesture);
       return true;
     }
     return false;
@@ -1132,7 +1205,7 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
   bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame>,const CefString& origin,uint32_t mask,CefRefPtr<CefMediaAccessCallback> callback)override {
     if(auto owner=owner_.lock())if(auto tab=owner->find(browser))if(owner->permission_){
       const auto epoch=tab->epoch;std::string description="Media access";
-      if(mask&(CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE|CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE)){callback->Cancel();return true;}
+      if(mask&(CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE|CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE)){owner->screen_share(tab,origin.ToString(),mask,callback);return true;}
       if(mask&CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE)description="Camera";
       if(mask&CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE)description+=description=="Camera"?" and microphone":": microphone";
       owner->permission_(tab->id,origin.ToString(),ui::tr8(description.c_str()),[tab,epoch,mask,callback](bool allowed){if(allowed&&!tab->closed&&tab->epoch==epoch)callback->Continue(mask);else callback->Cancel();});return true;
@@ -1152,6 +1225,21 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
   IMPLEMENT_REFCOUNTING(Client);
 };
 
+// Site icons are website images shown only in native chrome. Favicon requests
+// carry no cookies; the bitmap is bounded and replaced as the page changes.
+void CefEngine::Impl::download_site_icon(const std::shared_ptr<Tab>& t,const std::string& url){
+  if(url==t->favicon_url&&!t->favicon.empty())return;
+  const auto generation=++t->favicon_generation;t->favicon_url=url;
+  const float scale=std::clamp(static_cast<float>(t->native_host?GetDpiForWindow(t->native_host):96)/96.0f,1.0f,3.0f);
+  t->browser->GetHost()->DownloadImage(url,true,16,false,new ImageDownload([weak=weak_from_this(),t,generation,scale](CefRefPtr<CefImage> image){
+    if(!weak.lock()||t->closed||t->favicon_generation!=generation||!image||image->IsEmpty())return;
+    int width{},height{};auto bitmap=image->GetAsBitmap(scale,CEF_COLOR_TYPE_BGRA_8888,CEF_ALPHA_TYPE_PREMULTIPLIED,width,height);
+    if(!bitmap)bitmap=image->GetAsBitmap(1.0f,CEF_COLOR_TYPE_BGRA_8888,CEF_ALPHA_TYPE_PREMULTIPLIED,width,height);
+    if(!bitmap||width<=0||height<=0||width>128||height>128||bitmap->GetSize()!=static_cast<size_t>(width)*height*4)return;
+    t->favicon.assign(bitmap->GetSize(),0);bitmap->GetData(t->favicon.data(),t->favicon.size(),0);
+    t->favicon_width=width;t->favicon_height=height;++t->favicon_revision;
+  }));
+}
 void CefEngine::Impl::create(const Json& p,Reply reply,std::function<bool()> permit) {
   auto workspace=field(p,"workspaceId","human-default"),id=field(p,"tabId",nonce()),url=field(p,"url","about:blank");
   if(removed_workspaces_.contains(workspace)){reply(failure("workspace_removed","This workspace was removed."));return;}
@@ -2132,6 +2220,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   }
   if(command=="page.screenshot"){
     if(t->guards.size()<t->sessions.size()+1){reply(failure("privacy_guard_initializing","The credential guard is not ready to capture this page."));return;}
+    if(t->screen_capture){reply(failure("screen_sharing","This tab is sharing the person's screen. Screenshots are withheld until sharing stops."));return;}
     struct Scan {size_t pending;bool secret=false,failed=false;};auto scan=std::make_shared<Scan>();
     std::vector<std::string> sessions={""};for(auto& [id,f]:t->sessions)sessions.push_back(id);scan->pending=sessions.size();
     for(const auto& session:sessions)send(t,"DOM.getDocument",{{"depth",-1},{"pierce",true}},[this,t,scan,reply](Json dom){
@@ -2153,7 +2242,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
         auto vp=metrics.value("cssVisualViewport",Json::object());auto layout=metrics.value("cssLayoutViewport",Json::object());
         const auto captured_at=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         send(t,"Page.captureScreenshot",{{"format","png"},{"fromSurface",true},{"captureBeyondViewport",false}},[t,epoch,vp,layout,captured_at,reply](Json r){
-          if(!cdp_ok(r)||!r.contains("data")||t->epoch!=epoch||t->protected_auth){reply(failure("screenshot_failed","The screenshot could not be safely captured."));return;}
+          if(!cdp_ok(r)||!r.contains("data")||t->epoch!=epoch||t->protected_auth||t->screen_capture){reply(failure("screenshot_failed","The screenshot could not be safely captured."));return;}
           const auto png=CefBase64Decode(r["data"].get<std::string>());unsigned char header[24]{};
           if(!png||png->GetSize()<24||png->GetData(header,sizeof(header),0)!=sizeof(header)||header[0]!=137||header[1]!=80||header[2]!=78||header[3]!=71){reply(failure("screenshot_failed","The image dimensions could not be verified."));return;}
           auto dimension=[&](int at){return (static_cast<uint32_t>(header[at])<<24)|(static_cast<uint32_t>(header[at+1])<<16)|(static_cast<uint32_t>(header[at+2])<<8)|header[at+3];};
@@ -2491,6 +2580,7 @@ void CefEngine::native_command(const std::string& id,const std::string& command,
     if(command=="focus"){if(owner->active_tab_==id)host->SetFocus(true);return;}
     if(command=="close"){host->CloseBrowser(false);return;}
     if(command=="find-close"){host->StopFinding(true);return;}
+    if(command=="exit-fullscreen"){if(tab->page_fullscreen)host->ExitFullscreen(true);if(reply)reply(success());return;}
     if(command=="mute"||command=="unmute"){host->SetAudioMuted(command=="mute");if(reply)reply(success());return;}
     // The tab host moved to another native window. Chromium dismisses popups
     // anchored to the old position; the page itself is not reloaded or resized.
@@ -2564,6 +2654,29 @@ void CefEngine::clear_site_data(const std::string& id,const std::string& origin,
     owner->send(t,"Storage.clearDataForOrigin",{{"origin",origin},{"storageTypes","all"}},[reply,count](Json result){reply(success({{"deletedCookies",count},{"storageCleared",cdp_ok(result)}}));});};
   if(manager)manager->VisitAllCookies(new SiteCookies(site::host(origin),true,{},storage));else storage(Json::array(),0);
 }catch(...){reply(failure("site_data_unavailable","Site data could not be deleted."));}});}
+void CefEngine::clear_browsing_data(const std::string& workspace,int64_t since,bool cookies,bool storage,bool cache,std::vector<std::string> origins,Reply reply){
+  on_ui([owner=impl_,workspace,since,cookies,storage,cache,origins=std::move(origins),reply]{try{
+    if(owner->removed_workspaces_.contains(workspace)){reply(failure("workspace_removed","This workspace was removed."));return;}
+    const auto context=owner->contexts_.find(workspace);if(context==owner->contexts_.end()||!context->second){reply(failure("workspace_unavailable","Open a tab in this workspace, then try again."));return;}
+    // Like deleting one site's data: agent input pauses and evidence is stale.
+    std::shared_ptr<Tab> target;for(const auto& [id,t]:owner->tabs_)if(t->workspace==workspace&&!t->closed){owner->human_activity(t,false,false);if(!target)target=t;}
+    auto result=std::make_shared<Json>(Json{{"deletedCookies",0},{"storageCleared",false},{"cacheCleared",false}});
+    // Stored data and the cache are cleared through one of the workspace's own tabs.
+    const auto rest=[owner,target,cookies,storage,cache,origins,result,reply]{
+      if(!target||(!storage&&!cache)){reply(success(*result));return;}
+      auto pending=std::make_shared<size_t>(1);auto cleared=std::make_shared<bool>(true);
+      const auto settle=[pending,cleared,result,storage,reply]{if(--*pending)return;if(storage)(*result)["storageCleared"]=*cleared;reply(success(*result));};
+      if(storage)for(size_t n=0;n<origins.size()&&n<1000;++n){++*pending;
+        owner->send(target,"Storage.clearDataForOrigin",{{"origin",origins[n]},{"storageTypes",cookies?"all":"file_systems,indexeddb,local_storage,websql,service_workers,cache_storage"}},[cleared,settle](Json value){if(!cdp_ok(value))*cleared=false;settle();});}
+      if(cache){++*pending;owner->send(target,"Network.clearBrowserCache",Json::object(),[result,settle](Json value){(*result)["cacheCleared"]=cdp_ok(value);settle();});}
+      settle();
+    };
+    if(cookies)if(auto manager=context->second->GetCookieManager(nullptr)){
+      const int64_t threshold=since>0?(since+11644473600000LL)*1000:0;
+      manager->VisitAllCookies(new CookieSweep(threshold,[result,rest](int count){(*result)["deletedCookies"]=count;rest();}));return;}
+    rest();
+  }catch(...){reply(failure("clear_failed","Browsing data could not be cleared."));}});
+}
 void CefEngine::set_save_prompt_callback(std::function<void(const std::string&,CefWindowHandle)> f){impl_->save_prompt_=std::move(f);}
 void CefEngine::set_autofill_prompt_callback(std::function<void(const Json&,CefWindowHandle)> f){impl_->autofill_prompt_=std::move(f);}
 void CefEngine::request_autofill(const std::string& id,Reply reply){on_ui([p=impl_,id,reply]{
@@ -2668,7 +2781,14 @@ Json CefEngine::native_tabs(){Json result=Json::array();for(const auto& [id,t]:i
   {"pointerKnown",t->pointer_known},{"pointerX",t->pointer.x},{"pointerY",t->pointer.y},{"pointerRevision",t->pointer_revision},
   {"agentPointerRevision",t->agent_pointer_revision},{"pointerSyncRevision",t->pointer_sync_revision},{"humanPointerRevision",t->human_pointer_revision},
   {"privacyReady",t->guards.size()>=t->sessions.size()+1},{"muted",t->browser->GetHost()->IsAudioMuted()},
-  {"zoom",std::pow(1.2,t->browser->GetHost()->GetZoomLevel())},{"security",impl_->security(t)}});return result;}
+  {"zoom",std::pow(1.2,t->browser->GetHost()->GetZoomLevel())},{"security",impl_->security(t)},
+  {"faviconRevision",t->favicon_revision},{"pageFullscreen",t->page_fullscreen},{"screenCapture",t->screen_capture},{"mediaVideo",t->media_video},{"mediaAudio",t->media_audio}});return result;}
+bool CefEngine::site_icon(const std::string& id,SiteIcon& icon) const {
+  const auto found=impl_->tabs_.find(id);if(found==impl_->tabs_.end()||found->second->favicon.empty())return false;
+  icon.width=found->second->favicon_width;icon.height=found->second->favicon_height;icon.pixels=found->second->favicon;return true;}
+void CefEngine::set_fullscreen_callback(std::function<void(const std::string&,bool)> f){impl_->fullscreen_=std::move(f);}
+void CefEngine::set_external_link_callback(std::function<void(const std::string&,const std::string&,const std::string&,const std::string&,bool,std::function<void(bool)>)> f){impl_->external_link_=std::move(f);}
+void CefEngine::set_screen_share_callback(std::function<void(const std::string&,const std::string&,bool,std::function<void(bool)>)> f){impl_->screen_share_=std::move(f);}
 void CefEngine::answer_native_dialog(const std::string& id,bool accept,const std::string& text){on_ui([p=impl_,id,accept,text]{auto i=p->tabs_.find(id);if(i==p->tabs_.end()||!i->second->dialog)return;auto t=i->second;auto callback=t->dialog;t->dialog=nullptr;t->dialog_type.clear();t->dialog_message.clear();t->dialog_origin.clear();t->human_dialog=false;p->human_activity(t,t->human_gesture,false);callback->Continue(accept,text);});}
 CefRefPtr<CefClient> CefEngine::default_client(){return new Impl::Client(impl_,"human-default");}
 CefRefPtr<CefRequestContextHandler> CefEngine::default_context_handler(){return new Impl::ContextHandler;}

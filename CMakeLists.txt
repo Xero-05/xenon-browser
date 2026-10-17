@@ -98,7 +98,7 @@ if(XENON_BUILD_BROWSER)
   SET_LIBRARY_TARGET_PROPERTIES(Xenon)
   target_compile_options(Xenon PRIVATE /EHsc /WX- /utf-8)
   target_include_directories(Xenon PRIVATE "${CEF_ROOT}" native/include)
-  target_link_libraries(Xenon PRIVATE xenon_core libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} comdlg32 comctl32 cryptui dwmapi uxtheme gdiplus ole32 shell32 wtsapi32)
+  target_link_libraries(Xenon PRIVATE xenon_core libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} comdlg32 comctl32 cryptui dwmapi uxtheme gdiplus ole32 shell32 shlwapi wtsapi32)
   set_target_properties(Xenon PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/app" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/app")
   add_custom_command(TARGET Xenon POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CEF_ROOT}/Release" "$<TARGET_FILE_DIR:Xenon>"
@@ -115,7 +115,7 @@ if(XENON_BUILD_BROWSER)
     target_compile_options(XenonAuthTest PRIVATE /EHsc /WX- /utf-8)
     target_compile_definitions(XenonAuthTest PRIVATE XENON_TEST_FIXTURE_CERT_SHA256="ebd78c975821dd1c14acb73a864cc5d7641fb5af626a4a8ad6cca54692495e06")
     target_include_directories(XenonAuthTest PRIVATE "${CEF_ROOT}" native/include)
-    target_link_libraries(XenonAuthTest PRIVATE xenon_core libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} comdlg32 comctl32 cryptui dwmapi uxtheme gdiplus ole32 shell32 wtsapi32)
+    target_link_libraries(XenonAuthTest PRIVATE xenon_core libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} comdlg32 comctl32 cryptui dwmapi uxtheme gdiplus ole32 shell32 shlwapi wtsapi32)
     set_target_properties(XenonAuthTest PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/auth-fixture" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/auth-fixture")
     add_custom_command(TARGET XenonAuthTest POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_directory "${CEF_ROOT}/Release" "$<TARGET_FILE_DIR:XenonAuthTest>"

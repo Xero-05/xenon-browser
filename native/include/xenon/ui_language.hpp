@@ -344,7 +344,7 @@ inline constexpr Translation translations[]{
   {L"Copy link address",L"复制链接地址"},
   {L"Saved passwords for this site",L"此网站已保存的密码"},
   {L"Bookmark this tab",L"为此标签页添加书签"},
-  {L"Address suggestions",L"地址建议"},{L"Google Search",L"Google 搜索"},{L"History could not be updated.",L"无法更新历史记录。"},
+  {L"Address suggestions",L"地址建议"},{L"{0} Search",L"{0} 搜索"},{L"History could not be updated.",L"无法更新历史记录。"},
   {L"View site information",L"查看网站信息"},{L"Not secure",L"不安全"},{L"Site information",L"网站信息"},{L"Connection security",L"连接安全性"},
   {L"Connection is secure",L"连接是安全的"},{L"Connection is not secure",L"连接不安全"},{L"Connection is not fully secure",L"连接并非完全安全"},
   {L"Connection details are not available yet",L"连接详情暂不可用"},{L"Reload the page if this does not change.",L"如果此状态没有变化，请重新加载网页。"},
@@ -467,7 +467,45 @@ inline constexpr Translation translations[]{
   {L"The extension folder is larger than 128 MiB.",L"扩展文件夹大于 128 MiB。"},
   {L"The extension manifest is missing or too large.",L"扩展清单缺失或过大。"},
   {L"An extension file could not be inspected.",L"无法检查扩展文件。"},
-  {L"Extension settings could not be saved.",L"无法保存扩展设置。"}
+  {L"Extension settings could not be saved.",L"无法保存扩展设置。"},
+  // Full screen, site links for other apps and screen sharing.
+  {L"Press F11 to exit full screen.",L"按 F11 退出全屏。"},{L"Press Esc to exit full screen.",L"按 Esc 退出全屏。"},
+  {L"{0} is now full screen. Press Esc to exit.",L"{0} 已进入全屏。按 Esc 退出。"},{L"Full screen\tF11",L"全屏\tF11"},{L"Exit full screen\tF11",L"退出全屏\tF11"},
+  {L"Open link in another app",L"在其他应用中打开链接"},{L"Open app",L"打开应用"},{L"the {0} app",L"{0} 应用"},{L"this page",L"此页面"},
+  {L"A link to another app was blocked because it did not come from you.",L"已阻止打开其他应用的链接，因为该操作并非由您发起。"},
+  {L"No app is set up to open {0}: links.",L"没有可打开 {0}: 链接的应用。"},
+  {L"Website: {0}\n\nThis site wants to open {1} for a {2}: link:\n{3}\n\nOpen it only if you expected this. The app receives the whole link.",L"网站：{0}\n\n此网站想要使用 {1} 打开一个 {2}: 链接：\n{3}\n\n仅在您预期此操作时才打开。该应用会收到完整链接。"},
+  {L"Your entire screen",L"您的整个屏幕"},{L"Your entire screen and the sound playing on this computer",L"您的整个屏幕以及此电脑正在播放的声音"},
+  {L"\n\nXenon cannot share a single window or tab. The site sees everything on all of your displays, including other apps and notifications, until sharing stops. Agents cannot take screenshots of this tab while it shares your screen.\n\nAllow only if you intended to share your screen.",
+   L"\n\nXenon 无法只共享单个窗口或标签页。在停止共享之前，此网站可以看到您所有显示器上的全部内容，包括其他应用和通知。共享屏幕期间，代理无法截取此标签页的屏幕截图。\n\n仅在您确实想共享屏幕时才允许。"},
+  {L"Stop sharing your screen (reloads the page)",L"停止共享屏幕（将重新加载页面）"},
+  // Bookmarks, history, Clear browsing data, import and Settings.
+  {L"Settings",L"设置"},{L"Xenon Settings",L"Xenon 设置"},{L"Bookmarks\tCtrl+Shift+O",L"书签\tCtrl+Shift+O"},{L"Clear browsing data…\tCtrl+Shift+Del",L"清除浏览数据…\tCtrl+Shift+Del"},
+  {L"Import bookmarks and history…",L"导入书签和历史记录…"},{L"Import bookmarks and history",L"导入书签和历史记录"},{L"Clear browsing data",L"清除浏览数据"},{L"Clear browsing data…",L"清除浏览数据…"},
+  {L"Open",L"打开"},{L"Rename",L"重命名"},{L"Move to…",L"移动到…"},{L"Delete",L"删除"},{L"Import…",L"导入…"},{L"Import",L"导入"},{L"Visited",L"访问时间"},
+  {L"New folder",L"新建文件夹"},{L"Search bookmarks",L"搜索书签"},{L"Search history",L"搜索历史记录"},{L"Opened the first {0} pages.",L"已打开前 {0} 个页面。"},
+  {L"Workspace: {0} · Bookmarks: {1}",L"工作区：{0} · 书签：{1}"},{L"Workspace: {0} · Pages: {1}",L"工作区：{0} · 页面：{1}"},{L"Workspace: {0} · Matching pages: {1}",L"工作区：{0} · 匹配页面：{1}"},
+  {L"The folder could not be created.",L"无法创建文件夹。"},{L"Some items could not be moved.",L"部分项目无法移动。"},{L"The name could not be changed.",L"无法更改名称。"},
+  {L"Delete this folder and the {0} bookmarks in it?",L"删除此文件夹及其中的 {0} 个书签？"},{L"Delete these folders and the {0} bookmarks in them?",L"删除这些文件夹及其中的 {0} 个书签？"},
+  {L"Delete bookmarks",L"删除书签"},{L"Some bookmarks could not be deleted.",L"部分书签无法删除。"},{L"The change could not be saved. Existing data is preserved.",L"无法保存更改。现有数据已保留。"},
+  {L"Search engine",L"搜索引擎"},{L"Searches from the address box use",L"地址栏搜索使用"},{L"Search engine saved.",L"已保存搜索引擎。"},{L"The search engine could not be saved.",L"无法保存搜索引擎。"},
+  {L"Default browser",L"默认浏览器"},{L"Make Xenon your default browser…",L"将 Xenon 设为默认浏览器…"},{L"Xenon is your default browser.",L"Xenon 是您的默认浏览器。"},
+  {L"Xenon is not your default browser. Windows asks you to choose it in Settings → Apps → Default apps.",L"Xenon 不是您的默认浏览器。Windows 需要您在“设置 → 应用 → 默认应用”中选择它。"},
+  {L"This copy of Xenon is not registered with Windows. Install Xenon with its installer to make it your default browser.",L"此 Xenon 副本未在 Windows 中注册。请使用安装程序安装 Xenon，才能将其设为默认浏览器。"},
+  {L"Theme",L"主题"},{L"System",L"跟随系统"},{L"Light",L"浅色"},{L"Dark",L"深色"},{L"Language",L"语言"},{L"Theme saved.",L"已保存主题。"},
+  {L"Your data",L"您的数据"},{L"Passwords…",L"密码…"},
+  {L"Import bookmarks and history into the {0} workspace.",L"将书签和历史记录导入“{0}”工作区。"},{L"From",L"来源"},{L"Bookmarks HTML file…",L"书签 HTML 文件…"},
+  {L"Passwords, cookies and settings are not imported. To bring passwords, export them from the other browser as a CSV file and use Import CSV in Xenon Controls → Passwords. If history cannot be read, close the other browser and try again.",
+   L"不会导入密码、Cookie 和设置。如需导入密码，请先从其他浏览器导出 CSV 文件，再在 Xenon 控制中心 → 密码中使用“导入 CSV”。如果无法读取历史记录，请关闭其他浏览器后重试。"},
+  {L"Imported from {0}",L"从 {0} 导入"},{L"Imported bookmarks",L"导入的书签"},{L"Importing…",L"正在导入…"},{L"The bookmark file could not be read.",L"无法读取书签文件。"},
+  {L"Bookmarks could not be read from {0}.",L"无法从 {0} 读取书签。"},{L"History could not be read. Close {0} and try again.",L"无法读取历史记录。请关闭 {0} 后重试。"},
+  {L"Imported {0} bookmarks in {1} folders and {2} history pages.",L"已导入 {0} 个书签（{1} 个文件夹）和 {2} 个历史记录页面。"},
+  {L"Clear browsing data in the {0} workspace.",L"清除“{0}”工作区中的浏览数据。"},{L"Time range",L"时间范围"},{L"Last hour",L"过去 1 小时"},{L"Last 24 hours",L"过去 24 小时"},
+  {L"Last 7 days",L"过去 7 天"},{L"Last 4 weeks",L"过去 4 周"},{L"All time",L"全部时间"},{L"Browsing history",L"浏览历史记录"},
+  {L"Cookies, which may sign you out of websites",L"Cookie（可能会让您退出网站登录）"},{L"Other site data, for all time",L"其他网站数据（全部时间）"},{L"Cached images and files, for all time",L"缓存的图片和文件（全部时间）"},
+  {L"Saved passwords, bookmarks and downloads are kept. Agents working in this workspace pause and must observe their pages again.",L"已保存的密码、书签和下载内容会保留。在此工作区中工作的代理会暂停，并需要重新观察页面。"},
+  {L"Clear data",L"清除数据"},{L"Browsing data cleared.",L"已清除浏览数据。"},{L"Site data cleared, but history could not be saved.",L"已清除网站数据，但无法保存历史记录。"},
+  {L"Browsing history cleared.",L"已清除浏览历史记录。"},{L"History could not be saved.",L"无法保存历史记录。"}
 };
 // Call only for Xenon-owned UI copy, never website content, names, IDs or commands.
 inline const wchar_t* tr(const wchar_t* english) {
@@ -480,5 +518,6 @@ inline const wchar_t* file_filter(bool csv) {
   if(language==Language::simplified_chinese)return csv?L"密码 CSV\0*.csv\0所有文件\0*.*\0":L"文件\0*.*\0";
   return csv?L"Password CSV\0*.csv\0All files\0*.*\0":L"Files\0*.*\0";
 }
+inline const wchar_t* bookmark_filter() {return language==Language::simplified_chinese?L"书签文件\0*.html;*.htm\0所有文件\0*.*\0":L"Bookmark files\0*.html;*.htm\0All files\0*.*\0";}
 inline const wchar_t* pdf_filter() {return language==Language::simplified_chinese?L"PDF 文档\0*.pdf\0":L"PDF document\0*.pdf\0";}
 }

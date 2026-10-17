@@ -30,7 +30,17 @@ struct Match {
 struct Entry {std::string url,lower,title,folded;size_t host{},path{},visits{};int64_t visited{};bool www{},bookmarked{};};
 struct Index {std::vector<Entry> entries;std::unordered_map<std::string,size_t> at;};
 inline constexpr size_t default_limit=8;
-inline constexpr std::string_view search_prefix="https://www.google.com/search?q=";
+// Search providers the person can choose in Settings. A query is appended to
+// the prefix; nothing is sent until a search is opened.
+struct SearchEngine {std::string_view id;const wchar_t* name;std::string_view prefix;};
+inline constexpr SearchEngine search_engines[]{
+  {"google",L"Google","https://www.google.com/search?q="},{"bing",L"Bing","https://www.bing.com/search?q="},
+  {"duckduckgo",L"DuckDuckGo","https://duckduckgo.com/?q="},{"brave",L"Brave Search","https://search.brave.com/search?q="},
+  {"ecosia",L"Ecosia","https://www.ecosia.org/search?q="},{"startpage",L"Startpage","https://www.startpage.com/do/search?query="},
+  {"baidu",L"Baidu","https://www.baidu.com/s?wd="}};
+inline size_t search_choice=0;
+inline const SearchEngine& search_engine(){return search_engines[search_choice<std::size(search_engines)?search_choice:0];}
+inline bool choose_search_engine(std::string_view id){for(size_t n=0;n<std::size(search_engines);++n)if(search_engines[n].id==id){search_choice=n;return true;}return false;}
 
 inline std::string lower_ascii(std::string value){for(auto& c:value)if(c>='A'&&c<='Z')c=static_cast<char>(c-'A'+'a');return value;}
 inline std::wstring widen(const std::string& value){
@@ -57,7 +67,7 @@ inline bool address_like(const std::string& input){
 // Escapes a query as CefURIEncode(text,true) does: everything except
 // alphanumerics and -_.!~*'() becomes %XX, and spaces become '+'.
 inline std::string search_url(const std::string& query){
-  std::string out(search_prefix);constexpr char hex[]="0123456789ABCDEF";
+  std::string out(search_engine().prefix);constexpr char hex[]="0123456789ABCDEF";
   for(const unsigned char c:query){
     if(c==' ')out+='+';
     else if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||std::string_view("-_.!~*'()").find(static_cast<char>(c))!=std::string_view::npos)out+=static_cast<char>(c);
@@ -67,7 +77,7 @@ inline std::string search_url(const std::string& query){
 }
 // What typed text opens: an explicit http(s) URL as typed, a dotted word over
 // HTTPS, Ctrl+Enter completing a single word as www.<word>.com, and anything
-// else as a Google search.
+// else as a search with the chosen provider.
 inline std::string typed_destination(const std::string& raw,bool control){
   const auto input=trim(raw);
   if(explicit_url(input))return input;

@@ -31,6 +31,12 @@
   #define RunningMutex "Local\XenonInstallerFixtureRunning-" + TestId
   #define InstallerMutex "Local\XenonInstallerFixtureSetup-" + TestId
   #define OutputName "fixture-" + ReleaseVersion
+  ; The fixture's browser registration stays under its isolated key, where
+  ; Windows never offers it as a default browser.
+  #define BrowserRegistry ProductRegistry + "\DefaultBrowser"
+  #define ClassesRegistry BrowserRegistry + "\Classes"
+  #define ClientRegistry BrowserRegistry + "\Clients\StartMenuInternet\" + ProductName
+  #define RegisteredAppsRegistry BrowserRegistry + "\RegisteredApplications"
 #else
   #define ProductId "{{C0D7CF52-A672-4B76-82E4-BE1664F9D305}"
   #define ProductName "Xenon Browser"
@@ -41,6 +47,9 @@
   #define RunningMutex "Local\XenonBrowserRunning"
   #define InstallerMutex "Local\XenonBrowserSetup"
   #define OutputName "Xenon-" + ReleaseVersion + "-windows-x64-setup-unsigned"
+  #define ClassesRegistry "Software\Classes"
+  #define ClientRegistry "Software\Clients\StartMenuInternet\Xenon Browser"
+  #define RegisteredAppsRegistry "Software\RegisteredApplications"
 #endif
 
 [Setup]
@@ -81,6 +90,8 @@ SolidCompression=yes
 DiskSpanning=no
 AllowNoIcons=yes
 DisableWelcomePage=no
+; Windows refreshes its list of browsers after setup and uninstall.
+ChangesAssociations=yes
 
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked
@@ -94,6 +105,29 @@ Name: "{autodesktop}\{#ProductName}"; Filename: "{app}\Xenon.exe"; WorkingDir: "
 
 [Registry]
 Root: HKCU; Subkey: "{#ProductRegistry}"; ValueType: string; ValueName: "ReleaseVersion"; ValueData: "{#ReleaseVersion}"; Flags: uninsdeletevalue uninsdeletekeyifempty
+; Per-user registration as a web browser for http and https links. Windows
+; lists Xenon under Default apps; only the person can choose it there. Links
+; arrive as one argument after --single-argument, so they cannot add switches.
+#ifdef TestBuild
+Root: HKCU; Subkey: "{#BrowserRegistry}"; Flags: uninsdeletekey
+#endif
+Root: HKCU; Subkey: "{#ClassesRegistry}\XenonURL"; ValueType: string; ValueName: ""; ValueData: "Xenon web page"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "{#ClassesRegistry}\XenonURL"; ValueType: string; ValueName: "FriendlyTypeName"; ValueData: "Xenon web page"
+Root: HKCU; Subkey: "{#ClassesRegistry}\XenonURL\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Xenon.exe"",0"
+Root: HKCU; Subkey: "{#ClassesRegistry}\XenonURL\Application"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#ProductName}"
+Root: HKCU; Subkey: "{#ClassesRegistry}\XenonURL\Application"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: """{app}\Xenon.exe"",0"
+Root: HKCU; Subkey: "{#ClassesRegistry}\XenonURL\Application"; ValueType: string; ValueName: "AppUserModelId"; ValueData: "Xenon.Browser"
+Root: HKCU; Subkey: "{#ClassesRegistry}\XenonURL\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Xenon.exe"" --single-argument %1"
+Root: HKCU; Subkey: "{#ClientRegistry}"; ValueType: string; ValueName: ""; ValueData: "{#ProductName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "{#ClientRegistry}\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#ProductName}"
+Root: HKCU; Subkey: "{#ClientRegistry}\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "A browser for people and MCP agents working together."
+Root: HKCU; Subkey: "{#ClientRegistry}\Capabilities"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: """{app}\Xenon.exe"",0"
+Root: HKCU; Subkey: "{#ClientRegistry}\Capabilities\StartMenu"; ValueType: string; ValueName: "StartMenuInternet"; ValueData: "{#ProductName}"
+Root: HKCU; Subkey: "{#ClientRegistry}\Capabilities\URLAssociations"; ValueType: string; ValueName: "http"; ValueData: "XenonURL"
+Root: HKCU; Subkey: "{#ClientRegistry}\Capabilities\URLAssociations"; ValueType: string; ValueName: "https"; ValueData: "XenonURL"
+Root: HKCU; Subkey: "{#ClientRegistry}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Xenon.exe"",0"
+Root: HKCU; Subkey: "{#ClientRegistry}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Xenon.exe"""
+Root: HKCU; Subkey: "{#RegisteredAppsRegistry}"; ValueType: string; ValueName: "{#ProductName}"; ValueData: "{#ClientRegistry}\Capabilities"; Flags: uninsdeletevalue
 
 [Code]
 #include "version.iss"

@@ -12,7 +12,7 @@ Each tab has an **X** to close it; middle-click also closes a tab. **Ctrl+W** cl
 
 Press **Enter** in the address box to go; a typed address survives toolbar focus changes. **Ctrl+Enter** completes a single typed word as `www.<word>.com`. The first click into the box selects the whole address, and **Escape** restores the current address.
 
-As you type, a list under the address box suggests pages from the selected tab's workspace history and bookmarks, plus a Google search for the text. Pages are matched by address and title; every typed word must match, and frequently or recently visited pages and bookmarks rank first. A site you have visited completes inline, as in Chrome and Edge: typing `git` can show `github.com` with the added letters selected, so typing continues over them and **Backspace** removes them. Deleting, pasting or undoing never completes. Without a typed `/`, the completion stops at the site name and opens its home page, keeping the scheme and port you visited, such as `http://localhost:3000/`. **Up** and **Down** move through the list and show each row's address, **Enter** or a click opens the highlighted row, and **Shift+Delete** removes every visit to a highlighted history page (its bookmark, if any, stays). With the list open, the first **Escape** closes it and restores what you typed. Private workspaces suggest only their own in-memory history and bookmarks. Matching runs on your device; Xenon sends nothing to a search provider until you open a search, and offers no remote search suggestions or suggestions when the box is empty.
+As you type, a list under the address box suggests pages from the selected tab's workspace history and bookmarks, plus a search for the text with your search engine (Google unless you choose another in **Settings**). Pages are matched by address and title; every typed word must match, and frequently or recently visited pages and bookmarks rank first. A site you have visited completes inline, as in Chrome and Edge: typing `git` can show `github.com` with the added letters selected, so typing continues over them and **Backspace** removes them. Deleting, pasting or undoing never completes. Without a typed `/`, the completion stops at the site name and opens its home page, keeping the scheme and port you visited, such as `http://localhost:3000/`. **Up** and **Down** move through the list and show each row's address, **Enter** or a click opens the highlighted row, and **Shift+Delete** removes every visit to a highlighted history page (its bookmark, if any, stays). With the list open, the first **Escape** closes it and restores what you typed. Private workspaces suggest only their own in-memory history and bookmarks. Matching runs on your device; Xenon sends nothing to a search provider until you open a search, and offers no remote search suggestions or suggestions when the box is empty.
 
 The button at the left end of the address box shows the connection, as in Chrome and Edge: a lock for a secure HTTPS page, an information icon for HTTPS pages with insecure images or for HTTP pages served from this computer (such as `http://localhost`), and a **Not secure** label for other HTTP pages; certificate problems show it in red. Blank pages have no button. Click it, or Tab to it and press **Space**, for the site's information:
 
@@ -89,6 +89,40 @@ Drop a tab on another workspace's heading or between its tabs to move it to that
 
 To close every tab an agent session left open, choose **Close all tabs…** from the workspace heading's **…** button or right-click menu, **Menu → Close all tabs in this workspace…**, or **Controls → Workspaces → Close all tabs…**. Xenon asks for confirmation and states how many tabs will close. Queued agent actions in those tabs are canceled and refused; an action already started finishes first, then the tabs close. Unsaved changes in those tabs are lost. The workspace, its sign-ins, history, site permissions, agent access and saved passwords are kept. This is different from **Remove workspace**, which also deletes the workspace's data and permissions.
 
+### Full screen
+
+**F11** (or **Menu → Full screen**) hides Xenon's toolbar and sidebar so the page fills the screen; **F11** again returns. When a website you control asks for full screen, such as a video player's full-screen button, the page takes over the whole screen and a notice names the site; **Esc** ends it, as does switching tabs. A page in a tab an agent controls only fills its own tab area and never takes over the screen, and a page's full screen ends if an agent becomes available in that tab. While an agent is available in the selected tab, full screen keeps a thin outline in its ownership color.
+
+### Site icons and links for other apps
+
+Tabs show each website's icon. Pages without one show a globe.
+
+When a website opens a link meant for another app, such as `mailto:` for your mail program or a meeting link, Xenon asks first in a small window named after the site, the app Windows has registered for that kind of link and the link itself. **Open app** passes the link to that app; **Cancel** does nothing. Only the page you are looking at can ask, and only when you control the tab or just clicked or typed in it; a link an agent's action caused is blocked, and the ownership chip says so. Links for kinds Windows uses to run programs, files, searches or diagnostics (`file:`, `shell:`, `ms-msdt:`, `search-ms:` and similar) are never offered. If no app is registered, the chip says so instead.
+
+### Screen sharing
+
+Video-call sites can share your screen after you allow it in a **Website permission request** window. Xenon cannot share a single window or tab: the site sees everything on all of your displays, including other apps and notifications, until sharing stops. The request appears only for the tab you are looking at, after your own click in a tab you control or in a tab where you just clicked; an agent's click cannot start it. A tab that is sharing shows a red screen icon (a red dot means a camera or microphone is in use), and agents get no screenshots of it while it shares. Stop sharing with the site's own control or the tab menu's **Stop sharing your screen (reloads the page)**.
+
+### Bookmarks and history
+
+**Menu → Bookmarks** (**Ctrl+Shift+O**) opens the bookmark manager for the selected tab's workspace. Folders are on the left; choose one to see its folders and bookmarks. **New folder** adds one inside the current folder and lets you name it; **Rename** (**F2**) renames the selected folder or bookmark; **Move to…** moves selected bookmarks and folders into another folder; **Delete** removes them, asking first when a folder still contains bookmarks. The search box finds bookmarks in every folder. **Open** (or a double-click) opens bookmarks in new tabs of the workspace. The star and **Ctrl+D** save new bookmarks at the top level.
+
+**Menu → History** (**Ctrl+H**) lists the workspace's visits, newest first, with the time of each. Type in the search box to find pages by title or address; every word must match. Select visits and choose **Delete** (or press **Delete**) to remove exactly those visits, or **Open** to open them in new tabs.
+
+### Clear browsing data
+
+**Menu → Clear browsing data…** (**Ctrl+Shift+Del**), the History window or **Settings** clears data for the selected tab's workspace. Choose a time range, then any of: **Browsing history** and **Cookies** for that range, and, for all time, **Other site data** (local storage, IndexedDB, cache storage and service workers of the sites in the workspace's history and open tabs) and **Cached images and files**. Clearing cookies can sign you out of websites. Saved passwords, bookmarks and downloads are kept. Agents working in the workspace pause and must observe their pages again.
+
+### Import from another browser
+
+**Menu → Import bookmarks and history…**, or **Import…** in the bookmark manager, adds bookmarks and history to the selected tab's workspace. Choose a profile of Google Chrome, Microsoft Edge, Brave, Vivaldi or Chromium found on this computer, or **Bookmarks HTML file…** for a file exported from any browser (Firefox and Safari included). Bookmarks arrive in a new folder named after the source, keeping its folders; pages you have already bookmarked or visited are not added again. History is copied from the other browser's profile; if it cannot be read, close that browser and try again. Passwords, cookies and settings are never read. To bring passwords, export them from the other browser as a CSV file and use **Import CSV** in Controls → Passwords.
+
+### Settings and default browser
+
+**Menu → Settings** chooses the search engine for the address box (Google, Bing, DuckDuckGo, Brave Search, Ecosia, Startpage or Baidu), the theme and the language, and links to import, Clear browsing data and passwords.
+
+The installer registers Xenon with Windows as a web browser for `http` and `https` links. **Settings → Make Xenon your default browser…** opens Windows' **Default apps** settings for Xenon, where only you can choose it; Settings then shows whether Xenon is your default. A portable copy is not registered. Links that Windows or other apps open while Xenon runs appear in a new tab of the Personal workspace; if Xenon is closed, it starts with the link in its first tab.
+
 ### Keyboard shortcuts
 
 | Keys | Action |
@@ -104,7 +138,9 @@ To close every tab an agent session left open, choose **Close all tabs…** from
 | **Alt+Left**, **Alt+Right** | Back, forward |
 | **Ctrl+F**, **F3**, **Shift+F3** | Find, next match, previous match |
 | **Ctrl+D**, **Ctrl+H**, **Ctrl+J**, **Ctrl+P** | Bookmark, history, downloads, print |
+| **Ctrl+Shift+O**, **Ctrl+Shift+Del** | Bookmark manager, Clear browsing data |
 | **Ctrl++**, **Ctrl+-**, **Ctrl+0** | Zoom in, out, reset |
+| **F11**; **Esc** | Full screen; end a website's full screen |
 | **Ctrl+Shift+X** | Controls |
 
 Tab-switching and focus shortcuts do not count as page input, so they do not pause an agent. Right-clicking a link in a page also offers **Open link in new tab**, **Open link in new window** and **Copy link address**; new tabs opened this way are yours and stay in the link's workspace.
@@ -113,7 +149,7 @@ Controls is a separate native window with sections in a left sidebar, rounded bu
 
 Controls has **Clients**, **Workspaces**, **Passwords** and **Extensions** sections. Pairing requests have separate Approve/Deny actions. Approved clients remain paired across launches and start read-only with automatic creation disabled, four concurrent workers and four automatic workspaces. Client configuration sets the overall ceiling; workspace configuration can narrow it. Legacy pairings retain their existing capabilities until configured. Lowering a quota blocks additional admission while allowing existing work to finish.
 
-The Xenon menu supplies new tabs and windows, history, downloads, bookmarks, passwords, extensions, find, zoom, printing/PDF, site settings and, under **Help**, the tour, updates and third-party notices. Under **Appearance**, choose **Theme: System**, **Theme: Light** or **Theme: Dark**; System is the default. Light and Dark also set the color scheme websites receive, including blank pages; System follows Windows. Xenon's own window changes immediately, but web pages use a newly chosen theme after Xenon restarts. Native bookmarks and history migrate existing workspace records without modifying their original files. Private metadata stays in memory, and new protected-authentication visits are excluded from history. There is no cloud sync or built-in model. Use Xenon's vault for passwords.
+The Xenon menu supplies new tabs and windows, history, Clear browsing data, downloads, bookmarks, import, passwords, extensions, find, zoom, full screen, printing/PDF, site settings, **Settings** and, under **Help**, the tour, updates and third-party notices. Under **Appearance**, choose **Theme: System**, **Theme: Light** or **Theme: Dark**; System is the default. Light and Dark also set the color scheme websites receive, including blank pages; System follows Windows. Xenon's own window changes immediately, but web pages use a newly chosen theme after Xenon restarts. Native bookmarks and history migrate existing workspace records without modifying their original files. Private metadata stays in memory, and new protected-authentication visits are excluded from history. There is no cloud sync or built-in model. Use Xenon's vault for passwords.
 
 ## Workspaces and website sessions
 

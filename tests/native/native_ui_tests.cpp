@@ -125,6 +125,11 @@ int main(){try{
   require(!ui::automatic_update_checks,"Other saves preserve a disabled automatic update preference");
   ui::settings_path=root/"missing"/"ui-settings.json";require(!ui::save_automatic_update_checks(true)&&!ui::automatic_update_checks,"Failed update preference save keeps the previous choice");
   ui::settings_path=root/"ui-settings.json";require(ui::save_automatic_update_checks(true),"Re-enable automatic update checks");
+  require(omnibox::search_engine().id=="google"&&omnibox::search_url("a b")=="https://www.google.com/search?q=a+b","Google remains the default search engine");
+  require(ui::save_search_engine(std::size(omnibox::search_engines)-1)&&omnibox::search_engine().id=="baidu","Save a chosen search engine");reset_preferences();ui::load_theme(root);
+  require(omnibox::search_engine().id=="baidu"&&omnibox::search_url("a b")=="https://www.baidu.com/s?wd=a+b"&&ui::automatic_update_checks,"Restore the chosen search engine with other settings");
+  {std::ofstream output(root/"ui-settings.json");output<<Json{{"theme","system"},{"searchEngine","unknown"}};}
+  reset_preferences();ui::load_theme(root);require(omnibox::search_engine().id=="google","Unknown search engines fall back to Google");
   require(ui::palette().contrast||(ui::notice_blue()!=ui::palette().teal&&ui::notice_blue()!=ui::palette().orange),"The update dot is distinct from ownership and pairing accents");
   for(const auto width:{-1000,10000}){{std::ofstream output(root/"ui-settings.json");output<<Json{{"theme","system"},{"sidebarWidth",width}};}
     reset_preferences();ui::load_theme(root);require(ui::sidebar_width==(width<0?180:480),"Bound persisted sidebar widths");}

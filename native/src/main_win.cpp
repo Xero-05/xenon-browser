@@ -18,6 +18,7 @@
 #include "xenon/autofill_fixture.hpp"
 #include "xenon/updater.hpp"
 #include "xenon/extension_store.hpp"
+#include "xenon/launch_urls.hpp"
 #include <windows.h>
 #include <shlobj.h>
 #include <charconv>
@@ -64,9 +65,33 @@ void cleanup_removed_profiles(const std::filesystem::path& root,std::vector<std:
     }
   }catch(const std::exception&){/* Tombstones remain; retry cleanup next launch. */}
 }
+// Web addresses in a launch command line (Xenon as the default browser).
+// A launch with links while Xenon already runs for the same data folder hands
+// them to that browser through its message-only window, named for the folder.
+// Any program the person runs could launch Xenon with a web link anyway, so the
+// receiver accepts only the ordinary web links launch_urls admits.
+constexpr ULONG_PTR launch_message=0x58454E4C;
+std::wstring instance_name(const std::filesystem::path& root){
+  auto identity=std::filesystem::weakly_canonical(root).wstring();CharLowerBuffW(identity.data(),static_cast<DWORD>(identity.size()));
+  const auto digest=local_security::sha256(ui::utf8(identity));return L"XenonLaunch-"+std::wstring(digest.begin(),digest.end());
+}
+bool hand_off(const std::filesystem::path& root,const std::vector<std::string>& urls){
+  const auto window=FindWindowExW(HWND_MESSAGE,nullptr,L"XenonLaunch",instance_name(root).c_str());if(!window)return false;
+  // The running browser may bring its window forward for the person's link.
+  DWORD process{};GetWindowThreadProcessId(window,&process);if(process)AllowSetForegroundWindow(process);
+  const auto payload=Json(urls).dump();COPYDATASTRUCT data{launch_message,static_cast<DWORD>(payload.size()),const_cast<char*>(payload.data())};DWORD_PTR result{};
+  return SendMessageTimeoutW(window,WM_COPYDATA,0,reinterpret_cast<LPARAM>(&data),SMTO_ABORTIFHUNG|SMTO_BLOCK,10000,&result)&&result==TRUE;
+}
+// After --single-argument the rest of the line is one link, however it would
+// otherwise split into arguments.
+std::vector<std::string> command_urls(CefRefPtr<CefCommandLine> command){
+  if(const auto single=single_argument(command->GetCommandLineString().ToWString());!single.empty())return launch_urls({ui::utf8(single)});
+  std::vector<std::string> candidates;std::vector<CefString> arguments;command->GetArguments(arguments);for(const auto& argument:arguments)candidates.push_back(argument.ToString());
+  return launch_urls(candidates);
+}
 class App final : public CefApp,public CefBrowserProcessHandler {
  public:
-  App(std::filesystem::path root,Broker::Limits limits,std::wstring pipe,std::unique_ptr<ExtensionStore> extensions,bool test_removal=false,bool test_autofill=false,bool open_documentation=false):root_(std::move(root)),limits_(limits),pipe_name_(std::move(pipe)),extensions_(std::move(extensions)),test_removal_enabled_(test_removal),test_autofill_enabled_(test_autofill),open_documentation_(open_documentation){
+  App(std::filesystem::path root,Broker::Limits limits,std::wstring pipe,std::unique_ptr<ExtensionStore> extensions,bool test_removal=false,bool test_autofill=false,bool open_documentation=false,std::vector<std::string> launch={}):root_(std::move(root)),limits_(limits),pipe_name_(std::move(pipe)),extensions_(std::move(extensions)),test_removal_enabled_(test_removal),test_autofill_enabled_(test_autofill),open_documentation_(open_documentation),launch_urls_(std::move(launch)){
     // Read once, before Chromium starts. Later changes apply after restart.
     try{extension_paths_=extensions_->startup_paths();}catch(const std::exception&){extension_paths_.clear();}
   }
@@ -133,6 +158,11 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       engine_->set_download_callback([this](const std::string& tab){return broker_->allow_download(tab);});
       engine_->set_passkey_control_callback([this](const std::string& tab){return broker_->human_controls(tab);});
       engine_->set_permission_callback([this](const std::string& tab,const std::string& origin,const std::string& description,std::function<void(bool)> answer){shell_->permission(tab,origin,description,std::move(answer));});
+      engine_->set_fullscreen_callback([this](const std::string& tab,bool fullscreen){if(shell_)shell_->page_fullscreen(tab,fullscreen);});
+      engine_->set_external_link_callback([this](const std::string& tab,const std::string& origin,const std::string& url,const std::string& scheme,bool permitted,std::function<void(bool)> done){
+        if(shell_)shell_->external_link(tab,origin,url,scheme,permitted,std::move(done));else done(false);});
+      engine_->set_screen_share_callback([this](const std::string& tab,const std::string& origin,bool audio,std::function<void(bool)> answer){
+        if(shell_)shell_->screen_share(tab,origin,audio,std::move(answer));else answer(false);});
       broker_->set_ui_state_callback([this]{if(shell_)shell_->refresh();});
       engine_->set_controls_callback([this]{native_->show();});
       engine_->set_updates_callback([this]{native_->show_updates();});
@@ -145,8 +175,13 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       engine_->set_native_key_callback([this](HWND page,UINT message,WPARAM key){native_key(page,message,key);});
       POINT pointer{};if(GetCursorPos(&pointer))input_policy_.seed_pointer(pointer.x,pointer.y);
       hook_=SetWindowsHookExW(WH_GETMESSAGE,InputHook,nullptr,GetCurrentThreadId());
-      broker_->open_initial_human_workspace(open_documentation_?ui::utf8(ui::documentation_url):"about:blank",[](Json){});
+      // A launch from Windows with a link opens it in the first Personal tab.
+      const bool first_link=!open_documentation_&&!launch_urls_.empty();
+      broker_->open_initial_human_workspace(open_documentation_?ui::utf8(ui::documentation_url):first_link?launch_urls_.front():"about:blank",[](Json){});
       shell_->show();
+      for(size_t n=first_link?1:0;n<launch_urls_.size();++n)shell_->open_external_url(launch_urls_[n]);
+      WNDCLASSW launch{};launch.lpfnWndProc=LaunchProc;launch.hInstance=branding_module();launch.lpszClassName=L"XenonLaunch";RegisterClassW(&launch);
+      launch_window_=CreateWindowExW(0,L"XenonLaunch",instance_name(root_).c_str(),0,0,0,0,0,HWND_MESSAGE,nullptr,branding_module(),nullptr);
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
       shell_->fixture_snapshot(root_);
       if(test_removal_enabled_){
@@ -158,6 +193,8 @@ class App final : public CefApp,public CefBrowserProcessHandler {
   }
   CefRefPtr<CefClient> GetDefaultClient()override{return engine_?engine_->default_client():nullptr;}
   CefRefPtr<CefRequestContextHandler> GetDefaultRequestContextHandler()override{return engine_?engine_->default_context_handler():nullptr;}
+  // With command-line arguments disabled, CEF forwards only its own switches
+  // here, never a launch's links; those arrive through hand_off instead.
   bool OnAlreadyRunningAppRelaunch(CefRefPtr<CefCommandLine>,const CefString&)override{if(shell_)shell_->show();return true;}
   std::shared_ptr<updates::InstallerLaunch> pending_update()const{return pending_update_;}
   void stop(){
@@ -165,15 +202,28 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     removal_fixture_.reset();
     autofill_fixture_.reset();
 #endif
+    if(launch_window_){DestroyWindow(launch_window_);launch_window_=nullptr;}
     active_=nullptr;if(hook_){UnhookWindowsHookEx(hook_);hook_=nullptr;}
     if(input_timer_){KillTimer(nullptr,input_timer_);input_timer_=0;}
     if(engine_)engine_->set_native_key_callback({});
     if(engine_){engine_->set_controls_callback({});engine_->set_updates_callback({});engine_->set_private_workspace_callback({});engine_->set_open_link_callback({});}
     if(broker_)broker_->set_ui_state_callback({});
-    if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_passkey_control_callback({});engine_->set_permission_callback({});}
+    if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_passkey_control_callback({});engine_->set_permission_callback({});
+      engine_->set_fullscreen_callback({});engine_->set_external_link_callback({});engine_->set_screen_share_callback({});}
     if(server_)server_->stop();server_.reset();native_.reset();shell_.reset();broker_.reset();engine_.reset();files_.reset();vault_.reset();
   }
  private:
+  // Links from another launch open after the sending process's call returns.
+  static LRESULT CALLBACK LaunchProc(HWND window,UINT message,WPARAM wp,LPARAM lp){
+    if(message==WM_COPYDATA){const auto data=reinterpret_cast<const COPYDATASTRUCT*>(lp);
+      if(!active_||!data||data->dwData!=launch_message||!data->lpData||data->cbData>65536)return FALSE;
+      const auto value=Json::parse(std::string(static_cast<const char*>(data->lpData),data->cbData),nullptr,false);if(!value.is_array())return FALSE;
+      std::vector<std::string> candidates;for(const auto& item:value)if(item.is_string()&&candidates.size()<32)candidates.push_back(item.get<std::string>());
+      const auto urls=launch_urls(candidates);if(urls.empty())return FALSE;
+      for(const auto& url:urls)if(active_->handed_urls_.size()<32)active_->handed_urls_.push_back(url);PostMessageW(window,WM_APP,0,0);return TRUE;}
+    if(message==WM_APP&&active_){auto urls=std::exchange(active_->handed_urls_,{});if(active_->shell_){if(urls.empty())active_->shell_->show();for(const auto& url:urls)active_->shell_->open_external_url(url);}return 0;}
+    return DefWindowProcW(window,message,wp,lp);
+  }
   static LRESULT CALLBACK InputHook(int code,WPARAM wp,LPARAM lp){
     if(code>=0&&wp==PM_REMOVE&&active_&&active_->engine_){
       auto& message=*reinterpret_cast<MSG*>(lp);
@@ -329,7 +379,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     }
   }
   static inline App* active_=nullptr;
-  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;std::unique_ptr<ExtensionStore> extensions_;std::vector<std::filesystem::path> extension_paths_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{};HHOOK hook_{};
+  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;std::unique_ptr<ExtensionStore> extensions_;std::vector<std::filesystem::path> extension_paths_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{};std::vector<std::string> launch_urls_,handed_urls_;HWND launch_window_{};HHOOK hook_{};
   NativeInputPolicy input_policy_;
   struct KeyboardPage {HWND page{};ULONGLONG observed_at{};};
   std::map<HWND,KeyboardPage> keyboard_pages_;
@@ -391,6 +441,9 @@ int run(HINSTANCE instance,void* sandbox_info){
   std::filesystem::path root;
   if(command->HasSwitch("user-data-dir"))root=std::filesystem::absolute(command->GetSwitchValue("user-data-dir").ToWString());
   else{PWSTR local{};if(FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&local)))return 1;root=std::filesystem::path(local)/"Xenon Browser";CoTaskMemFree(local);}
+  // Links for a Xenon already running on this data folder open there.
+  const auto launch=command_urls(command);
+  if(!launch.empty()&&hand_off(root,launch))return 0;
   // Serialize startup through the introduction and CEF's profile acquisition.
   // A second launch cannot open CEF against a half-finished first-run choice.
   struct StartupGate {
@@ -403,10 +456,16 @@ int run(HINSTANCE instance,void* sandbox_info){
       const auto wait=WaitForSingleObject(handle,0);acquired=wait==WAIT_OBJECT_0||wait==WAIT_ABANDONED;
       if(wait==WAIT_FAILED){CloseHandle(handle);handle=nullptr;throw std::runtime_error("Cannot acquire browser startup");}
     }
+    bool wait(DWORD milliseconds){if(!handle||acquired)return acquired;const auto result=WaitForSingleObject(handle,milliseconds);acquired=result==WAIT_OBJECT_0||result==WAIT_ABANDONED;return acquired;}
     void release(){if(handle){if(acquired)ReleaseMutex(handle);CloseHandle(handle);handle=nullptr;}}
     ~StartupGate(){release();}
   } startup_gate(root);
-  if(!startup_gate.acquired)return 0;
+  if(!startup_gate.acquired){
+    // Another start of this data folder is under way. A launch with links
+    // waits for it to finish, then hands them over.
+    if(!launch.empty()&&startup_gate.wait(60000)){startup_gate.release();for(int attempt=0;attempt<100;++attempt){if(hand_off(root,launch))return 0;Sleep(100);}}
+    return 0;
+  }
   const bool first_run=ui::needs_introduction(root);
   std::filesystem::create_directories(root);local_security::restrict_path(root);
   ui::load_theme(root);
@@ -429,7 +488,7 @@ int run(HINSTANCE instance,void* sandbox_info){
   test_removal=command->HasSwitch("test-native-removal");
   test_autofill=command->HasSwitch("test-native-autofill");
 #endif
-  CefRefPtr<App> app=new App(root,limits,pipe_name,std::make_unique<ExtensionStore>(root),test_removal,test_autofill,open_documentation);
+  CefRefPtr<App> app=new App(root,limits,pipe_name,std::make_unique<ExtensionStore>(root),test_removal,test_autofill,open_documentation,launch);
   if(!CefInitialize(args,settings,app,sandbox_info))return CefGetExitCode();
   startup_gate.release();
   CefRunMessageLoop();auto installer=app->pending_update();app->stop();app=nullptr;CefShutdown();
