@@ -102,19 +102,50 @@ Tools). The first build can take hours:
 $cefVersion = (Get-Content ./dependencies.lock.json -Raw | ConvertFrom-Json).cef.version
 $cefMedia = "E:\XenonCefMedia-154\chromium\src\cef\binary_distrib\cef_binary_${cefVersion}_windows64_minimal"
 ./scripts/build.ps1 -CefRoot $cefMedia -Test
-node tests/media-integration.mjs --require-h264
+node tests/media-integration.mjs --windows-codecs
 node tests/media-integration.mjs
 ```
 
+The current source recipe uses Windows GPU decoding for H.264 and Windows Media
+Foundation for AAC. It sets `proprietary_codecs=true ffmpeg_branding=Chromium`,
+disables FFmpeg video decoders and bundled OpenH264, and applies the hash-pinned
+`scripts/patches/cef-windows-codecs.patch`. The patch extends Chromium's existing
+Windows audio decoder to AAC-LC/HE-AAC, retaining the upstream OS requirement for
+xHE-AAC. MP4 streaming passes raw AAC access units to Media Foundation instead
+of adding the ADTS headers used by FFmpeg. It does not relax the sandbox or
+install Windows codec DLLs.
+
 The source script resumes only a directory marked with its exact recipe. It
-uses `proprietary_codecs=true ffmpeg_branding=Chrome`, produces the matching
-CEF sandbox bootstrap and complete distribution, and leaves the downloaded
-stock distribution intact. `build.ps1 -CefRoot` checks the CEF version and uses
+produces the matching CEF sandbox bootstrap and complete distribution, and leaves
+the downloaded stock distribution intact. `build.ps1 -CefRoot` checks the CEF version and uses
 that distribution for both compilation and bootstrap branding verification.
 Later builds reuse the selected distribution from CMake's cache. To switch
 back to the stock distribution, pass `-CefRoot ./third_party/cef` explicitly.
 The branding check also uses that cached distribution unless `--cef-root` is
 specified, including when checking an extracted package from this build.
+
+For an already completed build of the previous pinned FFmpeg recipe, use
+`-MigrateToWindowsCodecs -BuildOnly` once to reuse its source/dependency checkout
+and incremental build output. Migration accepts only the exact previous recipe,
+preserves its marker and distribution, and applies the tracked patch; it does
+not accept an arbitrary source revision. `-BuildOnly` skips dependency sync and
+is intended only for a prepared checkout. Subsequent retries use `-BuildOnly`
+without the migration switch. Failed builds retain their logs.
+
+The post-build audit checks the generated GN arguments, selected FFmpeg codec
+configuration, absence of OpenH264/Symphonia AAC in libcef's dependency graph,
+and pinned source patch. It emits `xenon-codec-build.json` with engine/bootstrap
+hashes. The Xenon build and packaging check both the engine hash and the pinned
+recipe before copying this manifest.
+`--windows-codecs` requires that provenance and tests actual MP4 and Media Source
+video frames and decoded audio PCM.
+
+H.264 playback requires supported Windows GPU decoding; there is no bundled
+software fallback. AAC requires the Windows Media Foundation decoder (Windows N
+may require Microsoft's Media Feature Pack). Web Audio `decodeAudioData` uses a
+different synchronous decoder path and is not enabled for AAC by this patch;
+HTML media-element playback and its Web Audio output are tested separately.
+DRM services and every GPU/Windows configuration are not covered by these tests.
 
 `-Jobs` bounds compilation parallelism (default four). `-UseGitHubMirror` fetches
 Chromium from its official GitHub mirror and still verifies the pinned commit.
@@ -130,8 +161,8 @@ Keep failed-attempt logs. If an initial checkout was interrupted before it
 wrote `chrome/VERSION`, preserve that incomplete `chromium` directory under a
 different name before retrying; completed checkouts and builds are resumable.
 
-This enables codecs, not DRM services or a universal website compatibility
-guarantee. Before distributing a codec-enabled engine, address the applicable
+Using operating-system decoders is a technical distribution change, not legal
+clearance or a universal website compatibility guarantee. Before distributing a codec-enabled engine, address the applicable
 codec licensing requirements described by [CEF](https://github.com/chromiumembedded/cef/issues/3559)
 and retain the generated `LICENSE.txt` and `CREDITS.html`. Run the native and
 live browser suites against the rebuilt binary; a capability declaration is

@@ -1,0 +1,153 @@
+--- a/media/media_options.gni
++++ b/media/media_options.gni
+@@ -34,6 +34,9 @@
+ allow_oop_video_decoder = allow_hosting_oop_video_decoder
+ 
+ declare_args() {
++  # Xenon uses Windows decoders instead of bundled H.264/AAC implementations.
++  xenon_windows_codecs = false
++
+   # Allows distributions to link pulseaudio directly (DT_NEEDED) instead of
+   # using dlopen. This helps with automated detection of ABI mismatches and
+   # prevents silent errors.
+--- a/media/BUILD.gn
++++ b/media/BUILD.gn
+@@ -68,6 +68,7 @@
+     "USE_CHROMEOS_PROTECTED_MEDIA=$use_chromeos_protected_media",
+     "USE_CRAS=$use_cras",
+     "USE_PROPRIETARY_CODECS=$proprietary_codecs",
++    "ENABLE_XENON_WINDOWS_CODECS=$xenon_windows_codecs",
+     "ENABLE_GPU_CHANNEL_MEDIA_CAPTURE=$enable_gpu_channel_media_capture",
+     "USE_OPENSLES=$media_use_opensles",
+   ]
+@@ -87,7 +88,13 @@
+   }
+ }
+ 
+-if (proprietary_codecs && media_use_ffmpeg) {
++if (xenon_windows_codecs) {
++  assert(is_win && proprietary_codecs && media_use_ffmpeg)
++  assert(ffmpeg_branding == "Chromium")
++  assert(!enable_ffmpeg_video_decoders && !media_use_openh264)
++}
++
++if (proprietary_codecs && media_use_ffmpeg && !xenon_windows_codecs) {
+   assert(
+       ffmpeg_branding != "Chromium",
+       "proprietary codecs and ffmpeg_branding set to Chromium are incompatible")
+--- a/media/filters/win/media_foundation_audio_decoder.cc
++++ b/media/filters/win/media_foundation_audio_decoder.cc
+@@ -101,6 +101,13 @@
+ #endif
+ #if BUILDFLAG(USE_PROPRIETARY_CODECS)
+     case AudioCodec::kAAC:
++#if BUILDFLAG(ENABLE_XENON_WINDOWS_CODECS)
++      // AAC-LC and HE-AAC are supplied by Windows Media Foundation. Keep
++      // xHE-AAC's existing OS-version requirement.
++      if (config.profile() != AudioCodecProfile::kXHE_AAC) {
++        return MFT_REGISTER_TYPE_INFO{MFMediaType_Audio, MFAudioFormat_AAC};
++      }
++#endif
+       if (config.profile() == AudioCodecProfile::kXHE_AAC &&
+           base::win::GetVersion() >= base::win::Version::WIN11_22H2) {
+         return MFT_REGISTER_TYPE_INFO{MFMediaType_Audio, MFAudioFormat_AAC};
+--- a/media/mojo/services/gpu_mojo_media_client_win.cc
++++ b/media/mojo/services/gpu_mojo_media_client_win.cc
+@@ -6,6 +6,8 @@
+ 
+ #include <d3d11.h>
+ #include <d3d12.h>
++#include <mfapi.h>
++#include <wmcodecdsp.h>
+ #include <wrl.h>
+ 
+ #include "base/files/file_util.h"
+@@ -101,6 +103,18 @@
+     }
+ #endif  // BUILDFLAG (ENABLE_PLATFORM_AC3_EAC3_AUDIO)
+ 
++#if BUILDFLAG(ENABLE_XENON_WINDOWS_CODECS)
++    if (InitializeMediaFoundation()) {
++      // Probe the system decoder, so Windows N without the Media Feature Pack
++      // does not advertise AAC. Do not install or ship a decoder DLL.
++      Microsoft::WRL::ComPtr<IMFTransform> aac_decoder;
++      if (SUCCEEDED(CoCreateInstance(__uuidof(CMSAACDecMFT), nullptr,
++                                     CLSCTX_INPROC_SERVER,
++                                     IID_PPV_ARGS(&aac_decoder)))) {
++        audio_configs.emplace_back(AudioCodec::kAAC, AudioCodecProfile::kUnknown);
++      }
++    }
++#endif
+     if (base::win::GetVersion() >= base::win::Version::WIN11_22H2 &&
+         InitializeMediaFoundation()) {
+       audio_configs.emplace_back(AudioCodec::kAAC, AudioCodecProfile::kXHE_AAC);
+--- a/media/base/supported_types.cc
++++ b/media/base/supported_types.cc
+@@ -294,9 +294,11 @@
+ }
+ 
+ bool IsDecoderAACSupported(const AudioType& type) {
++#if !BUILDFLAG(ENABLE_XENON_WINDOWS_CODECS)
+   if (type.profile != AudioCodecProfile::kXHE_AAC) {
+     return true;
+   }
++#endif
+ #if BUILDFLAG(ENABLE_MOJO_AUDIO_DECODER) && \
+     (BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN))
+   return GetSupplementalDecoderAudioTypeCache()->IsProfileSupported(type);
+--- a/media/ffmpeg/ffmpeg_common.cc
++++ b/media/ffmpeg/ffmpeg_common.cc
+@@ -384,6 +384,15 @@
+   SampleFormat sample_format = AVSampleFormatToSampleFormat(
+       codec_context->sample_fmt, codec_context->codec_id);
+ 
++#if BUILDFLAG(ENABLE_XENON_WINDOWS_CODECS)
++  // Without FFmpeg's AAC decoder the demuxer cannot infer a PCM format.
++  // Media Foundation negotiates the actual output; use a valid float
++  // format until the decoder supplies its output configuration.
++  if (codec == AudioCodec::kAAC && sample_format == kUnknownSampleFormat) {
++    sample_format = kSampleFormatF32;
++  }
++#endif
++
+   ChannelLayout channel_layout =
+       ChannelLayoutToChromeChannelLayout(codec_context->ch_layout);
+ 
+@@ -488,8 +497,13 @@
+ 
+   // Verify that AudioConfig.bytes_per_channel was calculated correctly for
+   // codecs that have |sample_fmt| set by FFmpeg.
+-  DCHECK_EQ(av_get_bytes_per_sample(codec_context->sample_fmt),
+-            config->bytes_per_channel());
++#if BUILDFLAG(ENABLE_XENON_WINDOWS_CODECS)
++  if (codec != AudioCodec::kAAC)
++#endif
++  {
++    DCHECK_EQ(av_get_bytes_per_sample(codec_context->sample_fmt),
++              config->bytes_per_channel());
++  }
+   return true;
+ }
+ 
+--- a/media/formats/mp4/mp4_stream_parser.cc
++++ b/media/formats/mp4/mp4_stream_parser.cc
+@@ -84,13 +84,18 @@
+     std::vector<SubsampleEntry>* subsamples) {
+   base::HeapArray<uint8_t> output_buffer;
+ 
+-  // Append an ADTS header to every audio sample if possible.
++  // Media Foundation expects raw AAC access units. Other builds retain
++  // the ADTS framing used by FFmpeg.
+   size_t adts_header_size = 0;
++#if BUILDFLAG(ENABLE_XENON_WINDOWS_CODECS)
++  output_buffer = base::HeapArray<uint8_t>::CopiedFrom(frame_buf);
++#else
+   if (aac_config.fits_in_adts()) {
+     output_buffer = aac_config.CreateAdtsFromEsds(frame_buf, &adts_header_size);
+   } else {
+     output_buffer = base::HeapArray<uint8_t>::CopiedFrom(frame_buf);
+   }
++#endif
+ 
+   if (output_buffer.empty()) {
+     return output_buffer;
