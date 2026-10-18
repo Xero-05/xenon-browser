@@ -75,7 +75,7 @@ jobs:
           $nodeDistribution | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install locked JavaScript dependencies
         run: npm ci
-      # Releases ship the stock engine until cef.engineArchive pins a Xenon engine
+      # CI packages the stock engine until cef.engineArchive pins a Xenon engine
       # build; bootstrap then fetches that archive and these steps require it.
       - name: Build and run native and SDK tests
         shell: pwsh

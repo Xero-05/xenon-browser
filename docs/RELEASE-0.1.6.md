@@ -1,6 +1,6 @@
 # Xenon Browser 0.1.6
 
-**Withdrawn.** 0.1.6 was published on October 17, 2026 and switched back to a draft the same day because codec licensing for distributing its built-in H.264 and AAC decoders had not been confirmed. Its files and tag are kept unchanged, and v0.1.5 is the latest published release. The notes below describe the withdrawn files.
+**Withdrawn.** 0.1.6 was published on October 17, 2026 and switched back to a draft the same day because codec licensing for distributing its built-in H.264 and AAC decoders had not been confirmed. Its files and tag are kept unchanged. [0.1.7](RELEASE-0.1.7.md) replaces it, with H.264 and AAC decoded by Windows instead of by decoders built into Xenon. The notes below describe the withdrawn files.
 
 This release fills in everyday browser features, plays H.264 and AAC video, and lets agents ask the person for help.
 

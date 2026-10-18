@@ -3,8 +3,8 @@ param(
   [Parameter(Mandatory=$true)][string]$Python,
   [switch]$UseGitHubMirror,
   [ValidateRange(1,32)][int]$Jobs = 4,
-  # Media adds Windows H.264/AAC decoding and is not published until codec
-  # licensing is confirmed. Engine carries only the engine-behavior patches.
+  # Media adds Windows H.264/AAC decoding; releases from 0.1.7 are built
+  # locally with it. Engine carries only the engine-behavior patches.
   [ValidateSet('Media','Engine')][string]$Recipe = 'Media',
   [switch]$MigrateToWindowsCodecs,
   [switch]$UpdateVideoScheduling,

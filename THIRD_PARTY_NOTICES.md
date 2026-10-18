@@ -2,7 +2,8 @@
 
 Xenon source is Apache-2.0. This license does not replace the licenses of its dependencies.
 
-The optional H.264/AAC source build uses the CEF and Chromium revisions and
+Release packages from 0.1.7 on use the H.264/AAC source build described here.
+It uses the CEF and Chromium revisions and
 build-tool pins in `cef.mediaSourceBuild` in `dependencies.lock.json`. The current
 recipe uses Windows GPU H.264 decoding and Windows Media Foundation AAC decoding,
 with `proprietary_codecs=true`, `ffmpeg_branding=Chromium`, and the pinned
@@ -31,7 +32,7 @@ It keeps `proprietary_codecs=false` and `ffmpeg_branding=Chromium`, so H.264 and
 are not enabled, as in the stock CEF distribution. Packages built with it carry
 its `xenon-engine-build.json` provenance and the generated CEF license and
 Chromium credits. The upstream BSD-style licenses and notices remain applicable.
-Packages use the stock CEF distribution until `cef.engineArchive` in
+CI-built packages use the stock CEF distribution until `cef.engineArchive` in
 `dependencies.lock.json` pins this build; see
 [Xenon engine releases](docs/BUILD.md#xenon-engine-releases).
 
