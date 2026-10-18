@@ -132,9 +132,18 @@ not accept an arbitrary source revision. `-BuildOnly` skips dependency sync and
 is intended only for a prepared checkout. Subsequent retries use `-BuildOnly`
 without the migration switch. Failed builds retain their logs.
 
+For the previous Windows-codec recipe, use `-UpdateVideoScheduling -BuildOnly`
+once. This accepts only that exact recipe and preserves its marker and previous
+distribution. The additional hash-pinned
+`scripts/patches/cef-video-frame-release-priority.patch` schedules Windows video
+frame-release waits at the compositor's GPU priority. This prevents background
+presentation work from starving decoder picture recycling; sync-token fences
+remain in place. Other platforms retain their original priority. Rebuild the
+complete CEF distribution before using it with Xenon; this is not a runtime flag.
+
 The post-build audit checks the generated GN arguments, selected FFmpeg codec
 configuration, absence of OpenH264/Symphonia AAC in libcef's dependency graph,
-and pinned source patch. It emits `xenon-codec-build.json` with engine/bootstrap
+and both pinned source patches. It emits `xenon-codec-build.json` with engine/bootstrap
 hashes. The Xenon build and packaging check both the engine hash and the pinned
 recipe before copying this manifest.
 `--windows-codecs` requires that provenance and tests actual MP4 and Media Source

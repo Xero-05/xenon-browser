@@ -1,0 +1,206 @@
+{
+  "recordedUtc": "2026-10-18",
+  "sourceBase": "ac5a0b4e38fb53147342cfdc503316e6d5d315eb",
+  "schedulingPatchSha256": "d24d1bc8c664f090f048d60ccde6d207309969a698c6df7a11adde802bc0b5ff",
+  "engineBuild": {
+    "exitCode": 0,
+    "target": "Release_GN_x64 libcef",
+    "jobs": 4
+  },
+  "buildAudit": {
+    "exitCode": 0,
+    "codecBackend": "windows",
+    "bothPinnedPatchesApplied": true,
+    "distributionMatchesBuild": true
+  },
+  "bootstrapIntegrity": {
+    "exitCode": 0,
+    "matchingDistribution": true
+  },
+  "basicMedia": {
+    "run": "media-integration-1792286802211-dc4a6dff",
+    "binaryHashes": {
+      "Xenon.dll": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+      "libcef.dll": "93a28b45d13670b0fff20f48dc960dc18d2842bdae2892de792f9bb7c34252c3"
+    },
+    "endHashes": {
+      "Xenon.dll": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+      "libcef.dll": "93a28b45d13670b0fff20f48dc960dc18d2842bdae2892de792f9bb7c34252c3"
+    },
+    "passed": true,
+    "coverage": "Production target: nonblank H.264 direct MP4/MSE frames, non-silent AAC PCM, pause, seek/resume and volume.",
+    "audioBufferDecode": {
+      "supported": false,
+      "error": "EncodingError"
+    }
+  },
+  "baseline": {
+    "run": "media-multitab-1792285728607-434f2492",
+    "binaryHashes": {
+      "XenonAuthTest.dll": "3f31684a20009ee144023538c3fabbde2b8feb532220c0b3743445b0afbadc11",
+      "libcef.dll": "939d881c1ed5f4615d0b87e6f0b4526ba07d3238091d768cdd3230c988a5c819"
+    },
+    "endHashes": {
+      "XenonAuthTest.dll": "3f31684a20009ee144023538c3fabbde2b8feb532220c0b3743445b0afbadc11",
+      "libcef.dll": "939d881c1ed5f4615d0b87e6f0b4526ba07d3238091d768cdd3230c988a5c819"
+    },
+    "sampleSha256": "52221c3302ce5f64745c9281f956030347b06706edf8acf52dcc195e8f69ab2a",
+    "fragmentedSampleSha256": "4a1b798c556554f3f7cec8e65a219bafb186725a7d7d9a25e3054b92cfbb1d06",
+    "passed": false,
+    "failure": "Less than 1% dropped frames",
+    "phases": [
+      {
+        "mode": "direct",
+        "elapsedMs": 10014.100000023842,
+        "mediaElapsed": 10.010666,
+        "totalFrames": 600,
+        "droppedFrames": 49,
+        "frameGapsMs": [
+          437.5,
+          416.7000000000007
+        ],
+        "rafGapCount": 0,
+        "silentSamples": 0,
+        "audioSamples": 192,
+        "peakRms": 0.08876529372265865,
+        "error": null,
+        "eventCount": 0
+      },
+      {
+        "mode": "mse",
+        "elapsedMs": 10041.300000011921,
+        "mediaElapsed": 10.040366,
+        "totalFrames": 601,
+        "droppedFrames": 48,
+        "frameGapsMs": [
+          430.6000000000058,
+          389
+        ],
+        "rafGapCount": 0,
+        "silentSamples": 0,
+        "audioSamples": 192,
+        "peakRms": 0.08877117593907173,
+        "error": null,
+        "eventCount": 0
+      },
+      {
+        "mode": "mse-native-audio",
+        "elapsedMs": 10014.299999982119,
+        "mediaElapsed": 10.013996,
+        "totalFrames": 602,
+        "droppedFrames": 52,
+        "frameGapsMs": [
+          416.6999999999971,
+          437.5
+        ],
+        "rafGapCount": 0,
+        "silentSamples": 0,
+        "audioSamples": 0,
+        "peakRms": 0,
+        "error": null,
+        "eventCount": 0
+      }
+    ],
+    "target": "XenonAuthTest",
+    "coverage": "Two synthetic CSS background animations. Ten-second phases. Diagnostic baseline; different application target from production candidate."
+  },
+  "sustained": {
+    "run": "media-integration-1792286827373-fa8d9b1e",
+    "binaryHashes": {
+      "Xenon.dll": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+      "libcef.dll": "93a28b45d13670b0fff20f48dc960dc18d2842bdae2892de792f9bb7c34252c3"
+    },
+    "endHashes": {
+      "Xenon.dll": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+      "libcef.dll": "93a28b45d13670b0fff20f48dc960dc18d2842bdae2892de792f9bb7c34252c3"
+    },
+    "sampleSha256": "52221c3302ce5f64745c9281f956030347b06706edf8acf52dcc195e8f69ab2a",
+    "fragmentedSampleSha256": "4a1b798c556554f3f7cec8e65a219bafb186725a7d7d9a25e3054b92cfbb1d06",
+    "passed": false,
+    "failure": "Less than 1% dropped frames",
+    "phases": [
+      {
+        "mode": "direct",
+        "elapsedMs": 30000.5,
+        "mediaElapsed": 30.009986,
+        "totalFrames": 1800,
+        "droppedFrames": 29,
+        "frameGapsMs": [],
+        "rafGapCount": 0,
+        "silentSamples": 0,
+        "audioSamples": 565,
+        "peakRms": 0.0888058712593925,
+        "error": null,
+        "eventCount": 0
+      },
+      {
+        "mode": "mse",
+        "elapsedMs": 30039.59999999404,
+        "mediaElapsed": 30.050666999999997,
+        "totalFrames": 1803,
+        "droppedFrames": 30,
+        "frameGapsMs": [],
+        "rafGapCount": 0,
+        "silentSamples": 0,
+        "audioSamples": 562,
+        "peakRms": 0.08877117593907173,
+        "error": null,
+        "eventCount": 0
+      },
+      {
+        "mode": "mse-native-audio",
+        "elapsedMs": 30028.80000001192,
+        "mediaElapsed": 30.029154,
+        "totalFrames": 1802,
+        "droppedFrames": 30,
+        "frameGapsMs": [],
+        "rafGapCount": 0,
+        "silentSamples": 0,
+        "audioSamples": 0,
+        "peakRms": 0,
+        "error": null,
+        "eventCount": 0
+      }
+    ],
+    "target": "Xenon",
+    "coverage": "Production candidate, manually selected foreground video with two synthetic CSS animations in background tabs. Thirty seconds per phase after warmup. Threshold remains less than 1% dropped frames. Native-audio phase muted without PCM measurement."
+  },
+  "diagnosticSites": {
+    "target": "XenonAuthTest",
+    "binaryHashes": {
+      "XenonAuthTest.dll": "8d59f59e18a13f976567e52c38d17c41567c445af76859476872c483c8701154",
+      "libcef.dll": "93a28b45d13670b0fff20f48dc960dc18d2842bdae2892de792f9bb7c34252c3"
+    },
+    "youtube": {
+      "resolution": "1920x1080",
+      "fps": 30,
+      "videoCodec": "AV1",
+      "audioCodec": "Opus",
+      "droppedFrames": 24,
+      "totalFrames": 3538,
+      "counting": "cumulative after quality reset"
+    },
+    "bilibili": {
+      "quality": "360p",
+      "fps": 30,
+      "videoCodec": "AV1",
+      "audioCodec": "AAC",
+      "additionalDroppedFrames": 6,
+      "additionalTotalFrames": 2495,
+      "counting": "foreground measurement delta"
+    },
+    "coverage": "Anonymous disposable profile, multiple website tabs. Sampled player statistics, not production-site acceptance or exact frame callback timing."
+  },
+  "scriptChecks": {
+    "codecAuditTests": 9,
+    "recipeMigrationChecks": 7,
+    "javascriptSyntax": true,
+    "powershellSyntax": true
+  },
+  "limitations": [
+    "Sustained diagnostic FAILED: about 1.6% frame loss remains, despite zero callback gaps over 80 ms in the production run.",
+    "Only the local Windows/GPU configuration was tested. No physical speaker output, DRM, network adaptation or universal website acceptance.",
+    "No installer or release package built; ordinary user browser unchanged.",
+    "The first standalone audit lacked the build toolchain environment and failed; it passed with the normal build environment. The first distribution formatter failed on a space in the output path; complete distribution generation succeeded with upstream --no-format. Local failed logs retained."
+  ]
+}

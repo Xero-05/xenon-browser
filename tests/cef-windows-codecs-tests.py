@@ -38,6 +38,8 @@ enable_ffmpeg_video_decoders=false
         self.deps = '//media/filters:filters\n//third_party/ffmpeg:ffmpeg_internal'
         self.recipe = json.loads((ROOT / 'dependencies.lock.json').read_text())['cef']['mediaSourceBuild']
         self.recipe_patch = ROOT / self.recipe['patch']['path']
+        self.scheduling_patch = ROOT / self.recipe['videoSchedulingPatch']['path']
+        self.patches = [self.recipe_patch, self.scheduling_patch]
 
     @staticmethod
     def write(path, content):
@@ -45,7 +47,7 @@ enable_ffmpeg_video_decoders=false
         path.write_text(content, encoding='utf-8')
 
     def audit(self):
-        with patch.object(codec_build, 'validate', return_value=(self.recipe, self.recipe_patch)), \
+        with patch.object(codec_build, 'validate', return_value=(self.recipe, self.patches)), \
              patch.object(codec_build, 'run', side_effect=lambda *args, **kwargs: self.deps if 'desc' in args else ''), \
              patch('builtins.print'):
             codec_build.audit(self.source, self.distribution)
@@ -87,6 +89,28 @@ enable_ffmpeg_video_decoders=false
 
     def test_checked_in_patch_matches_pin(self):
         self.assertEqual(codec_build.sha(self.recipe_patch), self.recipe['patch']['sha256'])
+        self.assertEqual(codec_build.sha(self.scheduling_patch), self.recipe['videoSchedulingPatch']['sha256'])
+
+    def test_audit_rejects_missing_scheduling_patch_before_writing_manifest(self):
+        def check(*args, **kwargs):
+            if str(self.scheduling_patch) in args:
+                raise RuntimeError('Scheduling patch not applied')
+            return ''
+        with patch.object(codec_build, 'validate', return_value=(self.recipe, self.patches)), \
+             patch.object(codec_build, 'run', side_effect=check):
+            with self.assertRaisesRegex(RuntimeError, 'Scheduling patch not applied'):
+                codec_build.audit(self.source, self.distribution)
+        self.assertFalse((self.distribution / 'xenon-codec-build.json').exists())
+
+    def test_apply_preflights_all_pending_patches_before_mutating(self):
+        with patch.object(codec_build, 'validate', return_value=(self.recipe, self.patches)), \
+             patch.object(codec_build.subprocess, 'run') as reverse, \
+             patch.object(codec_build, 'run', side_effect=RuntimeError('Patch conflict')) as run:
+            reverse.return_value.returncode = 1
+            with self.assertRaisesRegex(RuntimeError, 'Patch conflict'):
+                codec_build.apply(self.source)
+        run.assert_called_once_with('git', 'apply', '--check', '--whitespace=error-all',
+                                    *map(str, self.patches), cwd=self.source)
 
     def test_rejects_stale_distribution(self):
         self.write(self.distribution / 'Release/libcef.dll', 'older build with different codecs')
