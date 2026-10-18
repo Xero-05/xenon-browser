@@ -1,8 +1,9 @@
 # Shared by bootstrap, build, packaging and the engine archive builder.
 # A CEF engine is the stock distribution (no Xenon manifest) or a source build
 # whose provenance manifest matches its pinned recipe and libcef.dll bytes.
-# Published packages may carry only the engine dependencies.lock.json names for
-# releases: the stock engine until cef.engineArchive pins a Xenon engine build.
+# With -Release (CI), packages may carry only the engine dependencies.lock.json
+# names for releases: the stock engine until cef.engineArchive pins a Xenon
+# engine build. Locally built codec-enabled releases do not pass -Release.
 
 # The fixed release location. A different host requires a reviewed change here.
 $XenonEngineReleaseBase = 'https://github.com/Xero-05/xenon-browser/releases/download/'

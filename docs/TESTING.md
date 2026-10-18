@@ -1,5 +1,17 @@
 # Validation
 
+## 0.1.7 release
+
+0.1.7 replaces the withdrawn 0.1.6. Its packages use the Windows-decoder engine from `cef.mediaSourceBuild` with all three pinned patches, so its files were built, packaged and tested on a maintainer's Windows 11 machine rather than taken from hosted CI. CI's run on the release pull request uses the stock engine, and its artifacts are not published.
+
+The engine's existing source build was updated with `build-cef-media.ps1 -UpdateVideoScheduling -BuildOnly`. Its audit passed with all three patches applied, the expected GN arguments, no FFmpeg H.264/AAC decoders or OpenH264, and the distribution matching the build output. Its libcef.dll (SHA-256 `44ef0602…831601`) is the engine of the covered-tab pacing record below. Xenon was then built against it from the release source with `build.ps1 -CefRoot <distribution> -Test`. It passed 20 native groups; 22 adapter, 42 login-capture, 31 human-autofill, 10 protected-login, 6 form-fill and 8 passkey-guard checks; and 5 branding checks. Package verification covered all 1,331 manifest hashes, 51 isolated installer checks passed, and the extracted ZIP passed 6 smoke checks.
+
+On the packaged DLLs, the eight live suites hosted CI runs passed, with the theme suite in Windows dark mode. `media-integration.mjs --windows-codecs` passed: H.264/AAC MP4 and Media Source playback, nonblank decoded pictures, measured AAC PCM, pause, seek/resume and volume, with the engine's provenance bound to the tested DLL. The VP8 WebM mode passed too. `frame-pacing-integration.mjs` measured about 1 fps in an idle covered agent tab and full rate after an observation and while selected, and an agent click on the idle covered tab passed the input guard. The publication record will bind these results to the published files' hashes.
+
+One failure is kept. On a preliminary package of the same source, the first `persistence-integration.mjs` run failed its first check because the second workspace's tab reported `HUMAN_INPUT_PAUSED`, with five human-activity events and held input. This most likely came from real keyboard or mouse input reaching the visible test window while the desktop was in use; the cause was not confirmed. The unchanged binaries passed all three checks on the next run.
+
+Not covered: hosted CI cannot reproduce these binaries. Video was checked only with synthetic loopback fixtures, with no real website, audible output, physical player input or DRM. The address-suggestion, site-information, browser-essentials and agent-gate suites were not rerun; their earlier results are below. Full screen, screen sharing, the Import window and Default apps registration were not exercised, and help requests have no live suite. Native update discovery of 0.1.7 can be checked only after publication. Physical input, high contrast, other DPI, assistive technology and real accounts remain unverified. Downloads remain unsigned: published hashes establish byte integrity, not publisher identity.
+
 ## 0.1.6 release
 
 0.1.6 was published on October 17 as a regular GitHub release, marked latest, and switched back to a draft the same day because codec licensing for distributing its built-in H.264 and AAC decoders had not been confirmed; v0.1.5 is the latest published release again. It was the first release whose packages used the codec-enabled CEF engine (H.264/AAC), so its files were built, packaged and tested locally rather than taken from hosted CI, which builds only the stock engine.

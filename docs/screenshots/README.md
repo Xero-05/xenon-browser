@@ -1,6 +1,6 @@
 # README screenshots
 
-These are window captures of a locally built production `Xenon.exe` from the **0.1.6** source, taken on **2026-10-17**. They illustrate the UI, not an acceptance-test result or a localized application interface.
+These are window captures of a locally built production `Xenon.exe` from the **0.1.6** source, taken on **2026-10-17**. They illustrate the UI, not an acceptance-test result or a localized application interface. 0.1.7 changes the engine and covered-tab painting but not the interface they show.
 
 | File | View | Dimensions |
 | --- | --- | --- |
@@ -12,6 +12,6 @@ Each capture used a newly generated disposable profile and private broker pipe, 
 
 The browser windows were placed off-screen without activation, the planner tab was selected through the sidebar's tree control, and each window was rendered with `PrintWindow(PW_RENDERFULLCONTENT)`. Images are cropped only to remove the invisible resize border. The agent cursor is a separate overlay window, so it does not appear. Window title bars show the inactive state.
 
-The captured `Xenon.dll` SHA-256 was `6bd420f82ba5f2c207c508ea31fcc63228221a4e54a1f26b55de580ed2766e6b`. That build used the optional codec-enabled CEF distribution described in [BUILD](../BUILD.md#website-video-codecs), which draws the same interface as the stock engine.
+The captured `Xenon.dll` SHA-256 was `6bd420f82ba5f2c207c508ea31fcc63228221a4e54a1f26b55de580ed2766e6b`. That build used an earlier codec-enabled CEF distribution described in [BUILD](../BUILD.md#website-video-codecs), which draws the same interface as the stock engine.
 
 When refreshing screenshots, use a new synthetic profile and private pipe, keep the CEF sandbox enabled, avoid credentials and personal data, and capture the full native application window. Update both [English](../../README.md) and [简体中文](../../README.zh-CN.md) captions and image paths together.

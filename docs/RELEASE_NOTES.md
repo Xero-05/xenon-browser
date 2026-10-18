@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.1.7
+
+0.1.7 replaces the withdrawn 0.1.6 and includes all of its changes below. The [0.1.7 notes](RELEASE-0.1.7.md) also cover the engine and the release checks.
+
+**Website video through Windows.** H.264 and AAC play alongside WebM. Windows decodes them: H.264 on your graphics hardware and AAC with Windows Media Foundation. Xenon contains no H.264 or AAC decoder of its own, unlike the withdrawn 0.1.6. H.264 needs GPU video decoding that Windows supports, with no software fallback, and Windows N editions need the Media Feature Pack for AAC. Protected streaming that needs Widevine still does not play.
+
+**Smoother video beside busy tabs.** Animated background tabs no longer freeze the selected tab's video for about 0.4 seconds every few seconds. Covered tabs paint once per second unless an agent is working in them, with full rate restored before an agent's page operation runs and kept for 15 seconds after the last one. Their scripts, timers, network and audio are unaffected.
+
+Packages use a CEF engine built from source at the same CEF and Chromium revisions, from the pinned `cef.mediaSourceBuild` recipe. Because hosted CI builds only the stock engine, 0.1.7 was built, packaged and tested on a maintainer machine before publication.
+
 ## 0.1.6
 
 **Withdrawn; see the end of this section.**
@@ -28,7 +38,7 @@ The [0.1.6 notes](RELEASE-0.1.6.md) also cover address suggestions, the site-inf
 
 See [user guide](USER_GUIDE.md), [security](SECURITY.md#native-browsing-features) and [testing](TESTING.md#browser-essentials-candidate).
 
-0.1.6 was published on October 17 as the latest regular release and switched back to a draft the same day because codec licensing for distributing its built-in H.264 and AAC decoders had not been confirmed. Its four files, built and tested locally with the codec-enabled engine, and the `v0.1.6` tag are kept unchanged; v0.1.5 is the latest published release again. The [publication record](test-results/release-0.1.6-publication.json) binds the uploaded digests to that build and records the withdrawal.
+0.1.6 was published on October 17 as the latest regular release and switched back to a draft the same day because codec licensing for distributing its built-in H.264 and AAC decoders had not been confirmed. Its four files, built and tested locally with the codec-enabled engine, and the `v0.1.6` tag are kept unchanged; v0.1.5 was the latest published release again until 0.1.7 replaced it. The [publication record](test-results/release-0.1.6-publication.json) binds the uploaded digests to that build and records the withdrawal.
 
 ## 0.1.5
 

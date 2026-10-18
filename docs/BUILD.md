@@ -80,7 +80,9 @@ $version = (Get-Content ./VERSION -Raw).Trim()
 
 The installer compiler is pinned separately and installed in portable mode in ignored build storage. The installer builder first verifies the ZIP checksum and every manifest entry, then compiles the same runtime files into `Xenon-<version>-windows-x64-setup-unsigned.exe` and writes its SHA-256. Installation requires no administrator access. Fresh installs offer an empty, writable program folder on a local fixed drive, defaulting to `%LOCALAPPDATA%\Programs\Xenon Browser`; updates reuse the recorded installation folder. Relocation requires uninstalling and reinstalling, while the separate browser data and pairing files remain. MCP host paths must point into the chosen program folder. Do not replace the signed upstream compiler with an unverified download.
 
-Do not publish packages with the codec-enabled engine described in [website video codecs](#website-video-codecs) until codec licensing for distributing it is confirmed. 0.1.6 was built that way and withdrawn the same day for this reason. Releases are published from the hosted CI artifacts. CI builds and packages with `-RequireReleaseEngine`, which accepts only the engine `dependencies.lock.json` designates for releases: the stock engine until `cef.engineArchive` pins a [Xenon engine build](#xenon-engine-releases), then exactly that build. It never accepts the codec-enabled engine. Hosted CI cannot build that engine either, so a codec-enabled release would have to be built on a maintainer machine with `./scripts/build.ps1 -CefRoot <codec-enabled distribution> -Test`, then package, verify, test the isolated installer, build the installer, smoke-test the extracted ZIP, and run the CI live suites and both `media-integration.mjs` modes on the packaged DLL.
+Starting with 0.1.7, packages use the Windows-decoder engine described in [website video codecs](#website-video-codecs), which contains no H.264 or AAC decoder of its own. The maintainer chose to publish it on October 18, 2026. 0.1.6 had been built with FFmpeg's bundled H.264/AAC decoders and was withdrawn the same day because codec licensing for distributing them had not been confirmed. Publishing the Windows-decoder engine is a distribution decision, not legal clearance: Chromium's MP4 demuxer and the H.264 and AAC parsing that feeds the Windows decoders are still in libcef. Do not publish an engine that bundles H.264/AAC decoders.
+
+CI builds and packages with `-RequireReleaseEngine`, which accepts only the engine `dependencies.lock.json` designates for CI-built releases: the stock engine until `cef.engineArchive` pins a [Xenon engine build](#xenon-engine-releases), then exactly that build. It never accepts the codec-enabled engine, and hosted CI cannot build that engine either. A codec-enabled release is therefore built on a maintainer machine from the release source with `./scripts/build.ps1 -CefRoot <codec-enabled distribution> -Test`. Then package, verify, test the isolated installer, build the installer and smoke-test the extracted ZIP. Run the CI live suites, both `media-integration.mjs` modes and `frame-pacing-integration.mjs` on the packaged DLL. Those files are published instead of the CI artifacts, whose stock engine lacks H.264/AAC and the engine patches.
 
 Publish the ZIP, installer and both `.sha256` files as assets on a release tagged `v<version>` in `Xero-05/xenon-browser`, after reviewing checks and release notes. Mark alpha releases as prereleases; publish `MAJOR.MINOR.PATCH` versions as regular releases and mark them latest. Do not edit existing release assets in place or reuse a version for different bytes. Verify that GitHub reports each installer asset's `digest` as `sha256:<expected digest>` before publishing: the native updater refuses missing/mismatched digests, unexpected asset names and downgrades. The updater enumerates published releases, so alpha releases are eligible without relying on GitHub's stable-only latest-release endpoint.
 
@@ -192,8 +194,10 @@ not sufficient evidence of successful decoding.
 
 Stock-engine packages do not contain Xenon's engine patches: the Windows video
 frame-release priority fix and covered-tab frame pacing described above. Hosted
-CI cannot build Chromium. Releases therefore take a locally built engine as a
-pinned, prebuilt input, in the same way they take the stock CEF archive.
+CI cannot build Chromium. CI-built releases therefore take a locally built engine
+as a pinned, prebuilt input, in the same way they take the stock CEF archive.
+Locally built codec-enabled releases, starting with 0.1.7, already carry both
+patches through `cef.mediaSourceBuild` and do not use this path.
 
 The `cef.engineSourceBuild` recipe pins the same CEF, Chromium, depot_tools,
 automation script and Windows SDK revisions as `cef.mediaSourceBuild`. It applies
@@ -252,7 +256,7 @@ intact. On every run, bootstrap checks that the archive's manifest matches
 `build.ps1` then defaults to `third_party/cef-engine` unless CMake's cache or
 `-CefRoot` selects another distribution. With `-RequireReleaseEngine`,
 `build.ps1` and `package.ps1` refuse any other libcef.dll. Until an archive is
-pinned, the lock omits `cef.engineArchive` and releases keep the stock engine.
+pinned, the lock omits `cef.engineArchive` and CI-built packages keep the stock engine.
 
 A pinned archive is bound to the recipe. Changing `cef.engineSourceBuild`, a
 patch it lists or the CEF version without a new archive fails bootstrap in CI.
