@@ -39,7 +39,8 @@ enable_ffmpeg_video_decoders=false
         self.recipe = json.loads((ROOT / 'dependencies.lock.json').read_text())['cef']['mediaSourceBuild']
         self.recipe_patch = ROOT / self.recipe['patch']['path']
         self.scheduling_patch = ROOT / self.recipe['videoSchedulingPatch']['path']
-        self.patches = [self.recipe_patch, self.scheduling_patch]
+        self.frame_rate_patch = ROOT / self.recipe['backgroundFrameRatePatch']['path']
+        self.patches = [self.recipe_patch, self.scheduling_patch, self.frame_rate_patch]
 
     @staticmethod
     def write(path, content):
@@ -90,6 +91,7 @@ enable_ffmpeg_video_decoders=false
     def test_checked_in_patch_matches_pin(self):
         self.assertEqual(codec_build.sha(self.recipe_patch), self.recipe['patch']['sha256'])
         self.assertEqual(codec_build.sha(self.scheduling_patch), self.recipe['videoSchedulingPatch']['sha256'])
+        self.assertEqual(codec_build.sha(self.frame_rate_patch), self.recipe['backgroundFrameRatePatch']['sha256'])
 
     def test_audit_rejects_missing_scheduling_patch_before_writing_manifest(self):
         def check(*args, **kwargs):
@@ -99,6 +101,17 @@ enable_ffmpeg_video_decoders=false
         with patch.object(codec_build, 'validate', return_value=(self.recipe, self.patches)), \
              patch.object(codec_build, 'run', side_effect=check):
             with self.assertRaisesRegex(RuntimeError, 'Scheduling patch not applied'):
+                codec_build.audit(self.source, self.distribution)
+        self.assertFalse((self.distribution / 'xenon-codec-build.json').exists())
+
+    def test_audit_rejects_missing_frame_rate_patch_before_writing_manifest(self):
+        def check(*args, **kwargs):
+            if str(self.frame_rate_patch) in args:
+                raise RuntimeError('Frame rate patch not applied')
+            return ''
+        with patch.object(codec_build, 'validate', return_value=(self.recipe, self.patches)), \
+             patch.object(codec_build, 'run', side_effect=check):
+            with self.assertRaisesRegex(RuntimeError, 'Frame rate patch not applied'):
                 codec_build.audit(self.source, self.distribution)
         self.assertFalse((self.distribution / 'xenon-codec-build.json').exists())
 

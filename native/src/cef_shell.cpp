@@ -650,13 +650,16 @@ struct BrowserShell::Impl {
     // Only buttons that are drawn can be hit: "…" exists while its row is hovered.
     int group_button_at(POINT point,std::string& group) const {const auto item=item_at(point);const auto [id,is_group]=key_of(item);if(id.empty()||!is_group)return -1;
       for(int index:{GroupPlus,GroupMore}){if(index==GroupMore&&item!=hovered_row)continue;auto rect=group_button(item,index);if(PtInRect(&rect,point)){group=id;return index;}}return -1;}
-    void choose(const std::string& id,bool focus){auto found=shell.hosts.find(id);if(found==shell.hosts.end()||found->second.frame!=this)return;
+    void choose(const std::string& id,bool focus){auto found=shell.hosts.find(id);if(found==shell.hosts.end()||found->second.frame!=this)return;const auto previous=selected;
       if(selected!=id){if(page_screen&&screen_tab!=id)leave_page_fullscreen();clear_developer(ui::tr(L"Waiting for rendered page evidence…"));RECT from{};const bool visible=pill_rect(from);glide_from=from;glide_start=visible&&ui::motion()?GetTickCount64():0;address_dirty=false;hide_suggestions();matches.clear();close_site();set_address(str(found->second.metadata,"url"));
         // Keyboard tab switching can choose a row outside the visible sidebar.
         // A scrolled sidebar has no meaningful glide origin.
         if(auto item=item_of(id)){const auto top=TreeView_GetFirstVisible(tree);TreeView_EnsureVisible(tree,item);if(TreeView_GetFirstVisible(tree)!=top)glide_start=0;}}selected=id;
       status.clear();track_accent();
+      // Full frame rate before the page is raised; the tab it covers slows down.
+      shell.engine.set_tab_covered(id,false);
       SetWindowPos(found->second.window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);if(find_visible)SetWindowPos(find_bar,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+      if(previous!=id)if(auto old=shell.hosts.find(previous);old!=shell.hosts.end()&&old->second.frame==this)shell.engine.set_tab_covered(previous,true);
       // Only the foreground window's tab is Chromium's focus target.
       if(shell.active==this||GetAncestor(GetForegroundWindow(),GA_ROOT)==window)shell.engine.select_native_tab(id);
       if(focus&&found->second.browser)shell.engine.native_command(id,"focus");sync_toolbar();refresh_page_state();InvalidateRect(window,nullptr,FALSE);InvalidateRect(tree,nullptr,FALSE);update_cursor();
@@ -2236,7 +2239,7 @@ HWND BrowserShell::create_host(const std::string& workspace,const std::string& i
   if(!host.window)return nullptr;impl_->hosts.emplace(id,std::move(host));impl_->order.push_back(id);if(!before.empty())impl_->reorder(id,before);frame->layout();
   // Agent-created tabs stay beneath the selected page.
   SetWindowPos(impl_->hosts.at(id).window,HWND_BOTTOM,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-  if(select||frame->selected.empty())frame->choose(id,false);
+  if(select||frame->selected.empty())frame->choose(id,false);else impl_->engine.set_tab_covered(id,true);
   return impl_->hosts.at(id).window;
 }
 void BrowserShell::tab_created(const std::string& id,HWND browser){if(auto found=impl_->hosts.find(id);found!=impl_->hosts.end()){found->second.browser=browser;auto frame=found->second.frame;if(frame){frame->layout();if(found->second.human&&frame->selected==id)frame->choose(id,true);}}impl_->refresh();}

@@ -121,6 +121,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     // Concurrent agent windows must keep painting while covered by another
     // window. This is a fixed startup policy, never an ownership/handoff change.
     // It trades additional background CPU/GPU use for reliable page input.
+    // Idle covered tabs still paint, at a reduced rate (TabRenderPacing).
     command->AppendSwitch("disable-backgrounding-occluded-windows");
     command->AppendSwitch("disable-background-timer-throttling");
     // Chrome initializes its logger separately from CEF's log-severity setting.

@@ -55,6 +55,9 @@ class CefEngine final : public BrowserEngine {
   void clear_browsing_data(const std::string& workspace,int64_t since_unix_ms,bool cookies,bool storage,bool cache,std::vector<std::string> origins,Reply reply);
   void native_pointer(HWND page,POINT screen,bool substantive=false);
   void select_native_tab(const std::string& tab_id);
+  // Native shell only: whether the tab is hidden behind its window's selected
+  // tab. Covered tabs paint at a reduced rate unless an agent works in them.
+  void set_tab_covered(const std::string& tab_id,bool covered);
   void native_command(const std::string& tab_id,const std::string& command,const std::string& value={},Reply reply={});
   // Native human site information for the tab's current website: connection
   // and certificate summary, cookie metadata without values, storage use and

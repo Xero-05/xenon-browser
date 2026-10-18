@@ -640,7 +640,7 @@ void security_and_handoff(const std::filesystem::path& directory) {
   auto state = call(broker, "bob", "control.status", shared)["result"];
   require(state["ownerSessionId"] == second.session && !state["handoffPending"], "Owner changes after active transaction finishes");
   require(state["workspaceId"] == first.workspace && state["tabId"] == first.tab["tabId"], "Transfer preserves source workspace and loaded tab");
-  require(engine.call_count() == count, "Ownership commit does not focus, reload, or observe");
+  require(engine.call_count() == count, "Ownership commit does not focus, reload, observe, or change frame pacing");
   auto new_action = shared; new_action["operationId"] = "needs-observation"; new_action["ownershipGeneration"] = state["ownershipGeneration"]; new_action["observationId"] = parameters["observationId"];
   require(code(call(broker, "bob", "page.click", new_action)) == "OBSERVATION_REQUIRED", "Recipient must observe separately after handoff");
   auto snapshot = call(broker, "bob", "page.observe", shared);

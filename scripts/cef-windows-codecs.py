@@ -40,7 +40,7 @@ def validate(source):
     require(run('git', 'rev-parse', 'HEAD', cwd=source) == recipe['chromiumCommit'], 'Chromium revision mismatch')
     require(run('git', 'rev-parse', 'HEAD', cwd=source / 'cef') == recipe['cefCommit'], 'CEF revision mismatch')
     patches = []
-    for key in ['patch', 'videoSchedulingPatch']:
+    for key in ['patch', 'videoSchedulingPatch', 'backgroundFrameRatePatch']:
         patch = ROOT / recipe[key]['path']
         require(sha(patch) == recipe[key]['sha256'], f'Patch hash mismatch: {key}')
         patches.append(patch)
@@ -59,7 +59,7 @@ def apply(source):
         # Check the complete pending set before changing any source files.
         run('git', 'apply', '--check', '--whitespace=error-all', *pending, cwd=source)
         run('git', 'apply', '--whitespace=error-all', *pending, cwd=source)
-    print('All pinned Windows codec/video scheduling patches applied.')
+    print('All pinned Windows codec, video scheduling and frame rate patches applied.')
 
 
 def audit(source, distribution):

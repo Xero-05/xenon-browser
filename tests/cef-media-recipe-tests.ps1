@@ -16,6 +16,9 @@ if (-not $taskGate) { throw 'Source-build recipe gate not found.' }
 $taskGateScript = [scriptblock]::Create($taskGate.Extent.Text)
 $taskPrevious = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
 $taskPrevious.PSObject.Properties.Remove('videoSchedulingPatch')
+$taskPrevious.PSObject.Properties.Remove('backgroundFrameRatePatch')
+$taskScheduling = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+$taskScheduling.PSObject.Properties.Remove('backgroundFrameRatePatch')
 $taskLegacy = $taskPrevious | ConvertTo-Json -Depth 10 | ConvertFrom-Json
 $taskLegacy.PSObject.Properties.Remove('codecBackend')
 $taskLegacy.PSObject.Properties.Remove('patch')
@@ -23,6 +26,8 @@ $taskLegacy.gnDefines = 'is_official_build=true use_thin_lto=false chrome_pgo_ph
 $taskCases = @(
   @{ Name='matching'; Marker=$taskRecipeText; Accept=$true; Backup=$false },
   @{ Name='windows-migration'; Marker=($taskPrevious | ConvertTo-Json -Compress); Scheduling=$true; Accept=$true; Backup=$true },
+  @{ Name='frame-rate-migration'; Marker=($taskScheduling | ConvertTo-Json -Compress); FrameRate=$true; Accept=$true; Backup=$true },
+  @{ Name='frame-rate-wrong-switch'; Marker=($taskScheduling | ConvertTo-Json -Compress); Scheduling=$true; Accept=$false },
   @{ Name='legacy-migration'; Marker=($taskLegacy | ConvertTo-Json -Compress); Legacy=$true; Accept=$true; Backup=$true },
   @{ Name='missing-opt-in'; Marker=($taskPrevious | ConvertTo-Json -Compress); Accept=$false },
   @{ Name='wrong-switch'; Marker=($taskPrevious | ConvertTo-Json -Compress); Legacy=$true; Accept=$false },
@@ -38,6 +43,7 @@ foreach ($taskCase in $taskCases) {
   if ($taskCase.Marker) { [IO.File]::WriteAllText($taskMarker, $taskCase.Marker) }
   $MigrateToWindowsCodecs = [bool]$taskCase.Legacy
   $UpdateVideoScheduling = [bool]$taskCase.Scheduling
+  $UpdateBackgroundFrameRate = [bool]$taskCase.FrameRate
   $BuildOnly = $true
   $taskFailure = $null
   try { & $taskGateScript } catch { $taskFailure = $_ }

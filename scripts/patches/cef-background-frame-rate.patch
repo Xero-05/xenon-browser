@@ -1,0 +1,145 @@
+--- a/cef/libcef/browser/native/browser_platform_delegate_native_win.cc
++++ b/cef/libcef/browser/native/browser_platform_delegate_native_win.cc
+@@ -8,9 +8,17 @@
+ #include <wininet.h>
+ #include <winspool.h>
+ 
++#include <algorithm>
++#include <map>
++#include <memory>
++#include <set>
++
+ #include "base/base_paths_win.h"
+ #include "base/files/file_util.h"
++#include "base/memory/ptr_util.h"
++#include "base/no_destructor.h"
+ #include "base/path_service.h"
++#include "base/time/time.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/task/current_thread.h"
+ #include "base/win/win_util.h"
+@@ -20,6 +28,11 @@
+ #include "cef/libcef/browser/native/native_widget_delegate.h"
+ #include "cef/libcef/browser/thread_util.h"
+ #include "components/input/native_web_keyboard_event.h"
++#include "content/public/browser/frame_rate_throttling.h"
++#include "content/public/browser/global_routing_id.h"
++#include "content/public/browser/render_frame_host.h"
++#include "content/public/browser/web_contents.h"
++#include "content/public/browser/web_contents_observer.h"
+ #include "third_party/blink/public/common/input/web_mouse_event.h"
+ #include "third_party/blink/public/common/input/web_mouse_wheel_event.h"
+ #include "ui/aura/window.h"
+@@ -120,6 +133,76 @@ CefRect GetAdjustedScreenFrameRect(CefRect screen_rect,
+       /*window=*/nullptr, visible_dip_rect, style, ex_style, has_menu);
+ }
+ 
++// Windowed browsers asked to paint below the display rate, for example a tab
++// covered by another tab in the same window. The page stays visible and keeps
++// its timers; Chromium only sends it fewer BeginFrames. Chromium throttles one
++// set of frame sinks at a single interval, so throttled browsers share the
++// highest requested rate. Child frame sinks such as cross-process iframes
++// inherit the throttle, and video-captured frame sinks are exempt.
++class WindowedFrameRateThrottle : public content::WebContentsObserver {
++ public:
++  // Rates at or above this, and non-positive rates, remove the throttle.
++  static constexpr int kUnthrottledFrameRate = 60;
++
++  WindowedFrameRateThrottle(const WindowedFrameRateThrottle&) = delete;
++  WindowedFrameRateThrottle& operator=(const WindowedFrameRateThrottle&) =
++      delete;
++
++  static void Set(content::WebContents* contents, int frame_rate) {
++    auto& entries = Entries();
++    if (frame_rate <= 0 || frame_rate >= kUnthrottledFrameRate) {
++      // Erasing during WebContentsDestroyed() deletes the calling observer.
++      if (entries.erase(contents)) {
++        Apply();
++      }
++      return;
++    }
++    auto& entry = entries[contents];
++    if (!entry) {
++      entry = base::WrapUnique(new WindowedFrameRateThrottle(contents));
++    }
++    entry->frame_rate_ = frame_rate;
++    Apply();
++  }
++
++ private:
++  using EntryMap =
++      std::map<content::WebContents*,
++               std::unique_ptr<WindowedFrameRateThrottle>>;
++
++  static EntryMap& Entries() {
++    static base::NoDestructor<EntryMap> entries;
++    return *entries;
++  }
++
++  static void Apply() {
++    std::set<content::GlobalRenderFrameHostId> frames;
++    int frame_rate = 0;
++    for (const auto& [contents, entry] : Entries()) {
++      frames.insert(contents->GetPrimaryMainFrame()->GetGlobalId());
++      frame_rate = std::max(frame_rate, entry->frame_rate_);
++    }
++    content::UpdateThrottlingFrameSinks(
++        frames, frame_rate ? base::Hertz(frame_rate) : base::TimeDelta());
++  }
++
++  explicit WindowedFrameRateThrottle(content::WebContents* contents)
++      : content::WebContentsObserver(contents) {}
++
++  // A cross-site navigation can replace the main frame's widget, and with it
++  // the frame sink that Chromium throttles.
++  void RenderFrameHostChanged(content::RenderFrameHost* old_host,
++                              content::RenderFrameHost* new_host) override {
++    if (new_host && new_host->IsInPrimaryMainFrame()) {
++      Apply();
++    }
++  }
++  void PrimaryPageChanged(content::Page& page) override { Apply(); }
++  void WebContentsDestroyed() override { Set(web_contents(), 0); }
++
++  int frame_rate_ = kUnthrottledFrameRate;
++};
++
+ }  // namespace
+ 
+ CefBrowserPlatformDelegateNativeWin::CefBrowserPlatformDelegateNativeWin(
+@@ -138,6 +221,9 @@ void CefBrowserPlatformDelegateNativeWin::set_widget(
+ 
+ void CefBrowserPlatformDelegateNativeWin::BrowserDestroyed(
+     CefBrowserHostBase* browser) {
++  if (web_contents_) {
++    WindowedFrameRateThrottle::Set(web_contents_, 0);
++  }
+   CefBrowserPlatformDelegateNativeAura::BrowserDestroyed(browser);
+ 
+   if (host_window_created_) {
+@@ -146,6 +232,15 @@ void CefBrowserPlatformDelegateNativeWin::BrowserDestroyed(
+   }
+ }
+ 
++void CefBrowserPlatformDelegateNativeWin::SetWindowlessFrameRate(
++    int frame_rate) {
++  // Windowed browsers accept a reduced paint rate too; see
++  // WindowedFrameRateThrottle above.
++  if (web_contents_) {
++    WindowedFrameRateThrottle::Set(web_contents_, frame_rate);
++  }
++}
++
+ bool CefBrowserPlatformDelegateNativeWin::CreateHostWindow() {
+   RegisterWindowClass();
+ 
+--- a/cef/libcef/browser/native/browser_platform_delegate_native_win.h
++++ b/cef/libcef/browser/native/browser_platform_delegate_native_win.h
+@@ -21,6 +21,7 @@ class CefBrowserPlatformDelegateNativeWin
+ 
+   // CefBrowserPlatformDelegate methods:
+   void BrowserDestroyed(CefBrowserHostBase* browser) override;
++  void SetWindowlessFrameRate(int frame_rate) override;
+   bool CreateHostWindow() override;
+   void CloseHostWindow() override;
+   CefWindowHandle GetHostWindowHandle() const override;
