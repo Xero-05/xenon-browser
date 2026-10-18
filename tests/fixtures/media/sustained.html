@@ -1,0 +1,93 @@
+<!doctype html><meta charset="utf-8"><title>Xenon sustained video fixture</title>
+<h1>Sustained website video playback</h1><button id="start">Start playback test</button>
+<video controls width="960" height="540"></video><p id="status">Ready</p>
+<script>
+document.querySelector('#start').addEventListener('click', async () => {
+  const result = {phases: []};
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const event = (target, name) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(Error(name + ' timed out')), 15000);
+    target.addEventListener(name, () => {clearTimeout(timer); resolve();}, {once: true});
+  });
+  let context, analyser;
+  let objectUrl;
+  try {
+    for (const mode of ['direct', 'mse', 'mse-native-audio']) {
+      // A new element/context per phase avoids carrying the previous source's
+      // audio clock into this measurement.
+      const previous = document.querySelector('video');
+      const current = previous.cloneNode(); previous.replaceWith(current);
+      const video = current;
+      if (mode === 'mse-native-audio') {
+        // Exercise the normal media renderer as well: attaching Web Audio
+        // changes the audio clock and can hide ordinary player timing bugs.
+        // Muting avoids sending the synthetic tone to the user's speakers.
+        video.muted = true; analyser = null;
+      } else {
+        context = new AudioContext({sampleRate: 48000}); analyser = context.createAnalyser();
+        const source = context.createMediaElementSource(video), gain = context.createGain();
+        gain.gain.value = 0; source.connect(analyser); analyser.connect(gain); gain.connect(context.destination);
+        await context.resume();
+      }
+      document.querySelector('#status').textContent = 'Measuring ' + mode;
+      if (mode === 'direct') {
+        const loaded = event(video, 'loadeddata'); video.src = '/sample.mp4'; await loaded;
+      } else {
+        const media = new MediaSource(), opened = event(media, 'sourceopen');
+        objectUrl = URL.createObjectURL(media); video.src = objectUrl; await opened;
+        const buffer = media.addSourceBuffer('video/mp4; codecs="avc1.64002a, mp4a.40.2"');
+        const bytes = await (await fetch('/sample-fragmented.mp4')).arrayBuffer();
+        const appended = event(buffer, 'updateend'); buffer.appendBuffer(bytes); await appended; media.endOfStream();
+      }
+      await video.play(); await wait(1500);
+      const phase = {mode, width: video.videoWidth, height: video.videoHeight, events: [], seconds: [], frameGaps: [], rafGaps: []};
+      const start = performance.now(), mediaStart = video.currentTime, audioStart = context?.currentTime, before = video.getVideoPlaybackQuality();
+      let running = true, frameHandle, rafHandle, previousFrame, previousRaf, frameCount = 0, audioSamples = 0, silentSamples = 0, peakRms = 0;
+      const onEvent = e => phase.events.push({type: e.type, at: performance.now() - start, time: video.currentTime});
+      for (const name of ['waiting', 'stalled', 'error', 'ended']) video.addEventListener(name, onEvent);
+      const frame = (now, metadata) => {
+        if (!running) return;
+        frameCount++;
+        if (previousFrame && now - previousFrame.now > 80)
+          phase.frameGaps.push({at: now - start, gap: now - previousFrame.now, mediaDelta: metadata.mediaTime - previousFrame.mediaTime,
+            presentedDelta: metadata.presentedFrames - previousFrame.presentedFrames, processingMs: metadata.processingDuration * 1000});
+        previousFrame = {now, ...metadata}; frameHandle = video.requestVideoFrameCallback(frame);
+      };
+      const raf = now => {
+        if (!running) return;
+        if (previousRaf && now - previousRaf > 80) phase.rafGaps.push({at: now - start, gap: now - previousRaf});
+        previousRaf = now; rafHandle = requestAnimationFrame(raf);
+      };
+      frameHandle = video.requestVideoFrameCallback(frame); rafHandle = requestAnimationFrame(raf);
+      const pcm = new Float32Array(analyser?.fftSize ?? 0);
+      let nextSecond = start + 1000;
+      while (performance.now() - start < 30000) {
+        await wait(50); analyser?.getFloatTimeDomainData(pcm);
+        let energy = 0; for (const value of pcm) energy += value * value;
+        const rms = analyser ? Math.sqrt(energy / pcm.length) : null;
+        if (analyser) {audioSamples++; if (rms < 0.001) silentSamples++; peakRms = Math.max(peakRms, rms);}
+        if (performance.now() >= nextSecond) {
+          const q = video.getVideoPlaybackQuality();
+          phase.seconds.push({at: performance.now() - start, time: video.currentTime, total: q.totalVideoFrames, dropped: q.droppedVideoFrames,
+            audioTime: context?.currentTime ?? null, playbackRate: video.playbackRate, readyState: video.readyState,
+            bufferedEnd: video.buffered.length ? video.buffered.end(video.buffered.length - 1) : 0, rms});
+          nextSecond += 1000;
+        }
+      }
+      running = false; video.cancelVideoFrameCallback(frameHandle); cancelAnimationFrame(rafHandle);
+      for (const name of ['waiting', 'stalled', 'error', 'ended']) video.removeEventListener(name, onEvent);
+      const after = video.getVideoPlaybackQuality();
+      Object.assign(phase, {elapsedMs: performance.now() - start, mediaElapsed: video.currentTime - mediaStart, frameCount,
+        totalFrames: after.totalVideoFrames - before.totalVideoFrames, droppedFrames: after.droppedVideoFrames - before.droppedVideoFrames,
+        audioElapsed: context ? context.currentTime - audioStart : null, audioSamples, silentSamples, peakRms, error: video.error?.code ?? null});
+      video.pause(); result.phases.push(phase);
+      await context?.close(); context = null;
+      if (objectUrl) {URL.revokeObjectURL(objectUrl); objectUrl = null;}
+      await fetch('/progress', {method: 'POST', body: JSON.stringify(phase)});
+    }
+  } catch (error) {result.error = error.message;}
+  finally {document.querySelector('video').pause(); await context?.close(); if (objectUrl) URL.revokeObjectURL(objectUrl);}
+  document.querySelector('#status').textContent = 'Measurement complete';
+  await fetch('/report', {method: 'POST', body: JSON.stringify(result)});
+}, {once: true});
+</script>

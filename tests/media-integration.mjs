@@ -17,11 +17,20 @@ const root = resolve(import.meta.dirname, '..');
 const run = `media-integration-${Date.now()}-${randomBytes(4).toString('hex')}`;
 const profile = resolve(root, '.cache', run), pipeName = `xenon-test-${run}`;
 const pipe = `\\\\.\\pipe\\${pipeName}`, configPath = resolve(profile, 'client-config.json');
-const binary = resolve(root, 'build/app/Release/Xenon.exe');
+const browserDirectoryIndex = process.argv.indexOf('--browser-dir');
+if (browserDirectoryIndex !== -1) assert(process.argv[browserDirectoryIndex + 1] && !process.argv[browserDirectoryIndex + 1].startsWith('--'), '--browser-dir requires a complete production browser directory');
+const binary = resolve(root, browserDirectoryIndex === -1 ? 'build/app/Release' : process.argv[browserDirectoryIndex + 1], 'Xenon.exe');
 const windowsCodecs = process.argv.includes('--windows-codecs');
 const requireH264 = windowsCodecs || process.argv.includes('--require-h264');
-const sample = await readFile(resolve(root, 'tests/fixtures/media/synthetic-h264-aac.mp4'));
-const fragmentedSample = await readFile(resolve(root, 'tests/fixtures/media/synthetic-h264-aac-fragmented.mp4'));
+const sustainedIndex = process.argv.indexOf('--sustained-dir');
+const sustained = sustainedIndex !== -1;
+const animatedBackground = process.argv.includes('--animated-background');
+assert(!animatedBackground || sustained, '--animated-background requires --sustained-dir and manual foreground playback');
+if (sustained) assert(requireH264 && process.argv[sustainedIndex + 1] && !process.argv[sustainedIndex + 1].startsWith('--'), '--sustained-dir requires an MP4 fixture directory and --require-h264 or --windows-codecs');
+const fixtureDirectory = sustained ? resolve(process.argv[sustainedIndex + 1]) : resolve(root, 'tests/fixtures/media');
+const sample = await readFile(resolve(fixtureDirectory, 'synthetic-h264-aac.mp4'));
+const fragmentedSample = await readFile(resolve(fixtureDirectory, 'synthetic-h264-aac-fragmented.mp4'));
+const backgroundFixture = animatedBackground ? await readFile(resolve(root, 'tests/fixtures/media/background-animation.html'), 'utf8') : null;
 const runFile = promisify(execFile), sleep = ms => new Promise(r => setTimeout(r, ms));
 const hashes = async () => Object.fromEntries(await Promise.all(['Xenon.dll', 'libcef.dll'].map(async name =>
   [name, createHash('sha256').update(await readFile(resolve(binary, '..', name))).digest('hex')])));
@@ -42,7 +51,7 @@ async function tool(name, args) {
   assert(!value.isError, `${name}: ${JSON.stringify(value.structuredContent)}`);
   return value.structuredContent;
 }
-const fixture = `<!doctype html><meta charset="utf-8"><title>Xenon synthetic video fixture</title>
+const fixture = sustained ? await readFile(resolve(root, 'tests/fixtures/media/sustained.html'), 'utf8') : `<!doctype html><meta charset="utf-8"><title>Xenon synthetic video fixture</title>
 <h1>Website video playback</h1><button id="start">Start playback test</button>
 <video controls muted width="320" height="180"></video><p id="status">Preparing video</p>
 <script>
@@ -151,10 +160,16 @@ try {
     workspaces: [{ id: 'native-default', clients: [identity.clientId] }], accountGrants: [], operations: [] }));
   await writePrivateConfig(configPath, identity);
   server = http.createServer((request, response) => {
-    if (request.method === 'POST' && request.url === '/report') {
+    if (request.method === 'POST' && ['/report', '/progress'].includes(request.url)) {
       let data = '';
-      request.on('data', chunk => { data += chunk; if (data.length > 8192) request.destroy(); });
-      request.on('end', () => { try { report = JSON.parse(data); response.writeHead(204).end(); } catch { response.writeHead(400).end(); } });
+      request.on('data', chunk => { data += chunk; if (data.length > 262144) request.destroy(); });
+      request.on('end', () => { try {
+        const value = JSON.parse(data);
+        if (request.url === '/report') report = value;
+        else console.log(JSON.stringify({mode:value.mode, totalFrames:value.totalFrames, droppedFrames:value.droppedFrames,
+          frameGaps:value.frameGaps, rafGaps:value.rafGaps, silentSamples:value.silentSamples}));
+        response.writeHead(204).end();
+      } catch { response.writeHead(400).end(); } });
     } else if (request.method === 'GET' && ['/sample.mp4', '/sample-fragmented.mp4'].includes(request.url)) {
       const bytes = request.url === '/sample.mp4' ? sample : fragmentedSample;
       const headers = { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' };
@@ -166,6 +181,8 @@ try {
         }
         response.writeHead(206, { ...headers, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${bytes.length}` }).end(bytes.subarray(start, end + 1));
       } else response.writeHead(200, { ...headers, 'Content-Length': bytes.length }).end(bytes);
+    } else if (request.method === 'GET' && request.url === '/background.html' && animatedBackground) {
+      response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }).end(backgroundFixture);
     } else if (request.method === 'GET' && request.url === '/') {
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }).end(fixture);
     } else response.writeHead(404).end();
@@ -192,6 +209,11 @@ try {
   const worker = await tool('worker_create', { name: 'Media observer', workspaceId: 'native-default' });
   const tab = {...worker,...await tool('tab_create', { agentSessionId: worker.agentSessionId, workspaceId: worker.workspaceId, url: `http://127.0.0.1:${server.address().port}/` })};
   const scope={agentSessionId:tab.agentSessionId,workspaceId:tab.workspaceId,tabId:tab.tabId};
+  if (animatedBackground) {
+    for (let i = 0; i < 2; i++) await tool('tab_create', {agentSessionId:worker.agentSessionId,
+      workspaceId:worker.workspaceId, url:`http://127.0.0.1:${server.address().port}/background.html`});
+    console.log('In the disposable test window, select Xenon sustained video fixture and click Start playback test. Keep that tab selected until completion.');
+  } else {
   const observation=await until(async()=>{
     const response=await client.callTool({name:'xenon_observe',arguments:{...scope,maxNodes:100}});
     if(response.isError){
@@ -203,9 +225,25 @@ try {
   const button=observation.nodes.find(n=>n.role==='button'&&n.name==='Start playback test'&&n.ref);
   await tool('interact',{...scope,ownershipGeneration:tab.ownershipGeneration,operationId:randomUUID(),
     observationId:observation.observationId,action:'click',elementRef:button.ref});
-  await until(() => report, 'Video report');
+  }
+  await until(() => report, 'Video report', sustained ? 140_000 : 30_000);
   console.log(JSON.stringify(report, null, 2));
   assert(!report.error, report.error);
+  if (sustained) {
+    assert.equal(report.phases.length, 3);
+    for (const phase of report.phases) {
+      assert.equal(phase.error, null);
+      assert(phase.width === 1920 && phase.height === 1080 && phase.totalFrames > 1700, 'Sustained fixture must decode 1080p60');
+      assert(phase.mediaElapsed > 29, 'Video must advance at normal speed');
+      if (phase.mode !== 'mse-native-audio') {
+        assert(phase.peakRms > 0.01, 'Audio must decode');
+        assert.equal(phase.silentSamples, 0, 'Continuous test tone must not become silent');
+      }
+      assert.equal(phase.events.length, 0, 'Fully buffered playback must not stall');
+      assert(phase.droppedFrames / phase.totalFrames < 0.01, 'Less than 1% dropped frames');
+      assert.equal(phase.frameGaps.length, 0, 'No frame callback gaps over 80ms after warmup');
+    }
+  } else {
   assert(report.playback.time > 0.2 && report.playback.frames > 2 && report.playback.width === 320 && report.playback.height === 180);
   assert.equal(report.playback.error, null);
   assert(report.pause.paused && report.pause.stable);
@@ -222,6 +260,7 @@ try {
     for(const playback of [report.playback,report.streaming])
       assert(playback.picture.mean > 10 && playback.picture.range > 20,'The synthetic test pattern must produce nonblank decoded picture content');
   }
+  }
 } catch (error) { failure = error.message; console.error(error); process.exitCode = 1; }
 finally {
   await client?.close().catch(() => {});
@@ -232,9 +271,11 @@ finally {
   if (JSON.stringify(startHashes) !== JSON.stringify(endHashes)) { failure = 'Browser binaries changed during the test'; process.exitCode = 1; }
   await mkdir(resolve(root, 'out'), { recursive: true });
   await writeFile(resolve(root, 'out', `${run}.json`), JSON.stringify({ run, startHashes, endHashes,
-    requireH264, windowsCodecs, codecBuild, sampleSha256: createHash('sha256').update(sample).digest('hex'),
+    requireH264, windowsCodecs, sustained, animatedBackground, codecBuild, sampleSha256: createHash('sha256').update(sample).digest('hex'),
     fragmentedSampleSha256: createHash('sha256').update(fragmentedSample).digest('hex'),
-    coverage: requireH264 ? 'Synthetic H.264/AAC MP4 and Media Source playback with nonblank decoded pictures and measured audio PCM, pause, seek/resume and volume. MCP click supplies user activation. decodeAudioData capability recorded separately. No physical input, audible output or DRM validation.' :
+    coverage: sustained ? 'Thirty seconds each of synthetic 1080p60 H.264/AAC direct MP4 and fully buffered Media Source playback with sampled Web Audio PCM, plus Media Source through the muted native audio renderer without PCM measurement. Frame callback gaps, dropped frames, animation cadence and buffering events. ' +
+      (animatedBackground ? 'Two local animated background tabs remain open. The operator must select and start the video tab; native foreground selection is not automatically verified. ' : 'The test tab is not selected in the native shell. ') +
+      'No automatic foreground presentation, real website, network adaptation, physical output or DRM validation.' : requireH264 ? 'Synthetic H.264/AAC MP4 and Media Source playback with nonblank decoded pictures and measured audio PCM, pause, seek/resume and volume. MCP click supplies user activation. decodeAudioData capability recorded separately. No physical input, audible output or DRM validation.' :
       'Synthetic VP8 decode, pause, seek and volume; codec capability declarations. No physical input, audible output, H.264 decode or DRM validation.',
     report, failure, passed: !failure }, null, 2));
   console.log(`Report: out/${run}.json`);

@@ -80,6 +80,34 @@ structure fails closed. It does not require a Chromium checkout.
 `python tests/cef-windows-codecs-tests.py` checks that the codec audit rejects
 software fallback configurations and alternate bundled codecs, and binds its
 manifest to artifact hashes. These are audit tests, not playback evidence.
+`./tests/cef-media-recipe-tests.ps1` exercises the source-build marker gate:
+exact previous recipes require their migration switch, backups preserve the
+old marker, and unrelated or missing markers are rejected without modification.
+
+### Background animation and video frame recycling
+
+The Windows engine patch raises fenced video frame-release waits to the same
+GPU scheduling priority as windowed compositors. In the local reproduction,
+two background CSS animations previously caused 390–440 ms video freezes about
+every five seconds while audio continued. The patched production candidate
+recorded no frame callback gaps over 80 ms during three 30-second 1080p60 phases.
+It still dropped 29/1800, 30/1803 and 30/1802 frames: the sustained diagnostic
+**failed** its unchanged threshold of less than 1% dropped frames. This is an
+improvement to long freezes, not complete smooth-playback acceptance.
+
+The [sanitized validation record](test-results/video-frame-release-priority.json)
+binds the production media and bootstrap checks to the tested engine and
+application hashes. MP4/MSE pictures, decoded audio PCM, pause, seek/resume and
+volume passed. Separate diagnostic `XenonAuthTest` site checks measured YouTube
+1080p30 at about 0.68% cumulative dropped frames and Bilibili 360p30 at about
+0.24% additional dropped frames during foreground measurement; these do not
+establish production-site acceptance or higher-quality Bilibili playback.
+
+Use `--sustained-dir <fixture-directory> --animated-background` with
+`--require-h264` or `--windows-codecs` to reproduce the synthetic workload.
+The [fixture README](../tests/fixtures/media/README.md) explains file generation
+and the manual foreground step. `--browser-dir <complete-browser-directory>`
+allows an isolated production candidate. No personal profile is required.
 
 `node tests/media-integration.mjs` starts the production browser in a disposable
 profile and generates a synthetic VP8 clip in a loopback page. It checks decoded

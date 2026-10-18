@@ -39,26 +39,33 @@ def validate(source):
     require(recipe['codecBackend'] == 'windows', 'Wrong codec backend')
     require(run('git', 'rev-parse', 'HEAD', cwd=source) == recipe['chromiumCommit'], 'Chromium revision mismatch')
     require(run('git', 'rev-parse', 'HEAD', cwd=source / 'cef') == recipe['cefCommit'], 'CEF revision mismatch')
-    patch = ROOT / recipe['patch']['path']
-    require(sha(patch) == recipe['patch']['sha256'], 'Codec patch hash mismatch')
-    return recipe, patch
+    patches = []
+    for key in ['patch', 'videoSchedulingPatch']:
+        patch = ROOT / recipe[key]['path']
+        require(sha(patch) == recipe[key]['sha256'], f'Patch hash mismatch: {key}')
+        patches.append(patch)
+    return recipe, patches
 
 
 def apply(source):
-    _, patch = validate(source)
-    reverse = subprocess.run(['git', 'apply', '--reverse', '--check', str(patch)],
-                             cwd=source, capture_output=True)
-    if reverse.returncode == 0:
-        print('Exact Windows codec patch already applied.')
-        return
-    run('git', 'apply', '--check', '--whitespace=error-all', str(patch), cwd=source)
-    run('git', 'apply', '--whitespace=error-all', str(patch), cwd=source)
-    print('Applied pinned Windows codec patch.')
+    _, patches = validate(source)
+    pending = []
+    for patch in patches:
+        reverse = subprocess.run(['git', 'apply', '--reverse', '--check', str(patch)],
+                                 cwd=source, capture_output=True)
+        if reverse.returncode != 0:
+            pending.append(str(patch))
+    if pending:
+        # Check the complete pending set before changing any source files.
+        run('git', 'apply', '--check', '--whitespace=error-all', *pending, cwd=source)
+        run('git', 'apply', '--whitespace=error-all', *pending, cwd=source)
+    print('All pinned Windows codec/video scheduling patches applied.')
 
 
 def audit(source, distribution):
-    recipe, patch = validate(source)
-    run('git', 'apply', '--reverse', '--check', str(patch), cwd=source)
+    recipe, patches = validate(source)
+    for patch in patches:
+        run('git', 'apply', '--reverse', '--check', str(patch), cwd=source)
     output = source / 'out/Release_GN_x64'
     args = (output / 'args.gn').read_text()
     required = {

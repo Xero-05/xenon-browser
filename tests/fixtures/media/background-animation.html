@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><title>Synthetic animated background</title>
+<style>
+body { margin: 0; overflow: hidden; background: #222; }
+.panel {
+  width: 90vw; height: 90vh; background: linear-gradient(45deg, #056, #fd8);
+  animation: slide 5s infinite;
+}
+@keyframes slide {
+  0%, 88% { transform: translateX(0); }
+  98%, 100% { transform: translateX(40vw); }
+}
+</style><div class="panel"></div>

@@ -16,6 +16,10 @@
       "patch": {
         "path": "scripts/patches/cef-windows-codecs.patch",
         "sha256": "a45041db2cf1a5ad2213ef74b5683174872fd3f549efc243aa0eeb103fdfdfac"
+      },
+      "videoSchedulingPatch": {
+        "path": "scripts/patches/cef-video-frame-release-priority.patch",
+        "sha256": "d24d1bc8c664f090f048d60ccde6d207309969a698c6df7a11adde802bc0b5ff"
       }
     }
   },

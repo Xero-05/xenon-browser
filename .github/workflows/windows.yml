@@ -20,6 +20,8 @@ jobs:
       - name: Test Windows codec build audit
         shell: pwsh
         run: python tests/cef-windows-codecs-tests.py
+      - name: CEF recipe migration checks
+        run: ./tests/cef-media-recipe-tests.ps1
       - name: Restore pinned dependency downloads
         id: native-downloads
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24

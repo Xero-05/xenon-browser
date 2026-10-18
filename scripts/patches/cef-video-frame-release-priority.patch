@@ -1,0 +1,21 @@
+--- a/media/gpu/command_buffer_helper.cc
++++ b/media/gpu/command_buffer_helper.cc
+@@ -37,7 +37,17 @@
+ 
+     stub_->AddDestructionObserver(this);
+     wait_sequence_id_ = stub_->channel()->scheduler()->CreateSequence(
+-        gpu::SchedulingPriority::kNormal, stub_->channel()->task_runner());
++#if BUILDFLAG(IS_WIN)
++        // Windowed compositors submit high-priority GPU work. With multiple
++        // animated windows their presentation work can starve normal-priority
++        // frame-release callbacks, exhausting the D3D decoder's picture pool.
++        // Recycle completed frames at the compositor's priority, retaining the
++        // sync-token fences that prevent reuse while a frame is still in use.
++        gpu::SchedulingPriority::kHigh,
++#else
++        gpu::SchedulingPriority::kNormal,
++#endif
++        stub_->channel()->task_runner());
+   }
+ 
+   CommandBufferHelperImpl(const CommandBufferHelperImpl&) = delete;

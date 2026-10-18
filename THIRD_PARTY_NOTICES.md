@@ -6,7 +6,11 @@ The optional H.264/AAC source build uses the CEF and Chromium revisions and
 build-tool pins in `cef.mediaSourceBuild` in `dependencies.lock.json`. The current
 recipe uses Windows GPU H.264 decoding and Windows Media Foundation AAC decoding,
 with `proprietary_codecs=true`, `ffmpeg_branding=Chromium`, and the pinned
-`scripts/patches/cef-windows-codecs.patch`. FFmpeg H.264/AAC software decoders and
+`scripts/patches/cef-windows-codecs.patch`. The additional pinned
+`scripts/patches/cef-video-frame-release-priority.patch` changes Windows GPU
+scheduling for fenced video frame recycling in the same Chromium source;
+the upstream BSD-style license and notices remain applicable.
+FFmpeg H.264/AAC software decoders and
 the bundled OpenH264 implementation are disabled; Windows codec DLLs are not
 redistributed. The previous `ffmpeg_branding=Chrome` build included software
 decoders and is distinct from this recipe. Retain the generated CEF license,
