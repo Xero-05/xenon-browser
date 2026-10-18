@@ -37,6 +37,7 @@ try {
     RetryDelaySeconds = [int]$taskConfig.retryDelaySeconds
   }
   if ($taskConfig.allowLoopbackHttp) { $taskArguments.AllowLoopbackHttp = $true }
+  if ($taskConfig.expectedBytes) { $taskArguments.ExpectedBytes = [long]$taskConfig.expectedBytes }
   $taskClock.Restart()
   $taskValues = @(Get-XenonDependency @taskArguments)
   $taskClock.Stop()
@@ -161,6 +162,48 @@ test('corrupt cached bytes are discarded and replaced with a validated download'
   const f = await fixture(t, servePayload);
   await writeFile(f.target, 'SYNTHETIC_CORRUPT_CACHE');
   await assertSuccess(f, await f.download());
+  assert.equal(f.requests, 1);
+});
+
+test('a size pin accepts exact bytes and also checks cache hits with the server offline', options, async t => {
+  const f = await fixture(t, servePayload);
+  await assertSuccess(f, await f.download({ expectedBytes: payload.length }));
+  await f.closeServer();
+  await assertSuccess(f, await f.download({ expectedBytes: payload.length }));
+  assert.equal(f.requests, 1, 'A valid cache hit must not make a network request.');
+});
+
+test('a cached file of the wrong size is discarded and refetched', options, async t => {
+  const f = await fixture(t, servePayload);
+  await writeFile(f.target, payload.subarray(1));
+  const result = await f.download({ expectedBytes: payload.length });
+  await assertSuccess(f, result);
+  assert.match(result.stdout + result.stderr, /unexpected size/u);
+  assert.equal(f.requests, 1);
+});
+
+test('a declared body above the size pin is refused without a retry', options, async t => {
+  const f = await fixture(t, servePayload);
+  const result = await f.download({ expectedBytes: payload.length - 1 });
+  await assertFailure(f, result);
+  assert.match(result.error, /pinned size/u);
+  assert.equal(f.requests, 1, 'An oversized artifact is not a transient failure.');
+});
+
+test('an undeclared chunked body above the size pin is refused', options, async t => {
+  const f = await fixture(t, (_req, res) => { res.writeHead(200); res.write(payload.subarray(0, 4096)); res.end(payload.subarray(4096)); });
+  const result = await f.download({ expectedBytes: payload.length - 1 });
+  await assertFailure(f, result);
+  assert.match(result.error, /size/u);
+  assert.equal(f.requests, 1);
+});
+
+test('a size pin that disagrees with the delivered bytes fails closed before hashing', options, async t => {
+  // The digest matches, so only the size check can reject this inconsistent pin.
+  const f = await fixture(t, servePayload);
+  const result = await f.download({ expectedBytes: payload.length + 1 });
+  await assertFailure(f, result);
+  assert.match(result.error, /Size mismatch/u);
   assert.equal(f.requests, 1);
 });
 

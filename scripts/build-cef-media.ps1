@@ -3,23 +3,33 @@ param(
   [Parameter(Mandatory=$true)][string]$Python,
   [switch]$UseGitHubMirror,
   [ValidateRange(1,32)][int]$Jobs = 4,
+  # Media adds Windows H.264/AAC decoding and is not published until codec
+  # licensing is confirmed. Engine carries only the engine-behavior patches.
+  [ValidateSet('Media','Engine')][string]$Recipe = 'Media',
   [switch]$MigrateToWindowsCodecs,
   [switch]$UpdateVideoScheduling,
   [switch]$UpdateBackgroundFrameRate,
+  [switch]$AddPatches,
   [switch]$BuildOnly,
   [switch]$CheckOnly
 )
 $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $taskLock = Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.json') -Raw | ConvertFrom-Json
-$taskRecipe = $taskLock.cef.mediaSourceBuild
+# Each recipe has its own lock entry, work-directory marker and audit.
+$taskRecipes = @{
+  Media = @{ Lock='mediaSourceBuild'; Marker='xenon-media-build.json'; Audit='media'; Label='Windows H.264/AAC decoding' }
+  Engine = @{ Lock='engineSourceBuild'; Marker='xenon-engine-source.json'; Audit='engine'; Label='Xenon engine patches and no proprietary codecs' }
+}
+$taskSelected = $taskRecipes[$Recipe]
+$taskRecipe = $taskLock.cef.($taskSelected.Lock)
 $taskWork = [IO.Path]::GetFullPath($WorkDirectory)
 if ($taskWork -notmatch '^[A-Za-z]:\\[A-Za-z0-9_.\\-]+$') {
   throw 'CEF source builds need a dedicated local directory with no spaces, for example E:\XenonCefMedia.'
 }
 if (-not $taskLock.cef.version.Contains('+g' + $taskRecipe.cefCommit.Substring(0,7) + '+') -or
     -not $taskLock.cef.version.Contains('.' + $taskRecipe.branch + '.')) {
-  throw 'The media build recipe must match the pinned CEF version.'
+  throw "The $($taskSelected.Lock) recipe must match the pinned CEF version."
 }
 $taskSdk = Join-Path ${env:ProgramFiles(x86)} ('Windows Kits/10/Include/' + $taskRecipe.windowsSdk)
 if (-not (Test-Path -LiteralPath (Join-Path $taskSdk 'um/Windows.h'))) {
@@ -37,34 +47,56 @@ foreach ($taskAtlFile in @('include/atldef.h','lib/x64/atls.lib')) {
   }
 }
 $taskGit = (Get-Command git.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-if ($CheckOnly) { Write-Output "Ready for CEF $($taskLock.cef.version) with Windows H.264/AAC decoding in $taskWork"; return }
+if ($CheckOnly) { Write-Output "Ready for CEF $($taskLock.cef.version) with $($taskSelected.Label) in $taskWork"; return }
 
 # Never reuse an arbitrary checkout or delete a user's files. A matching marker
 # permits resuming this exact recipe after a download or build interruption.
-$taskMarker = Join-Path $taskWork 'xenon-media-build.json'
+# Each recipe has its own marker, so a codec checkout never becomes an engine one.
+$taskMarker = Join-Path $taskWork $taskSelected.Marker
 $taskRecipeText = $taskRecipe | ConvertTo-Json -Compress
 if (Test-Path -LiteralPath $taskWork) {
   if (-not (Test-Path -LiteralPath $taskMarker) -or
       (Get-Content -LiteralPath $taskMarker -Raw).Trim() -cne $taskRecipeText) {
-    # Allow only explicit migrations from the exact previous pinned recipes.
-    # Preserve its marker; the prior distribution is retained below as well.
-    $taskLegacyRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
-    $taskLegacyRecipe.PSObject.Properties.Remove('codecBackend')
-    $taskLegacyRecipe.PSObject.Properties.Remove('patch')
-    $taskLegacyRecipe.PSObject.Properties.Remove('videoSchedulingPatch')
-    $taskLegacyRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
-    $taskLegacyRecipe.gnDefines = 'is_official_build=true use_thin_lto=false chrome_pgo_phase=0 symbol_level=0 proprietary_codecs=true ffmpeg_branding=Chrome'
-    $taskPreviousWindowsRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
-    $taskPreviousWindowsRecipe.PSObject.Properties.Remove('videoSchedulingPatch')
-    $taskPreviousWindowsRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
-    $taskPreviousSchedulingRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
-    $taskPreviousSchedulingRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
     $taskPreviousMarker = if (Test-Path -LiteralPath $taskMarker) { (Get-Content -LiteralPath $taskMarker -Raw).Trim() } else { '' }
-    $taskLegacyMigration = $MigrateToWindowsCodecs -and $taskPreviousMarker -ceq ($taskLegacyRecipe | ConvertTo-Json -Compress)
-    $taskSchedulingMigration = $UpdateVideoScheduling -and $taskPreviousMarker -ceq ($taskPreviousWindowsRecipe | ConvertTo-Json -Compress)
-    $taskFrameRateMigration = $UpdateBackgroundFrameRate -and $taskPreviousMarker -ceq ($taskPreviousSchedulingRecipe | ConvertTo-Json -Compress)
-    if (-not ($taskLegacyMigration -or $taskSchedulingMigration -or $taskFrameRateMigration)) {
-      throw 'Use a new path, an exact matching recipe, -MigrateToWindowsCodecs for the pinned legacy build, -UpdateVideoScheduling for the first Windows-codec recipe, or -UpdateBackgroundFrameRate for the video-scheduling recipe.'
+    if ($Recipe -eq 'Engine') {
+      if ($MigrateToWindowsCodecs -or $UpdateVideoScheduling -or $UpdateBackgroundFrameRate) {
+        throw 'Codec recipe migrations do not apply to the engine recipe.'
+      }
+      # An engine build may only gain patches: the source pins and every
+      # earlier patch stay identical, so the prepared checkout remains valid.
+      $taskPatchNames = @($taskRecipe.PSObject.Properties | Where-Object { $_.Value -is [Management.Automation.PSCustomObject] } | ForEach-Object Name)
+      $taskAddMigration = $false
+      for ($taskMask = 1; $AddPatches -and $taskMask -lt (1 -shl $taskPatchNames.Count); $taskMask++) {
+        $taskEarlierRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+        for ($taskBit = 0; $taskBit -lt $taskPatchNames.Count; $taskBit++) {
+          if ($taskMask -band (1 -shl $taskBit)) { $taskEarlierRecipe.PSObject.Properties.Remove($taskPatchNames[$taskBit]) }
+        }
+        if ($taskPreviousMarker -ceq ($taskEarlierRecipe | ConvertTo-Json -Compress)) { $taskAddMigration = $true }
+      }
+      if (-not $taskAddMigration) {
+        throw 'Use a new path, an exact matching engine recipe, or -AddPatches for an engine build of this recipe without some of its patches.'
+      }
+    } else {
+      if ($AddPatches) { throw '-AddPatches applies only to the engine recipe.' }
+      # Allow only explicit migrations from the exact previous pinned recipes.
+      # Preserve its marker; the prior distribution is retained below as well.
+      $taskLegacyRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+      $taskLegacyRecipe.PSObject.Properties.Remove('codecBackend')
+      $taskLegacyRecipe.PSObject.Properties.Remove('patch')
+      $taskLegacyRecipe.PSObject.Properties.Remove('videoSchedulingPatch')
+      $taskLegacyRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
+      $taskLegacyRecipe.gnDefines = 'is_official_build=true use_thin_lto=false chrome_pgo_phase=0 symbol_level=0 proprietary_codecs=true ffmpeg_branding=Chrome'
+      $taskPreviousWindowsRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+      $taskPreviousWindowsRecipe.PSObject.Properties.Remove('videoSchedulingPatch')
+      $taskPreviousWindowsRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
+      $taskPreviousSchedulingRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+      $taskPreviousSchedulingRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
+      $taskLegacyMigration = $MigrateToWindowsCodecs -and $taskPreviousMarker -ceq ($taskLegacyRecipe | ConvertTo-Json -Compress)
+      $taskSchedulingMigration = $UpdateVideoScheduling -and $taskPreviousMarker -ceq ($taskPreviousWindowsRecipe | ConvertTo-Json -Compress)
+      $taskFrameRateMigration = $UpdateBackgroundFrameRate -and $taskPreviousMarker -ceq ($taskPreviousSchedulingRecipe | ConvertTo-Json -Compress)
+      if (-not ($taskLegacyMigration -or $taskSchedulingMigration -or $taskFrameRateMigration)) {
+        throw 'Use a new path, an exact matching recipe, -MigrateToWindowsCodecs for the pinned legacy build, -UpdateVideoScheduling for the first Windows-codec recipe, or -UpdateBackgroundFrameRate for the video-scheduling recipe.'
+      }
     }
     Copy-Item -LiteralPath $taskMarker -Destination ($taskMarker + '.' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff') + '.previous')
     [IO.File]::WriteAllText($taskMarker, $taskRecipeText)
@@ -157,8 +189,8 @@ try {
   } finally { Pop-Location }
   }
   $taskSource = Join-Path $taskWork 'chromium/src'
-  & $Python (Join-Path $PSScriptRoot 'cef-windows-codecs.py') apply --source $taskSource
-  if ($LASTEXITCODE -ne 0) { throw 'Windows codec source patch validation/application failed.' }
+  & $Python (Join-Path $PSScriptRoot 'cef-source-build.py') apply --recipe $taskSelected.Audit --source $taskSource
+  if ($LASTEXITCODE -ne 0) { throw "$($taskSelected.Lock) source patch validation/application failed." }
   if ($BuildOnly) {
     $taskArguments = @($taskAutomate, "--download-dir=$taskWork", "--depot-tools-dir=$taskDepot",
       "--branch=$($taskRecipe.branch)", "--checkout=$($taskRecipe.cefCommit)",
@@ -166,7 +198,7 @@ try {
       '--minimal-distrib-only', '--build-log-file')
   }
   $taskDistribution = Join-Path $taskWork ('chromium/src/cef/binary_distrib/cef_binary_' + $taskLock.cef.version + '_windows64_minimal')
-  if (($MigrateToWindowsCodecs -or $UpdateVideoScheduling -or $UpdateBackgroundFrameRate) -and (Test-Path -LiteralPath $taskDistribution)) {
+  if (($MigrateToWindowsCodecs -or $UpdateVideoScheduling -or $UpdateBackgroundFrameRate -or $AddPatches) -and (Test-Path -LiteralPath $taskDistribution)) {
     # Copy only this exact distribution, preserving the previous working engine.
     Copy-Item -LiteralPath $taskDistribution -Destination ($taskDistribution + '.previous-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff')) -Recurse
   }
@@ -175,15 +207,16 @@ try {
     Copy-Item -LiteralPath $taskBuildLog -Destination ($taskBuildLog + '.' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff') + '.previous')
   }
   & $Python @taskArguments --no-update --force-build --force-distrib
-  if ($LASTEXITCODE -ne 0) { throw 'CEF media build failed. The dedicated directory can be reused to resume.' }
-  & $Python (Join-Path $PSScriptRoot 'cef-windows-codecs.py') audit --source $taskSource --distribution $taskDistribution
-  if ($LASTEXITCODE -ne 0) { throw 'Windows codec build audit failed.' }
+  if ($LASTEXITCODE -ne 0) { throw 'CEF source build failed. The dedicated directory can be reused to resume.' }
+  & $Python (Join-Path $PSScriptRoot 'cef-source-build.py') audit --recipe $taskSelected.Audit --source $taskSource --distribution $taskDistribution
+  if ($LASTEXITCODE -ne 0) { throw "$($taskSelected.Lock) build audit failed. Rerun the audit after fixing it; the build output is kept." }
   $taskDistribution = Join-Path $taskWork ('chromium/src/cef/binary_distrib/cef_binary_' + $taskLock.cef.version + '_windows64_minimal')
   foreach ($taskFile in @('Release/libcef.dll','Release/libcef.lib','Release/bootstrap.exe','include/cef_version.h','LICENSE.txt','CREDITS.html')) {
     if (-not (Test-Path -LiteralPath (Join-Path $taskDistribution $taskFile))) { throw "Incomplete CEF distribution: $taskFile" }
   }
-  Write-Output "Complete Windows-codec CEF distribution: $taskDistribution"
+  Write-Output "Complete CEF distribution with $($taskSelected.Label): $taskDistribution"
   Write-Output 'Rebuild Xenon against this complete distribution, then run the media and browser acceptance suites before packaging.'
+  if ($Recipe -eq 'Engine') { Write-Output 'To make it a release input, archive it with ./scripts/package-cef-engine.ps1 -Distribution <path> (docs/BUILD.md).' }
 } finally {
   foreach ($taskName in $taskSaved.Keys) { [Environment]::SetEnvironmentVariable($taskName, $taskSaved[$taskName], 'Process') }
 }

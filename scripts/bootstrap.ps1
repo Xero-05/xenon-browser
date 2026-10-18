@@ -1,4 +1,6 @@
-param([switch]$SkipCef, [switch]$SkipNode, [switch]$DownloadOnly)
+# When cef.engineArchive pins a Xenon engine build, bootstrap fetches it into
+# third_party/cef-engine instead of the stock CEF archive; -StockCef fetches the stock archive.
+param([switch]$SkipCef, [switch]$SkipNode, [switch]$DownloadOnly, [switch]$StockCef)
 $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $taskLock = Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.json') -Raw | ConvertFrom-Json
@@ -6,6 +8,10 @@ $taskDownloads = Join-Path $taskRoot 'third_party/downloads'
 New-Item -ItemType Directory -Force -Path $taskDownloads | Out-Null
 . (Join-Path $PSScriptRoot 'dependency-download.ps1')
 . (Join-Path $PSScriptRoot 'dependency-extract.ps1')
+. (Join-Path $PSScriptRoot 'cef-engine-provenance.ps1')
+$taskEnginePin = Get-XenonEngineArchivePin -Lock $taskLock
+$taskUseEngine = -not $SkipCef -and $taskEnginePin -and -not $StockCef
+$taskUseStock = -not $SkipCef -and -not $taskUseEngine
 function Get-Dependency([string]$Url, [string]$Name, [string]$ExpectedHash) {
   Get-XenonDependency -Url $Url -Name $Name -ExpectedHash $ExpectedHash -DownloadDirectory $taskDownloads
 }
@@ -29,7 +35,11 @@ function Invoke-VerifiedExtraction([string]$Name, [string]$Hash, [string]$Marker
   Write-Host "[extract] $Name completed in $([Math]::Round($taskExtractClock.Elapsed.TotalSeconds,1))s"
 }
 $taskBootstrapClock = [Diagnostics.Stopwatch]::StartNew()
-$taskCefArchive = if (-not $SkipCef) { Get-Dependency ('https://cef-builds.spotifycdn.com/' + $taskLock.cef.archive) $taskLock.cef.archive $taskLock.cef.sha256 }
+$taskCefArchive = if ($taskUseStock) { Get-Dependency ('https://cef-builds.spotifycdn.com/' + $taskLock.cef.archive) $taskLock.cef.archive $taskLock.cef.sha256 }
+# The engine archive is a release asset with a mandatory size and SHA-256 pin.
+$taskEngineArchive = if ($taskUseEngine) {
+  Get-XenonDependency -Url $taskEnginePin.Url -Name $taskEnginePin.Name -ExpectedHash $taskEnginePin.Sha256 -ExpectedBytes $taskEnginePin.Bytes -DownloadDirectory $taskDownloads
+}
 $sqliteZip = Get-Dependency $taskLock.sqlite.url 'sqlite.zip' $taskLock.sqlite.sha256
 $jsonFile = Get-Dependency $taskLock.json.url 'json.hpp' $taskLock.json.sha256
 $nodeVersion = $taskLock.node.version
@@ -39,7 +49,7 @@ if ($DownloadOnly) {
   Write-Host "Pinned downloads are verified and ready to cache ($([Math]::Round($taskBootstrapClock.Elapsed.TotalSeconds,1))s total)."
   return
 }
-if (-not $SkipCef) {
+if ($taskUseStock) {
   $cefRoot = Join-Path $taskRoot 'third_party/cef'
   if (Test-Path -LiteralPath (Join-Path $cefRoot 'include/cef_version.h')) {
     $cefHeader = Get-Content -LiteralPath (Join-Path $cefRoot 'include/cef_version.h') -Raw
@@ -56,6 +66,25 @@ if (-not $SkipCef) {
   $cefHeader = Get-Content -LiteralPath (Join-Path $cefRoot 'include/cef_version.h') -Raw
   if ($cefHeader -notmatch ('#define CEF_VERSION "' + [Regex]::Escape($taskLock.cef.version) + '"')) { throw 'Existing CEF directory does not match dependencies.lock.json. Move it aside before bootstrapping the updated version.' }
   Write-Host "[ready] CEF $($taskLock.cef.version)"
+}
+if ($taskUseEngine) {
+  # A separate directory leaves any stock distribution in third_party/cef intact.
+  $engineRoot = Join-Path $taskRoot 'third_party/cef-engine'
+  $engineHeaderPath = Join-Path $engineRoot 'include/cef_version.h'
+  if (Test-Path -LiteralPath $engineHeaderPath) {
+    $engineExistingVersion = [Regex]::Match((Get-Content -LiteralPath $engineHeaderPath -Raw), '#define CEF_VERSION "([^"]+)"')
+    if ($engineExistingVersion.Success -and $engineExistingVersion.Groups[1].Value -ne $taskLock.cef.version) { throw 'Existing CEF engine directory does not match dependencies.lock.json. Move it aside before bootstrapping the updated version.' }
+  }
+  Invoke-VerifiedExtraction 'Xenon CEF engine' $taskEnginePin.Sha256 (Join-Path $engineRoot '.xenon-extracted-sha256') @(
+    $engineHeaderPath, (Join-Path $engineRoot 'Release/libcef.dll'), (Join-Path $engineRoot 'Release/bootstrap.exe'),
+    (Join-Path $engineRoot 'LICENSE.txt'), (Join-Path $engineRoot 'CREDITS.html'), (Join-Path $engineRoot 'xenon-engine-build.json')) {
+    Expand-XenonCefArchive -Archive $taskEngineArchive -Destination $engineRoot
+  }
+  if ((Get-Content -LiteralPath $engineHeaderPath -Raw) -notmatch ('#define CEF_VERSION "' + [Regex]::Escape($taskLock.cef.version) + '"')) { throw 'The pinned CEF engine archive does not match dependencies.lock.json.' }
+  # Recheck on every run: the archive's manifest must match the pinned recipe,
+  # every file it lists and the pinned libcef.dll hash.
+  [void](Get-XenonEngineProvenance -Directory $engineRoot -Engine (Join-Path $engineRoot 'Release/libcef.dll') -Lock $taskLock -Distribution -Release)
+  Write-Host "[ready] Xenon CEF engine $($taskEnginePin.Tag)"
 }
 $sqliteRoot = Join-Path $taskRoot 'third_party/sqlite'
 Invoke-VerifiedExtraction 'SQLite' $taskLock.sqlite.sha256 (Join-Path $sqliteRoot '.xenon-extracted-sha256') @(

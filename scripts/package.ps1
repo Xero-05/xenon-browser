@@ -1,4 +1,5 @@
-param([string]$Version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../VERSION') -Raw).Trim())
+# -RequireReleaseEngine refuses any engine other than the one releases ship (see docs/BUILD.md).
+param([string]$Version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../VERSION') -Raw).Trim(), [switch]$RequireReleaseEngine)
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^[0-9A-Za-z.-]+$') { throw 'Invalid release version.' }
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -15,21 +16,16 @@ $taskNumericVersion = if ($Version -match '^([0-9]+\.[0-9]+\.[0-9]+)-alpha\.([0-
 if ([Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $taskApp 'Xenon.dll')).FileVersion -ne $taskNumericVersion) { throw 'The built browser version does not match VERSION. Rebuild before packaging.' }
 if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'adapter/dist/src/cli.js'))) { throw 'Build the MCP adapter first.' }
 if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'third_party/licenses/nlohmann-json-MIT.txt'))) { throw 'The checked-in nlohmann/json license is required for packaging.' }
+# Check engine provenance before staging anything.
+. (Join-Path $PSScriptRoot 'cef-engine-provenance.ps1')
+$taskLock = Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.json') -Raw | ConvertFrom-Json
+$taskEngine = Get-XenonEngineProvenance -Directory $taskApp -Engine (Join-Path $taskApp 'libcef.dll') -Lock $taskLock -Release:$RequireReleaseEngine
 New-Item -ItemType Directory -Force -Path $taskPackage,(Join-Path $taskPackage 'runtime'),(Join-Path $taskPackage 'adapter/dist/src') | Out-Null
 # Copy runtime-only files. Never copy profiles, test binaries, archives or symbols.
 $taskRuntimeNames = @('Xenon.exe','Xenon.dll','libcef.dll','chrome_elf.dll','d3dcompiler_47.dll','dxcompiler.dll','dxil.dll','icudtl.dat','chrome_100_percent.pak','chrome_200_percent.pak','resources.pak','v8_context_snapshot.bin','vk_swiftshader.dll','vk_swiftshader_icd.json','vulkan-1.dll','CEF-LICENSE.txt','Chromium-CREDITS.html')
 foreach ($item in $taskRuntimeNames) { Copy-Item -LiteralPath (Join-Path $taskApp $item) -Destination $taskPackage }
-$taskCodecManifest = Join-Path $taskApp 'xenon-codec-build.json'
-if (Test-Path -LiteralPath $taskCodecManifest) {
-  $taskCodecBuild = Get-Content -LiteralPath $taskCodecManifest -Raw | ConvertFrom-Json
-  $taskExpectedRecipe = (Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.json') -Raw | ConvertFrom-Json).cef.mediaSourceBuild
-  if (($taskCodecBuild.recipe | ConvertTo-Json -Depth 10 -Compress) -cne ($taskExpectedRecipe | ConvertTo-Json -Depth 10 -Compress)) {
-    throw 'The codec engine does not match the pinned source build recipe.'
-  }
-  $taskEngineHash = (Get-FileHash -LiteralPath (Join-Path $taskApp 'libcef.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($taskCodecBuild.files.'Release/libcef.dll' -cne $taskEngineHash) { throw 'Codec provenance does not match the packaged engine.' }
-  Copy-Item -LiteralPath $taskCodecManifest -Destination $taskPackage
-}
+if ($taskEngine.Manifest) { Copy-Item -LiteralPath $taskEngine.Manifest -Destination $taskPackage }
+Write-Host "Packaging the $($taskEngine.Kind) CEF engine (libcef.dll SHA-256 $($taskEngine.LibcefSha256))"
 Copy-Item -LiteralPath (Join-Path $taskApp 'locales') -Destination $taskPackage -Recurse
 Copy-Item -LiteralPath (Join-Path $taskRoot 'third_party/node/node.exe') -Destination (Join-Path $taskPackage 'runtime')
 Copy-Item -LiteralPath (Join-Path $taskRoot 'third_party/node/LICENSE') -Destination (Join-Path $taskPackage 'runtime/NODE-LICENSE.txt')

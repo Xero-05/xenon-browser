@@ -5,6 +5,7 @@
 /.cache/
 /third_party/downloads/
 /third_party/cef/
+/third_party/cef-engine/
 /third_party/sqlite/
 /third_party/json/
 /third_party/node/

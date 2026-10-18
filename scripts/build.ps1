@@ -1,17 +1,21 @@
-param([switch]$CoreOnly, [switch]$Test, [int]$Jobs = 4, [string]$CefRoot)
+# -RequireReleaseEngine fails unless the engine is the one releases ship (see docs/BUILD.md).
+param([switch]$CoreOnly, [switch]$Test, [int]$Jobs = 4, [string]$CefRoot, [switch]$RequireReleaseEngine)
 $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$taskLock = Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.json') -Raw | ConvertFrom-Json
+. (Join-Path $PSScriptRoot 'cef-engine-provenance.ps1')
 if (-not $CefRoot) {
   $taskCache = Join-Path $taskRoot 'build/CMakeCache.txt'
   if (Test-Path -LiteralPath $taskCache) {
     $taskConfiguredCef = Select-String -LiteralPath $taskCache -Pattern '^CEF_ROOT:PATH=(.+)$' | Select-Object -First 1
     if ($taskConfiguredCef) { $CefRoot = $taskConfiguredCef.Matches[0].Groups[1].Value }
   }
-  if (-not $CefRoot) { $CefRoot = Join-Path $taskRoot 'third_party/cef' }
+  # Bootstrap extracts a pinned Xenon engine archive beside the stock distribution.
+  if (-not $CefRoot) { $CefRoot = Join-Path $taskRoot $(if (Get-XenonEngineArchivePin -Lock $taskLock) { 'third_party/cef-engine' } else { 'third_party/cef' }) }
 }
 $CefRoot = [IO.Path]::GetFullPath($CefRoot)
 if (-not $CoreOnly) {
-  $taskCefVersion = (Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.json') -Raw | ConvertFrom-Json).cef.version
+  $taskCefVersion = $taskLock.cef.version
   $taskCefHeader = Get-Content -LiteralPath (Join-Path $CefRoot 'include/cef_version.h') -Raw
   if ($taskCefHeader -notmatch ('#define CEF_VERSION "' + [Regex]::Escape($taskCefVersion) + '"')) {
     throw 'The selected complete CEF distribution must match dependencies.lock.json.'
@@ -30,20 +34,18 @@ if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
 & $taskCmake --build $taskBuild --config Release --parallel $Jobs
 if ($LASTEXITCODE -ne 0) { throw 'Native build failed.' }
 if (-not $CoreOnly) {
-  $taskCodecManifest = Join-Path $CefRoot 'xenon-codec-build.json'
-  $taskOutputManifest = Join-Path $taskBuild 'app/Release/xenon-codec-build.json'
-  if (Test-Path -LiteralPath $taskCodecManifest) {
-    $taskCodecBuild = Get-Content -LiteralPath $taskCodecManifest -Raw | ConvertFrom-Json
-    $taskExpectedRecipe = (Get-Content -LiteralPath (Join-Path $taskRoot 'dependencies.lock.json') -Raw | ConvertFrom-Json).cef.mediaSourceBuild
-    if (($taskCodecBuild.recipe | ConvertTo-Json -Depth 10 -Compress) -cne ($taskExpectedRecipe | ConvertTo-Json -Depth 10 -Compress)) {
-      throw 'The selected codec engine does not match the pinned source build recipe. Rebuild CEF first.'
+  # Bind the selected distribution's provenance to the engine copied into the
+  # build output, and carry only that manifest into it.
+  $taskEngine = Get-XenonEngineProvenance -Directory $CefRoot -Engine (Join-Path $taskBuild 'app/Release/libcef.dll') -Lock $taskLock -Release:$RequireReleaseEngine
+  foreach ($taskManifestName in @('xenon-codec-build.json','xenon-engine-build.json')) {
+    $taskOutputManifest = Join-Path $taskBuild ('app/Release/' + $taskManifestName)
+    if ($taskEngine.Manifest -and (Split-Path -Leaf $taskEngine.Manifest) -eq $taskManifestName) {
+      Copy-Item -LiteralPath $taskEngine.Manifest -Destination $taskOutputManifest -Force
+    } elseif (Test-Path -LiteralPath $taskOutputManifest) {
+      Remove-Item -LiteralPath $taskOutputManifest
     }
-    $taskEngineHash = (Get-FileHash -LiteralPath (Join-Path $taskBuild 'app/Release/libcef.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($taskCodecBuild.files.'Release/libcef.dll' -cne $taskEngineHash) { throw 'Codec provenance does not match the built engine.' }
-    Copy-Item -LiteralPath $taskCodecManifest -Destination $taskOutputManifest -Force
-  } elseif (Test-Path -LiteralPath $taskOutputManifest) {
-    Remove-Item -LiteralPath $taskOutputManifest
   }
+  Write-Host "[engine] $($taskEngine.Kind) CEF engine, libcef.dll SHA-256 $($taskEngine.LibcefSha256)"
 }
 Push-Location $taskRoot
 try {

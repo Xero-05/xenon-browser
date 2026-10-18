@@ -7,6 +7,8 @@ function Get-XenonDependency {
     [Parameter(Mandatory=$true)][string]$Name,
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedHash,
     [Parameter(Mandatory=$true)][string]$DownloadDirectory,
+    # Optional exact size pin. It bounds the transfer and is checked before hashing.
+    [ValidateRange(0,4294967296)][long]$ExpectedBytes = 0,
     [ValidateRange(1,300)][int]$ConnectTimeoutSeconds = 30,
     [ValidateRange(1,300)][int]$StallTimeoutSeconds = 45,
     [ValidateRange(1,900)][int]$AttemptTimeoutSeconds = 300,
@@ -34,13 +36,18 @@ function Get-XenonDependency {
     if ($taskExisting.PSIsContainer -or ($taskExisting.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
       throw "Dependency cache entry is not a regular file: $Name"
     }
-    Write-Host "[cache] Verifying SHA-256 for $Name ($($taskExisting.Length) bytes)"
-    if ((Get-FileHash -LiteralPath $taskTarget -Algorithm SHA256).Hash -ieq $ExpectedHash) {
-      Write-Host "[cache] Verified $Name"
-      return $taskTarget
+    if ($ExpectedBytes -and $taskExisting.Length -ne $ExpectedBytes) {
+      Write-Warning "Discarding cache entry with an unexpected size: $Name ($($taskExisting.Length) bytes, pinned $ExpectedBytes)"
+      Remove-Item -LiteralPath $taskTarget
+    } else {
+      Write-Host "[cache] Verifying SHA-256 for $Name ($($taskExisting.Length) bytes)"
+      if ((Get-FileHash -LiteralPath $taskTarget -Algorithm SHA256).Hash -ieq $ExpectedHash) {
+        Write-Host "[cache] Verified $Name"
+        return $taskTarget
+      }
+      Write-Warning "Discarding corrupt cache entry: $Name"
+      Remove-Item -LiteralPath $taskTarget
     }
-    Write-Warning "Discarding corrupt cache entry: $Name"
-    Remove-Item -LiteralPath $taskTarget
   }
   $taskCurl = (Get-Command curl.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
   $taskPart = Join-Path $taskDirectory ($Name + '.' + [Guid]::NewGuid().ToString('N') + '.part')
@@ -52,8 +59,10 @@ function Get-XenonDependency {
       $taskCurlArguments = @('--disable','--fail','--location','--silent','--show-error',
         '--proto',$taskProtocol,'--proto-redir',$taskProtocol,
         '--connect-timeout',"$ConnectTimeoutSeconds",'--max-time',"$AttemptTimeoutSeconds",
-        '--speed-limit','1024','--speed-time',"$StallTimeoutSeconds",
-        '--output',$taskPart,'--write-out','%{http_code}',$taskUri.AbsoluteUri)
+        '--speed-limit','1024','--speed-time',"$StallTimeoutSeconds")
+      # curl refuses a declared or (curl 8.4+) received body above the pin.
+      if ($ExpectedBytes) { $taskCurlArguments += @('--max-filesize',"$ExpectedBytes") }
+      $taskCurlArguments += @('--output',$taskPart,'--write-out','%{http_code}',$taskUri.AbsoluteUri)
       # ProcessStartInfo.ArgumentList is unavailable in Windows PowerShell 5.1.
       # Quote directly for the Windows argv parser; do not invoke a shell.
       $taskQuotedArguments = foreach ($taskArgument in $taskCurlArguments) {
@@ -101,6 +110,9 @@ function Get-XenonDependency {
       $taskBytes = if (Test-Path -LiteralPath $taskPart) { (Get-Item -LiteralPath $taskPart).Length } else { 0 }
       Write-Host "[download] $Name attempt $taskAttempt finished in $([Math]::Round($taskAttemptClock.Elapsed.TotalSeconds,1))s; curl=$taskExit HTTP=$taskHttp bytes=$taskBytes"
       if ($taskExit -eq 0) {
+        if ($ExpectedBytes -and $taskBytes -ne $ExpectedBytes) {
+          throw "Size mismatch for $Name ($taskBytes bytes, pinned $ExpectedBytes); untrusted download discarded."
+        }
         Write-Host "[verify] Checking SHA-256 for $Name"
         if ((Get-FileHash -LiteralPath $taskPart -Algorithm SHA256).Hash -ine $ExpectedHash) {
           throw "SHA-256 mismatch for $Name; untrusted download discarded."
@@ -111,6 +123,7 @@ function Get-XenonDependency {
         return $taskTarget
       }
       if (Test-Path -LiteralPath $taskPart) { Remove-Item -LiteralPath $taskPart }
+      if ($taskExit -eq 63) { throw "Download for $Name exceeded its pinned size of $ExpectedBytes bytes; untrusted download discarded." }
       $taskTransient = $taskExit -in @(5,6,7,18,28,35,52,55,56) -or
         ($taskExit -eq 22 -and $taskHttp -in @('408','429','500','502','503','504'))
       if (-not $taskTransient -or $taskAttempt -eq $MaxAttempts) {

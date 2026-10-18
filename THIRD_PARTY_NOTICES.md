@@ -23,10 +23,22 @@ the [source-build instructions](docs/BUILD.md#website-video-codecs). The FFmpeg
 command-line tool used to generate synthetic test media is not a Xenon runtime
 dependency and is not included in browser packages.
 
+Xenon's engine build uses the revisions and build-tool pins in
+`cef.engineSourceBuild`. It applies only
+`scripts/patches/cef-video-frame-release-priority.patch` and
+`scripts/patches/cef-background-frame-rate.patch` to that CEF and Chromium source.
+It keeps `proprietary_codecs=false` and `ffmpeg_branding=Chromium`, so H.264 and AAC
+are not enabled, as in the stock CEF distribution. Packages built with it carry
+its `xenon-engine-build.json` provenance and the generated CEF license and
+Chromium credits. The upstream BSD-style licenses and notices remain applicable.
+Packages use the stock CEF distribution until `cef.engineArchive` in
+`dependencies.lock.json` pins this build; see
+[Xenon engine releases](docs/BUILD.md#xenon-engine-releases).
+
 | Component | Pinned version | License and provenance |
 | --- | --- | --- |
 | Chromium Embedded Framework | 154.0.34+g14c5a08, Chromium 154.0.8037.98 | BSD-style; [CEF project](https://github.com/chromiumembedded/cef), [license copy](third_party/licenses/CEF-LICENSE.txt). Copyright Marshall A. Greenblatt; portions copyright Google Inc. Runtime includes `CEF-LICENSE.txt`. |
-| Chromium and bundled libraries | Matching CEF distribution | BSD-style Chromium license and multiple third-party licenses; [Chromium project](https://www.chromium.org/), [source](https://chromium.googlesource.com/chromium/src/). Runtime includes the complete `Chromium-CREDITS.html` supplied by CEF, including copyright notices and license texts. |
+| Chromium and bundled libraries | Matching CEF distribution (stock, or Xenon's engine build of the same revisions) | BSD-style Chromium license and multiple third-party licenses; [Chromium project](https://www.chromium.org/), [source](https://chromium.googlesource.com/chromium/src/). Runtime includes the complete `Chromium-CREDITS.html` supplied by CEF, including copyright notices and license texts. |
 | SQLite | 3.53.4 | [Public domain](https://www.sqlite.org/copyright.html); official amalgamation. |
 | nlohmann/json | 3.12.0 | [MIT](https://github.com/nlohmann/json/blob/v3.12.0/LICENSE.MIT); copyright Niels Lohmann. |
 | Node.js | 24.16.0 | MIT and bundled dependency licenses; [Node.js](https://nodejs.org/), [complete license copy](third_party/licenses/NODE-LICENSE.txt). The runtime includes `runtime/NODE-LICENSE.txt`. |

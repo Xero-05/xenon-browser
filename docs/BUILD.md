@@ -8,7 +8,7 @@
 - [7-Zip](https://www.7-zip.org/) installed in `Program Files/7-Zip` for CEF archive decompression.
 - Several GB of free disk space for CEF, generated build files and release staging.
 
-`scripts/bootstrap.ps1` downloads CEF, SQLite, nlohmann/json and the redistributable Node runtime. Archive/header SHA-256 values are pinned in `dependencies.lock.json`. npm dependencies and their integrity digests are pinned in `package-lock.json`. Dependencies are downloaded into ignored `third_party/` subdirectories; never commit browser profiles, password CSVs, vaults or pairing configuration.
+`scripts/bootstrap.ps1` downloads CEF, SQLite, nlohmann/json and the redistributable Node runtime. Archive/header SHA-256 values are pinned in `dependencies.lock.json`. Once `cef.engineArchive` pins a [Xenon engine build](#xenon-engine-releases), bootstrap downloads that archive instead of the stock CEF archive, with a mandatory size and SHA-256 pin; `-StockCef` downloads the stock archive. npm dependencies and their integrity digests are pinned in `package-lock.json`. Dependencies are downloaded into ignored `third_party/` subdirectories; never commit browser profiles, password CSVs, vaults or pairing configuration.
 
 Downloads use HTTPS with certificate validation, a 30-second connection limit, a 45-second low-speed limit (below 1 KiB/s), and a five-minute limit per attempt. Transient failures receive at most three attempts with bounded backoff. A unique `.part` file becomes a usable cache entry only after its pinned SHA-256 matches. Existing cached downloads are verified on every bootstrap; a corrupt cached file is discarded and fetched again. HTTP errors such as 404, certificate verification errors and digest mismatches fail without repeated retries. Interrupted partial files are never reused or cached.
 
@@ -80,7 +80,7 @@ $version = (Get-Content ./VERSION -Raw).Trim()
 
 The installer compiler is pinned separately and installed in portable mode in ignored build storage. The installer builder first verifies the ZIP checksum and every manifest entry, then compiles the same runtime files into `Xenon-<version>-windows-x64-setup-unsigned.exe` and writes its SHA-256. Installation requires no administrator access. Fresh installs offer an empty, writable program folder on a local fixed drive, defaulting to `%LOCALAPPDATA%\Programs\Xenon Browser`; updates reuse the recorded installation folder. Relocation requires uninstalling and reinstalling, while the separate browser data and pairing files remain. MCP host paths must point into the chosen program folder. Do not replace the signed upstream compiler with an unverified download.
 
-Do not publish packages with the codec-enabled engine described in [website video codecs](#website-video-codecs) until codec licensing for distributing it is confirmed. 0.1.6 was built that way and withdrawn the same day for this reason. Stock-engine releases are published from the hosted CI artifacts. Hosted CI builds only the stock engine, so a codec-enabled release must be built on a maintainer machine with `./scripts/build.ps1 -CefRoot <codec-enabled distribution> -Test`, then package, verify, test the isolated installer, build the installer, smoke-test the extracted ZIP, and run the CI live suites and both `media-integration.mjs` modes on the packaged DLL.
+Do not publish packages with the codec-enabled engine described in [website video codecs](#website-video-codecs) until codec licensing for distributing it is confirmed. 0.1.6 was built that way and withdrawn the same day for this reason. Releases are published from the hosted CI artifacts. CI builds and packages with `-RequireReleaseEngine`, which accepts only the engine `dependencies.lock.json` designates for releases: the stock engine until `cef.engineArchive` pins a [Xenon engine build](#xenon-engine-releases), then exactly that build. It never accepts the codec-enabled engine. Hosted CI cannot build that engine either, so a codec-enabled release would have to be built on a maintainer machine with `./scripts/build.ps1 -CefRoot <codec-enabled distribution> -Test`, then package, verify, test the isolated installer, build the installer, smoke-test the extracted ZIP, and run the CI live suites and both `media-integration.mjs` modes on the packaged DLL.
 
 Publish the ZIP, installer and both `.sha256` files as assets on a release tagged `v<version>` in `Xero-05/xenon-browser`, after reviewing checks and release notes. Mark alpha releases as prereleases; publish `MAJOR.MINOR.PATCH` versions as regular releases and mark them latest. Do not edit existing release assets in place or reuse a version for different bytes. Verify that GitHub reports each installer asset's `digest` as `sha256:<expected digest>` before publishing: the native updater refuses missing/mismatched digests, unexpected asset names and downgrades. The updater enumerates published releases, so alpha releases are eligible without relying on GitHub's stable-only latest-release endpoint.
 
@@ -188,9 +188,90 @@ and retain the generated `LICENSE.txt` and `CREDITS.html`. Run the native and
 live browser suites against the rebuilt binary; a capability declaration is
 not sufficient evidence of successful decoding.
 
+## Xenon engine releases
+
+Stock-engine packages do not contain Xenon's engine patches: the Windows video
+frame-release priority fix and covered-tab frame pacing described above. Hosted
+CI cannot build Chromium. Releases therefore take a locally built engine as a
+pinned, prebuilt input, in the same way they take the stock CEF archive.
+
+The `cef.engineSourceBuild` recipe pins the same CEF, Chromium, depot_tools,
+automation script and Windows SDK revisions as `cef.mediaSourceBuild`. It applies
+only `scripts/patches/cef-video-frame-release-priority.patch` and
+`scripts/patches/cef-background-frame-rate.patch`, sets
+`proprietary_codecs=false ffmpeg_branding=Chromium`, and omits the codec patch.
+Its media support therefore matches the stock engine: WebM and other open formats,
+no H.264 or AAC. Its prerequisites, timings and disk needs are those of the codec
+build. It needs its own work directory, marked `xenon-engine-source.json`; a
+codec work directory is never reused for it:
+
+```powershell
+./scripts/build-cef-media.ps1 -Recipe Engine -WorkDirectory E:\XenonCefEngine-154 -Python C:\Python312\python.exe
+```
+
+After building, the audit checks GN's effective `proprietary_codecs` and
+`ffmpeg_branding` values, the FFmpeg codec configuration and libcef's dependency
+graph. It also checks that both patches are applied and the codec patch is absent.
+It then writes `xenon-engine-build.json` with the recipe and the engine,
+bootstrap, license and credits hashes. When a later recipe only adds engine
+patches, `-AddPatches -BuildOnly` reuses a prepared engine directory whose marker
+is this recipe without some of its patches. Source pins and existing patches must
+be unchanged; the marker and previous distribution are preserved. Any other change,
+including a CEF update or an edited patch, needs a new directory.
+
+`./scripts/package-cef-engine.ps1 -Distribution <engine distribution>` turns an
+audited engine distribution into the release input. It refuses codec and stock
+distributions, and any file that differs from the provenance manifest. It writes
+`dist/cef-engine/xenon-cef-engine-<CEF version>-<libcef id>.tar.bz2`, its `.sha256`
+and a `.pin.json` snippet. The ID is the first 12 hex digits of libcef.dll's
+SHA-256. Before writing, it extracts the archive with bootstrap's extractor and
+reruns bootstrap's checks on the extracted files. It uploads nothing and does
+not edit the lock.
+
+The archive is published unchanged as the only asset of a GitHub prerelease
+tagged `cef-engine-<CEF version>-<libcef id>` in `Xero-05/xenon-browser`. The
+native updater considers only `v<version>` tags, so it ignores these releases.
+A prerelease is never marked latest. `cef.engineArchive` then pins:
+
+```json
+"engineArchive": {
+  "url": "https://github.com/Xero-05/xenon-browser/releases/download/cef-engine-154.0.34-<id>/xenon-cef-engine-154.0.34-<id>.tar.bz2",
+  "bytes": 123456789,
+  "sha256": "<archive SHA-256>",
+  "libcefSha256": "<libcef.dll SHA-256>"
+}
+```
+
+Bootstrap accepts only this exact URL form, derived from the pinned CEF version
+and libcef hash. Moving the host requires a reviewed change to
+`scripts/cef-engine-provenance.ps1`. Bootstrap downloads it with its size as a
+transfer limit, verifies size and SHA-256 before use, and extracts into
+`third_party/cef-engine`. Any stock distribution in `third_party/cef` is left
+intact. On every run, bootstrap checks that the archive's manifest matches
+`cef.engineSourceBuild`, every file it lists and the pinned libcef hash.
+`build.ps1` then defaults to `third_party/cef-engine` unless CMake's cache or
+`-CefRoot` selects another distribution. With `-RequireReleaseEngine`,
+`build.ps1` and `package.ps1` refuse any other libcef.dll. Until an archive is
+pinned, the lock omits `cef.engineArchive` and releases keep the stock engine.
+
+A pinned archive is bound to the recipe. Changing `cef.engineSourceBuild`, a
+patch it lists or the CEF version without a new archive fails bootstrap in CI.
+For each CEF update or engine patch change:
+
+1. Update the stock CEF pins as described under [CEF security maintenance](#cef-security-maintenance). Update both source recipes' revisions and every changed patch's `sha256`, rebasing patches as needed.
+2. Run the source-build script and audit tests listed in [TESTING](TESTING.md#website-video-regression). Build the engine recipe in a new work directory, or with `-AddPatches -BuildOnly` when patches were only added. Keep the build log.
+3. Build Xenon with `-CefRoot <engine distribution> -Test`. Run the CI live suites, `node tests/media-integration.mjs` and `node tests/frame-pacing-integration.mjs` on that build.
+4. Run `package-cef-engine.ps1`. Create the prerelease with the printed tag, upload the archive unchanged and check that GitHub reports its `digest` as `sha256:<archive SHA-256>`.
+5. Put the printed pin in `cef.engineArchive`, in the same pull request as the recipe change. CI then downloads, verifies, builds, tests and packages with it. Do not edit or replace a published engine asset; publish a new prerelease instead.
+
+The first pinned archive changes what packages contain, so update the README's
+engine description in the same change. CI cannot reproduce locally built engine
+bytes. Like other unsigned assets, the archive digest establishes integrity, not
+who built it.
+
 ## CEF security maintenance
 
-CEF dependency updates remain manual maintainer work. Before each public release, inspect the current stable [CEF build index](https://cef-builds.spotifycdn.com/index.html) and [Chromium security releases](https://chromereleases.googleblog.com/search/label/Stable%20updates). Pick the complete matching Windows x64 CEF distribution, verify the publisher checksum, record a locally verified SHA-256, update the lockfile, and rebuild from a clean dependency directory. Review CEF API changes, bootstrap/sandbox requirements and Chromium licensing notices. Run native, SDK and live acceptance tests on the new runtime before distributing it. Never update just `libcef.dll` inside an older ZIP.
+CEF dependency updates remain manual maintainer work. Before each public release, inspect the current stable [CEF build index](https://cef-builds.spotifycdn.com/index.html) and [Chromium security releases](https://chromereleases.googleblog.com/search/label/Stable%20updates). Pick the complete matching Windows x64 CEF distribution, verify the publisher checksum, record a locally verified SHA-256, update the lockfile, and rebuild from a clean dependency directory. Review CEF API changes, bootstrap/sandbox requirements and Chromium licensing notices. Run native, SDK and live acceptance tests on the new runtime before distributing it. Once releases use a pinned [Xenon engine build](#xenon-engine-releases), rebuild and re-pin that archive for the same CEF version. Never update just `libcef.dll` inside an older ZIP.
 
 CEF integration guidance: [sandbox/bootstrap requirements](https://github.com/chromiumembedded/cef/blob/master/docs/sandbox_setup.md), [CEF General Usage](https://github.com/chromiumembedded/cef/wiki/GeneralUsage). Xenon does not guarantee proprietary DRM, arbitrary extension compatibility, cloud synchronization, mobile support or built-in AI chat.
 

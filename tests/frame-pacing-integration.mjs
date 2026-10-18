@@ -93,11 +93,13 @@ try {
   });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   startHashes = await hashes();
-  // Only Xenon's audited engine build carries the pacing patch.
+  // Only Xenon's audited engine builds (engine or codec recipe) carry the pacing patch.
   const lock = JSON.parse(await readFile(resolve(root, 'dependencies.lock.json'), 'utf8'));
-  const engine = await readFile(resolve(binary, '..', 'xenon-codec-build.json'), 'utf8').then(JSON.parse, () => null);
-  pacingSupported = engine?.recipe?.backgroundFrameRatePatch?.sha256 === lock.cef.mediaSourceBuild.backgroundFrameRatePatch.sha256 &&
-    engine.files?.['Release/libcef.dll'] === startHashes['libcef.dll'];
+  const provenance = async (name, recipe) => ({ build: await readFile(resolve(binary, '..', name), 'utf8').then(JSON.parse, () => null), recipe });
+  const engine = [await provenance('xenon-engine-build.json', lock.cef.engineSourceBuild),
+    await provenance('xenon-codec-build.json', lock.cef.mediaSourceBuild)].find(candidate => candidate.build);
+  pacingSupported = !!engine && engine.build.recipe?.backgroundFrameRatePatch?.sha256 === engine.recipe.backgroundFrameRatePatch.sha256 &&
+    engine.build.files?.['Release/libcef.dll'] === startHashes['libcef.dll'];
   console.log(`Engine frame pacing: ${pacingSupported ? 'patched engine' : 'stock engine, pacing ignored'}`);
   browser = spawn(binary, [`--user-data-dir=${profile}`, `--broker-pipe=${pipeName}`], { stdio: 'ignore' });
   let launchError; browser.once('error', error => { launchError = error; });
