@@ -17,11 +17,18 @@ jobs:
         shell: pwsh
         timeout-minutes: 3
         run: node --test tests/bootstrap-download-tests.mjs tests/bootstrap-extract-tests.mjs
-      - name: Test Windows codec build audit
+      - name: Test CEF source build audits
         shell: pwsh
-        run: python tests/cef-windows-codecs-tests.py
+        run: |
+          python tests/cef-windows-codecs-tests.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows codec build audit tests failed.' }
+          python tests/cef-engine-build-tests.py
+          if ($LASTEXITCODE -ne 0) { throw 'Engine build audit tests failed.' }
       - name: CEF recipe migration checks
         run: ./tests/cef-media-recipe-tests.ps1
+      - name: Test release engine provenance and archive
+        shell: pwsh
+        run: ./tests/cef-engine-release-tests.ps1
       - name: Restore pinned dependency downloads
         id: native-downloads
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0, Node 24
@@ -68,12 +75,14 @@ jobs:
           $nodeDistribution | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install locked JavaScript dependencies
         run: npm ci
+      # Releases ship the stock engine until cef.engineArchive pins a Xenon engine
+      # build; bootstrap then fetches that archive and these steps require it.
       - name: Build and run native and SDK tests
         shell: pwsh
-        run: ./scripts/build.ps1 -Test
+        run: ./scripts/build.ps1 -Test -RequireReleaseEngine
       - name: Package unsigned Windows release
         shell: pwsh
-        run: ./scripts/package.ps1
+        run: ./scripts/package.ps1 -RequireReleaseEngine
       - name: Verify release manifest and archive
         shell: pwsh
         run: |
@@ -119,12 +128,15 @@ jobs:
         shell: pwsh
         timeout-minutes: 20
         run: |
-          # The suites launch build/app/Release, so require the DLL that was packaged.
+          # The suites launch build/app/Release, so require the DLLs that were packaged.
           $version = (Get-Content ./VERSION -Raw).Trim()
           $manifestPath = Join-Path $env:RUNNER_TEMP "xenon-release/Xenon-$version-windows-x64-unsigned/release-manifest.json"
-          $packaged = ((Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).files | Where-Object path -eq 'Xenon.dll').sha256
-          $built = (Get-FileHash -LiteralPath ./build/app/Release/Xenon.dll -Algorithm SHA256).Hash.ToLowerInvariant()
-          if (-not $packaged -or $built -ne $packaged) { throw 'build/app/Release/Xenon.dll is not the packaged DLL.' }
+          $files = (Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).files
+          foreach ($dll in 'Xenon.dll', 'libcef.dll') {
+            $packaged = ($files | Where-Object path -eq $dll).sha256
+            $built = (Get-FileHash -LiteralPath "./build/app/Release/$dll" -Algorithm SHA256).Hash.ToLowerInvariant()
+            if (-not $packaged -or $built -ne $packaged) { throw "build/app/Release/$dll is not the packaged DLL." }
+          }
           # Serial, never concurrent; each suite uses its own generated profile and private pipe.
           $failed = @()
           foreach ($suite in 'integration', 'batch-integration', 'visibility-integration', 'worker-lifecycle-integration',

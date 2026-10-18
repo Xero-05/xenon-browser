@@ -83,6 +83,23 @@ manifest to artifact hashes. These are audit tests, not playback evidence.
 `./tests/cef-media-recipe-tests.ps1` exercises the source-build marker gate:
 exact previous recipes require their migration switch, backups preserve the
 old marker, and unrelated or missing markers are rejected without modification.
+It also covers the [engine recipe](BUILD.md#xenon-engine-releases): its separate
+marker, `-AddPatches` only for markers that lack some current patches, and
+rejection of codec markers, edited patches and other source pins.
+`python tests/cef-engine-build-tests.py` checks that the pinned engine recipe
+shares the codec recipe's source and engine-patch pins without the codec patch or
+proprietary codecs. It also checks that lock edits enabling codecs fail. The
+engine audit must reject effective codec GN values, bundled H.264/AAC, OpenH264,
+a checkout carrying the codec patch, missing patches and stale distributions.
+`./tests/cef-engine-release-tests.ps1` checks provenance acceptance in bootstrap,
+build and packaging on synthetic distributions. The stock engine is accepted for
+releases only while no archive is pinned, and only the pinned engine afterwards.
+The codec engine, replaced or unlisted files, edited flags and both manifests are
+refused. It checks the fixed release-asset URL and pin fields. It then packages a
+synthetic engine with the real tar/7-Zip archive builder and extracts it with
+bootstrap's extractor and checks. The size pin's download behavior is covered
+by `tests/bootstrap-download-tests.mjs`. None of these tests builds CEF, downloads
+an engine archive or exercises a real engine build's audit.
 
 ### Background animation and video frame recycling
 

@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
-spec = importlib.util.spec_from_file_location('codec_build', ROOT / 'scripts/cef-windows-codecs.py')
+spec = importlib.util.spec_from_file_location('codec_build', ROOT / 'scripts/cef-source-build.py')
 codec_build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(codec_build)
 
@@ -51,7 +51,7 @@ enable_ffmpeg_video_decoders=false
         with patch.object(codec_build, 'validate', return_value=(self.recipe, self.patches)), \
              patch.object(codec_build, 'run', side_effect=lambda *args, **kwargs: self.deps if 'desc' in args else ''), \
              patch('builtins.print'):
-            codec_build.audit(self.source, self.distribution)
+            codec_build.audit(self.source, self.distribution, 'media')
 
     def test_manifest_binds_actual_artifact_bytes(self):
         self.audit()
@@ -101,7 +101,7 @@ enable_ffmpeg_video_decoders=false
         with patch.object(codec_build, 'validate', return_value=(self.recipe, self.patches)), \
              patch.object(codec_build, 'run', side_effect=check):
             with self.assertRaisesRegex(RuntimeError, 'Scheduling patch not applied'):
-                codec_build.audit(self.source, self.distribution)
+                codec_build.audit(self.source, self.distribution, 'media')
         self.assertFalse((self.distribution / 'xenon-codec-build.json').exists())
 
     def test_audit_rejects_missing_frame_rate_patch_before_writing_manifest(self):
@@ -112,7 +112,7 @@ enable_ffmpeg_video_decoders=false
         with patch.object(codec_build, 'validate', return_value=(self.recipe, self.patches)), \
              patch.object(codec_build, 'run', side_effect=check):
             with self.assertRaisesRegex(RuntimeError, 'Frame rate patch not applied'):
-                codec_build.audit(self.source, self.distribution)
+                codec_build.audit(self.source, self.distribution, 'media')
         self.assertFalse((self.distribution / 'xenon-codec-build.json').exists())
 
     def test_apply_preflights_all_pending_patches_before_mutating(self):
@@ -121,7 +121,7 @@ enable_ffmpeg_video_decoders=false
              patch.object(codec_build, 'run', side_effect=RuntimeError('Patch conflict')) as run:
             reverse.return_value.returncode = 1
             with self.assertRaisesRegex(RuntimeError, 'Patch conflict'):
-                codec_build.apply(self.source)
+                codec_build.apply(self.source, 'media')
         run.assert_called_once_with('git', 'apply', '--check', '--whitespace=error-all',
                                     *map(str, self.patches), cwd=self.source)
 
