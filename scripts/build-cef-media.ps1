@@ -5,6 +5,7 @@ param(
   [ValidateRange(1,32)][int]$Jobs = 4,
   [switch]$MigrateToWindowsCodecs,
   [switch]$UpdateVideoScheduling,
+  [switch]$UpdateBackgroundFrameRate,
   [switch]$BuildOnly,
   [switch]$CheckOnly
 )
@@ -51,14 +52,19 @@ if (Test-Path -LiteralPath $taskWork) {
     $taskLegacyRecipe.PSObject.Properties.Remove('codecBackend')
     $taskLegacyRecipe.PSObject.Properties.Remove('patch')
     $taskLegacyRecipe.PSObject.Properties.Remove('videoSchedulingPatch')
+    $taskLegacyRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
     $taskLegacyRecipe.gnDefines = 'is_official_build=true use_thin_lto=false chrome_pgo_phase=0 symbol_level=0 proprietary_codecs=true ffmpeg_branding=Chrome'
     $taskPreviousWindowsRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
     $taskPreviousWindowsRecipe.PSObject.Properties.Remove('videoSchedulingPatch')
+    $taskPreviousWindowsRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
+    $taskPreviousSchedulingRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+    $taskPreviousSchedulingRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
     $taskPreviousMarker = if (Test-Path -LiteralPath $taskMarker) { (Get-Content -LiteralPath $taskMarker -Raw).Trim() } else { '' }
     $taskLegacyMigration = $MigrateToWindowsCodecs -and $taskPreviousMarker -ceq ($taskLegacyRecipe | ConvertTo-Json -Compress)
     $taskSchedulingMigration = $UpdateVideoScheduling -and $taskPreviousMarker -ceq ($taskPreviousWindowsRecipe | ConvertTo-Json -Compress)
-    if (-not ($taskLegacyMigration -or $taskSchedulingMigration)) {
-      throw 'Use a new path, an exact matching recipe, -MigrateToWindowsCodecs for the pinned legacy build, or -UpdateVideoScheduling for the previous Windows-codec recipe.'
+    $taskFrameRateMigration = $UpdateBackgroundFrameRate -and $taskPreviousMarker -ceq ($taskPreviousSchedulingRecipe | ConvertTo-Json -Compress)
+    if (-not ($taskLegacyMigration -or $taskSchedulingMigration -or $taskFrameRateMigration)) {
+      throw 'Use a new path, an exact matching recipe, -MigrateToWindowsCodecs for the pinned legacy build, -UpdateVideoScheduling for the first Windows-codec recipe, or -UpdateBackgroundFrameRate for the video-scheduling recipe.'
     }
     Copy-Item -LiteralPath $taskMarker -Destination ($taskMarker + '.' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff') + '.previous')
     [IO.File]::WriteAllText($taskMarker, $taskRecipeText)
@@ -160,7 +166,7 @@ try {
       '--minimal-distrib-only', '--build-log-file')
   }
   $taskDistribution = Join-Path $taskWork ('chromium/src/cef/binary_distrib/cef_binary_' + $taskLock.cef.version + '_windows64_minimal')
-  if (($MigrateToWindowsCodecs -or $UpdateVideoScheduling) -and (Test-Path -LiteralPath $taskDistribution)) {
+  if (($MigrateToWindowsCodecs -or $UpdateVideoScheduling -or $UpdateBackgroundFrameRate) -and (Test-Path -LiteralPath $taskDistribution)) {
     # Copy only this exact distribution, preserving the previous working engine.
     Copy-Item -LiteralPath $taskDistribution -Destination ($taskDistribution + '.previous-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff')) -Recurse
   }

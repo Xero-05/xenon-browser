@@ -44,6 +44,8 @@ The supported range is 1–256. This is a native startup setting, unavailable to
 
 Parallel work uses a fixed startup policy: `disable-backgrounding-occluded-windows` keeps covered Alloy page hosts rendering and `disable-background-timer-throttling` keeps background page timers running. These internal settings follow [Chrome tooling guidance](https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md); they never change during a handoff. They can increase CPU/GPU use and power consumption compared with an ordinary browser's background throttling. External Chromium command-line settings remain disabled.
 
+Covered tabs keep that rendering but paint at 1 frame per second while no agent works in them. A tab is covered when another tab of its window is selected. Selecting a tab, any agent page operation or upload, and agent tab creation restore full rate before the work runs; full rate lasts 15 seconds after the last operation finishes (`native/include/xenon/tab_render_pacing.hpp`). Pacing never follows tab ownership, so a handoff commit does not change it. Pages stay visible to scripts, and their timers, network and audio are unaffected; only BeginFrame-driven work slows: painting, `requestAnimationFrame`, CSS animation and displayed video frames. One GPU device presents every Xenon window, so each covered animated tab otherwise competes with the selected tab's frames. A per-application GPU-driver frame limit applies to that device as a whole. The pacing requires Xenon's engine patch (below); the stock CEF distribution ignores it.
+
 Tests that set Windows owner-only ACLs must run with the ordinary interactive user's Windows permissions. A restricted execution sandbox may reject `WRITE_DAC`; do not weaken product ACLs to make such a runner pass. Administrator privileges are not a normal runtime requirement.
 
 Live test harnesses use a fresh profile and a unique local named pipe, so an existing Xenon session can stay open. The native `--broker-pipe=xenon-example` startup option selects the pipe name; the default is `xenon-browser`. Custom names must start with `xenon-` and contain at most 100 ASCII letters, digits, hyphens or underscores. Use the corresponding full `\\.\pipe\xenon-example` path in the adapter's private configuration or `--pipe` argument. Pipe authentication and current-user ACLs apply equally to custom endpoints. Always use distinct profile directories for separate browser instances.
@@ -141,9 +143,18 @@ presentation work from starving decoder picture recycling; sync-token fences
 remain in place. Other platforms retain their original priority. Rebuild the
 complete CEF distribution before using it with Xenon; this is not a runtime flag.
 
+For the video-scheduling recipe, use `-UpdateBackgroundFrameRate -BuildOnly`
+once, with the same marker and distribution preservation. The additional
+hash-pinned `scripts/patches/cef-background-frame-rate.patch` lets
+`CefBrowserHost::SetWindowlessFrameRate` pace windowed Windows browsers through
+Chromium's frame-sink throttling. It is re-applied when a navigation replaces the
+page's renderer. Child frames inherit it and video-captured frame sinks are exempt.
+All throttled browsers share the highest requested rate; 60 or more removes the
+throttle. Xenon uses it for covered tabs, as described above.
+
 The post-build audit checks the generated GN arguments, selected FFmpeg codec
 configuration, absence of OpenH264/Symphonia AAC in libcef's dependency graph,
-and both pinned source patches. It emits `xenon-codec-build.json` with engine/bootstrap
+and all three pinned source patches. It emits `xenon-codec-build.json` with engine/bootstrap
 hashes. The Xenon build and packaging check both the engine hash and the pinned
 recipe before copying this manifest.
 `--windows-codecs` requires that provenance and tests actual MP4 and Media Source

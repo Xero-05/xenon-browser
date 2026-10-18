@@ -8,7 +8,9 @@ recipe uses Windows GPU H.264 decoding and Windows Media Foundation AAC decoding
 with `proprietary_codecs=true`, `ffmpeg_branding=Chromium`, and the pinned
 `scripts/patches/cef-windows-codecs.patch`. The additional pinned
 `scripts/patches/cef-video-frame-release-priority.patch` changes Windows GPU
-scheduling for fenced video frame recycling in the same Chromium source;
+scheduling for fenced video frame recycling in the same Chromium source, and
+`scripts/patches/cef-background-frame-rate.patch` lets CEF pace windowed
+browsers through Chromium's frame-sink throttling;
 the upstream BSD-style license and notices remain applicable.
 FFmpeg H.264/AAC software decoders and
 the bundled OpenH264 implementation are disabled; Windows codec DLLs are not

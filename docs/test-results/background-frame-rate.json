@@ -1,0 +1,242 @@
+{
+  "recordedUtc": "2026-10-18",
+  "sourceBase": "a7a3d64afa670cd51025919b440b426179700ecc",
+  "backgroundFrameRatePatchSha256": "d6ee2049fa49955de35bf84ab7937dd6ed93d1d25d4ae8696769490fa6015c5d",
+  "rootCause": {
+    "driverSetting": "NVIDIA global 3D profile Max Frame Rate = 144, user-set, read through NVAPI without modification",
+    "display": "2560x1440 at 144 Hz",
+    "standalonePresentTest": {
+      "program": "Standalone D3D11 test, three windows, flip-model swap chains, Present(0) back to back every 20 ms, 200 rounds",
+      "sharedDeviceCapped": {
+        "firstPresentMedianMs": 0.09,
+        "secondPresentMedianMs": 6.95,
+        "thirdPresentMedianMs": 6.94,
+        "blockedRounds": "200/200 for the second and third swap chains"
+      },
+      "devicePerWindowCapped": {
+        "blockedRounds": "1/200 per swap chain"
+      },
+      "sharedDeviceAfterLimitOff": {
+        "blockedRounds": "0/200, 0/200 and 0/200"
+      }
+    },
+    "browserTrace": {
+      "target": "XenonAuthTest with a local, uncommitted startup-trace hook",
+      "finding": "During background animation bursts, presents issued within about 1 ms of the previous present ending blocked in 1141/1141 cases; presents more than 7 ms apart blocked in 0/1161. The selected video reached the display at about 48 Hz.",
+      "ruledOut": [
+        "Triple-buffered root swap chain",
+        "Interval-0 video swap chain presents",
+        "Device maximum frame latency 16 (default was 3)",
+        "DXGI_PRESENT_DO_NOT_WAIT, which never returned DXGI_ERROR_WAS_STILL_DRAWING",
+        "Background tabs in a separate covered or visible window"
+      ]
+    }
+  },
+  "limitOff": {
+    "target": "Xenon production #36 candidate",
+    "binaryHashes": {
+      "Xenon.dll": "1b378274e72e8de8fc1425886710695ef1833e1ececd210ea9a1aa2273f908cd",
+      "libcef.dll": "93a28b45d13670b0fff20f48dc960dc18d2842bdae2892de792f9bb7c34252c3"
+    },
+    "coverage": "Local variant of the sustained page, started by an MCP click; 30-second 1080p60 phases; muted video without PCM measurement. Not the unchanged sustained suite.",
+    "results": [
+      {
+        "scenario": "One video, two animated background tabs",
+        "direct": "0/1806",
+        "mse": "0/1803"
+      },
+      {
+        "scenario": "Two videos in two visible side-by-side windows",
+        "direct": "0/1805 and 0/1805",
+        "mse": "0/1805 and 0/1805"
+      },
+      {
+        "scenario": "Two visible videos and two animated background tabs",
+        "direct": "0/1805 and 0/1803"
+      }
+    ],
+    "sustainedSuite": {
+      "passed": false,
+      "failure": "Video report timed out waiting for the manual start; no playback was measured",
+      "run": "media-integration-1792293569132-9aefb58e"
+    }
+  },
+  "pacingBuild": {
+    "engineBuild": {
+      "exitCode": 0,
+      "target": "Release_GN_x64 libcef, incremental"
+    },
+    "buildAudit": {
+      "exitCode": 0,
+      "codecBackend": "windows",
+      "allThreePinnedPatchesApplied": true,
+      "distributionMatchesBuild": true
+    },
+    "binaryHashes": {
+      "Xenon.dll": "3b106d1719b3da4c7563151e041c5b6c15e452071a17d08782e5b97a45427a37",
+      "libcef.dll": "44ef0602b2e1851ae32653407995926d92b18fe4c9df5b6817f5198d42831601"
+    },
+    "buildScript": {
+      "command": "./scripts/build.ps1 -CefRoot <pacing distribution> -Test",
+      "exitCode": 0,
+      "nativeTestGroups": "20/20",
+      "brandingChecks": 5
+    },
+    "scriptChecks": {
+      "codecAuditTests": 10,
+      "recipeMigrationChecks": 9
+    },
+    "framePacing": {
+      "run": "frame-pacing-integration-1792304166027-a7a27bcf",
+      "passed": true,
+      "pacingSupported": true,
+      "framesPerSecond": [
+        {
+          "state": "Covered, after the creation lease",
+          "rates": [
+            1,
+            1
+          ]
+        },
+        {
+          "state": "Covered, after an agent observation",
+          "rates": [
+            134,
+            144
+          ]
+        },
+        {
+          "state": "Covered, after the observation lease",
+          "rates": [
+            1,
+            1
+          ]
+        },
+        {
+          "state": "Covered, after the click lease",
+          "rates": [
+            1,
+            1
+          ]
+        },
+        {
+          "state": "Selected without agent activity",
+          "rates": [
+            145,
+            144
+          ]
+        },
+        {
+          "state": "Covered again after selection",
+          "rates": [
+            1,
+            1
+          ]
+        }
+      ],
+      "idleCoveredClickMilliseconds": 394
+    },
+    "liveSuites": [
+      {
+        "suite": "integration",
+        "passed": 17,
+        "failed": 0
+      },
+      {
+        "suite": "batch-integration",
+        "passed": 6,
+        "failed": 0
+      },
+      {
+        "suite": "visibility-integration",
+        "passed": 11,
+        "failed": 0
+      },
+      {
+        "suite": "agent-gates-integration",
+        "passed": 2,
+        "failed": 0
+      },
+      {
+        "suite": "worker-lifecycle-integration",
+        "passed": 4,
+        "failed": 0
+      }
+    ],
+    "media": {
+      "coverage": "Same local diagnostic variant, production target, two animated covered tabs, limit off",
+      "direct": "0/1803",
+      "mse": "0/1805"
+    },
+    "sustainedSuite": [
+      {
+        "driverLimit": "off",
+        "run": "media-integration-1792305293312-94d70ec8",
+        "passed": true,
+        "coverage": "Unchanged sustained suite, --windows-codecs --animated-background, three 30-second 1080p60 phases, operator-started after the video tab was selected through the shell tree",
+        "phases": [
+          {
+            "mode": "direct",
+            "dropped": "0/1802"
+          },
+          {
+            "mode": "mse",
+            "dropped": "0/1801"
+          },
+          {
+            "mode": "mse-native-audio",
+            "dropped": "0/1801"
+          }
+        ],
+        "frameGapsOver80ms": 0,
+        "silentSamples": 0
+      },
+      {
+        "driverLimit": "Max Frame Rate 144",
+        "run": "media-integration-1792305781471-794c757c",
+        "passed": true,
+        "coverage": "Same unchanged suite with the driver limit re-enabled",
+        "phases": [
+          {
+            "mode": "direct",
+            "dropped": "4/1802",
+            "dropTimes": "3 at about 2 s, during the background tabs' 15-second creation lease; 1 at 29 s"
+          },
+          {
+            "mode": "mse",
+            "dropped": "0/1801"
+          },
+          {
+            "mode": "mse-native-audio",
+            "dropped": "0/1802"
+          }
+        ],
+        "frameGapsOver80ms": 0,
+        "silentSamples": 0
+      }
+    ]
+  },
+  "limitations": [
+    "Only the local Windows/GPU configuration was tested.",
+    "Agent-created covered tabs run at full rate for 15 seconds after creation, so they can still compete with the selected tab during that window under a driver frame limit.",
+    "Frame pacing requires Xenon's engine build; published stock-engine releases ignore it.",
+    "No physical speaker output, DRM, network adaptation, picture-in-picture or real website acceptance."
+  ],
+  "limitOnComparison": {
+    "driverLimit": "Max Frame Rate 144 re-enabled by the user; standalone present test again blocked 200/200 rounds at 6.95 ms",
+    "coverage": "Local diagnostic variant (MCP click, muted video, no PCM), two animated background tabs, started 16 s after their creation so agent leases had lapsed",
+    "results": [
+      {
+        "target": "#36 candidate, Xenon.dll 1b378274..., libcef.dll 93a28b45...",
+        "direct": "29/1805",
+        "mse": "25/1803",
+        "pattern": "Five-second bursts matching the background animation"
+      },
+      {
+        "target": "Pacing build, Xenon.dll 3b106d17..., libcef.dll 44ef0602...",
+        "direct": "0/1800",
+        "mse": "0/1804"
+      }
+    ]
+  }
+}

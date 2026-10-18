@@ -109,6 +109,56 @@ The [fixture README](../tests/fixtures/media/README.md) explains file generation
 and the manual foreground step. `--browser-dir <complete-browser-directory>`
 allows an isolated production candidate. No personal profile is required.
 
+### Driver frame limit and covered-tab pacing
+
+The remaining frame loss above was local to the test PC's GPU settings. Its
+NVIDIA global profile set **Max Frame Rate = 144** (read through NVAPI, not
+changed by the test). That limiter paces presents per D3D device, and Chromium
+presents every Xenon window on one device. A standalone D3D11 program, with no
+Chromium involved, confirmed it. Its second and third back-to-back
+`Present(0)` calls on a shared device each waited 6.94 ms, one 144 Hz frame,
+in 200 of 200 rounds. With one device per window they did not wait. A local
+`XenonAuthTest` trace showed the same in the browser. During each background
+animation burst, every present issued within the same frame interval as
+another blocked the GPU main thread for about one frame. The selected tab's
+video then reached the display at about 48 Hz, dropping one frame in five.
+Triple-buffered root swap chains, interval-0 video presents, a higher device
+frame latency and `DXGI_PRESENT_DO_NOT_WAIT` did not change it. The trace hook
+was a local test-build change and is not part of the repository.
+
+With the limit turned off, the unchanged #36 production candidate dropped 0
+frames in local diagnostic runs (two 30-second phases each, muted video, no PCM
+measurement): 1806 and 1803 frames with two animated background tabs; 1805 in
+every phase with two side-by-side visible windows playing the clip at once; and
+1805 and 1803 in one phase with both videos and the animated tabs. These used a local variant of the sustained page with an
+MCP click, not the unchanged sustained suite. One sustained-suite attempt on that
+candidate timed out waiting for its manual start and measured nothing; its
+failure report was kept locally.
+
+Covered tabs now paint at 1 frame per second unless an agent works in them (see
+[BUILD](BUILD.md)), which removes most of their presents. `node
+tests/frame-pacing-integration.mjs` checks this with a synthetic page that
+counts animation frames in an agent tab covered by the selected tab. With Xenon's
+engine build it expects 1 fps after each 15-second agent lease and full rate
+after an observation and while the tab is selected. It also expects an agent
+click on an idle covered tab to pass the two-frame input guard. Against the stock
+engine, where pacing is ignored, it expects full rate throughout. The [sanitized
+validation record](test-results/background-frame-rate.json) binds the result,
+the native/adapter/script checks and five existing live suites to the tested
+engine and application hashes.
+
+The unchanged sustained suite (\--windows-codecs --animated-background\, three
+30-second phases, manual start) **passed** on the pacing build with the limit
+off: 0/1802, 0/1801 and 0/1801 dropped frames, no frame gaps over 80 ms and no
+silent PCM samples. With the 144 fps limit turned back on, the same local
+diagnostic variant dropped 29/1805 and 25/1803 frames on the #36 candidate, in
+five-second bursts, and 0/1800 and 0/1804 on the pacing build. Both runs waited
+16 seconds after creating the background tabs so their agent lease had lapsed.
+The unchanged sustained suite also **passed** with the limit on: 4/1802 (0.22%),
+0/1801 and 0/1802. Three of those drops came about two seconds into the first
+phase, while the agent-created background tabs were still within their 15-second
+creation lease; one came at 29 seconds.
+
 `node tests/media-integration.mjs` starts the production browser in a disposable
 profile and generates a synthetic VP8 clip in a loopback page. It checks decoded
 frames, advancing playback time, pause, seek and volume, and records the runtime's

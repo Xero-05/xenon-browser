@@ -16,6 +16,7 @@
 #include "xenon/passkey_guard.hpp"
 #include "xenon/site_info.hpp"
 #include "xenon/external_protocol.hpp"
+#include "xenon/tab_render_pacing.hpp"
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
@@ -213,6 +214,8 @@ struct Tab {
   bool page_fullscreen=false;
   std::string favicon_url,favicon_origin;std::vector<unsigned char> favicon;int favicon_width{},favicon_height{};uint64_t favicon_revision{},favicon_generation{};
   bool screen_capture=false,media_video=false,media_audio=false,external_prompt=false,share_prompt=false;
+  // Frame rate last passed to CEF; see TabRenderPacing.
+  int frame_rate=TabRenderPacing::kFullRate;
   uint64_t epoch = 1;
   std::string document = nonce();
   std::string observation;
@@ -304,6 +307,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   std::string active_tab_;
   std::map<HWND,std::string> active_windows_;
   std::map<HWND,std::vector<std::string>> human_gestures_;
+  TabRenderPacing pacing_;
   std::shared_ptr<ActionGuard> current_action_;
   struct ActionScope {
     Impl& owner;std::shared_ptr<ActionGuard> old;
@@ -313,6 +317,26 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   bool action_valid(const std::shared_ptr<Tab>& t) const {
     return (!t->human_busy||(current_action_&&current_action_->native_auth))&&(!current_action_||((!current_action_->require_unprotected||!t->protected_auth)&&current_action_->human==t->human_input&&current_action_->epoch==t->epoch&&
       (!current_action_->permit||current_action_->permit())));
+  }
+  // Covered tabs paint slowly unless an agent works in them (TabRenderPacing).
+  // CEF is told only when a tab's rate changes.
+  void pace(const std::string& id){
+    const auto found=tabs_.find(id);if(found==tabs_.end())return;auto& t=*found->second;
+    const int rate=pacing_.rate(id,std::chrono::steady_clock::now());
+    if(t.frame_rate!=rate){t.frame_rate=rate;t.browser->GetHost()->SetWindowlessFrameRate(rate);}
+  }
+  // An agent operation or creation ended: full rate until its lease lapses.
+  void lease(const std::string& id){
+    const auto until=pacing_.agent_finished(id,std::chrono::steady_clock::now());pace(id);
+    const auto delay=std::chrono::duration_cast<std::chrono::milliseconds>(until-std::chrono::steady_clock::now()).count()+50;
+    later(static_cast<int>(std::max<long long>(delay,0)),[weak=weak_from_this(),id]{if(auto self=weak.lock())self->pace(id);});
+  }
+  // Full rate before the operation's input guards or captures run.
+  Reply paced(const std::string& id,Reply reply){
+    pacing_.agent_started(id);pace(id);
+    return [weak=weak_from_this(),id,reply=std::move(reply),done=std::make_shared<bool>(false)](Json value){
+      if(!std::exchange(*done,true))on_ui([weak,id]{if(auto self=weak.lock())self->lease(id);});
+      reply(std::move(value));};
   }
   void defer(int ms,std::function<void()> fn){auto guard=current_action_;later(ms,[self=shared_from_this(),guard,fn=std::move(fn)]{ActionScope scope(*self,guard);fn();});}
   void developer_clear(const std::shared_ptr<Tab>& t,bool discard=true){
@@ -784,7 +808,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     for(auto& [id,cb]:pending)cb({{"error",{{"message","Tab closed"}}}});
     if(auto reply=std::exchange(t->create_reply,nullptr))reply(failure("tab_closed","The tab closed during creation."));
     event("tab.closed",{{"tabId",t->id},{"workspaceId",t->workspace}});
-    browser_ids_.erase(browser->GetIdentifier()); tabs_.erase(t->id);
+    browser_ids_.erase(browser->GetIdentifier()); tabs_.erase(t->id);pacing_.remove(t->id);
     if(host_closed_)host_closed_(t->id);
     for(auto i=human_gestures_.begin();i!=human_gestures_.end();){
       std::erase(i->second,t->id);if(i->second.empty())i=human_gestures_.erase(i);else ++i;
@@ -1279,7 +1303,7 @@ void CefEngine::Impl::create(const Json& p,Reply reply,std::function<bool()> per
 }
 void CefEngine::Impl::fail_create(const std::string& id,const char* code,const char* message) {
   auto pending=creating_.extract(id);
-  if(!tabs_.contains(id)&&host_closed_)host_closed_(id);
+  if(!tabs_.contains(id)){pacing_.remove(id);if(host_closed_)host_closed_(id);}
   if(!pending.empty())try{pending.mapped()(failure(code,message));}catch(const std::exception&){}
 }
 void CefEngine::Impl::context_ready(const std::string& workspace,CefRefPtr<CefRequestContext> context,bool ready) {
@@ -1418,7 +1442,7 @@ void CefEngine::Impl::created(CefRefPtr<CefBrowser> b,const std::string& workspa
   t->private_mode=private_workspaces_.contains(t->workspace);t->last_url=b->GetMainFrame()->GetURL().ToString();
   if(!initial.empty()){t->requested_url=initial.mapped();t->initial_url=std::move(initial.mapped());}
   t->native_host=GetParent(b->GetHost()->GetWindowHandle());
-  tabs_[id]=t;browser_ids_[b->GetIdentifier()]=id;
+  tabs_[id]=t;browser_ids_[b->GetIdentifier()]=id;pace(id);
   if(active_tab_.empty())active_tab_=id;
   t->registration=b->GetHost()->AddDevToolsMessageObserver(new Observer(weak_from_this(),t));
   enable_session(t,"");
@@ -2068,6 +2092,11 @@ void CefEngine::Impl::upload(const std::shared_ptr<Tab>& t,const Json& p,Reply o
   });
 }
 void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,std::function<bool()> continuation) {
+  // Agent page work and new tabs run at full frame rate; see TabRenderPacing.
+  if(const auto tab=field(p,"tabId");!tab.empty()&&tabs_.contains(tab)&&(command.starts_with("page.")||command=="files.upload"))reply=paced(tab,std::move(reply));
+  else if(command=="tabs.create")reply=[weak=weak_from_this(),reply=std::move(reply)](Json value){
+    if(value.value("ok",false))if(const auto tab=field(value.value("result",Json::object()),"tabId");!tab.empty())on_ui([weak,tab]{if(auto self=weak.lock())self->lease(tab);});
+    reply(std::move(value));};
   if(command=="workspace.remove"){remove_workspace(field(p,"workspaceId"),std::move(reply));return;}
   if(removed_workspaces_.contains(field(p,"workspaceId"))){reply(failure("workspace_removed","This workspace was removed."));return;}
   if(command=="workspace.ensure"){if(p.value("private",false))private_workspaces_.insert(field(p,"workspaceId"));reply(success({{"workspaceId",field(p,"workspaceId")}}));return;}
@@ -2371,6 +2400,8 @@ size_t CefEngine::saved_account_count(const std::string& id){
 void CefEngine::set_download_callback(std::function<bool(const std::string&)> allowed){impl_->download_allowed_=std::move(allowed);}
 void CefEngine::set_passkey_control_callback(std::function<bool(const std::string&)> human_controls){impl_->passkey_human_controls_=std::move(human_controls);}
 void CefEngine::set_permission_callback(std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> callback){impl_->permission_=std::move(callback);}
+void CefEngine::set_tab_covered(const std::string& id,bool covered){on_ui([owner=impl_,id,covered]{
+  if(!owner->tabs_.contains(id)&&!owner->creating_.contains(id))return;owner->pacing_.set_covered(id,covered);owner->pace(id);});}
 void CefEngine::select_native_tab(const std::string& id){
   impl_->active_tab_=id;if(auto found=impl_->tabs_.find(id);found!=impl_->tabs_.end())impl_->active_windows_[GetAncestor(found->second->browser->GetHost()->GetWindowHandle(),GA_ROOT)]=id;
 }
