@@ -10,6 +10,8 @@
 
 Packages use a CEF engine built from source at the same CEF and Chromium revisions, from the pinned `cef.mediaSourceBuild` recipe. Because hosted CI builds only the stock engine, 0.1.7 was built, packaged and tested on a maintainer machine before publication.
 
+The [0.1.7 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.7) publishes both unsigned formats and their checksums as the latest regular release. The [publication record](test-results/release-0.1.7-publication.json) binds the uploaded digests to that local build and its test reports.
+
 ## 0.1.6
 
 **Withdrawn; see the end of this section.**
