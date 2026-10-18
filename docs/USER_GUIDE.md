@@ -93,6 +93,12 @@ To close every tab an agent session left open, choose **Close all tabs…** from
 
 **F11** (or **Menu → Full screen**) hides Xenon's toolbar and sidebar so the page fills the screen; **F11** again returns. When a website you control asks for full screen, such as a video player's full-screen button, the page takes over the whole screen and a notice names the site; **Esc** ends it, as does switching tabs. A page in a tab an agent controls only fills its own tab area and never takes over the screen, and a page's full screen ends if an agent becomes available in that tab. While an agent is available in the selected tab, full screen keeps a thin outline in its ownership color.
 
+### Video and background tabs
+
+Websites can play H.264 and AAC video, such as MP4 files and most streaming players, as well as WebM and other open formats. Windows does the decoding: your graphics hardware decodes H.264 and Windows Media Foundation decodes AAC. Xenon contains no decoder of its own for either. H.264 needs a graphics adapter whose video decoding Windows supports; there is no software fallback, so on a PC without it only open formats play. Windows N editions need Microsoft's Media Feature Pack for AAC. Services that need Widevine DRM do not play.
+
+A tab hidden behind the selected tab of its window keeps running: its scripts, timers, network and audio continue, so music and calls carry on. While no agent is working in it, it paints only once per second, which slows its animations and video pictures until you select it. This keeps background tabs from taking frames from the video you are watching. An agent's page operation restores full rate before it runs and keeps it for 15 seconds after the last one.
+
 ### Site icons and links for other apps
 
 Tabs show each website's icon. Pages without one show a globe.
