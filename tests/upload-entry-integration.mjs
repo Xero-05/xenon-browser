@@ -137,28 +137,32 @@ async function startFixtures() {
           ++state.uploads; state.uploaded = body.includes(Buffer.from('filename="approved-report.txt"')) && body.includes(Buffer.from('Xenon synthetic approved upload.\n'));
           response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ passed: state.uploaded }));
         } else if (url.pathname === '/event') {
-          try { const value = JSON.parse(body); if (value.type === 'opened') state.opened = true; if (value.type === 'click') { ++state.clicks; state.trusted.push(value.trusted); } if (value.type === 'change') { ++state.changes; state.selectedFiles = value.files; } if (value.type === 'label') state.labelChanged = true; response.end('ok'); }
+          try { const value = JSON.parse(body); if (value.type === 'opened') state.opened = true; if (value.type === 'click') { ++state.clicks; state.trusted.push(value.trusted); (state.textHits ??= []).push(value.textHit === true); } if (value.type === 'change') { ++state.changes; state.selectedFiles = value.files; } if (value.type === 'label') state.labelChanged = true; response.end('ok'); }
           catch { response.writeHead(400).end(); }
         } else response.writeHead(404).end();
       }); return;
     }
     if (url.pathname !== '/page') { response.writeHead(404).end(); return; }
-    const mode = url.searchParams.get('mode'), frame = mode === 'frame';
+    const mode = url.searchParams.get('mode'), frame = mode === 'frame' || mode === 'frame-text';
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
-    if (frame) { response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}iframe{width:700px;height:270px;border:1px solid #777}</style><h1 id="ready">Loading upload entry fixture</h1><iframe src="' + crossOrigin + '/page?case=' + caseId + '&mode=custom"></iframe>' +
+    if (frame) { response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}iframe{width:700px;height:270px;border:1px solid #777}</style><h1 id="ready">Loading upload entry fixture</h1><iframe src="' + crossOrigin + '/page?case=' + caseId + '&mode=' + (mode === 'frame-text' ? 'custom-text' : 'custom') + '"></iframe>' +
       // Ready only after the cross-origin frame has loaded and its document update has invalidated earlier evidence.
       '<script>addEventListener("load",()=>{document.querySelector("#ready").textContent="Upload entry fixture ready"},{once:true})</script>'); return; }
-    if (mode === 'delegate') {
-      response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}button{font:inherit;background:white;color:#152235;padding:10px}iframe{display:block;width:650px;height:180px}</style><h1>Upload entry fixture ready</h1><button id="choose">Choose approved fixture</button><iframe id="child" src="/page?case=' + caseId + '-child&mode=child-hidden"></iframe><script>' +
+    if (mode === 'delegate' || mode === 'delegate-text') {
+      response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}button{font:inherit;background:white;color:#152235;padding:10px}iframe{display:block;width:650px;height:180px}</style><h1>Upload entry fixture ready</h1>' + (mode === 'delegate-text' ? '<div id="choose"><span>Upload from Device</span></div>' : '<button id="choose">Choose approved fixture</button>') + '<iframe id="child" src="/page?case=' + caseId + '-child&mode=child-hidden"></iframe><script>' +
         'const caseId=' + JSON.stringify(caseId) + ';function event(v){fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(v)})}event({type:"opened"});document.querySelector("#choose").onclick=e=>{event({type:"click",trusted:e.isTrusted});document.querySelector("#child").contentDocument.querySelector("#file").click()};</script>'); return;
     }
     const direct = ['direct', 'direct-disabled', 'direct-directory'].includes(mode), label = mode === 'none' ? 'No chooser button' : 'Choose approved fixture';
+    // Non-semantic wrapper with delegated click and a real DOM Text node: the
+    // SAP-style Device entry is observed as StaticText, not a button or label.
+    const textEntry = ['custom-text', 'text-disabled', 'text-none'].includes(mode);
+    const entry = textEntry ? '<div id="choose" style="width:600px;height:80px;padding:10px;margin:12px"' + (mode === 'text-disabled' ? ' aria-disabled="true"' : '') + '><span>Upload from Device</span></div>' : '<button id="choose" ' + (mode === 'button-disabled' ? 'disabled' : '') + '>' + label + '</button>';
     const inputFlags = (mode === 'direct-disabled' ? 'disabled ' : '') + (mode.includes('directory') ? 'webkitdirectory directory ' : '') + (mode === 'multiple' ? 'multiple ' : '');
     response.end('<!doctype html><meta charset="utf-8"><title>Upload entry fixture ' + caseId + '</title><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}input,button{font:inherit;margin:12px;padding:10px;color:#152235;background:white}button:hover{filter:brightness(.6);box-shadow:0 2px 6px #0005}body:after{content:"";position:absolute;left:500px;top:10000px;width:20px;height:12px;box-shadow:0 0 1px #888}[hidden]{display:none!important}</style>' +
-      '<h1>Upload entry fixture ready</h1><label>' + (direct ? 'Direct upload ' : '') + '<input id="file" type="file" ' + inputFlags + (direct ? '' : 'hidden') + '></label>' + (direct || mode === 'child-hidden' ? '' : '<button id="choose" ' + (mode === 'button-disabled' ? 'disabled' : '') + '>' + label + '</button>') + '<p id="status">No file transferred</p>' +
+      '<h1>Upload entry fixture ready</h1><label>' + (direct ? 'Direct upload ' : '') + '<input id="file" type="file" ' + inputFlags + (direct ? '' : 'hidden') + '></label>' + (direct || mode === 'child-hidden' ? '' : entry) + '<p id="status">No file transferred</p>' +
       '<script>const caseId=' + JSON.stringify(caseId) + ',mode=' + JSON.stringify(mode) + ';const file=document.querySelector("#file"),button=document.querySelector("#choose");' +
       'function event(value){return fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(value)})}event({type:"opened"});' +
-      'if(button)button.onclick=e=>{event({type:"click",trusted:e.isTrusted});if(mode!=="none")file.click()};' +
+      'if(button)button.onclick=e=>{event({type:"click",trusted:e.isTrusted,textHit:e.target.tagName==="SPAN"});if(mode!=="none"&&mode!=="text-none")file.click()};' +
       'file.onchange=async()=>{event({type:"change",files:[...file.files].map(value=>value.name)});if(!file.files[0])return;const data=new FormData();data.append("file",file.files[0]);const value=await(await fetch("/upload?case="+caseId,{method:"POST",body:data})).json();document.querySelector("#status").textContent=value.passed?"Upload verified":"Upload rejected"};' +
       'let changed=false;setInterval(async()=>{const value=await(await fetch("/state?case="+caseId)).json();if(value.changeLabel&&!changed&&button){changed=true;button.textContent="Changed upload button";event({type:"label"})}},100);</script>');
   };
@@ -280,6 +284,51 @@ try {
     assert.equal(fixtureStates.get('hover-entry').uploads, 1);
     return { hoverSucceeded: true, freshReferenceUsable: true, uploads: 1 };
   });
+  if (!baseline) {
+    for (const mode of ['custom-text', 'frame-text']) await check('Observed Device text opens its exact chooser: ' + mode, async () => {
+      const tab = await open(mode, mode), { observation, node } = await target(tab, 'Upload from Device');
+      assert.equal(node.role, 'StaticText'); assert.equal(node.visibilityStatus, 'verified');
+      const response = await raw('upload', { ...mutation(tab), observationId: observation.observationId, elementRef: node.ref, fileId });
+      assert(!response.isError, JSON.stringify(response.structuredContent)); selectionFacts(response, 'dispatched', 'selected');
+      await until(() => fixtureStates.get(mode).uploaded && fixtureStates.get(mode).changes === 1 && fixtureStates.get(mode).clicks === 1);
+      assert.deepEqual(fixtureStates.get(mode).selectedFiles, ['approved-report.txt']);
+      assert.deepEqual(fixtureStates.get(mode).textHits, [true], 'Click must hit the text span, not the larger container');
+      assert.deepEqual(fixtureStates.get(mode).trusted, [true]); assert.equal(fixtureStates.get(mode).uploads, 1);
+      return { observedRole: node.role, exactApprovedContentsReceived: true, trustedClicks: 1, crossOriginFrame: mode === 'frame-text' };
+    });
+    await check('Changed Device text rejects its stale reference before activation', async () => {
+      const tab = await open('stale-text', 'custom-text'), { observation, node } = await target(tab, 'Upload from Device');
+      fixtureStates.get('stale-text').changeLabel = true; await until(() => fixtureStates.get('stale-text').labelChanged);
+      const response = await raw('upload', { ...mutation(tab), observationId: observation.observationId, elementRef: node.ref, fileId });
+      assert(response.isError); assert.equal(response.structuredContent?.error?.code, 'stale_element');
+      selectionFacts(response, 'not_attempted', 'not_selected');
+      assert.equal(fixtureStates.get('stale-text').clicks, 0); assert.equal(fixtureStates.get('stale-text').uploads, 0);
+      return { rejectedStaleText: true, clicks: 0, uploads: 0 };
+    });
+    await check('Device text in a disabled container is denied before activation', async () => {
+      const tab = await open('text-disabled', 'text-disabled'), response = await upload(tab, 'Upload from Device', fileId, null);
+      assert(response.isError); assert.equal(response.structuredContent?.error?.code, 'unsupported_upload_entry');
+      selectionFacts(response, 'not_attempted', 'not_selected');
+      assert.equal(fixtureStates.get('text-disabled').clicks, 0); assert.equal(fixtureStates.get('text-disabled').uploads, 0);
+      return { disabledAncestorRejected: true, clicks: 0, uploads: 0 };
+    });
+    await check('Ordinary observed text without a chooser never receives a file', async () => {
+      const tab = await open('text-none', 'text-none'), response = await upload(tab, 'Upload from Device', fileId, null);
+      assert(response.isError); assert.equal(response.structuredContent?.error?.code, 'file_chooser_not_opened');
+      selectionFacts(response, 'dispatched', 'not_selected');
+      await until(() => fixtureStates.get('text-none').clicks === 1);
+      assert.equal(fixtureStates.get('text-none').uploads, 0); assert.equal(fixtureStates.get('text-none').changes, 0);
+      return { activatedOnce: true, uploads: 0, changes: 0 };
+    });
+    await check('Device text cannot delegate its approved file to another frame', async () => {
+      const tab = await open('delegate-text', 'delegate-text'); await until(() => fixtureStates.get('delegate-text-child')?.opened);
+      const response = await upload(tab, 'Upload from Device', fileId, null); assert(response.isError);
+      selectionFacts(response, 'dispatched', 'not_selected');
+      await until(() => fixtureStates.get('delegate-text').clicks === 1);
+      assert.equal(fixtureStates.get('delegate-text-child').uploads, 0); assert.equal(fixtureStates.get('delegate-text-child').changes, 0);
+      return { rejected: true, code: response.structuredContent?.error?.code, childReceivedFiles: false };
+    });
+  }
   await check('A visible button without a file chooser cannot receive a file', async () => {
     const tab = await open('no-chooser', 'none'), response = await upload(tab, 'No chooser button'); assert(response.isError);
     assert.equal(fixtureStates.get('no-chooser').uploads, 0);
@@ -287,14 +336,14 @@ try {
     return { denied: true, code: response.structuredContent?.error?.code, activatedOnce: !baseline, uploads: 0 };
   });
   await check('Invalid and cross-workspace grants are denied before entry activation', async () => {
-    for (const [caseId, owner, grant] of [['invalid-grant', worker, 'not_a_granted_file'], ['cross-workspace', otherWorker, fileId]]) {
-      const tab = await open(caseId, 'custom', owner), response = await upload(tab, 'Choose approved fixture', grant);
+    for (const [caseId, owner, grant, textEntry] of [['invalid-grant', worker, 'not_a_granted_file', false], ['cross-workspace', otherWorker, fileId, false], ['invalid-text-grant', worker, 'not_a_granted_file', true], ['cross-workspace-text', otherWorker, fileId, true]]) {
+      const tab = await open(caseId, textEntry ? 'custom-text' : 'custom', owner), response = await upload(tab, textEntry ? 'Upload from Device' : 'Choose approved fixture', grant, textEntry ? null : 'BUTTON');
       assert(response.isError); assert.equal(response.structuredContent?.error?.code, 'file_denied');
       selectionFacts(response, 'not_attempted', 'not_selected');
       await sleep(150); // Let any incorrectly dispatched website events arrive.
       assert.equal(fixtureStates.get(caseId).clicks, 0); assert.equal(fixtureStates.get(caseId).uploads, 0);
     }
-    return { denials: 2, activations: 0, uploads: 0 };
+    return { denials: 4, activations: 0, uploads: 0 };
   });
   await check('A changed visible upload entry rejects its stale reference before input', async () => {
     const tab = await open('stale-entry', 'custom'), { observation, node } = await target(tab, 'Choose approved fixture', 'BUTTON');
@@ -368,7 +417,7 @@ try {
   } catch (error) { results.push({ name: 'Source and binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe', profile,
     applicationDllSha256, applicationDllSha256AtEnd, mode: baseline ? 'baseline_failure_reproduction' : 'acceptance', benchmark: benchmarkMetadata ?? null,
-    passed: results.length === 7 + (baseline ? 0 : 4) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0) && results.every(result => result.passed), results };
+    passed: results.length === 7 + (baseline ? 0 : 10) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0) && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true }); const reportPath = resolve(root, 'out', `${run}${baseline ? '-baseline' : ''}.json`);
   await writeFile(reportPath, JSON.stringify(report, null, 2)); console.log('Report: ' + reportPath); process.exitCode = report.passed ? 0 : 1;
 }

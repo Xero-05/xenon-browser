@@ -3,6 +3,7 @@
 #include "xenon/cef_branding.hpp"
 #include "xenon/pointer_motion.hpp"
 #include "xenon/pointer_target.hpp"
+#include "xenon/upload_entry.hpp"
 #include "xenon/ui_theme.hpp"
 #include "xenon/native_input_policy.hpp"
 #include "xenon/vault.hpp"
@@ -2028,11 +2029,10 @@ void CefEngine::Impl::upload(const std::shared_ptr<Tab>& t,const Json& p,Reply o
   if(!grant){reply(failure("file_denied","This file grant is missing, changed or belongs to another workspace."));return;}
   auto held=std::make_shared<UploadFile>(std::move(*grant));
   element(t,p,reply,[this,t,p,held,reply,original_reply](Element e,std::string obj){
-    constexpr const char* kind=R"JS(function(){if(!this.isConnected||this.disabled||this.getAttribute('aria-disabled')==='true')return 'unsupported';if(this.tagName==='INPUT'&&this.type==='file')return this.webkitdirectory?'directory':'input';return this.tagName==='BUTTON'||this.tagName==='LABEL'||this.tagName==='A'||this.getAttribute('role')==='button'||(this.tagName==='INPUT'&&['button','submit'].includes(this.type))?'entry':'unsupported'})JS";
-    send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration",kind},{"returnByValue",true}},[this,t,p,e,obj,held,reply,original_reply](Json checked){
+    send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration",kUploadEntryKind},{"arguments",Json::array({{{"value",e.role=="StaticText"}}})},{"returnByValue",true}},[this,t,p,e,obj,held,reply,original_reply](Json checked){
       const auto kind=field(checked.value("result",Json::object()),"value");
       if(!cdp_ok(checked)||(kind!="input"&&kind!="entry")){
-        reply(failure("unsupported_upload_entry","Use an enabled observed file input or its visible upload button. Directory selection is not supported."));return;
+        reply(failure("unsupported_upload_entry","Use an enabled observed file input or visible upload entry, including its rendered text. Directory selection is not supported."));return;
       }
       if(kind=="input"){
         point(t,e,obj,reply,[this,t,p,e,held,reply,original_reply](double,double){
