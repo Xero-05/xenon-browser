@@ -27,8 +27,8 @@ function Get-TaskVariant($Recipe, [string[]]$Remove) {
   foreach ($taskName in $Remove) { $taskVariant.PSObject.Properties.Remove($taskName) }
   $taskVariant
 }
-$taskPrevious = Get-TaskVariant $taskMediaRecipe @('videoSchedulingPatch','backgroundFrameRatePatch')
-$taskScheduling = Get-TaskVariant $taskMediaRecipe @('backgroundFrameRatePatch')
+$taskPrevious = Get-TaskVariant $taskMediaRecipe @('videoSchedulingPatch','backgroundFrameRatePatch','extensionActionPatch')
+$taskScheduling = Get-TaskVariant $taskMediaRecipe @('backgroundFrameRatePatch','extensionActionPatch')
 $taskLegacy = Get-TaskVariant $taskPrevious @('codecBackend','patch')
 $taskLegacy.gnDefines = 'is_official_build=true use_thin_lto=false chrome_pgo_phase=0 symbol_level=0 proprietary_codecs=true ffmpeg_branding=Chrome'
 $taskEngineOnePatch = Get-TaskVariant $taskEngineRecipe @('backgroundFrameRatePatch')
@@ -37,6 +37,11 @@ $taskEngineChangedPatch = Get-TaskVariant $taskEngineRecipe @('backgroundFrameRa
 $taskEngineChangedPatch.videoSchedulingPatch.sha256 = '0' * 64
 $taskEngineOtherSource = Get-TaskVariant $taskEngineRecipe @('backgroundFrameRatePatch')
 $taskEngineOtherSource.chromiumCommit = '0' * 40
+$taskBeforeActions = Get-TaskVariant $taskMediaRecipe @('extensionActionPatch')
+$taskActionUpdate = Get-TaskVariant $taskMediaRecipe @()
+$taskActionUpdate.extensionActionPatch.sha256 = '0' * 64
+$taskActionWrongSource = Get-TaskVariant $taskActionUpdate @()
+$taskActionWrongSource.chromiumCommit = '0' * 40
 $taskCases = @(
   @{ Name='matching'; Marker=($taskMediaRecipe | ConvertTo-Json -Compress); Accept=$true; Backup=$false },
   @{ Name='windows-migration'; Marker=($taskPrevious | ConvertTo-Json -Compress); Scheduling=$true; Accept=$true; Backup=$true },
@@ -46,6 +51,11 @@ $taskCases = @(
   @{ Name='missing-opt-in'; Marker=($taskPrevious | ConvertTo-Json -Compress); Accept=$false },
   @{ Name='wrong-switch'; Marker=($taskPrevious | ConvertTo-Json -Compress); Legacy=$true; Accept=$false },
   @{ Name='media-add-patches'; Marker=($taskScheduling | ConvertTo-Json -Compress); AddPatches=$true; Accept=$false },
+  @{ Name='media-add-actions'; Marker=($taskBeforeActions | ConvertTo-Json -Compress); AddPatches=$true; Accept=$true; Backup=$true },
+  @{ Name='media-add-actions-missing-opt-in'; Marker=($taskBeforeActions | ConvertTo-Json -Compress); Accept=$false },
+  @{ Name='media-update-actions'; Marker=($taskActionUpdate | ConvertTo-Json -Compress); UpdateActions=$true; Accept=$true; Backup=$true },
+  @{ Name='media-update-actions-missing-opt-in'; Marker=($taskActionUpdate | ConvertTo-Json -Compress); Accept=$false },
+  @{ Name='media-update-actions-wrong-source'; Marker=($taskActionWrongSource | ConvertTo-Json -Compress); UpdateActions=$true; Accept=$false },
   @{ Name='unrelated'; Marker='{"chromiumCommit":"different"}'; Scheduling=$true; Accept=$false },
   @{ Name='missing-marker'; Scheduling=$true; Accept=$false },
   # Media markers never satisfy the engine gate, or the reverse.
@@ -75,6 +85,7 @@ foreach ($taskCase in $taskCases) {
   $MigrateToWindowsCodecs = [bool]$taskCase.Legacy
   $UpdateVideoScheduling = [bool]$taskCase.Scheduling
   $UpdateBackgroundFrameRate = [bool]$taskCase.FrameRate
+  $UpdateExtensionActions = [bool]$taskCase.UpdateActions
   $AddPatches = [bool]$taskCase.AddPatches
   $BuildOnly = $true
   $taskFailure = $null

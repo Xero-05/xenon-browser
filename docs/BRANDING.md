@@ -14,6 +14,8 @@ address bar, menus and settings are replaced by functioning Xenon controls.
 About and Third-party Notices retain access to the bundled engine licenses and
 credits; third-party resource contents remain intact.
 
+The embedded Extensions manager hides Chromium's product and Store icons in its own toolbar/sidebar/drawer using fixed WebUI-only presentation code. Store text links retain their destination identity and open in the current management view. This does not edit bundled Chromium resources, change website branding, or modify Store installation and permission handling.
+
 Choose **Menu → Language / 语言 → English** or **简体中文** to change the
 browser's interface language. Save unfinished website work, exit Xenon normally,
 and open it again to apply the choice to both Xenon's native controls and CEF's

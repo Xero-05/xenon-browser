@@ -1,0 +1,241 @@
+{
+  "date": "2026-10-19",
+  "status": "Implemented; isolated native-driver and production validation passed",
+  "behavior": [
+    "Compact native site extension panel with icons, access status, pinning, per-extension menu and fixed management/store links",
+    "Real Chromium ExtensionViewHost popup, dynamic popup selection, activeTab grant and no-popup onClicked event",
+    "Permission-scrubbed registered Alloy tabs scoped to the exact profile and source window",
+    "Outside dismissal, navigation, protected interaction and source lifetime cleanup",
+    "Chromium site and per-extension permission controls with native remove/reload confirmation"
+  ],
+  "production": {
+    "binary": "build/extension-actions/app/Release/Xenon.exe",
+    "applicationDllSha256": "218596a43cdf2e294093d54a8dc7b64ca8a5dd07cd945b51b762c962cc82a7b9",
+    "engineDllSha256": "d272e9953e4ac0828726350c9f2da6430a4b474900f1642bf05f9fa43ba9d931"
+  },
+  "fixture": {
+    "binary": "build/extension-actions/auth-fixture/Release/XenonAuthTest.dll",
+    "sha256": "8f7bcc8426b6ff018a8606913514c92cd41259ebfa4b15abe042a85666e4616c",
+    "compileTimeGated": true,
+    "disposableProfile": true,
+    "physicalUi": false,
+    "globalMouseKeyboardInput": false
+  },
+  "engine": {
+    "patch": "scripts/patches/cef-extension-actions.patch",
+    "patchSha256": "2a95c738ab3565c41d7b5831a3984a8fcb3a27fea7efa55ba898f596d5698f7a",
+    "recipe": "mediaSourceBuild",
+    "bothRecipesPinned": true,
+    "cefAbiUnchanged": true,
+    "sandboxPreserved": true,
+    "buildLog": "out/extension-actions-engine-build-6.log",
+    "exitCode": 0,
+    "provenanceValidated": true
+  },
+  "validation": {
+    "nativeBuild": {
+      "exitCode": 0,
+      "log": "out/extension-actions-native-build-6.log"
+    },
+    "nativeTests": {
+      "passed": 22,
+      "exitCode": 0,
+      "log": "out/extension-actions-ctest-native-final.log"
+    },
+    "extensionIntegration": {
+      "checks": [
+        {
+          "name": "Quick list contains enabled extensions without opening a visible manager or broker tab",
+          "passed": true
+        },
+        {
+          "name": "Quick list distinguishes site access from other extensions on a real content-script page",
+          "passed": true
+        },
+        {
+          "name": "Quick list withholds a result after its source page navigates",
+          "passed": true
+        },
+        {
+          "name": "Compact extension panel renders icons, site switch and per-extension controls",
+          "passed": true
+        },
+        {
+          "name": "Native panel pin button updates the workspace toolbar and persists its state",
+          "passed": true
+        },
+        {
+          "name": "Native row opens a genuine dynamic action popup with current-tab activeTab permission",
+          "passed": true
+        },
+        {
+          "name": "Clicking outside dismisses the action popup",
+          "passed": true
+        },
+        {
+          "name": "Pinned extension button opens its action popup",
+          "passed": true
+        },
+        {
+          "name": "Navigation closes the popup and invalidates its source page",
+          "passed": true
+        },
+        {
+          "name": "Actions without popup dispatch the real Chromium onClicked event",
+          "passed": true
+        },
+        {
+          "name": "Native site switch blocks action invocation without opening a popup",
+          "passed": true
+        },
+        {
+          "name": "Per-extension site access withholds and restores a real content script",
+          "passed": true
+        },
+        {
+          "name": "Site permission changes cannot grant an origin outside the manifest request",
+          "passed": true
+        },
+        {
+          "name": "Native Chrome extension manager uses the persistent workspace profile",
+          "passed": true
+        },
+        {
+          "name": "Repeated open reuses the workspace manager without new broker tabs",
+          "passed": true
+        },
+        {
+          "name": "Extension page is embedded in Xenon without a Chromium browser frame",
+          "passed": true
+        },
+        {
+          "name": "Drawer hides Chrome logos and its actual Store link opens the Store in Xenon",
+          "passed": true
+        },
+        {
+          "name": "Chrome Web Store receives Chromium native installation API bindings",
+          "passed": true
+        },
+        {
+          "name": "Native Store install permission prompt can be canceled by closing its manager",
+          "passed": true
+        },
+        {
+          "name": "Chromium-created untracked window is rejected without crashing its caller",
+          "passed": true
+        },
+        {
+          "name": "Mismatched Store manifest is rejected without crashing the embedded browser",
+          "passed": true
+        },
+        {
+          "name": "Store signed-package installation completes in its disposable workspace",
+          "passed": true
+        },
+        {
+          "name": "Quick list immediately includes a newly installed signed Store extension",
+          "passed": true
+        },
+        {
+          "name": "Google account route requires a Store visit and can return to Store",
+          "passed": true
+        },
+        {
+          "name": "Store navigation works when Extensions is the only remaining tab",
+          "passed": true
+        },
+        {
+          "name": "Closing the manager preserves workspace tabs and permits reopening",
+          "passed": true
+        },
+        {
+          "name": "Browser shutdown drains embedded manager before CEF exits",
+          "passed": true
+        }
+      ],
+      "nativeConfirmationDriver": true,
+      "exitCode": 0,
+      "signedStoreExtension": "ddkjiahejlhfcafbddmgiahcphecmpfh",
+      "log": "out/extension-actions-store-final.log",
+      "run": "extension-manager-integration-1792404458699-48520da1",
+      "passed": 27,
+      "engineHashesStable": true
+    },
+    "productionBrowsing": {
+      "report": "out/extension-actions-production-results.json",
+      "run": "integration-1792404528974-eb4cac93",
+      "passed": 17,
+      "exitCode": 0
+    },
+    "media": {
+      "hashesStable": true,
+      "passed": true,
+      "log": "out/extension-actions-media-final.log",
+      "actualDecodedFrames": true,
+      "exitCode": 0,
+      "run": "media-integration-1792404574985-54332a84"
+    },
+    "recipePython": {
+      "passed": 17,
+      "exitCode": 0,
+      "log": "out/extension-actions-recipe-python-final.log"
+    },
+    "recipeMigration": {
+      "passed": 25,
+      "exitCode": 0,
+      "log": "out/extension-actions-recipe-gate-final.log"
+    },
+    "engineRelease": {
+      "passed": 43,
+      "exitCode": 0,
+      "log": "out/extension-actions-release-final.log"
+    },
+    "visual": {
+      "screenshot": "out/extension-manager-integration-1792404390586-529a0d35-extensions-panel.png",
+      "heightDip": 430,
+      "widthDip": 360,
+      "inspected": true,
+      "syntheticOnly": true
+    }
+  },
+  "retainedFailures": [
+    {
+      "resolution": "Nonactivating hidden parent/helper and reply after complete retirement",
+      "issue": "Metadata helper activation closed the panel during refresh",
+      "logs": [
+        "out/extension-actions-live-1.log",
+        "out/extension-actions-live-2.log"
+      ]
+    },
+    {
+      "resolution": "Fixture retries only the read",
+      "issue": "Read-only startup metadata stale during initial page load",
+      "log": "out/extension-actions-live-3.log"
+    },
+    {
+      "resolution": "Use explicit rectangle and work-area sizing",
+      "issue": "Views anchor helper required an absent tracked element",
+      "logs": [
+        "out/extension-actions-live-4.log",
+        "out/extension-actions-live-5.log"
+      ]
+    },
+    {
+      "resolution": "Explicit client-owned widget and deferred delegate retirement",
+      "issue": "Plain bubble delegate lifetime retained popup after native dismissal",
+      "log": "out/extension-actions-live-6.log"
+    },
+    {
+      "resolution": "All 22 passed with normal Windows filesystem support",
+      "issue": "Restricted runner denied filesystem fixture ACL/hardlink setup",
+      "log": "out/extension-actions-ctest-final.log"
+    }
+  ],
+  "limits": [
+    "Physical keyboard, screen-reader, DPI and everyday third-party extension acceptance remain manual",
+    "Side panels and programmatic chrome.action.openPopup() are unsupported",
+    "Registered tab query support does not implement every Chrome window/tab manipulation API",
+    "Automatic extension updates and broad extension compatibility were not validated",
+    "The source-built engine is available locally; no release archive was published or stock engine pin replaced"
+  ]
+}

@@ -54,7 +54,7 @@ class CefEngine final : public BrowserEngine {
   // and the HTTP cache. Agent input in the workspace pauses; evidence is stale.
   void clear_browsing_data(const std::string& workspace,int64_t since_unix_ms,bool cookies,bool storage,bool cache,std::vector<std::string> origins,Reply reply);
   void native_pointer(HWND page,POINT screen,bool substantive=false);
-  void select_native_tab(const std::string& tab_id);
+  void select_native_tab(const std::string& tab_id,bool awaiting_browser=false);
   // Native shell only: whether the tab is hidden behind its window's selected
   // tab. Covered tabs paint at a reduced rate unless an agent works in them.
   void set_tab_covered(const std::string& tab_id,bool covered);
@@ -86,6 +86,20 @@ class CefEngine final : public BrowserEngine {
   void set_open_link_callback(std::function<void(const std::string&,const std::string&,bool)> callback);
   // Human-installed, enabled extensions whose own pages native UI may open.
   void set_extension_ids(std::set<std::string> ids);
+  // Chromium's native extension manager and Web Store. Human UI only; these
+  // browsers are never broker tabs and cannot be observed/controlled by MCP.
+  void open_extensions_manager(const std::string& workspace="native-default",
+                               const std::string& url="chrome://extensions/",Reply reply={});
+  void set_workspace_label_callback(std::function<std::string(const std::string&)> callback);
+  void extension_quick_list(const std::string& tab_id,const std::string& workspace,Reply reply);
+  void invoke_extension_action(const std::string& tab_id,const std::string& workspace,
+                        const std::string& extension,const std::string& command,uint64_t epoch,RECT anchor,Reply reply);
+  void dismiss_extension_action(const std::string& tab_id);
+  bool extension_side_visible(const std::string& tab_id);
+  void layout_extension_surfaces(const std::string& tab_id,RECT dock,RECT toolbar_anchor);
+#if defined(XENON_TEST_FIXTURE_CERT_SHA256)
+  void fixture_extension_manager(const std::string& workspace,const std::string& action,Reply reply);
+#endif
   // Count of vault accounts for the tab's exact HTTPS origin; metadata only.
   size_t saved_account_count(const std::string& tab_id);
   void set_save_prompt_callback(std::function<void(const std::string&, CefWindowHandle)> callback);

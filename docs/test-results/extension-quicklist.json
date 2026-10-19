@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-19",
+  "status": "Implemented; native-driver integration passed",
+  "behavior": [
+    "Toolbar lists enabled extensions from the selected persistent workspace",
+    "Groups distinguish current-site permission, withheld click permission, user-blocked matching access and other enabled extensions",
+    "Entries open extension details and site-permission controls",
+    "Private tabs return no extension metadata",
+    "Source page changes withhold stale results",
+    "Never-shown bounded WebUI helpers remain outside visible and broker tab inventories and drain before CEF shutdown",
+    "Manage extensions and Store controls remain available when metadata cannot be read"
+  ],
+  "production": {
+    "binary": "build/app/Release/Xenon.dll",
+    "sha256": "fe23b64ebc5c07382282720f408cd19003b03a3b3fd0cc9a06f5c7a26cd2633a"
+  },
+  "fixture": {
+    "binary": "build/auth-fixture/Release/XenonAuthTest.dll",
+    "sha256": "7ff9179afa76dcc89df2636ff1efb7a67d5873c17ad206ce9be5f51bb6e06ac9",
+    "compileTimeGated": true,
+    "disposableProfile": true,
+    "physicalUi": false,
+    "globalMouseKeyboardInput": false
+  },
+  "validation": {
+    "build": {"log": "out/extensions-quicklist-build-6.log", "exitCode": 0},
+    "native": {"log": "out/extensions-quicklist-native-1.log", "passed": 22, "exitCode": 0},
+    "integration": {
+      "log": "out/extensions-quicklist-live-3.log",
+      "run": "extension-manager-integration-1792398821822-4f44f600",
+      "passed": 17,
+      "exitCode": 0,
+      "enabledAndDisabledFixtures": true,
+      "actualContentScriptEffect": true,
+      "siteAndUnrelatedAccessDistinguished": true,
+      "noVisibleManagerOrExtraBrokerTab": true,
+      "navigationRejectsStaleResult": true,
+      "storeExtensionListedWithoutRestart": true,
+      "signedStorePackage": "ddkjiahejlhfcafbddmgiahcphecmpfh",
+      "manifestMismatchRejected": true,
+      "nativeInstallConfirmationDriver": true,
+      "shutdownClean": true
+    },
+    "syntax": {"command": "node --check tests/extension-manager-integration.mjs", "exitCode": 0},
+    "diff": {"log": "out/extensions-quicklist-diff-1.log", "exitCode": 0}
+  },
+  "retainedEarlierAttempts": [
+    {"log": "out/extensions-quicklist-build-1.log", "exitCode": 1, "note": "Initial compile errors corrected before validation"},
+    {"log": "out/extensions-quicklist-live-1.log", "exitCode": 1, "note": "Origin trailing-slash assertion exposed incorrect site-pattern formatting; normalized before subsequent passes"},
+    {"log": "out/extensions-quicklist-live-2.log", "exitCode": 0, "passed": 14, "note": "Pre-final native-driver pass without signed Store installation"}
+  ],
+  "limits": [
+    "Physical toolbar-menu acceptance has not been performed",
+    "Site access describes permission, not proof of execution at the instant the menu opens",
+    "Click-to-access and user-blocked groups are implemented from Chromium metadata but not separately exercised by this live fixture",
+    "Ordinary Alloy tabs retain their existing action-popup and tab-API compatibility limits",
+    "No downloaded Chromium code or resources were edited"
+  ]
+}

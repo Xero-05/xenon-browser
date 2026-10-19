@@ -17,10 +17,10 @@ import subprocess
 ROOT = Path(__file__).resolve().parent.parent
 RECIPES = {
     'media': {'key': 'mediaSourceBuild', 'manifest': 'xenon-codec-build.json',
-              'patches': ('patch', 'videoSchedulingPatch', 'backgroundFrameRatePatch'),
+              'patches': ('patch', 'videoSchedulingPatch', 'backgroundFrameRatePatch', 'extensionActionPatch'),
               'limitations': 'Technical build audit only; not legal clearance. H.264 requires Windows GPU decoding. AAC uses Media Foundation. No bundled H.264/AAC software fallback.'},
     'engine': {'key': 'engineSourceBuild', 'manifest': 'xenon-engine-build.json',
-               'patches': ('videoSchedulingPatch', 'backgroundFrameRatePatch'),
+               'patches': ('videoSchedulingPatch', 'backgroundFrameRatePatch', 'extensionActionPatch'),
                'limitations': 'Technical build audit only; not legal clearance. Proprietary codecs are disabled, so H.264/AAC media do not play, as with the stock CEF distribution. Only the pinned engine-behavior patches are applied.'},
 }
 # Effective GN values the engine build must have, whether set or defaulted.

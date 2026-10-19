@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-19",
+  "production": {
+    "binary": "build/app/Release/Xenon.dll",
+    "sha256": "bdc5fb16af91dd97c5d308f03c449417ee7e943012ea5e0fce3c0e6b1766f478"
+  },
+  "nativeFixture": {
+    "physicalInput": false,
+    "binary": "build/auth-fixture/Release/XenonAuthTest.dll",
+    "sha256": "a599b3a29a05c5b567243030ab8928cfbeb08165b11af3a9675950826e3a025f",
+    "extensionInstalled": false,
+    "compileTimeGated": true
+  },
+  "checks": {
+    "finalNativeBuild": {
+      "logs": [
+        "out/extensions-logo-links-build-2.log",
+        "out/extensions-logo-links-build-3.log"
+      ],
+      "exitCode": 0
+    },
+    "manager": {
+      "run": "extension-manager-integration-1792392908152-825ee7c6",
+      "command": "node tests/extension-manager-integration.mjs",
+      "exitCode": 0,
+      "passedChecks": 8
+    },
+    "diffCheck": {
+      "command": "git diff --check",
+      "exitCode": 0
+    },
+    "fullBuildAndChecks": {
+      "log": "out/extensions-logo-links-build-1.log",
+      "note": "Before final wide-toolbar styling and fixture result-publication retry; final rebuild and live checks below cover those changes",
+      "command": "./scripts/build.ps1 -Test",
+      "exitCode": 0,
+      "nativeSuites": 22
+    },
+    "branding": {
+      "log": "out/extensions-logo-links-branding.log",
+      "command": "node tests/branding-resources.mjs",
+      "exitCode": 0
+    }
+  },
+  "verified": [
+    "Compact drawer product logo and sidebar Store artwork are hidden; synthetic capture visually inspected",
+    "Actual sidebar Store link opens real HTTPS Store in the existing workspace surface",
+    "Actual empty-list Store link opens real HTTPS Store in the existing workspace surface",
+    "Loaded Store screenshot shows Store navigation and search controls; native installation API remains available",
+    "Broker tab inventory unchanged; manager reuse, close/reopen and shutdown pass",
+    "Customization limited to manager WebUI; downloaded Chromium resources and public Store branding retained"
+  ],
+  "limits": [
+    "WebUI clicks use a fixed compile-time-gated synthetic driver, not physical input",
+    "No extension installed; full install permission confirmation and updates remain manual acceptance"
+  ],
+  "retainedFailure": {
+    "run": "extension-manager-integration-1792392812492-d0179e47",
+    "reason": "Both actual Store-link checks passed, then a completed probe result could not replace a temporarily locked fixture result file; publication now retries before accepting more work",
+    "passed": false
+  }
+}

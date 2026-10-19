@@ -9,6 +9,7 @@ param(
   [switch]$MigrateToWindowsCodecs,
   [switch]$UpdateVideoScheduling,
   [switch]$UpdateBackgroundFrameRate,
+  [switch]$UpdateExtensionActions,
   [switch]$AddPatches,
   [switch]$BuildOnly,
   [switch]$CheckOnly
@@ -58,6 +59,16 @@ if (Test-Path -LiteralPath $taskWork) {
   if (-not (Test-Path -LiteralPath $taskMarker) -or
       (Get-Content -LiteralPath $taskMarker -Raw).Trim() -cne $taskRecipeText) {
     $taskPreviousMarker = if (Test-Path -LiteralPath $taskMarker) { (Get-Content -LiteralPath $taskMarker -Raw).Trim() } else { '' }
+    $taskActionPatchUpdate = $false
+    if ($UpdateExtensionActions -and $taskPreviousMarker) {
+      $taskBeforeActions = $taskPreviousMarker | ConvertFrom-Json
+      $taskAfterActions = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+      if ($taskBeforeActions.extensionActionPatch.path -ceq $taskAfterActions.extensionActionPatch.path) {
+        $taskBeforeActions.PSObject.Properties.Remove('extensionActionPatch')
+        $taskAfterActions.PSObject.Properties.Remove('extensionActionPatch')
+        $taskActionPatchUpdate = ($taskBeforeActions | ConvertTo-Json -Compress) -ceq ($taskAfterActions | ConvertTo-Json -Compress)
+      }
+    }
     if ($Recipe -eq 'Engine') {
       if ($MigrateToWindowsCodecs -or $UpdateVideoScheduling -or $UpdateBackgroundFrameRate) {
         throw 'Codec recipe migrations do not apply to the engine recipe.'
@@ -73,11 +84,15 @@ if (Test-Path -LiteralPath $taskWork) {
         }
         if ($taskPreviousMarker -ceq ($taskEarlierRecipe | ConvertTo-Json -Compress)) { $taskAddMigration = $true }
       }
-      if (-not $taskAddMigration) {
+      if (-not ($taskAddMigration -or $taskActionPatchUpdate)) {
         throw 'Use a new path, an exact matching engine recipe, or -AddPatches for an engine build of this recipe without some of its patches.'
       }
     } else {
-      if ($AddPatches) { throw '-AddPatches applies only to the engine recipe.' }
+      # Add the exact action-popup patch to the existing Windows-codec recipe;
+      # source pins, codec options and every earlier patch must stay identical.
+      $taskBeforeActions = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+      $taskBeforeActions.PSObject.Properties.Remove('extensionActionPatch')
+      $taskActionMigration = $AddPatches -and $taskPreviousMarker -ceq ($taskBeforeActions | ConvertTo-Json -Compress)
       # Allow only explicit migrations from the exact previous pinned recipes.
       # Preserve its marker; the prior distribution is retained below as well.
       $taskLegacyRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
@@ -85,16 +100,19 @@ if (Test-Path -LiteralPath $taskWork) {
       $taskLegacyRecipe.PSObject.Properties.Remove('patch')
       $taskLegacyRecipe.PSObject.Properties.Remove('videoSchedulingPatch')
       $taskLegacyRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
+      $taskLegacyRecipe.PSObject.Properties.Remove('extensionActionPatch')
       $taskLegacyRecipe.gnDefines = 'is_official_build=true use_thin_lto=false chrome_pgo_phase=0 symbol_level=0 proprietary_codecs=true ffmpeg_branding=Chrome'
       $taskPreviousWindowsRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
       $taskPreviousWindowsRecipe.PSObject.Properties.Remove('videoSchedulingPatch')
       $taskPreviousWindowsRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
+      $taskPreviousWindowsRecipe.PSObject.Properties.Remove('extensionActionPatch')
       $taskPreviousSchedulingRecipe = $taskRecipe | ConvertTo-Json -Depth 10 | ConvertFrom-Json
       $taskPreviousSchedulingRecipe.PSObject.Properties.Remove('backgroundFrameRatePatch')
+      $taskPreviousSchedulingRecipe.PSObject.Properties.Remove('extensionActionPatch')
       $taskLegacyMigration = $MigrateToWindowsCodecs -and $taskPreviousMarker -ceq ($taskLegacyRecipe | ConvertTo-Json -Compress)
       $taskSchedulingMigration = $UpdateVideoScheduling -and $taskPreviousMarker -ceq ($taskPreviousWindowsRecipe | ConvertTo-Json -Compress)
       $taskFrameRateMigration = $UpdateBackgroundFrameRate -and $taskPreviousMarker -ceq ($taskPreviousSchedulingRecipe | ConvertTo-Json -Compress)
-      if (-not ($taskLegacyMigration -or $taskSchedulingMigration -or $taskFrameRateMigration)) {
+      if (-not ($taskLegacyMigration -or $taskSchedulingMigration -or $taskFrameRateMigration -or $taskActionMigration -or $taskActionPatchUpdate)) {
         throw 'Use a new path, an exact matching recipe, -MigrateToWindowsCodecs for the pinned legacy build, -UpdateVideoScheduling for the first Windows-codec recipe, or -UpdateBackgroundFrameRate for the video-scheduling recipe.'
       }
     }
@@ -198,7 +216,7 @@ try {
       '--minimal-distrib-only', '--build-log-file')
   }
   $taskDistribution = Join-Path $taskWork ('chromium/src/cef/binary_distrib/cef_binary_' + $taskLock.cef.version + '_windows64_minimal')
-  if (($MigrateToWindowsCodecs -or $UpdateVideoScheduling -or $UpdateBackgroundFrameRate -or $AddPatches) -and (Test-Path -LiteralPath $taskDistribution)) {
+  if (($MigrateToWindowsCodecs -or $UpdateVideoScheduling -or $UpdateBackgroundFrameRate -or $AddPatches -or $UpdateExtensionActions) -and (Test-Path -LiteralPath $taskDistribution)) {
     # Copy only this exact distribution, preserving the previous working engine.
     Copy-Item -LiteralPath $taskDistribution -Destination ($taskDistribution + '.previous-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff')) -Recurse
   }

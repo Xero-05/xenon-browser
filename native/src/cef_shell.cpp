@@ -1,4 +1,5 @@
 #include "xenon/browser_shell.hpp"
+#include "include/cef_app.h"
 #include "xenon/broker.hpp"
 #include "xenon/cef_engine.hpp"
 #include "xenon/browser_data.hpp"
@@ -6,6 +7,12 @@
 #include "xenon/site_info.hpp"
 #include "xenon/external_protocol.hpp"
 #include "xenon/extension_store.hpp"
+#include "xenon/extension_panel.hpp"
+#include "include/cef_parser.h"
+#if defined(XENON_TEST_FIXTURE_CERT_SHA256)
+#include "include/cef_image.h"
+#endif
+#include "xenon/extension_manager_policy.hpp"
 #include "xenon/native_ui.hpp"
 #include "xenon/ui_theme.hpp"
 #include "xenon/agent_overlay.hpp"
@@ -39,7 +46,7 @@
 
 namespace xenon {
 namespace {
-constexpr UINT ShellChanged=WM_APP+90,ShellRun=WM_APP+91,ShellHelpNotice=WM_APP+92;
+constexpr UINT ShellChanged=WM_APP+90,ShellRun=WM_APP+91,ShellHelpNotice=WM_APP+92,ShellExtensionSurface=WM_APP+93;
 // Control and command IDs are stable: native test drivers address 2004
 // (address), 2006 (Controls) and the theme commands 2111-2113 by number.
 enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,FindText,FindNext,FindPrevious,FindClose,Extensions,Passwords,BookmarkStar,SiteInfo,
@@ -47,7 +54,7 @@ enum ShellId {Back=2001,Forward,Reload,Address,Go,Controls,Menu,NewTab,Tree,Find
   MenuPermissions,MenuThemeSystem,MenuThemeLight,MenuThemeDark,MenuAbout,MenuNotices,MenuExit,MenuPrivate,MenuCloseTab,
   MenuSidebarNarrower,MenuSidebarWider,MenuSidebarReset,MenuUpdates,MenuQuickTour,MenuDocumentation,MenuDeveloper,
   MenuNewWindow,MenuReopenTab,MenuCloseWorkspaceTabs,MenuCloseWindow,MenuManageExtensions,MenuPasswords,MenuNewTab,
-  MenuFullscreen,MenuSettings,MenuClearData,MenuImport,
+  MenuFullscreen,MenuSettings,MenuClearData,MenuImport,MenuChromeWebStore,MenuLegacyExtensions,
   MenuLanguageEnglish=2200,MenuLanguageChinese,
   TabNewBelow=2300,TabReload,TabDuplicate,TabPin,TabMute,TabCopyLink,TabBookmark,TabNewWindow,TabTakeOwnership,TabControls,TabClose,TabCloseOthers,TabCloseBelow,TabCloseWorkspace,TabStopSharing,TabDismissHelp,
   GroupNewTab=2350,GroupToggle,GroupCloseAll,GroupConfigure,
@@ -134,7 +141,8 @@ struct BrowserShell::Impl {
     Impl& shell;HWND window{},tree{},address{},find_bar{},find_text{},cursor{},agent_glow{},tooltips{};HFONT font{},bold{};std::map<int,HWND> controls;
     COLORREF cursor_tint{},glow_tint{};int cursor_dpi{},glow_dpi{};SIZE glow_size{};RECT glow_panel{},glow_tab{};bool cursor_contrast{},glow_fullscreen{};
     std::string selected;std::vector<std::pair<std::string,bool>> tree_keys;Json tree_signature,tree_titles;bool rebuilding{},find_visible{},closing{};ULONGLONG closing_since{};
-    RECT page{},panel_bounds{},omnibox{},chip{};std::wstring status,chip_text;ULONGLONG status_until{};
+    RECT page{},panel_bounds{},omnibox{},chip{},extension_dock{};int extension_dock_width=320;bool resizing_extension_dock=false;
+    std::wstring status,chip_text;ULONGLONG status_until{};
     int sidebar{240},drag_origin{},drag_width{};bool resizing_sidebar{},sidebar_hover{};
     bool address_dirty{},setting_address{};HTREEITEM hovered_row{};std::string pressed_close,hovered_close;
     // When pulsing help rows were last repainted, and whether the taskbar
@@ -365,10 +373,15 @@ struct BrowserShell::Impl {
     // Chip text: a transient status message, otherwise the selected tab's owner
     // once the broker reports it. A tab that is still opening shows no chip, so
     // the omnibox does not shrink and regrow for every new tab.
-    std::wstring current_chip() const {return !status.empty()&&GetTickCount64()<status_until?status:shell.hosts.contains(selected)&&shell.states.contains(selected)?state_text(selected):std::wstring{};}
+    std::wstring current_chip() const {
+      if(!status.empty()&&GetTickCount64()<status_until)return status;
+      if(auto host=shell.hosts.find(selected);host!=shell.hosts.end())if(const auto error=str(host->second.metadata,"navigationError");!error.empty())return ui::wide(error);
+      return shell.hosts.contains(selected)&&shell.states.contains(selected)?state_text(selected):std::wstring{};
+    }
     int text_width(const std::wstring& text) const {auto dc=GetDC(window);auto old=SelectObject(dc,font);SIZE size{};GetTextExtentPoint32W(dc,text.c_str(),static_cast<int>(text.size()),&size);SelectObject(dc,old);ReleaseDC(window,dc);return MulDiv(size.cx,96,GetDpiForWindow(window));}
     // In full screen the page fills the window; Xenon's controls stay hidden.
     void layout_fullscreen(){RECT rect{};GetClientRect(window,&rect);omnibox=chip=RECT{};panel_bounds=page=rect;
+      extension_dock={};shell.engine.layout_extension_surfaces(selected,{},{});
       RECT inner=rect;if(color(selected)!=ui::palette().gray)InflateRect(&inner,-d(2),-d(2));
       reposition(developer_panel,nullptr,0,0,1,1,SWP_NOACTIVATE|SWP_NOZORDER|SWP_HIDEWINDOW);if(developer_overlay)ShowWindow(developer_overlay,SW_HIDE);
       for(auto& [id,host]:shell.hosts)if(host.frame==this){SetWindowPos(host.window,nullptr,inner.left,inner.top,std::max<int>(1,inner.right-inner.left),std::max<int>(1,inner.bottom-inner.top),SWP_NOACTIVATE|SWP_NOZORDER);
@@ -383,7 +396,9 @@ struct BrowserShell::Impl {
       place(Back,8,6,32,32);place(Forward,42,6,32,32);place(Reload,76,6,32,32);
       place(Menu,width-40,6,32,32);place(Controls,width-74,6,32,32);place(Extensions,width-108,6,32,32);
       // Status messages may widen the chip; the omnibox keeps at least 240 DIPs.
-      chip_text=current_chip();const int omni_left=116,chip_right=width-116,room=std::max(0,chip_right-8-omni_left-240);
+      const int pin_count=std::min<int>(static_cast<int>(extension_pins.size()),std::clamp((width-720)/34,0,6));int pin_index=0;
+      for(const auto& [id,row]:extension_pins){const bool visible=pin_index<pin_count;ShowWindow(controls.at(id),visible?SW_SHOWNA:SW_HIDE);if(visible)place(id,width-142-34*pin_index,6,32,32);++pin_index;}
+      chip_text=current_chip();const int omni_left=116,chip_right=width-116-34*pin_count,room=std::max(0,chip_right-8-omni_left-240);
       int chip_width=chip_text.empty()?0:std::min({text_width(chip_text)+30,status.empty()?260:420,room});if(chip_width<60)chip_width=0;
       const int chip_left=chip_right-chip_width,omni_right=chip_width?chip_left-8:chip_right-4;
       omnibox={d(omni_left),d(6),d(omni_right),d(38)};chip={d(chip_left),d(8),d(chip_right),d(36)};
@@ -412,10 +427,19 @@ struct BrowserShell::Impl {
         place(DeveloperTitle,12,12,developer_width-24,24);place(DeveloperHint,12,42,developer_width-24,48);
         place(DeveloperFilter,12,96,developer_width/2-12,24);place(DeveloperPick,developer_width/2,96,developer_width/2-12,24);place(DeveloperList,12,128,developer_width-24,list_height);
         place(DeveloperStatus,12,134+list_height,developer_width-24,30);place(DeveloperNodeDetails,12,176+list_height,developer_width-24,std::max(45,panel_height-list_height-188));InvalidateRect(developer_panel,nullptr,TRUE);}
+      extension_dock={};
+      if(shell.engine.extension_side_visible(selected)){
+        const int available=MulDiv(panel_bounds.right-panel_bounds.left,96,scale);
+        const int dock_width=std::clamp(extension_dock_width,200,std::max(200,available-160));
+        extension_dock={panel_bounds.right-d(dock_width),panel_bounds.top,panel_bounds.right,panel_bounds.bottom};
+        panel_bounds.right=extension_dock.left-d(8);
+      }
       page={panel_bounds.left,panel_bounds.top+d(FrameRadius),panel_bounds.right,panel_bounds.bottom-d(FrameRadius)};
       RECT inner=page;InflateRect(&inner,-d(2),-d(2));
       for(auto& [id,host]:shell.hosts)if(host.frame==this){SetWindowPos(host.window,nullptr,inner.left,inner.top,std::max<int>(1,inner.right-inner.left),std::max<int>(1,inner.bottom-inner.top),SWP_NOACTIVATE|SWP_NOZORDER);
         if(host.browser)SetWindowPos(host.browser,nullptr,0,0,std::max<int>(1,inner.right-inner.left),std::max<int>(1,inner.bottom-inner.top),SWP_NOACTIVATE|SWP_NOZORDER);}
+      RECT extension_anchor{};GetWindowRect(controls.at(Extensions),&extension_anchor);
+      shell.engine.layout_extension_surfaces(selected,extension_dock,extension_anchor);
       // Find floats over the page's top-right corner, as in Chromium; it
       // never resizes the page.
       reposition(find_bar,HWND_TOP,inner.right-d(356),inner.top+d(6),d(344),d(40),SWP_NOACTIVATE|(find_visible?SWP_SHOWWINDOW:SWP_HIDEWINDOW));
@@ -425,11 +449,12 @@ struct BrowserShell::Impl {
     }
     bool sidebar_hit(POINT point) const {RECT bounds{};GetClientRect(window,&bounds);return point.x>=d(sidebar-6)&&point.x<d(sidebar+1)&&point.y>=d(ToolbarHeight)&&point.y<bounds.bottom-d(8);}
     bool developer_width_hit(POINT point) const {return developer_visible&&point.x>=panel_bounds.right&&point.x<panel_bounds.right+d(8)&&point.y>=panel_bounds.top&&point.y<panel_bounds.bottom;}
+    bool extension_width_hit(POINT point) const {return extension_dock.right>extension_dock.left&&point.x>=extension_dock.left-d(8)&&point.x<extension_dock.left&&point.y>=extension_dock.top&&point.y<extension_dock.bottom;}
     bool developer_split_hit(POINT point) const {RECT bounds{};GetClientRect(developer_panel,&bounds);return developer_visible&&point.x>=d(12)&&point.x<bounds.right-d(12)&&point.y>=d(developer_split_y)&&point.y<d(developer_split_y+10);}
     void finish_developer_resize(){resizing_developer=false;resizing_developer_split=false;if(GetCapture()==window||GetCapture()==developer_panel)ReleaseCapture();}
     RECT sidebar_grip() const {RECT bounds{};GetClientRect(window,&bounds);const auto middle=(d(ToolbarHeight)+bounds.bottom)/2;return {d(sidebar-5),middle-d(16),d(sidebar-2),middle+d(16)};}
     void invalidate_grip(){auto rect=sidebar_grip();InvalidateRect(window,&rect,FALSE);}
-    void set_address(const std::string& value){if(ui::text(address)==value)return;setting_address=true;SetWindowTextW(address,ui::wide(value).c_str());setting_address=false;}
+    void set_address(const std::string& value){const auto display=extension_manager::display_url(value);if(ui::text(address)==display)return;setting_address=true;SetWindowTextW(address,ui::wide(display).c_str());setting_address=false;}
     // Address text chosen by a suggestion. Text after `selected_from` bytes is
     // the inline completion, left selected so typing replaces it.
     void show_text(const std::string& value,size_t selected_from=std::string::npos){
@@ -656,12 +681,15 @@ struct BrowserShell::Impl {
         // A scrolled sidebar has no meaningful glide origin.
         if(auto item=item_of(id)){const auto top=TreeView_GetFirstVisible(tree);TreeView_EnsureVisible(tree,item);if(TreeView_GetFirstVisible(tree)!=top)glide_start=0;}}selected=id;
       status.clear();track_accent();
+      if(previous!=id){if(extension_panel)extension_panel->close();if(extension_scope!=workspace())sync_extension_toolbar(Json::object());load_extensions(false);}
       // Full frame rate before the page is raised; the tab it covers slows down.
       shell.engine.set_tab_covered(id,false);
       SetWindowPos(found->second.window,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);if(find_visible)SetWindowPos(find_bar,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
       if(previous!=id)if(auto old=shell.hosts.find(previous);old!=shell.hosts.end()&&old->second.frame==this)shell.engine.set_tab_covered(previous,true);
       // Only the foreground window's tab is Chromium's focus target.
-      if(shell.active==this||GetAncestor(GetForegroundWindow(),GA_ROOT)==window)shell.engine.select_native_tab(id);
+      const auto old_host=shell.hosts.find(previous);
+      const bool awaiting_browser=!found->second.browser&&!id.starts_with("xenon-extensions:")&&old_host!=shell.hosts.end()&&old_host->second.workspace==found->second.workspace;
+      if(shell.active==this||GetAncestor(GetForegroundWindow(),GA_ROOT)==window)shell.engine.select_native_tab(id,awaiting_browser);
       if(focus&&found->second.browser)shell.engine.native_command(id,"focus");sync_toolbar();refresh_page_state();InvalidateRect(window,nullptr,FALSE);InvalidateRect(tree,nullptr,FALSE);update_cursor();
     }
     // After the selected tab leaves this window, select its right neighbor.
@@ -706,6 +734,7 @@ struct BrowserShell::Impl {
       if(const auto state=found==shell.hosts.end()?std::string{}:str(metadata,"security");state!=security){security=state;layout();InvalidateRect(controls.at(SiteInfo),nullptr,FALSE);}
       // The bubble describes one website and closes once the tab leaves it.
       if(site_bubble&&(selected!=site_tab||site::origin(str(metadata,"url"))!=site_origin))close_site();
+      if(extension_panel&&extension_panel->window()&&(metadata.value("protected",false)||metadata.value("loading",false)||origin_of(str(metadata,"url"))!=str(extension_data,"origin")))extension_panel->close();
       auto title=found==shell.hosts.end()?ui::tr(L"Xenon Browser"):short_title(ui::tab_title(str(metadata,"title"),str(metadata,"url")),100)+L" — Xenon";if(ui::text(window)!=ui::utf8(title))SetWindowTextW(window,title.c_str());
       // An available update marks Controls with a blue dot until it is installed.
       if(auto version=shell.native.available_update();version!=update_version){update_version=std::move(version);InvalidateRect(controls.at(Controls),nullptr,FALSE);}
@@ -916,12 +945,16 @@ struct BrowserShell::Impl {
     // the typed text. Ctrl+Enter completes a single word as www.<word>.com, as
     // in Chromium, from what was typed rather than an inline completion.
     void submit(){const bool control=(GetKeyState(VK_CONTROL)&0x8000)!=0;auto text=ui::text(address);
+      if(extension_manager::xenon_manager_url(omnibox::trim(text))){navigate(omnibox::trim(text));return;}
       const bool shown=suggesting()&&suggestion>=0&&static_cast<size_t>(suggestion)<matches.size()&&text==matches[static_cast<size_t>(suggestion)].fill;
       if(shown&&!control){navigate(matches[static_cast<size_t>(suggestion)].destination);return;}
       if(shown&&!matches[static_cast<size_t>(suggestion)].completion.empty())text=typed;
       navigate(omnibox::typed_destination(text,control));
     }
-    void navigate(std::string value){hide_suggestions();matches.clear();address_dirty=false;if(!shell.hosts.contains(selected)){open_tab(workspace(),value);return;}
+    void navigate(std::string value){hide_suggestions();matches.clear();address_dirty=false;
+      if(extension_manager::xenon_manager_url(value)){shell.engine.open_extensions_manager(is_private()?"native-default":workspace(),extension_manager::native_url(value),shell.reply(window,{}));return;}
+      if(!shell.hosts.contains(selected)){open_tab(workspace(),value);return;}
+      if(selected.starts_with("xenon-extensions:")&&web_address(value)&&!extension_manager::store_url(value)){open_tab(workspace(),value);return;}
       const auto target=window;auto& shell_ref=shell;
       shell.engine.native_command(selected,"navigate",value,[&shell_ref,target](Json result){if(!result.value("ok",false))shell_ref.post([&shell_ref,target]{if(auto frame=shell_ref.frame_of(target))frame->set_status(ui::tr(L"This address could not be opened."));});});
       shell.engine.native_command(selected,"focus");}
@@ -950,18 +983,75 @@ struct BrowserShell::Impl {
       item(popup_menu,MenuCloseWindow,ui::tr(L"Close window\tCtrl+Shift+W"));item(popup_menu,MenuExit,ui::tr(L"Exit Xenon"));
       popup(popup_menu,Menu);
     }
-    // Extension pages open in a new human tab. Toolbar popups that expect
-    // Chromium's tab strip may not find this page; options pages work.
-    void extensions_menu(){auto menu_handle=CreatePopupMenu();const auto records=shell.extensions.list();int index=0;bool any=false;
-      for(const auto& record:records){if(!record.enabled||!shell.extensions.active(record.id)||index>=48){++index;continue;}
-        auto submenu=CreatePopupMenu();AppendMenuW(submenu,MF_STRING|(record.popup_page.empty()?MF_GRAYED:0),ExtensionItem+index*2,ui::tr(L"Open popup page in a tab"));AppendMenuW(submenu,MF_STRING|(record.options_page.empty()?MF_GRAYED:0),ExtensionItem+index*2+1,ui::tr(L"Open options"));
-        AppendMenuW(menu_handle,MF_POPUP,reinterpret_cast<UINT_PTR>(submenu),ui::wide(record.name).c_str());any=true;++index;}
-      if(!any)AppendMenuW(menu_handle,MF_STRING|MF_GRAYED,0,ui::tr(L"No extensions are running"));
-      AppendMenuW(menu_handle,MF_SEPARATOR,0,nullptr);AppendMenuW(menu_handle,MF_STRING,MenuManageExtensions,ui::tr(L"Manage extensions…"));
-      RECT rect{};GetWindowRect(controls.at(Extensions),&rect);const auto chosen=TrackPopupMenu(menu_handle,TPM_RETURNCMD|TPM_RIGHTALIGN|TPM_TOPALIGN,rect.right,rect.bottom+d(2),0,window,nullptr);DestroyMenu(menu_handle);
-      if(chosen>=ExtensionItem&&chosen<ExtensionItem+96){const size_t record=static_cast<size_t>((chosen-ExtensionItem)/2);if(record<records.size())open_extension_page(records[record].id,(chosen-ExtensionItem)%2?records[record].options_page:records[record].popup_page);}
-      else if(chosen)command(chosen);
+    bool extensions_loading=false,extensions_show_pending=false;std::string extensions_last_error;
+    std::unique_ptr<ExtensionPanel> extension_panel;
+    Json extension_data=Json::object();std::string extension_scope;
+    std::map<int,Json> extension_pins;
+    void sync_extension_toolbar(const Json& data){
+      for(const auto& [id,row]:extension_pins){const auto control=controls.find(id);if(control==controls.end())continue;TOOLINFOW tip{sizeof(tip)};tip.hwnd=window;tip.uId=reinterpret_cast<UINT_PTR>(control->second);SendMessageW(tooltips,TTM_DELTOOLW,0,reinterpret_cast<LPARAM>(&tip));DestroyWindow(control->second);controls.erase(control);}
+      extension_pins.clear();int id=3200;
+      for(const auto& row:data.value("extensions",Json::array()))if(row.value("pinned",false)&&id<3224){
+        const auto title=omnibox::printable(ui::wide(str(row,"name")));const auto control=add(id,L"BUTTON",title.c_str(),WS_TABSTOP|BS_OWNERDRAW);tip(control,title.c_str());extension_pins.emplace(id++,row);
+      }
+      extension_scope=workspace();layout();
     }
+    void extension_panel_action(const std::string& tab,const std::string& scope,uint64_t epoch,const std::string& id,const std::string& action){
+      if(closing||selected!=tab||workspace()!=scope)return;
+      if(action=="manage"||action=="store"||action=="legacy"){command(action=="manage"?MenuManageExtensions:action=="store"?MenuChromeWebStore:MenuLegacyExtensions);return;}
+      Json row;for(const auto& candidate:extension_data.value("extensions",Json::array()))if(str(candidate,"id")==id){row=candidate;break;}
+      if(action=="details"||(action=="activate"&&str(extension_data,"origin").empty())){shell.engine.open_extensions_manager(scope,"chrome://extensions/?id="+id,shell.reply(window,{}));return;}
+      if(action=="options"){const auto url=str(row,"options");if(!url.empty())shell.engine.open_extensions_manager(scope,url,shell.reply(window,{}));return;}
+      if(action=="remove"){
+        if(shell.extensions.active(id)){command(MenuLegacyExtensions);return;}
+        const auto question=ui::wide(ui::tr8("Remove extension"))+L" “"+omnibox::printable(short_title(str(row,"name"),100))+L"”?";
+        CefSetOSModalLoop(true);const auto answer=MessageBoxW(window,question.c_str(),ui::tr(L"Extensions"),MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2);CefSetOSModalLoop(false);if(answer!=IDYES)return;
+      }
+      if(selected!=tab||workspace()!=scope)return;RECT anchor{};GetWindowRect(controls.at(Extensions),&anchor);auto& owner=shell;const auto frame=window;
+      shell.engine.invoke_extension_action(tab,scope,id,action,epoch,anchor,[&owner,frame,tab,scope,id,action,epoch](Json value){owner.post([&owner,frame,tab,scope,id,action,epoch,value=std::move(value)]{
+        auto current=owner.frame_of(frame);if(!current||current->closing||current->selected!=tab||current->workspace()!=scope)return;
+        if(!value.value("ok",false)){
+          const auto error=value.value("error",Json::object());
+          if(str(error,"code")=="extension_reload_required"){
+            CefSetOSModalLoop(true);const auto answer=MessageBoxW(frame,ui::tr(L"Reload this page to run the extension?"),ui::tr(L"Extensions"),MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2);CefSetOSModalLoop(false);
+            if(answer==IDYES)current->extension_panel_action(tab,scope,epoch,id,"activate-reload");
+          }else{current->set_status(ui::error_text(str(error,"message")));if(action!="activate"&&action!="activate-reload")current->load_extensions(true);}
+          return;
+        }
+        if(value.value("result",Json::object()).value("noAction",false)){owner.engine.open_extensions_manager(scope,"chrome://extensions/?id="+id,owner.reply(frame,{}));return;}
+        if(action=="activate"||action=="activate-reload"||action=="side-panel")return;
+        if(action=="on-click"||action=="on-site"||action=="on-all-sites"||action=="block-site"||action=="allow-site")current->set_status(ui::tr(L"Site access updated. Reload the page to apply changes."));
+        current->load_extensions(action!="remove");
+      });});
+    }
+    void show_extensions_menu(Json data){
+      auto rows=data.value("extensions",Json::array());std::sort(rows.begin(),rows.end(),[](const Json& a,const Json& b){return str(a,"name")<str(b,"name");});data["extensions"]=std::move(rows);
+      data["legacy"]=!shell.extensions.list().empty();CefURLParts parts;const auto origin=str(data,"origin");if(!origin.empty()&&CefParseURL(origin,parts))data["siteLabel"]=ui::utf8(ui::tr(L"Allow extensions on"))+" "+CefString(&parts.host).ToString();
+      extension_data=data;sync_extension_toolbar(data);const auto tab=selected,scope=workspace();const auto epoch=data.value("documentEpoch",uint64_t{});const auto frame=window;auto& owner=shell;RECT anchor{};GetWindowRect(controls.at(Extensions),&anchor);
+      extension_panel.reset();
+      extension_panel=std::make_unique<ExtensionPanel>(window,anchor,data,[&owner,frame,tab,scope,epoch](const std::string& id,const std::string& action){
+        if(auto current=owner.frame_of(frame))current->extension_panel_action(tab,scope,epoch,id,action);
+      });
+    }
+    void load_extensions(bool show,const std::string& activate={},int read_retry=0){
+      if(extensions_loading){extensions_show_pending|=show;return;}extensions_loading=true;const auto frame=window;const auto tab=selected,scope=workspace();auto& owner=shell;
+      shell.engine.extension_quick_list(tab,scope,[&owner,frame,tab,scope,show,activate,read_retry](Json value){owner.post([&owner,frame,tab,scope,show,activate,read_retry,value=std::move(value)]{
+        auto current=owner.frame_of(frame);if(!current)return;current->extensions_loading=false;
+        const bool pending=std::exchange(current->extensions_show_pending,false);const bool display=show||pending;
+        if(current->closing)return;if(current->selected!=tab||current->workspace()!=scope){current->load_extensions(false);return;}
+        if(!value.value("ok",false)){
+          const auto code=str(value.value("error",Json::object()),"code");
+          current->extensions_last_error=code;
+          if(code=="stale_target"&&activate.empty()&&read_retry<2){current->load_extensions(display,{},read_retry+1);return;}
+          if(display&&code!="stale_target")current->show_extensions_menu({{"unavailable",true}});return;
+        }
+        current->extensions_last_error.clear();
+        auto data=value.value("result",Json::object());current->extension_data=data;current->sync_extension_toolbar(data);
+        if(!activate.empty())current->extension_panel_action(tab,scope,data.value("documentEpoch",uint64_t{}),activate,"activate");
+        else if(display&&GetAncestor(GetForegroundWindow(),GA_ROOTOWNER)==GetAncestor(frame,GA_ROOTOWNER))current->show_extensions_menu(std::move(data));
+      });});
+    }
+    void extensions_menu(){if(extension_panel&&extension_panel->window()){extension_panel->close();return;}load_extensions(true);}
+
     void open_extension_page(const std::string& id,const std::string& page_path){if(page_path.empty()||!shell.extensions.active(id))return;
       const auto target=is_private()?std::string("native-default"):workspace();const auto url="chrome-extension://"+id+"/"+page_path;auto& shell_ref=shell;const auto frame=window;
       shell.placements.push_back({target,window,{},true,GetTickCount64()});
@@ -1151,11 +1241,14 @@ struct BrowserShell::Impl {
       if(source&&source->window){source->tree_signature=nullptr;source->rebuild_tree();InvalidateRect(source->window,nullptr,FALSE);}}
     target.tree_signature=nullptr;target.rebuild_tree();
   }
-  void close_tabs(Frame& frame,std::vector<std::string> ids){if(ids.empty())return;broker.close_tabs(ids,reply(frame.window,{}));}
+  void close_tabs(Frame& frame,std::vector<std::string> ids){
+    std::erase_if(ids,[&](const std::string& id){if(!id.starts_with("xenon-extensions:"))return false;engine.native_command(id,"close");return true;});
+    if(ids.empty())return;broker.close_tabs(ids,reply(frame.window,{}));}
   void close_workspace(Frame& frame,const std::string& workspace){
     const auto count=workspace_tab_count(workspace);if(!count)return;
     if(!ui::confirm_close_tabs(frame.window,count,workspace_names.contains(workspace)?workspace_names.at(workspace):workspace))return;
     frame.set_status(ui::tr(L"Closing tabs after active agent input finishes…"));
+    engine.native_command("xenon-extensions:"+workspace,"close");
     broker.close_workspace_tabs(workspace,reply(frame.window,ui::tr(L"Workspace tabs closed. The workspace and its data were kept.")));
   }
   std::wstring move_reason(const std::string& code) const {
@@ -1177,6 +1270,7 @@ struct BrowserShell::Impl {
   }
   // ---- Tab drag and drop -------------------------------------------------
   void drag_begin(Frame& frame,const std::string& tab){
+    if(tab.starts_with("xenon-extensions:"))return;
     const auto host=hosts.find(tab);if(host==hosts.end()||drag.active)return;
     drag=Drag{};drag.source=frame.window;drag.tab=tab;drag.active=true;drag.title=short_title(ui::tab_title(str(host->second.metadata,"title"),str(host->second.metadata,"url")),48);
     SetPropW(frame.window,L"XenonSidebarDrag",reinterpret_cast<HANDLE>(1));SetCapture(frame.window);
@@ -1447,26 +1541,32 @@ struct BrowserShell::Impl {
     // The omnibox edit sits on the omnibox surface, not the window canvas.
     if(message==WM_CTLCOLOREDIT&&reinterpret_cast<HWND>(lp)==self->address){const auto colors=ui::palette();auto dc=reinterpret_cast<HDC>(wp);SetTextColor(dc,colors.ink);SetBkColor(dc,colors.surface);SetDCBrushColor(dc,colors.surface);return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));}
     LRESULT result{};if(ui::ctl_color(message,wp,lp,result))return result;
-    switch(message){case WM_CREATE:self->build();return 0;case WM_SIZE:self->close_site();self->layout();return 0;
-      case WM_MOVE:self->close_site();if(self->suggesting())self->place_suggestions();break;
+    switch(message){case WM_CREATE:self->build();return 0;case WM_SIZE:self->close_site();if(self->extension_panel)self->extension_panel->close();shell.engine.dismiss_extension_action(self->selected);self->layout();return 0;
+      case ShellExtensionSurface:self->refresh_developer();self->layout();return 0;
+      case WM_ENTERSIZEMOVE:if(self->extension_panel)self->extension_panel->close();shell.engine.dismiss_extension_action(self->selected);break;
+      case WM_MOVE:self->close_site();if(self->extension_panel)self->extension_panel->close();shell.engine.dismiss_extension_action(self->selected);if(self->suggesting())self->place_suggestions();break;
       case WM_ACTIVATE:if(LOWORD(wp)!=WA_INACTIVE){shell.active=self;if(!self->selected.empty())shell.engine.select_native_tab(self->selected);}break;
       case WM_SETCURSOR:{POINT point{};GetCursorPos(&point);ScreenToClient(h,&point);if(LOWORD(lp)==HTCLIENT&&(self->resizing_sidebar||self->sidebar_hit(point))){SetCursor(LoadCursorW(nullptr,IDC_SIZEWE));return TRUE;}
+        if(LOWORD(lp)==HTCLIENT&&(self->resizing_extension_dock||self->extension_width_hit(point))){SetCursor(LoadCursorW(nullptr,IDC_SIZEWE));return TRUE;}
         if(LOWORD(lp)==HTCLIENT&&(self->resizing_developer||self->developer_width_hit(point))){SetCursor(LoadCursorW(nullptr,IDC_SIZEWE));return TRUE;}
         if(LOWORD(lp)==HTCLIENT&&PtInRect(&self->chip,point)){SetCursor(LoadCursorW(nullptr,IDC_HAND));return TRUE;}break;}
       case WM_LBUTTONDOWN:{const POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
+        if(self->extension_width_hit(point)){self->drag_origin=point.x;self->drag_width=self->extension_dock_width;self->resizing_extension_dock=true;SetCapture(h);return 0;}
         if(self->developer_width_hit(point)){self->drag_origin=point.x;RECT bounds{};GetClientRect(self->developer_panel,&bounds);self->drag_width=MulDiv(bounds.right,96,GetDpiForWindow(h));self->clear_developer(ui::tr(L"Waiting for rendered page evidence…"));self->resizing_developer=true;SetCapture(h);return 0;}
         if(self->sidebar_hit(point)){self->drag_origin=point.x;self->drag_width=self->sidebar;self->resizing_sidebar=true;SetPropW(h,L"XenonSidebarDrag",reinterpret_cast<HANDLE>(1));SetCapture(h);return 0;}
         if(PtInRect(&self->chip,point)){self->owner_menu();return 0;}
         if(PtInRect(&self->omnibox,point)){self->focus_address();return 0;}break;}
       case WM_MOUSEMOVE:if(shell.drag.active&&shell.drag.source==h){POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ClientToScreen(h,&point);shell.drag_move(point);return 0;}
+        if(self->resizing_extension_dock){self->extension_dock_width=std::clamp(self->drag_width-MulDiv(GET_X_LPARAM(lp)-self->drag_origin,96,GetDpiForWindow(h)),200,600);self->layout();return 0;}
         if(self->resizing_sidebar){self->resize_sidebar(self->drag_width+MulDiv(GET_X_LPARAM(lp)-self->drag_origin,96,GetDpiForWindow(h)));return 0;}
         if(self->resizing_developer){RECT bounds{};GetClientRect(h,&bounds);self->developer_preferred_width=std::clamp(self->drag_width-MulDiv(GET_X_LPARAM(lp)-self->drag_origin,96,GetDpiForWindow(h)),240,std::max(240,MulDiv(bounds.right,96,GetDpiForWindow(h))-self->sidebar-168));self->layout();return 0;}
         {POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};if(PtInRect(&self->page,point)&&!(wp&(MK_LBUTTON|MK_RBUTTON|MK_MBUTTON|MK_XBUTTON1|MK_XBUTTON2))){ClientToScreen(h,&point);self->hover_developer(&point);}}
         {const bool hover=self->sidebar_hit({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)});if(hover!=self->sidebar_hover){self->sidebar_hover=hover;self->invalidate_grip();}if(hover){TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,h,0};TrackMouseEvent(&track);}}break;
       case WM_MOUSELEAVE:if(self->sidebar_hover){self->sidebar_hover=false;self->invalidate_grip();}return 0;
       case WM_LBUTTONUP:if(shell.drag.active&&shell.drag.source==h){POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ClientToScreen(h,&point);shell.drag_drop(point);return 0;}
+        if(self->resizing_extension_dock){self->resizing_extension_dock=false;ReleaseCapture();return 0;}
         if(self->resizing_sidebar){self->finish_sidebar(true);return 0;}if(self->resizing_developer){self->finish_developer_resize();return 0;}break;
-      case WM_CAPTURECHANGED:if(shell.drag.active&&shell.drag.source==h&&!shell.drag.finishing){shell.drag_cancel();return 0;}self->finish_sidebar(true);self->finish_developer_resize();return 0;
+      case WM_CAPTURECHANGED:self->resizing_extension_dock=false;if(shell.drag.active&&shell.drag.source==h&&!shell.drag.finishing){shell.drag_cancel();return 0;}self->finish_sidebar(true);self->finish_developer_resize();return 0;
       case WM_CANCELMODE:if(shell.drag.active&&shell.drag.source==h)shell.drag_cancel();self->finish_sidebar(true);self->finish_developer_resize();break;
       case WM_KEYDOWN:if(wp==VK_ESCAPE&&self->resizing_sidebar){self->finish_sidebar(true);return 0;}if(wp==VK_ESCAPE&&shell.drag.active){shell.drag_cancel();return 0;}break;
       case WM_LBUTTONDBLCLK:if(self->sidebar_hit({GET_X_LPARAM(lp),GET_Y_LPARAM(lp)})){self->finish_sidebar(false);self->resize_sidebar(240);shell.save_sidebar(*self);return 0;}break;
@@ -1485,6 +1585,10 @@ struct BrowserShell::Impl {
 #endif
         if(item->CtlID==NewTab){self->draw_new_tab(*item);return TRUE;}
         if(item->CtlID==SiteInfo){self->draw_site_button(*item);return TRUE;}
+        if(auto pin=self->extension_pins.find(static_cast<int>(item->CtlID));pin!=self->extension_pins.end()){
+          ui::button(*item,self->font,ui::Icon::extensions);const auto background=item->itemState&ODS_SELECTED?ui::selection():ui::mix(ui::palette().surface,ui::hover_background(),ui::hover_amount(*item));
+          RECT icon=item->rcItem;InflateRect(&icon,-self->d(5),-self->d(5));ui::fill(item->hDC,icon,background);ExtensionPanel::draw_icon(item->hDC,icon,str(pin->second,"icon"));return TRUE;
+        }
         ui::button(*item,self->font,self->button_icon(static_cast<int>(item->CtlID)));
         // Controls carries small dots: orange for a pending pairing request,
         // blue for an available update (below the orange one when both show).
@@ -1501,7 +1605,10 @@ struct BrowserShell::Impl {
         if(notice->code==NM_RCLICK){POINT screen{};GetCursorPos(&screen);POINT local=screen;ScreenToClient(self->tree,&local);const auto [id,group]=self->key_of(self->item_at(local));
           if(!id.empty()){if(group)self->group_menu(id,screen);else self->tab_menu(id,screen);}return 1;}
         if(notice->code==NM_CUSTOMDRAW){auto draw=reinterpret_cast<NMTVCUSTOMDRAW*>(lp);if(draw->nmcd.dwDrawStage==CDDS_PREPAINT){self->pill_valid=self->pill_rect(self->pill);return CDRF_NOTIFYITEMDRAW;}
-          if(draw->nmcd.dwDrawStage==CDDS_ITEMPREPAINT){self->draw_tree(*draw);return CDRF_SKIPDEFAULT;}}
+          // The tree also asks while measuring a row (hovering does this), on
+          // its own screen DC with an empty rect; painting then would flash the
+          // row's icons at the top of the sidebar. Skipping keeps its measure.
+          if(draw->nmcd.dwDrawStage==CDDS_ITEMPREPAINT){if(!IsRectEmpty(&draw->nmcd.rc))self->draw_tree(*draw);return CDRF_SKIPDEFAULT;}}
         break;}
       case WM_ERASEBKGND:return 1;
       case WM_PAINT:{PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT bounds{};GetClientRect(h,&bounds);auto memory=CreateCompatibleDC(dc);auto bitmap=CreateCompatibleBitmap(dc,std::max<LONG>(1,bounds.right),std::max<LONG>(1,bounds.bottom));if(memory&&bitmap){auto old=SelectObject(memory,bitmap);self->paint(memory);BitBlt(dc,paint.rcPaint.left,paint.rcPaint.top,paint.rcPaint.right-paint.rcPaint.left,paint.rcPaint.bottom-paint.rcPaint.top,memory,paint.rcPaint.left,paint.rcPaint.top,SRCCOPY);SelectObject(memory,old);}else self->paint(dc);if(bitmap)DeleteObject(bitmap);if(memory)DeleteDC(memory);EndPaint(h,&paint);return 0;}
@@ -1522,6 +1629,11 @@ struct BrowserShell::Impl {
 
 void BrowserShell::Impl::Frame::tab_menu(const std::string& id,POINT at){
   const auto found=shell.hosts.find(id);if(found==shell.hosts.end())return;auto& host=found->second;
+  if(id.starts_with("xenon-extensions:")){
+    auto menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,TabReload,ui::tr(L"Reload"));AppendMenuW(menu,MF_STRING,TabClose,ui::tr(L"Close tab\tCtrl+W"));
+    const auto chosen=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_LEFTALIGN|TPM_TOPALIGN|TPM_RIGHTBUTTON,at.x,at.y,0,window,nullptr);DestroyMenu(menu);
+    if(chosen==TabReload||chosen==TabClose)shell.engine.native_command(id,chosen==TabClose?"close":"reload");return;
+  }
   const auto url=str(host.metadata,"url");const bool protected_page=host.metadata.value("protected",false),web=web_address(url)&&!protected_page;
   const auto state=shell.states.contains(id)?shell.states.at(id):Json::object();const auto owner=str(state,"ownerSessionId");const bool agent_owned=!owner.empty()&&owner!="human";
   auto menu_handle=CreatePopupMenu();auto item=[&](HMENU target,int command_id,const std::wstring& caption,bool enabled=true,bool checked=false){AppendMenuW(target,MF_STRING|(enabled?0:MF_GRAYED)|(checked?MF_CHECKED:0),command_id,caption.c_str());};
@@ -1642,7 +1754,7 @@ void BrowserShell::Impl::Frame::hover_developer(const POINT* event){
   }});
 }
 void BrowserShell::Impl::Frame::refresh_developer(){
-  const bool enabled=shell.broker.developer_mode_enabled();
+  const bool enabled=shell.broker.developer_mode_enabled()&&!shell.engine.extension_side_visible(selected);
   if(enabled!=developer_visible){developer_visible=enabled;clear_developer(ui::tr(L"Waiting for rendered page evidence…"));layout();}
   if(!enabled)return;
   developer_details(false);
@@ -1694,6 +1806,7 @@ void BrowserShell::Impl::Frame::refresh_developer(){
 }
 void BrowserShell::Impl::Frame::command(int id){try{
   auto& engine=shell.engine;auto& hosts=shell.hosts;
+  if(auto pin=extension_pins.find(id);pin!=extension_pins.end()){load_extensions(false,str(pin->second,"id"));return;}
   if(id==Back||id==Forward||id==Reload)engine.native_command(selected,id==Back?"back":id==Forward?"forward":hosts.contains(selected)&&hosts.at(selected).metadata.value("loading",false)?"stop":"reload");
   else if(id==Go)submit();else if(id==Controls)engine.show_controls();else if(id==Menu)menu();else if(id==Extensions)extensions_menu();
   else if(id==Passwords){if(hosts.contains(selected))shell.native.request_autofill(selected);}
@@ -1711,7 +1824,8 @@ void BrowserShell::Impl::Frame::command(int id){try{
   else if(id==MenuCloseTab)engine.native_command(selected,"close");
   else if(id==MenuReopenTab){if(!shell.closed_tabs.empty()){const auto closed=shell.closed_tabs.back();shell.closed_tabs.pop_back();open_tab(closed.workspace,closed.url);}}
   else if(id==MenuCloseWorkspaceTabs)shell.close_workspace(*this,workspace());
-  else if(id==MenuManageExtensions)shell.native.show_section(NativeUi::Section::extensions);
+  else if(id==MenuManageExtensions||id==MenuChromeWebStore)engine.open_extensions_manager(is_private()?"native-default":workspace(),id==MenuChromeWebStore?"https://chromewebstore.google.com/category/extensions":"chrome://extensions/",shell.reply(window,{}));
+  else if(id==MenuLegacyExtensions)shell.native.show_section(NativeUi::Section::extensions,"legacy");
   else if(id==MenuPasswords){auto found=hosts.find(selected);shell.native.show_section(NativeUi::Section::passwords,found==hosts.end()?std::string{}:origin_of(str(found->second.metadata,"url")));}
   else if(id==MenuUpdates)engine.show_updates();
   else if(id==MenuDeveloper){if(!shell.broker.developer_mode_enabled())shell.broker.set_developer_mode(true);refresh_developer();shell.native.show_section(NativeUi::Section::developer);}
@@ -2242,7 +2356,7 @@ HWND BrowserShell::create_host(const std::string& workspace,const std::string& i
   if(select||frame->selected.empty())frame->choose(id,false);else impl_->engine.set_tab_covered(id,true);
   return impl_->hosts.at(id).window;
 }
-void BrowserShell::tab_created(const std::string& id,HWND browser){if(auto found=impl_->hosts.find(id);found!=impl_->hosts.end()){found->second.browser=browser;auto frame=found->second.frame;if(frame){frame->layout();if(found->second.human&&frame->selected==id)frame->choose(id,true);}}impl_->refresh();}
+void BrowserShell::tab_created(const std::string& id,HWND browser){if(auto found=impl_->hosts.find(id);found!=impl_->hosts.end()){found->second.browser=browser;auto frame=found->second.frame;if(frame){frame->layout();if(found->second.human&&(frame->selected==id||id.starts_with("xenon-extensions:")))frame->choose(id,true);}}impl_->refresh();}
 void BrowserShell::tab_closed(const std::string& id){auto& shell=*impl_;Impl::Frame* frame=nullptr;
   if(auto found=shell.hosts.find(id);found!=shell.hosts.end()){frame=found->second.frame;
     // Recently closed ordinary pages can be reopened with Ctrl+Shift+T.
@@ -2332,6 +2446,51 @@ void BrowserShell::open_link(const std::string& tab,const std::string& url,bool 
   frame->open_tab(found->second.workspace,url,next!=tabs.end()&&std::next(next)!=tabs.end()?*std::next(next):std::string{},false);
 }
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
+bool BrowserShell::fixture_store_menu(){auto frame=impl_->live_active();if(!frame||!frame->window)return false;PostMessageW(frame->window,WM_COMMAND,MAKEWPARAM(MenuChromeWebStore,0),0);return true;}
+Json BrowserShell::fixture_extension_panel(const std::string& action,const std::filesystem::path& root){
+  if(root.parent_path().filename()!=L".cache"||!root.filename().wstring().starts_with(L"extension-manager-integration-"))return failure("FIXTURE_FAILED","Synthetic extension profile required");
+  std::ifstream marker(root/"SYNTHETIC_TEST_PROFILE",std::ios::binary);const std::string contents{std::istreambuf_iterator<char>(marker),{}};if(contents!="XENON_SYNTHETIC_EXTENSION_MANAGER_FIXTURE\n")return failure("FIXTURE_FAILED","Synthetic marker required");
+  auto frame=impl_->primary();if(!frame||!frame->window)return failure("NOT_READY","Synthetic shell is initializing");
+  if(action=="foreground"){
+    const auto host=impl_->hosts.find(frame->selected);
+    return success({{"foreground",GetAncestor(GetForegroundWindow(),GA_ROOTOWNER)==GetAncestor(frame->window,GA_ROOTOWNER)},
+      {"loading",frame->loading()},{"loopbackReady",host!=impl_->hosts.end()&&str(host->second.metadata,"url").starts_with("http://127.0.0.1:")}});
+  }
+  static std::string original_surface_tab;
+  if(action=="dock-new-tab"){original_surface_tab=frame->selected;frame->command(MenuNewTab);return success();}
+  if(action=="dock-return"){if(original_surface_tab.empty())return failure("NOT_READY","Synthetic original tab required");frame->choose(original_surface_tab,true);return success();}
+  if(action=="dock-private"){frame->command(MenuPrivate);return success();}
+  if(action=="dock-resize"){
+    if(frame->extension_dock.right<=frame->extension_dock.left)return failure("NOT_READY","Synthetic dock required");
+    const int x=frame->extension_dock.left-frame->d(4),y=(frame->extension_dock.top+frame->extension_dock.bottom)/2;
+    SendMessageW(frame->window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(x,y));SendMessageW(frame->window,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(x-frame->d(40),y));SendMessageW(frame->window,WM_LBUTTONUP,0,MAKELPARAM(x-frame->d(40),y));return success();
+  }
+  if(action=="open"){SetForegroundWindow(frame->window);if(!frame->extension_panel||!frame->extension_panel->window())frame->extensions_menu();return success();}
+  if(action=="outside"){if(frame->extension_panel)frame->extension_panel->close();SetForegroundWindow(frame->window);SetFocus(frame->window);return success();}
+  if(action=="pinned-action"){for(const auto& [id,row]:frame->extension_pins)if(str(row,"name")=="Synthetic action popup"){SetForegroundWindow(frame->window);frame->command(id);return success();}return failure("NOT_READY","Synthetic pinned button is initializing");}
+  if(action=="state"||action=="dock-state"){
+    auto state=frame->extension_panel?frame->extension_panel->fixture_state():Json{{"visible",false}};int visible{};for(const auto& [id,row]:frame->extension_pins)if(IsWindowVisible(frame->controls.at(id)))++visible;state["pinnedButtons"]=visible;
+    state["metadataLoading"]=frame->extensions_loading;state["openPending"]=frame->extensions_show_pending;
+    state["foreground"]=GetAncestor(GetForegroundWindow(),GA_ROOTOWNER)==GetAncestor(frame->window,GA_ROOTOWNER);
+    state["metadataRows"]=frame->extension_data.value("extensions",Json::array()).size();state["metadataError"]=frame->extensions_last_error;
+    state["dockVisible"]=frame->extension_dock.right>frame->extension_dock.left;state["dockWidth"]=frame->extension_dock.right-frame->extension_dock.left;state["pageWidth"]=frame->page.right-frame->page.left;
+    const auto window=action=="dock-state"?frame->window:frame->extension_panel?frame->extension_panel->window():nullptr;
+    if(window){RECT rect{};GetClientRect(window,&rect);const auto width=rect.right,height=rect.bottom;
+      if(width>0&&height>0&&width<2048&&height<2048){BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=width;info.bmiHeader.biHeight=-height;info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;
+        void* pixels{};const auto bitmap=CreateDIBSection(nullptr,&info,DIB_RGB_COLORS,&pixels,nullptr,0);const auto dc=CreateCompatibleDC(nullptr);
+        if(bitmap&&dc){const auto old=SelectObject(dc,bitmap);if(PrintWindow(window,dc,PW_CLIENTONLY|2)){GdiFlush();auto image=CefImage::CreateImage();if(image->AddBitmap(1,width,height,CEF_COLOR_TYPE_BGRA_8888,CEF_ALPHA_TYPE_OPAQUE,pixels,static_cast<size_t>(width)*height*4)){int w{},h{};if(auto png=image->GetAsPNG(1,false,w,h)){std::vector<char> bytes(png->GetSize());png->GetData(bytes.data(),bytes.size(),0);std::ofstream stream(root/"extension-panel-render.png",std::ios::binary);stream.write(bytes.data(),bytes.size());}}}SelectObject(dc,old);}
+        if(dc)DeleteDC(dc);if(bitmap)DeleteObject(bitmap);
+      }
+    }return success(std::move(state));
+  }
+  if(frame->extension_panel&&frame->extension_panel->fixture_action(action))return success();
+  if(action=="pin"||action=="activate"||action=="site-toggle"){
+    // Nothing was dispatched. Reopen only the read-only panel, so a human
+    // activating the fixture window cannot turn a not-ready button into replay.
+    if(!frame->extension_panel||!frame->extension_panel->window())frame->load_extensions(true);
+  }
+  return failure("NOT_READY","Synthetic extension panel is initializing");
+}
 void BrowserShell::fixture_snapshot(const std::filesystem::path& destination){impl_->fixture_snapshot(destination);}
 void BrowserShell::Impl::fixture_snapshot(const std::filesystem::path& destination){
   if(destination.parent_path().filename()!=L".cache"||!destination.filename().wstring().starts_with(L"shell-ui-"))return;
