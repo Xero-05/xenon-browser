@@ -1,5 +1,26 @@
 # Validation
 
+## Device upload text entries (local candidate, 2026-10-19)
+
+The [validation record](test-results/upload-device-text.json) covers a verified
+StaticText **Upload from Device** entry with a non-semantic wrapper and hidden
+file input. The pre-fix production DLL reproduced `unsupported_upload_entry`
+without activation or selection. The rebuilt production DLL passed all 17
+upload checks, including exact approved contents, a trusted click on the text
+inside a larger container, cross-origin frame uploads, stale text, disabled
+ancestors, invalid/cross-workspace grants, absent choosers and different-frame
+delegation denial. No OS picker automation or hidden-input search was used.
+
+The same DLL passed 11 visibility checks and seven batch checks. The full build
+passed 22 native groups and branding checks; typechecking and all 146 adapter
+and fixed-script tests passed. Initial restricted-runner startup, build and ACL
+cleanup failures remain recorded separately from successful unrestricted runs.
+These results cover the local working tree, including pre-existing extension
+manager changes, with synthetic loopback pages/files and disposable profiles.
+They do not establish real SAP upload success, physical UI coverage, installed
+package validation or publication. The browser and adapter must restart with
+the rebuilt files before an existing agent session can use this fix.
+
 ## 0.1.7 release
 
 0.1.7 was published on October 18 as a regular GitHub release, marked latest. The [publication record](test-results/release-0.1.7-publication.json) binds the `v0.1.7` tag and all four uploaded asset digests to the local build described below. The files were built from `bf38be4`, whose tree equals the merged source commit `6b61e80`. Every live, video and pacing report records the published `Xenon.dll`, and the video and pacing reports also record its libcef.dll. The downloaded ZIP passed `verify-package.ps1` again after publication.
@@ -541,7 +562,7 @@ actual website outcome check.
 | First-run introduction | `./tests/introduction-integration.ps1` | Disposable production profiles: language selection before CEF, duplicate startup, cancel/retry, translated tour with Previous/Next, immediate first-launch CEF locale, durable completion/skip, normal blank restart, Menu replay and documentation URL navigation. Captures target only the synthetic introduction window. Native message driver coverage does not establish physical input or multi-monitor/DPI acceptance. `native_ui_tests` also checks legacy profiles, interrupted preference writes and completion-save rollback. |
 | Windows input | `node tests/native-input-smoke.mjs` | Append the requested public text to the draft in the named fixture window. Verifies automatic creator ownership, Windows input pause without an ownership change, dispatch/read denial while paused, and fresh-evidence recovery with the human edit preserved. |
 | Human script dialog | `node tests/native-input-smoke.mjs --dialog` | After editing, click **Confirm synthetic logout**, verify Controls reappears with that tab selected, wait at least three seconds and click **Dismiss**. Checks the pause lasts while the dialog awaits an answer, then ends without changing document or owner. Controls surfacing is a manual observation. |
-| Upload entries | `node tests/upload-entry-integration.mjs` | Direct inputs, visible custom buttons opening hidden inputs, cross-origin frame uploads, invalid grants, stale labels, missing choosers, multiple inputs, disabled/directory controls and cross-frame delegation denial. Add `--benchmark <path-to-browser-benchmark.cjs>` to copy and exercise the external synthetic health fixture without modifying its source or original evidence. |
+| Upload entries | `node tests/upload-entry-integration.mjs` | Direct inputs, visible custom buttons and StaticText Device entries opening hidden inputs, cross-origin frame uploads, invalid grants, stale labels/text, missing choosers, multiple inputs, disabled/directory controls and cross-frame delegation denial. `node --test tests/upload-entry-tests.mjs tests/pointer-target-tests.mjs` also checks the fixed entry classifier and exact text hit areas. Add `--benchmark <path-to-browser-benchmark.cjs>` to copy and exercise the external synthetic health fixture without modifying its source or original evidence. |
 | External benchmark workflows | `node tests/upload-entry-integration.mjs --benchmark <path-to-browser-benchmark.cjs> --benchmark-matrix` | Unchanged external health, comparison, calibration and four concurrent workflows through real MCP. Verifies actual date/form state, exact approved upload, delayed review, distinct concurrent identities, trusted activation and untouched final submission. Deterministic adapter input tests browser compatibility; it does not compare model speed, cost or task success. The external fixture is supplied separately and is never committed. |
 | Release archive | `./scripts/verify-package.ps1 -Zip <release.zip>` | ZIP checksum, per-file SHA-256 manifest, required runtime files, exclusion of test binaries and private state. |
 | Bootstrap branding | `node tests/branding-resources.mjs` | Reads PE files without loading them, compares code and non-branding resource payloads with the pinned bootstrap, and checks exact Xenon icon/version resources. See the narrowly permitted resource-layout effects in [branding](BRANDING.md). |

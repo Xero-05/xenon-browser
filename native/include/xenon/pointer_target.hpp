@@ -18,14 +18,26 @@ inline constexpr const char* kPointerTarget=R"JS(function(fx,fy,fallback){
   return new Promise(resolve=>{
     let finished=false;
     const finish=value=>{if(!finished){finished=true;resolve(value)}};
-    const initial=this.getBoundingClientRect();
+    // StaticText references resolve to DOM Text nodes. Keep the hit area on
+    // that exact rendered text, never the larger parent control/container.
+    const text=this.nodeType===3,element=text?this.parentElement:this;
+    if(!element){finish({error:'detached'});return}
+    let range;
+    if(text){range=this.ownerDocument.createRange();range.selectNodeContents(this)}
+    const bounds=()=>{
+      if(!text)return this.getBoundingClientRect();
+      const boxes=Array.from(range.getClientRects()).filter(box=>box.width>0&&box.height>0);
+      return boxes.length===1?boxes[0]:null;
+    };
+    const initial=bounds();
+    if(!initial){finish({error:'fragmented_text'});return}
     setTimeout(()=>finish({error:'render_unready'}),1500);
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
-      if(!this.isConnected){finish({error:'detached'});return}
-      const r=this.getBoundingClientRect();
-      if(['x','y','width','height'].some(key=>Math.abs(r[key]-initial[key])>.25)){finish({error:'layout_moving'});return}
+      if(!this.isConnected||(text&&this.parentElement!==element)){finish({error:'detached'});return}
+      const r=bounds();
+      if(!r||['x','y','width','height'].some(key=>Math.abs(r[key]-initial[key])>.25)){finish({error:'layout_moving'});return}
       let opacity=1;
-      for(let node=this;node;node=node.parentElement||node.getRootNode().host){
+      for(let node=element;node;node=node.parentElement||node.getRootNode().host){
         const style=getComputedStyle(node);opacity*=Number(style.opacity);
         if(style.display==='none'||style.visibility==='hidden'||style.visibility==='collapse'||opacity<.5){finish({error:'not_visible'});return}
       }
@@ -33,9 +45,9 @@ inline constexpr const char* kPointerTarget=R"JS(function(fx,fy,fallback){
       const left=Math.max(0,r.left),right=Math.min(innerWidth,r.right);
       const top=Math.max(0,r.top),bottom=Math.min(innerHeight,r.bottom);
       if(right-left<1||bottom-top<1){finish({error:'outside_viewport'});return}
-      let outer=this,root=this.getRootNode();
+      let outer=element,root=element.getRootNode();
       while(root.host){outer=root.host;root=outer.getRootNode()}
-      const local=this.getRootNode();
+      const local=element.getRootNode();
       const samples=fallback?[[fx,fy],[.5,.5],[1-fx,1-fy],[fx,1-fy],[1-fx,fy],[.35,.35],[.65,.65],[.35,.65],[.65,.35]]:[[fx,fy]];
       for(const [sx,sy] of samples){
         const x=left+(right-left)*(right-left<8?.5:sx);
@@ -44,7 +56,7 @@ inline constexpr const char* kPointerTarget=R"JS(function(fx,fy,fallback){
         const hit=this.ownerDocument.elementFromPoint(x,y);
         if(hit!==outer&&!outer.contains(hit))continue;
         const h=local.elementFromPoint?local.elementFromPoint(x,y):hit;
-        if(h!==this&&!this.contains(h))continue;
+        if(h!==element&&(text||!element.contains(h)))continue;
         finish({x,y,fx:(x-r.left)/r.width,fy:(y-r.top)/r.height,sampleFx:sx,sampleFy:sy});return;
       }
       finish({error:'occluded'});
