@@ -1,5 +1,22 @@
 # Validation
 
+## 0.1.8 release preparation
+
+The release source includes every commit merged through `b2c810d`. Its local
+Windows-decoder build passed all 24 native test groups, 146 adapter/fixed-script
+checks, typechecking and five bootstrap branding checks. The codec audit (10),
+engine audit (17) and recipe migration (25) checks passed. All 51 isolated
+installer checks and all 13 synthetic pinch-zoom checks passed. The pinch suite
+uses the unshipped `XenonAuthTest` driver, including native-message inspector and
+pointer checks; it does not exercise physical touch or touchpad input.
+
+The engine matches the pinned Windows-decoder recipe with the extension-action
+patch. CEF and Chromium revisions remain unchanged. Hosted CI uses the stock
+engine; its artifacts are not the locally built release assets. Package,
+production live-suite and publication evidence is recorded separately after
+packaging, bound to the actual uploaded binaries. Earlier feature-specific
+records below retain their original scope and failures.
+
 ## Pointer overlay and inspector under pinch zoom (local candidate, 2026-10-20)
 
 The [validation record](test-results/pinch-pointer-overlay.json) covers the
