@@ -1,6 +1,8 @@
 # Release notes
 
-## Unreleased
+## 0.1.8
+
+Includes all changes merged since 0.1.7. See the [0.1.8 notes](RELEASE-0.1.8.md) for downloads, engine details and validation limits.
 
 **Extension panel and extension surfaces.** The Extensions button opens a compact panel with icons, current-site access, a site switch, pin controls and individual menus for options, details, permissions and removal. Pinned extensions appear on the workspace's toolbar. Xenon's engine hosts genuine Chromium action popups, extension-requested `chrome.action.openPopup()` and docked side panels for ordinary Alloy tabs. Programmatic popups do not grant click permissions; `sidePanel.open()` retains its user-gesture check. Global and tab-specific panels support closing, options and opened/closed events. Stale pages and protected/private contexts refuse action dispatch. Broader Chrome window/tab APIs remain limited.
 
