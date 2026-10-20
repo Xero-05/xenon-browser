@@ -1,7 +1,8 @@
-param([Parameter(Mandatory=$true)][int]$ProcessId, [Parameter(Mandatory=$true)][int]$Index)
+param([Parameter(Mandatory=$true)][int]$ProcessId, [Parameter(Mandatory=$true)][int]$Index, [int]$Group = 0)
 # Selects a sidebar tab of one disposable test browser by posting tree-view
-# messages to that process's window only. Tabs are children of the first
-# workspace row, in sidebar order. No pointers cross the process boundary.
+# messages to that process's window only. Tabs are children of a workspace
+# row, in sidebar order; -Group counts workspace rows from the top, or from
+# the bottom when negative. No pointers cross the process boundary.
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
 using System;
@@ -25,9 +26,13 @@ public static class XenonShellTabs {
 '@
 $tree = [XenonShellTabs]::Tree([uint32]$ProcessId)
 if ($tree -eq [IntPtr]::Zero) { throw 'No Xenon tab tree for this process' }
-$root = [XenonShellTabs]::SendMessageW($tree, 0x110A, [IntPtr]0, [IntPtr]::Zero)  # TVM_GETNEXTITEM, TVGN_ROOT
-$item = [XenonShellTabs]::SendMessageW($tree, 0x110A, [IntPtr]4, $root)            # TVGN_CHILD
+$rows = [Collections.Generic.List[IntPtr]]::new()
+$row = [XenonShellTabs]::SendMessageW($tree, 0x110A, [IntPtr]0, [IntPtr]::Zero)   # TVM_GETNEXTITEM, TVGN_ROOT
+for (; $row -ne [IntPtr]::Zero; $row = [XenonShellTabs]::SendMessageW($tree, 0x110A, [IntPtr]1, $row)) { $rows.Add($row) }  # TVGN_NEXT
+$position = if ($Group -lt 0) { $rows.Count + $Group } else { $Group }
+if ($position -lt 0 -or $position -ge $rows.Count) { throw "No workspace row at sidebar group $Group" }
+$item = [XenonShellTabs]::SendMessageW($tree, 0x110A, [IntPtr]4, $rows[$position])  # TVGN_CHILD
 for ($i = 0; $i -lt $Index -and $item -ne [IntPtr]::Zero; $i++) { $item = [XenonShellTabs]::SendMessageW($tree, 0x110A, [IntPtr]1, $item) }  # TVGN_NEXT
 if ($item -eq [IntPtr]::Zero) { throw "No tab at sidebar index $Index" }
 [void][XenonShellTabs]::SendMessageW($tree, 0x110B, [IntPtr]9, $item)              # TVM_SELECTITEM, TVGN_CARET
-'selected'
+"selected workspace row $($position + 1) of $($rows.Count)"

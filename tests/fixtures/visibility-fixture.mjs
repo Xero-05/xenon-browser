@@ -108,6 +108,7 @@ function pageHtml(crossOrigin) {
   <iframe src="/frame?kind=hidden" style="position:absolute;left:0;top:0;opacity:0;pointer-events:none"></iframe>
   <div class="shadow-decoration" aria-hidden="true"></div>
   <div class="text-shadow-decoration" aria-hidden="true">Distant shadowed decoration</div>
+  <button id="corner-action" style="position:fixed;right:16px;bottom:16px" onclick="window.cornerClicks=(window.cornerClicks??0)+1;this.textContent='Corner action '+window.cornerClicks">Corner action</button>
   <script>
     const shadow=document.querySelector('#shadow-host').attachShadow({mode:'open'});
     shadow.innerHTML='<style>button{font:15px system-ui;padding:8px}.hidden{display:none}</style><span class="hidden">${marker('SHADOW_HIDDEN')}</span><button aria-label="${marker('SHADOW_LABEL')}">Shadow visible action</button>';
