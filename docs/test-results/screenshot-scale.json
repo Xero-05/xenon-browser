@@ -1,0 +1,126 @@
+{
+  "date": "2026-10-20",
+  "scope": "Local branch candidate on stock CEF 154.0.34; production Xenon target; no release or package",
+  "sourceBase": "824464fbe8dbe709f11fbde82761f2c58196cd79",
+  "sourceState": "Fix commit 617edfa plus the reordered visibility check committed with this record; native source identical to 617edfa",
+  "binary": "build/app/Release/Xenon.dll",
+  "applicationDllSha256": "984a2b9fbe28a83a2246104684cf213a402e242fcc2abfa239714bbf65007905",
+  "engineSha256": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7",
+  "captureArea": "Chromium 154 source: an unclipped fromSurface capture copies the whole RenderWidgetHostView surface (content and scrollbars) at physical resolution; a clip capture resizes the live view and is not used.",
+  "beforeFix": {
+    "applicationDllSha256": "1a2bc29a8e8f97d449f4156607f63be23bbe42f0ad6ee0dc417106f15a959c8c",
+    "build": "Xenon target rebuilt from the 824464f native/src/cef_engine.cpp with the same test files",
+    "runs": [
+      {
+        "run": "visibility-integration-1792462459331-f373b158",
+        "passed": false,
+        "check": "Screenshot pixel coordinates land on narrow controls beside both scrollbars",
+        "error": "The right edge click was not registered (Edge clicks: right 0, bottom 0) at {\"x\":896.337982832618,\"y\":52.8243831640058,\"box\":{\"left\":905,\"top\":48,\"right\":916,\"bottom\":59},\"scaleX\":1.0163576881134133,\"scaleY\":1.0222551928783383,\"imageWidth\":932,\"imageHeight\":689,\"viewport\":{\"coordinates\":\"CSS pixels\",\"height\":674,\"pageX\":0,\"pageY\":0,\"width\":917}}",
+        "websiteState": "Edge clicks: right 0, bottom 0"
+      },
+      {
+        "run": "visibility-integration-1792462415605-72b4fcec",
+        "passed": false,
+        "check": "Screenshot pixel coordinates land on narrow controls beside both scrollbars",
+        "error": "Image pixels must map to square CSS pixels",
+        "note": "Earlier check order asserted scale metadata before clicking"
+      }
+    ],
+    "otherChecksPassed": 11
+  },
+  "checks": {
+    "fullBuildAndNativeTests": {
+      "passed": true,
+      "nativeGroups": 22,
+      "command": "./scripts/build.ps1 -Test -Jobs 8",
+      "note": "third_party/cef, json and sqlite were junctions to the main checkout's pinned copies"
+    },
+    "visibility": {
+      "run": "visibility-integration-1792462491643-a7afb0d2",
+      "passed": true,
+      "count": 12,
+      "applicationDllSha256": "984a2b9fbe28a83a2246104684cf213a402e242fcc2abfa239714bbf65007905",
+      "applicationDllSha256AtEnd": "984a2b9fbe28a83a2246104684cf213a402e242fcc2abfa239714bbf65007905",
+      "screenshotCoordinates": {
+        "clicks": [
+          {
+            "side": "right",
+            "imageBox": {
+              "left": 905,
+              "top": 48,
+              "right": 916,
+              "bottom": 59
+            },
+            "x": 911,
+            "y": 54,
+            "legacy": {
+              "x": 896.3379828326181,
+              "y": 52.82438316400581
+            },
+            "scaleX": 1,
+            "imageWidth": 932,
+            "imageHeight": 689,
+            "viewport": {
+              "coordinates": "CSS pixels",
+              "height": 674,
+              "pageX": 0,
+              "pageY": 0,
+              "width": 917
+            },
+            "scrollbar": {
+              "vertical": 15,
+              "horizontal": 15
+            }
+          },
+          {
+            "side": "bottom",
+            "imageBox": {
+              "left": 367,
+              "top": 662,
+              "right": 378,
+              "bottom": 673
+            },
+            "x": 373,
+            "y": 668,
+            "legacy": {
+              "x": 366.99678111587986,
+              "y": 653.4571843251089
+            },
+            "scaleX": 1,
+            "imageWidth": 932,
+            "imageHeight": 689,
+            "viewport": {
+              "coordinates": "CSS pixels",
+              "height": 674,
+              "pageX": 0,
+              "pageY": 0,
+              "width": 917
+            },
+            "scrollbar": {
+              "vertical": 15,
+              "horizontal": 15
+            }
+          }
+        ],
+        "scrollbarClickRejected": true
+      }
+    },
+    "integration": {
+      "run": "integration-1792462314382-5bf08fa5",
+      "passed": true,
+      "count": 17,
+      "applicationDllSha256": "984a2b9fbe28a83a2246104684cf213a402e242fcc2abfa239714bbf65007905",
+      "testSource": "617edfa"
+    }
+  },
+  "retainedFailures": [
+    "The first run of the new check on the fixed DLL failed: its click readout was fixed-position text over the heading block and was withheld from rendered evidence, so no click could be confirmed. The readout moved into an in-flow row; the click targets were unchanged."
+  ],
+  "limitations": [
+    "Synthetic loopback fixture, disposable profile and real MCP only; no AuthTest native driver or physical input.",
+    "Single 100% display-scale monitor with classic 15 CSS px scrollbars. Non-100% display scale and browser zoom were not live-tested; the scale uses the ratio Chromium defines for both.",
+    "Pinch zoom is included in the scale, but coordinate validation still uses the unpinched layout viewport, as before.",
+    "Right-to-left documents with a left vertical scrollbar and overlay scrollbars were not tested.",
+    "Installed packages and publication were not tested."
+  ]
+}
