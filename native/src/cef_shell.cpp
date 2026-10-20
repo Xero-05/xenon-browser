@@ -1501,7 +1501,10 @@ struct BrowserShell::Impl {
         if(notice->code==NM_RCLICK){POINT screen{};GetCursorPos(&screen);POINT local=screen;ScreenToClient(self->tree,&local);const auto [id,group]=self->key_of(self->item_at(local));
           if(!id.empty()){if(group)self->group_menu(id,screen);else self->tab_menu(id,screen);}return 1;}
         if(notice->code==NM_CUSTOMDRAW){auto draw=reinterpret_cast<NMTVCUSTOMDRAW*>(lp);if(draw->nmcd.dwDrawStage==CDDS_PREPAINT){self->pill_valid=self->pill_rect(self->pill);return CDRF_NOTIFYITEMDRAW;}
-          if(draw->nmcd.dwDrawStage==CDDS_ITEMPREPAINT){self->draw_tree(*draw);return CDRF_SKIPDEFAULT;}}
+          // The tree also asks while measuring a row (hovering does this), on
+          // its own screen DC with an empty rect; painting then would flash the
+          // row's icons at the top of the sidebar. Skipping keeps its measure.
+          if(draw->nmcd.dwDrawStage==CDDS_ITEMPREPAINT){if(!IsRectEmpty(&draw->nmcd.rc))self->draw_tree(*draw);return CDRF_SKIPDEFAULT;}}
         break;}
       case WM_ERASEBKGND:return 1;
       case WM_PAINT:{PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT bounds{};GetClientRect(h,&bounds);auto memory=CreateCompatibleDC(dc);auto bitmap=CreateCompatibleBitmap(dc,std::max<LONG>(1,bounds.right),std::max<LONG>(1,bounds.bottom));if(memory&&bitmap){auto old=SelectObject(memory,bitmap);self->paint(memory);BitBlt(dc,paint.rcPaint.left,paint.rcPaint.top,paint.rcPaint.right-paint.rcPaint.left,paint.rcPaint.bottom-paint.rcPaint.top,memory,paint.rcPaint.left,paint.rcPaint.top,SRCCOPY);SelectObject(memory,old);}else self->paint(dc);if(bitmap)DeleteObject(bitmap);if(memory)DeleteDC(memory);EndPaint(h,&paint);return 0;}
