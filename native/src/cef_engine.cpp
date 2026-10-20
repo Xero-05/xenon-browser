@@ -2303,18 +2303,26 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
       send(t,"Page.getLayoutMetrics",Json::object(),[this,t,epoch,reply](Json metrics){
         if(!cdp_ok(metrics)){reply(failure("viewport_unavailable","The viewport is unavailable."));return;}
         auto vp=metrics.value("cssVisualViewport",Json::object());auto layout=metrics.value("cssLayoutViewport",Json::object());
+        // An unclipped surface capture is the whole page view, scrollbars included, in physical pixels.
+        // Image pixels per CSS pixel are Blink's CSS-to-physical zoom (display scale times browser zoom,
+        // the ratio of the two visual viewport sizes) times pinch scale, the factors CDP input applies.
+        // Dividing the image by the CSS viewport instead counted scrollbars as page content.
+        const auto physical=metrics.value("visualViewport",Json::object());
+        const double css_width=vp.value("clientWidth",0.0),css_height=vp.value("clientHeight",0.0),pinch=physical.value("scale",0.0);
+        const double scale=css_width>0&&css_height>0?physical.value("clientWidth",0.0)/css_width*pinch:0.0;
+        if(!std::isfinite(scale)||scale<=0||std::abs(physical.value("clientHeight",0.0)/css_height*pinch-scale)>scale*1e-4){reply(failure("viewport_unavailable","The viewport scale is unavailable."));return;}
         const auto captured_at=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        send(t,"Page.captureScreenshot",{{"format","png"},{"fromSurface",true},{"captureBeyondViewport",false}},[t,epoch,vp,layout,captured_at,reply](Json r){
+        send(t,"Page.captureScreenshot",{{"format","png"},{"fromSurface",true},{"captureBeyondViewport",false}},[t,epoch,vp,layout,css_width,css_height,scale,captured_at,reply](Json r){
           if(!cdp_ok(r)||!r.contains("data")||t->epoch!=epoch||t->protected_auth||t->screen_capture){reply(failure("screenshot_failed","The screenshot could not be safely captured."));return;}
           const auto png=CefBase64Decode(r["data"].get<std::string>());unsigned char header[24]{};
           if(!png||png->GetSize()<24||png->GetData(header,sizeof(header),0)!=sizeof(header)||header[0]!=137||header[1]!=80||header[2]!=78||header[3]!=71){reply(failure("screenshot_failed","The image dimensions could not be verified."));return;}
           auto dimension=[&](int at){return (static_cast<uint32_t>(header[at])<<24)|(static_cast<uint32_t>(header[at+1])<<16)|(static_cast<uint32_t>(header[at+2])<<8)|header[at+3];};
           const auto image_width=dimension(16),image_height=dimension(20);
-          const double css_width=vp.value("clientWidth",0.0),css_height=vp.value("clientHeight",0.0);
-          if(!image_width||!image_height||css_width<=0||css_height<=0){reply(failure("screenshot_failed","The image or CSS viewport is empty."));return;}
+          // The image must cover the measured viewport; a smaller one means the view shrank during capture.
+          if(!image_width||!image_height||image_width+1.0<css_width*scale||image_height+1.0<css_height*scale){reply(failure("screenshot_failed","The image does not cover the measured CSS viewport."));return;}
           t->screenshot=nonce();t->observation=t->screenshot;t->screenshot_viewport=layout;reply(success({{"mimeType","image/png"},{"data",r["data"]},{"observationId",t->screenshot},{"documentId",t->document},
             {"tabId",t->id},{"workspaceId",t->workspace},{"capturedAtUnixMs",captured_at},
-            {"imageWidth",image_width},{"imageHeight",image_height},{"scaleX",image_width/css_width},{"scaleY",image_height/css_height},{"coordinateMapping","CSS x = image x / scaleX; CSS y = image y / scaleY"},
+            {"imageWidth",image_width},{"imageHeight",image_height},{"scaleX",scale},{"scaleY",scale},{"coordinateMapping","CSS x = image x / scaleX; CSS y = image y / scaleY"},
             {"viewport",{{"width",vp.value("clientWidth",0.0)},{"height",vp.value("clientHeight",0.0)},{"pageX",vp.value("pageX",0.0)},{"pageY",vp.value("pageY",0.0)},{"coordinates","CSS pixels"}}}}));
         });
       });
