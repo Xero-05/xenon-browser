@@ -1,6 +1,23 @@
 # Validation
 
-## 0.1.8 release preparation
+## 0.1.8 release
+
+0.1.8 was published as the latest regular release on October 20, 2026. The
+[publication record](test-results/release-0.1.8-publication.json) binds the four
+asset sizes and GitHub SHA-256 digests to the source commit. A fresh public ZIP
+download passed all 1,351 file hashes again. The release source Windows CI
+passed; its stock-engine artifacts were not published.
+
+The local Windows-decoder package passed six extracted-package smoke checks
+and all 13 production live suites: integration, batch, visibility, worker
+lifecycle, upload entry, persistence, theme, passkey, screenshot, background
+popup containment, Windows H.264/AAC, WebM and covered-tab pacing. The
+[validation record](test-results/release-0.1.8-validation.json) binds every
+production report to the packaged DLL. The native-driver extension manager
+and quick-list suite passed 14 checks. The separate foreground extension
+popup/side-panel attempt timed out because Windows refused activation and no
+operator was available; it remains unverified for this release. No full Store
+installation or physical touch/pen/touchpad acceptance is claimed.
 
 The release source includes every commit merged through `b2c810d`. Its local
 Windows-decoder build passed all 24 native test groups, 146 adapter/fixed-script

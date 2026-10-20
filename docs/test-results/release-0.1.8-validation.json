@@ -1,0 +1,736 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.8",
+  "capturedUtc": "2026-10-20T21:12:58.599Z",
+  "passed": true,
+  "sourceCommit": "73dde9b69d45217941c96d72be4c7c4283116adb",
+  "sourceTree": "82a48902158034fcbc9ef9bc77ccb39c0c95dd1e",
+  "builtFromCommit": "7a78480bc6db3357ba98a6a521cfddf774b13ca2",
+  "packagedFromCommit": "19c9b972b27a5345c9bee42a9007ed7cb73f84c2",
+  "nativeSourceUnchangedAfterBuild": true,
+  "binaries": {
+    "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554",
+    "Xenon.dll": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+    "Xenon.exe": "0b1529649c99a27c390ced4560ef51172cc287b6babae0c12b77a2b824f9d154"
+  },
+  "assets": [
+    {
+      "name": "Xenon-0.1.8-windows-x64-setup-unsigned.exe",
+      "size": 206434673,
+      "digest": "sha256:6c16fcb6c15d1deb3ecdfbf798663d4c288d6201cd99f3081c97c5cd87de51d3"
+    },
+    {
+      "name": "Xenon-0.1.8-windows-x64-setup-unsigned.exe.sha256",
+      "size": 109,
+      "digest": "sha256:bbe68f7938bc1cb1a481b157a61d0d3d9a22cbffc374b55d8ba4ad45e3112892"
+    },
+    {
+      "name": "Xenon-0.1.8-windows-x64-unsigned.zip",
+      "size": 239272886,
+      "digest": "sha256:af65869e1385e28697e92f73e8fe715a07b31ac7bdec2c9d78fe690560f1fb39"
+    },
+    {
+      "name": "Xenon-0.1.8-windows-x64-unsigned.zip.sha256",
+      "size": 103,
+      "digest": "sha256:137fb9b92a90b5c957e7922f432f80f7384fee1a38ba1776af9abff9603a1ae7"
+    }
+  ],
+  "nativeGroups": 24,
+  "adapterAndScriptChecks": 146,
+  "brandingChecks": 5,
+  "codecAuditChecks": 10,
+  "engineAuditChecks": 17,
+  "recipeChecks": 25,
+  "isolatedInstallerChecks": 51,
+  "packageRuntimeHashes": 1351,
+  "packageSmokeChecks": 6,
+  "pinch": {
+    "testDriver": true,
+    "physicalUi": false,
+    "applicationDllSha256": "43c0314371f184350921dd981aa6465cc7c405dac7b8a0c77a06dae97d4e13b7",
+    "checks": [
+      {
+        "name": "A pinch after the screenshot invalidates its coordinates",
+        "passed": true
+      },
+      {
+        "name": "Pinched screenshot pixels land on their targets",
+        "passed": true
+      },
+      {
+        "name": "Coordinates outside the pinched view are rejected before input",
+        "passed": true
+      },
+      {
+        "name": "Pinched observation reports only the magnified view",
+        "passed": true
+      },
+      {
+        "name": "Inspection works while pinched and its bounds address the magnified view",
+        "passed": true
+      },
+      {
+        "name": "Unpinching restores the unpinched coordinate space",
+        "passed": true
+      },
+      {
+        "name": "An element reference that a pinch moves out of view is rejected before input",
+        "passed": true
+      },
+      {
+        "name": "Agent pointer movement stays inside the pinched view",
+        "passed": true
+      },
+      {
+        "name": "Scrolling while pinched sends the wheel inside the magnified view",
+        "passed": true
+      },
+      {
+        "name": "Agent movement starts at a person's pointer position while pinched",
+        "passed": true
+      },
+      {
+        "name": "The agent pointer overlay is drawn where the pinched page receives input",
+        "passed": true
+      },
+      {
+        "name": "The inspector picks the element under a pinched window point",
+        "passed": true
+      },
+      {
+        "name": "The inspector highlight is drawn around the pinched element",
+        "passed": true
+      }
+    ]
+  },
+  "reports": [
+    {
+      "name": "integration",
+      "report": "integration-results.json",
+      "reportSha256": "568f7cfbffd7a172bc4282891ed6a9e28d0f5454ed80d73c074195029c458220",
+      "applicationDllSha256": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+      "checks": [
+        {
+          "name": "Four separate adapters, three live tabs each",
+          "passed": true
+        },
+        {
+          "name": "Workspace and result isolation",
+          "passed": true
+        },
+        {
+          "name": "A pending wait does not block other adapters",
+          "passed": true
+        },
+        {
+          "name": "Page-only screenshots through real MCP image output",
+          "passed": true
+        },
+        {
+          "name": "Replaced nodes reject stale references",
+          "passed": true
+        },
+        {
+          "name": "Overlay hit testing rejects obscured input",
+          "passed": true
+        },
+        {
+          "name": "Same-origin and cross-origin frames expose usable references",
+          "passed": true
+        },
+        {
+          "name": "Shadow DOM actionability and semantics",
+          "passed": true
+        },
+        {
+          "name": "Visual coordinates require a current screenshot",
+          "passed": true
+        },
+        {
+          "name": "JavaScript dialogs are handled without blocking other tabs",
+          "passed": true
+        },
+        {
+          "name": "Website JavaScript links and logout confirmations remain usable",
+          "passed": true
+        },
+        {
+          "name": "Download namespace reports opaque scoped metadata",
+          "passed": true
+        },
+        {
+          "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+          "passed": true
+        },
+        {
+          "name": "Related popups transfer as one ownership group",
+          "passed": true
+        },
+        {
+          "name": "Mid-drag handoff waits for release before changing ownership",
+          "passed": true
+        },
+        {
+          "name": "Four workers behind one adapter, three tabs each",
+          "passed": true
+        },
+        {
+          "name": "Disconnect/reconnect preserves page and never replays mutations",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "batch-integration",
+      "report": "batch-1792530091677-8d59a93c.json",
+      "reportSha256": "5e31916b61b1bb1ad8565fd2af26a5ddbae339d945bb405c697abc7dbb39ede2",
+      "applicationDllSha256": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+      "checks": [
+        {
+          "name": "modern: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Separate calls comparison on the same eight-action plan",
+          "passed": true
+        },
+        {
+          "name": "Replaced target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Covered target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Navigation cancels original-document targets",
+          "passed": true
+        },
+        {
+          "name": "legacy: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Binary remained unchanged",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "visibility-integration",
+      "report": "visibility-integration-results.json",
+      "reportSha256": "85ca6de39870e8697df6736351d2b9c2b8bd296e1dd451cefca6f3703f9d6f44",
+      "applicationDllSha256": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+      "checks": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "A control near the far viewport corner stays verified and clickable by reference and coordinates",
+          "passed": true
+        },
+        {
+          "name": "At 120% browser zoom the far-corner control keeps CSS bounds and stays clickable by reference and coordinates",
+          "passed": true
+        },
+        {
+          "name": "Browser zoom resets before the remaining checks",
+          "passed": true
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "Screenshot pixel coordinates land on narrow controls beside both scrollbars",
+          "passed": true
+        },
+        {
+          "name": "Right-to-left screenshot coordinates keep the main-frame scrollbar on the right",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "worker-lifecycle-integration",
+      "report": "worker-lifecycle-integration-results.json",
+      "reportSha256": "561c704bda41dccdf46f4aeea8150d820c378b5a7f906010e3c0b6397f922207",
+      "applicationDllSha256": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+      "checks": [
+        {
+          "name": "Modern and legacy clients cannot retire each other’s workers",
+          "passed": true
+        },
+        {
+          "name": "Twenty retired workers preserve one live drafted, selected and scrolled session",
+          "passed": true
+        },
+        {
+          "name": "Retirement cancels queued input and releases a started finite gesture honestly",
+          "passed": true
+        },
+        {
+          "name": "Configured global capacity spans clients and retirement frees a slot",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "upload-entry-integration",
+      "report": "upload-entry-1792530133518-5dfd52fe.json",
+      "reportSha256": "aa2e4e8091e142e94518795ff7a26280affe4c6db177963a340080c369dd8181",
+      "applicationDllSha256": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+      "checks": [
+        {
+          "name": "File discovery retains truncation, later pages and scoped relative-path filters",
+          "passed": true
+        },
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true
+        },
+        {
+          "name": "A brightness-styled hover preserves the approved upload entry",
+          "passed": true
+        },
+        {
+          "name": "Observed Device text opens its exact chooser: custom-text",
+          "passed": true
+        },
+        {
+          "name": "Observed Device text opens its exact chooser: frame-text",
+          "passed": true
+        },
+        {
+          "name": "Changed Device text rejects its stale reference before activation",
+          "passed": true
+        },
+        {
+          "name": "Device text in a disabled container is denied before activation",
+          "passed": true
+        },
+        {
+          "name": "Ordinary observed text without a chooser never receives a file",
+          "passed": true
+        },
+        {
+          "name": "Device text cannot delegate its approved file to another frame",
+          "passed": true
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "persistence-integration",
+      "report": "persistence-crash-results.json",
+      "reportSha256": "def50fbcabe2189c01933cbc7f2e2deffe22593c73f7c4afe7c33f1a7b51c84d",
+      "applicationDllSha256": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+      "checks": [
+        {
+          "name": "Distinct workspaces isolate persistent cookies and local storage before restart",
+          "passed": true
+        },
+        {
+          "name": "Stored state survives a forced process stop and a second launch",
+          "passed": true
+        },
+        {
+          "name": "A new workspace after restart does not inherit either saved session",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "theme-integration",
+      "report": "theme-integration-1792530192599-09eb50ad.json",
+      "reportSha256": "1b37a96e841799a4e3f3689a1a418aa440da381d670480f2d2ec2c6d68df34e8",
+      "applicationDllSha256": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+      "checks": [
+        {
+          "name": "Theme light forces light web content under Windows dark mode",
+          "passed": true
+        },
+        {
+          "name": "Theme dark forces dark web content under Windows dark mode",
+          "passed": true
+        },
+        {
+          "name": "Theme system follows Windows dark mode; a runtime switch is saved for the next launch",
+          "passed": true
+        },
+        {
+          "name": "Restart applies the runtime light selection to web content",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "passkey-integration",
+      "report": "passkey-integration-1792530200514-2cbf48a4.json",
+      "reportSha256": "575ab5e37320781a864b73c0a093f7654bac76ff4b7b07954bb49aac4964fe3b",
+      "applicationDllSha256": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+      "checks": [
+        {
+          "name": "A tab created for an agent loads its website only after the passkey gate is installed in the page and every frame",
+          "passed": true
+        },
+        {
+          "name": "An agent click on a passkey control is refused before reaching the authenticator",
+          "passed": true
+        },
+        {
+          "name": "Navigation clears the passkey notice",
+          "passed": true
+        },
+        {
+          "name": "A tab the human controls forwards passkey requests unchanged",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "screenshot-integration",
+      "report": "screenshot-integration-1792530203648-2cd64b27.json",
+      "reportSha256": "0cbc5ca9a8cbe45353fa7abab023f717ba278ae45f15a520aa7b053b65793d0c",
+      "applicationDllSha256": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+      "checks": [
+        {
+          "name": "Readiness keys are never reflected into fixture HTML",
+          "passed": true
+        },
+        {
+          "name": "Safe safe page returns PNG",
+          "passed": true
+        },
+        {
+          "name": "Safe same-safe page returns PNG",
+          "passed": true
+        },
+        {
+          "name": "Safe cross-safe page returns PNG",
+          "passed": true
+        },
+        {
+          "name": "password credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "shadow credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "same-password credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "cross-password credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "Replacing a credential frame with a verified safe frame restores capture",
+          "passed": true
+        },
+        {
+          "name": "Repeated nested cross-origin frame replacement stays capturable",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "background-popup-integration",
+      "report": "background-popup-1792530221674-7ca8096e.json",
+      "reportSha256": "796fde22e050f424d5ccea149745e93a4de70e5f2d457258a7f64836502b0d38",
+      "binaryHashes": {
+        "Xenon.dll": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "checks": [
+        {
+          "name": "Choose a number",
+          "passed": true
+        },
+        {
+          "name": "Open suggestions",
+          "passed": true
+        },
+        {
+          "name": "fixture check 3",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "media-windows",
+      "report": "media-integration-1792530227823-4e54fb11.json",
+      "reportSha256": "6633e0eae623b61973682ba23ba82d08cd027bc89b4b99ac48a4d27188c2d4eb",
+      "binaryHashes": {
+        "Xenon.dll": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "checks": [
+        {
+          "name": "codecs",
+          "passed": true
+        },
+        {
+          "name": "audio",
+          "passed": true
+        },
+        {
+          "name": "playback",
+          "passed": true
+        },
+        {
+          "name": "pause",
+          "passed": true
+        },
+        {
+          "name": "seek",
+          "passed": true
+        },
+        {
+          "name": "volume",
+          "passed": true
+        },
+        {
+          "name": "resume",
+          "passed": true
+        },
+        {
+          "name": "streaming",
+          "passed": true
+        },
+        {
+          "name": "audioBufferDecode",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "media-webm",
+      "report": "media-integration-1792530232839-7ecaf21b.json",
+      "reportSha256": "4e746dda4ad8c5f884796453222c401f44ba88f55a1484423e0ec5c5a940265c",
+      "binaryHashes": {
+        "Xenon.dll": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "checks": [
+        {
+          "name": "codecs",
+          "passed": true
+        },
+        {
+          "name": "playback",
+          "passed": true
+        },
+        {
+          "name": "pause",
+          "passed": true
+        },
+        {
+          "name": "seek",
+          "passed": true
+        },
+        {
+          "name": "volume",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "frame-pacing",
+      "report": "frame-pacing-integration-1792530238921-8b3a7a64.json",
+      "reportSha256": "bb07a1b857cd83692c0beca0b82e1d7e20d7e9381705afe24011a5514c1348cd",
+      "binaryHashes": {
+        "Xenon.dll": "65c3841a5adafa5e016d6981aeb60356c0e3a8a5aac675a6eabf480ce13be43a",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "checks": [
+        {
+          "name": "fixture check 1",
+          "passed": true
+        },
+        {
+          "name": "fixture check 2",
+          "passed": true
+        },
+        {
+          "name": "fixture check 3",
+          "passed": true
+        },
+        {
+          "name": "fixture check 4",
+          "passed": true
+        },
+        {
+          "name": "fixture check 5",
+          "passed": true
+        },
+        {
+          "name": "fixture check 6",
+          "passed": true
+        },
+        {
+          "name": "fixture check 7",
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "retainedFailures": [
+    {
+      "stage": "restricted build",
+      "result": "Stalled before compilation; canceled, then full build passed with ordinary Windows permissions.",
+      "log": "out/release-build.log"
+    },
+    {
+      "stage": "restricted codec audits",
+      "result": "Temporary-directory cleanup denied by sandbox; unchanged tests passed with ordinary Windows permissions.",
+      "log": "out/codec-audit-tests.log"
+    },
+    {
+      "stage": "optional foreground extension surfaces",
+      "result": "Timed out waiting for the disposable window to be foreground. Windows refused activation and the user was unavailable to activate it. No foreground surface acceptance claimed.",
+      "log": "out/release-extensions.log"
+    }
+  ],
+  "limitations": [
+    "Foreground extension popup/side-panel suite not completed for this release; prior feature validation remains historical.",
+    "Pinch checks use the unshipped native test driver, not physical touch, pen or touchpad input.",
+    "No real-account, arbitrary-extension, physical-player, high-contrast or multi-DPI acceptance.",
+    "Hosted CI uses stock CEF; release assets use the audited Windows-decoder engine."
+  ],
+  "extensionManager": {
+    "testDriver": true,
+    "physicalUi": false,
+    "applicationDllSha256": "43c0314371f184350921dd981aa6465cc7c405dac7b8a0c77a06dae97d4e13b7",
+    "engineDllSha256": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554",
+    "checks": [
+      {
+        "name": "Quick list contains enabled extensions without opening a visible manager or broker tab",
+        "passed": true
+      },
+      {
+        "name": "Quick list distinguishes site access from other extensions on a real content-script page",
+        "passed": true
+      },
+      {
+        "name": "Quick list withholds a result after its source page navigates",
+        "passed": true
+      },
+      {
+        "name": "Native Chrome extension manager uses the persistent workspace profile",
+        "passed": true
+      },
+      {
+        "name": "Repeated open reuses the workspace manager without new broker tabs",
+        "passed": true
+      },
+      {
+        "name": "Extension page is embedded in Xenon without a Chromium browser frame",
+        "passed": true
+      },
+      {
+        "name": "Drawer hides Chrome logos and its actual Store link opens the Store in Xenon",
+        "passed": true
+      },
+      {
+        "name": "Chrome Web Store receives Chromium native installation API bindings",
+        "passed": true
+      },
+      {
+        "name": "Native Store install permission prompt can be canceled by closing its manager",
+        "passed": true
+      },
+      {
+        "name": "Chromium-created untracked window is rejected without crashing its caller",
+        "passed": true
+      },
+      {
+        "name": "Google account route requires a Store visit and can return to Store",
+        "passed": true
+      },
+      {
+        "name": "Store navigation works when Extensions is the only remaining tab",
+        "passed": true
+      },
+      {
+        "name": "Closing the manager preserves workspace tabs and permits reopening",
+        "passed": true
+      },
+      {
+        "name": "Browser shutdown drains embedded manager before CEF exits",
+        "passed": true
+      }
+    ],
+    "scope": "Manager and quick-list checks without foreground action/popup/side-panel flags; no full Store installation."
+  }
+}
