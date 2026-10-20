@@ -17,6 +17,8 @@ const profile=resolve(root,'.cache',run),pipeName=`xenon-test-${run}`,pipe=`\\\\
 const binary=resolve(root,'build/app/Release/Xenon.exe'),configPath=resolve(profile,'client-config.json');
 const runFile=promisify(execFile),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const hashes=async()=>Object.fromEntries(await Promise.all(['Xenon.dll','libcef.dll'].map(async n=>[n,createHash('sha256').update(await readFile(resolve(binary,'..',n))).digest('hex')])));
+const sourcePaths=['native/include/xenon/page_popup_guard.hpp','native/include/xenon/cef_engine.hpp','native/src/cef_engine.cpp','native/src/cef_shell.cpp','tests/background-popup-integration.mjs','tests/fixtures/popup-windows.ps1'];
+const sourceHashes=Object.fromEntries(await Promise.all(sourcePaths.map(async p=>[p,createHash('sha256').update(await readFile(resolve(root,p))).digest('hex')])));
 const checks=[];let browser,client,server,failure,startHashes,endHashes;
 const events=[];
 async function until(fn,label,ms=30_000){const end=Date.now()+ms;while(Date.now()<end){const value=await fn();if(value)return value;await sleep(150);}throw Error(`${label} timed out`);}
@@ -29,7 +31,7 @@ const fixture=`<!doctype html><meta charset="utf-8"><title>Background popup fixt
 <datalist id="numbers"><option value="149935"><option value="149279"><option value="150027"></datalist>
 <button id="regular">Regular action</button>
 <button id="suggestions">Open suggestions</button>
-<script>for(const e of document.querySelectorAll('select,input,button'))for(const type of ['click','input','change'])e.addEventListener(type,()=>fetch('/event',{method:'POST',body:JSON.stringify({tag:e.tagName,id:e.id,type,value:e.value||''})}));document.querySelector('#suggestions').onclick=()=>{const e=document.querySelector('input');e.value='149';e.focus();try{e.showPicker();}catch(error){fetch('/event',{method:'POST',body:JSON.stringify({type:'picker-error',value:error.name})});}};</script>`;
+<script>for(const e of document.querySelectorAll('select,input,button'))for(const type of ['click','input','change'])e.addEventListener(type,()=>fetch('/event',{method:'POST',body:JSON.stringify({tag:e.tagName,id:e.id,type,value:e.value||'',pageFocused:document.hasFocus()})}));document.querySelector('#suggestions').onclick=()=>{const e=document.querySelector('input');e.value='149';e.focus();try{e.showPicker();}catch(error){fetch('/event',{method:'POST',body:JSON.stringify({type:'picker-error',value:error.name})});}};</script>`;
 try{
   await mkdir(profile,{recursive:true});
   const identity={clientId:`popup_${randomBytes(8).toString('hex')}`,token:randomBytes(32).toString('hex'),pipe};
@@ -73,7 +75,7 @@ try{
   const foregroundSelect=await driver('popup-windows.ps1');console.log(JSON.stringify({foregroundSelect}));
   assert(foregroundSelect.foregroundOwn,'Synthetic fixture lost foreground before the select check');
   assert(foregroundSelect.windows.some(w=>w.startsWith('Chrome_WidgetWin_1')),'Foreground select popup must remain available');
-  checks.push({foregroundSelectVisible:true});
+  checks.push({foregroundSelectVisible:true,foregroundSelect});
   await select(0);await sleep(300);
   let state=await driver('popup-windows.ps1');
   assert(!state.windows.some(w=>w.startsWith('Chrome_WidgetWin_1')),'Tab switch must hide an existing popup');
@@ -81,7 +83,9 @@ try{
   checks.push({tabSwitchDismissed:true});
   await select(1);await driver('popup-windows.ps1',['-Action','foreground']);
   await act('Choose a number','click');await sleep(300);
-  assert((await driver('popup-windows.ps1')).windows.some(w=>w.startsWith('Chrome_WidgetWin_1')),'Reopening foreground select must work');
+  const reopenedSelect=await driver('popup-windows.ps1');console.log(JSON.stringify({reopenedSelect}));checks.push({reopenedSelect});
+  assert(reopenedSelect.foregroundOwn,'Synthetic fixture lost foreground before reopening select');
+  assert(reopenedSelect.windows.some(w=>w.startsWith('Chrome_WidgetWin_1')),'Reopening foreground select must work');
   await driver('popup-windows.ps1',['-Action','minimize']);await sleep(300);
   state=await driver('popup-windows.ps1');
   assert(!state.windows.some(w=>w.startsWith('Chrome_WidgetWin_1')),'Minimizing must hide an existing popup');
@@ -89,16 +93,37 @@ try{
   checks.push({minimizedDismissed:true});
   await driver('popup-windows.ps1',['-Action','foreground']);
   await sleep(500);
+  const beforeDatalist=await driver('popup-windows.ps1',['-Action','focus-page']);
+  assert(beforeDatalist.foregroundOwn&&beforeDatalist.focus.startsWith('Chrome_WidgetWin_'),'Synthetic datalist control needs native page focus');
+  checks.push({beforeDatalist});
   await act('Open suggestions','click');await sleep(500);
   state=await driver('popup-windows.ps1');
   console.log(JSON.stringify({foregroundDatalist:state,pickerErrors:events.filter(e=>e.type==='picker-error')}));
   assert(state.foregroundOwn,'Synthetic fixture lost foreground before the datalist check');
   assert(state.windows.some(w=>w.startsWith('Chrome_WidgetWin_1')),'Foreground datalist suggestions must remain available');
-  checks.push({foregroundDatalistVisible:true});
+  checks.push({foregroundDatalistVisible:true,foregroundDatalist:state});
   await select(0);await sleep(300);
   state=await driver('popup-windows.ps1');
   assert(!state.windows.some(w=>w.startsWith('Chrome_WidgetWin_1')),'Tab switch must hide datalist suggestions');
+    assert.equal(state.capture,'','Datalist tab switch must release popup capture');
   checks.push({datalistSwitchDismissed:true});
+  await act('Open suggestions','click');await sleep(500);
+  state=await driver('popup-windows.ps1');
+  assert(!state.windows.some(w=>w.startsWith('Chrome_WidgetWin_1')),'Covered datalist must not reopen above the selected tab');
+  assert.equal(state.capture,'','Covered datalist must not capture the pointer');
+  checks.push({coveredDatalistSuppressed:true});
+  await select(1);await driver('popup-windows.ps1',['-Action','foreground']);
+  await driver('popup-windows.ps1',['-Action','focus-page']);
+  await act('Open suggestions','click');await sleep(500);
+  state=await driver('popup-windows.ps1');
+  assert(state.foregroundOwn,'Synthetic fixture lost foreground before reopening datalist');
+  assert(state.windows.some(w=>w.startsWith('Chrome_WidgetWin_1')),'Datalist must reopen after background suppression');
+  checks.push({foregroundDatalistReopened:true});
+  const covered=await driver('popup-windows.ps1',['-Action','cover']);
+  assert(!covered.foregroundOwn,'Synthetic cover window must own foreground');
+  assert(!covered.windows.some(w=>w.startsWith('Chrome_WidgetWin_1')),'Foreground loss must dismiss the popup over other windows');
+  assert.equal(covered.capture,'','Foreground loss must release popup capture');
+  checks.push({foregroundLossDismissed:true,covered});
   }
 }catch(e){failure=e.message;console.error(e);process.exitCode=1;}
 finally{
@@ -107,6 +132,6 @@ finally{
   server?.close();endHashes=await hashes().catch(()=>undefined);
   if(JSON.stringify(startHashes)!==JSON.stringify(endHashes)){failure='Binaries changed during test';process.exitCode=1;}
   await mkdir(resolve(root,'out'),{recursive:true});
-  await writeFile(resolve(root,'out',`${run}.json`),JSON.stringify({run,startHashes,endHashes,checks,failure,passed:!failure,coverage:'Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input.'},null,2));
+  await writeFile(resolve(root,'out',`${run}.json`),JSON.stringify({run,sourceHashes,startHashes,endHashes,checks,events,failure,passed:!failure,coverage:'Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input.'},null,2));
   console.log(`Report: out/${run}.json`);
 }

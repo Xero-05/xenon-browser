@@ -1,26 +1,33 @@
 # Validation
 
-## Background native popups (local candidate, 2026-10-20)
+## Background native popups (isolated PR validation, 2026-10-20)
 
-`node tests/background-popup-integration.mjs` uses a disposable production
-browser and a loopback page. Before the fix, clicking a select in a covered
-agent tab created a visible `Chrome_WidgetWin_1` owned by the shell. The fixed
-run checks that covered select and suggestion-picker actions produce no extra
-visible windows or mouse capture, and verifies selection changes and ordinary
-button clicks through the website's callbacks. The full native build and
-`native_ui_tests` passed. Native tests additionally cover the original child
-owner, eligible display, eligibility loss, source destruction and unrelated
-shell popups. These binary runs used the shared checkout with other local
-changes present; they are not isolated PR-head browser acceptance.
+`node tests/background-popup-integration.mjs --foreground` uses a disposable
+production browser and a loopback page. The final isolated PR build passed the
+complete sequence twice on the same binaries: covered select/suggestion actions
+cannot display extra windows or capture the pointer; background selections and
+button clicks reach the website; foreground dropdowns and datalist suggestions
+open and reopen; tab switching, minimization and another synthetic window taking
+foreground dismiss native popups. The foreground mode needs an uninterrupted
+interactive desktop and focuses the selected CEF page through a native driver
+before checking datalist suggestions.
 
-The optional `--foreground` mode needs an uninterrupted interactive desktop.
-Foreground select, tab-switch and minimize assertions passed in partial runs,
-but the complete foreground suite has not passed: some attempts lost foreground
-activation, and the datalist positive control did not consistently produce a
-popup, including an attempt with foreground retained. This is not complete
-suggestion-list, physical-input or real PD Portal coverage. The
-[binary-bound record](test-results/background-popups.json) retains the initial
-reproduction, passing covered-tab run and incomplete foreground attempts.
+Validation caught and fixed a renderer lifecycle regression: closing the HWND
+alone hid a dropdown but prevented reopening it after a tab switch. The guard
+now notifies CEF before closing any remaining native widget. Native tests cover
+deferred dismissal, stale queued closes, source destruction, synchronous widget
+destruction during CEF dismissal, original child ownership and unrelated shell
+popups.
+
+The first isolated full build passed all 24 native suites, 119 adapter/script
+tests and five branding checks. On the final build, the native UI regressions
+passed; an unrelated storage-cleanup test returned Windows error 145 (directory
+not empty), then passed on a focused rerun of the unchanged binary. Final
+branding checks passed. The [binary-bound record](test-results/background-popups.json)
+retains the original shared-checkout reproduction, isolated reopening failure,
+fixture-focus failures, storage failure and final passing runs. These are MCP
+and native-message fixture checks, not physical-input or real PD Portal
+acceptance. Installed browser files and personal profiles were not modified.
 
 ## Direct file lookup (local candidate, 2026-10-20)
 

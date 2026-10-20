@@ -2347,7 +2347,7 @@ BrowserShell::BrowserShell(Broker& broker,CefEngine& engine,NativeUi& native,Ext
   impl_->messages=CreateWindowExW(0,L"XenonShellMessages",L"",0,0,0,0,0,HWND_MESSAGE,nullptr,branding_module(),impl_.get());
   if(!impl_->messages||!impl_->create_frame())throw std::runtime_error("Cannot create native browser shell");
   impl_->active=impl_->frames.front().get();
-  impl_->page_popups.start([self=impl_.get()](HWND source){return self->page_popup_allowed(source);});
+  impl_->page_popups.start([self=impl_.get()](HWND source){return self->page_popup_allowed(source);},[self=impl_.get()](HWND source){self->engine.dismiss_page_popups(source);});
   SetTimer(impl_->messages,1,16,nullptr);SetTimer(impl_->messages,2,1000,nullptr);
 }
 BrowserShell::~BrowserShell(){impl_->data.flush();impl_->hide_help_notice();if(impl_->messages){KillTimer(impl_->messages,1);KillTimer(impl_->messages,2);}

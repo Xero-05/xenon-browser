@@ -13,12 +13,13 @@ namespace xenon {
 class PagePopupGuard {
  public:
   using Allowed=std::function<bool(HWND)>;
+  using Dismiss=std::function<void(HWND)>;
   PagePopupGuard()=default;
   PagePopupGuard(const PagePopupGuard&)=delete;
   PagePopupGuard& operator=(const PagePopupGuard&)=delete;
-  void start(Allowed allowed){
+  void start(Allowed allowed,Dismiss dismiss={}){
     if(current_)throw std::runtime_error("Page popup guard already running");
-    allowed_=std::move(allowed);current_=this;
+    allowed_=std::move(allowed);dismiss_=std::move(dismiss);current_=this;
     hook_=SetWindowsHookExW(WH_CBT,hook,nullptr,GetCurrentThreadId());
     if(!hook_)throw std::runtime_error("Cannot guard page popup windows");
   }
@@ -37,7 +38,7 @@ class PagePopupGuard {
  private:
   static inline thread_local PagePopupGuard* current_{};
   struct Source {HWND window;uint64_t token;};
-  HHOOK hook_{};Allowed allowed_;std::map<HWND,Source> windows_;
+  HHOOK hook_{};Allowed allowed_;Dismiss dismiss_;std::map<HWND,Source> windows_;
   std::map<HWND,uint64_t> sources_;uint64_t next_token_{};
   static UINT close_message(){static const UINT message=RegisterWindowMessageW(L"Xenon.CloseBackgroundPagePopup");return message;}
   bool allowed(const Source& source) const {
@@ -84,9 +85,14 @@ class PagePopupGuard {
     }
     if(entry!=self->windows_.end()&&message==close_message()){
       // A reused popup that is now legitimately visible must not be closed by
-      // an earlier queued request. Otherwise let Chromium retire its widget
-      // and renderer popup state using the ordinary native close path.
-      if(!IsWindowVisible(window)||!self->allowed(entry->second))return DefSubclassProc(window,WM_CLOSE,0,0);
+      // an earlier queued request. Notify CEF before closing the HWND so its
+      // renderer popup state is retired too; WM_CLOSE alone is insufficient.
+      if(!IsWindowVisible(window)||!self->allowed(entry->second)){
+        const auto source=entry->second;
+        if(self->dismiss_&&self->sources_.contains(source.window)&&self->sources_.at(source.window)==source.token)self->dismiss_(source.window);
+        // CEF's dismissal may synchronously destroy this widget/subclass.
+        if(self->windows_.contains(window))return DefSubclassProc(window,WM_CLOSE,0,0);
+      }
       return 0;
     }
     if(message==WM_NCDESTROY){self->windows_.erase(window);RemoveWindowSubclass(window,proc,1);}

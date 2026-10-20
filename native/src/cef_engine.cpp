@@ -2748,6 +2748,9 @@ void CefEngine::select_native_tab(const std::string& id,bool awaiting_browser){
   else extension_action::call(extension_action::clear_selection);
   impl_->active_tab_=id;if(auto found=impl_->tabs_.find(id);found!=impl_->tabs_.end())impl_->active_windows_[GetAncestor(found->second->browser->GetHost()->GetWindowHandle(),GA_ROOT)]=id;
 }
+void CefEngine::dismiss_page_popups(HWND page){on_ui([owner=impl_,page]{
+  for(const auto& [id,tab]:owner->tabs_)if(tab->native_host==page&&!tab->closed){auto browser=tab->browser;browser->GetHost()->NotifyMoveOrResizeStarted();return;}
+});}
 void CefEngine::native_pointer(HWND page,POINT screen,bool substantive){on_ui([owner=impl_,page,screen,substantive]{
   for(const auto& [id,tab]:owner->tabs_)if(tab->native_host==page){
     auto window=tab->browser->GetHost()->GetWindowHandle();POINT point=screen;if(!ScreenToClient(window,&point))return;
