@@ -867,9 +867,9 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
         if(!valid()||!cdp_ok(owner)||!owner.contains("backendNodeId")||!owner["backendNodeId"].is_number_integer()){fail();return;}
         const auto backend=owner["backendNodeId"].get<int>();if(backend<=0){fail();return;}
         send(t,"Page.getLayoutMetrics",Json::object(),[this,t,e,frame,session,root_frame,parent,tree_frames,backend,visited,reply,next,valid,fail](Json metrics){
-          if(!valid()||!cdp_ok(metrics)||!metrics.contains("cssLayoutViewport")){fail();return;}
-          const auto v=metrics["cssLayoutViewport"];
-          Json viewports=Json::object();viewports[root_frame]={{"x",v.value("pageX",0.0)},{"y",v.value("pageY",0.0)},{"width",v.value("clientWidth",0.0)},{"height",v.value("clientHeight",0.0)}};
+          const auto viewport=visible_snapshot_viewport(metrics);
+          if(!valid()||!cdp_ok(metrics)||viewport.empty()){fail();return;}
+          Json viewports=Json::object();viewports[root_frame]=viewport;
           send(t,"DOMSnapshot.captureSnapshot",{{"computedStyles",visible_snapshot_styles()},{"includeDOMRects",true},{"includePaintOrder",true},{"includeBlendedBackgroundColors",true},{"includeTextColorOpacities",true}},
             [this,t,e,frame,session,parent,tree_frames,backend,visited,reply,next,valid,fail,viewports](Json snapshot){
               std::string verified_parent;
@@ -896,9 +896,9 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   void rendered_element(const std::shared_ptr<Tab>& t,const Element& e,Reply reply,std::function<void()> next) {
     if(t->closed||t->protected_auth||t->epoch!=e.epoch||!action_valid(t)){reply(failure("stale_element","The element or its document changed. Observe again."));return;}
     send(t,"Page.getLayoutMetrics",Json::object(),[this,t,e,reply,next](Json metrics){
-      if(!cdp_ok(metrics)||!metrics.contains("cssLayoutViewport")){reply(failure("stale_element","Rendered evidence is unavailable. Observe again."));return;}
-      const auto v=metrics["cssLayoutViewport"];
-      Json viewports=Json::object();viewports[e.root_frame]={{"x",v.value("pageX",0.0)},{"y",v.value("pageY",0.0)},{"width",v.value("clientWidth",0.0)},{"height",v.value("clientHeight",0.0)}};
+      const auto viewport=visible_snapshot_viewport(metrics);
+      if(!cdp_ok(metrics)||viewport.empty()){reply(failure("stale_element","Rendered evidence is unavailable. Observe again."));return;}
+      Json viewports=Json::object();viewports[e.root_frame]=viewport;
       send(t,"DOMSnapshot.captureSnapshot",{{"computedStyles",visible_snapshot_styles()},{"includeDOMRects",true},{"includePaintOrder",true},{"includeBlendedBackgroundColors",true},{"includeTextColorOpacities",true}},
         [this,t,e,reply,next,viewports](Json snapshot){
           try {
@@ -1644,7 +1644,8 @@ void CefEngine::Impl::observe(const std::shared_ptr<Tab>& t,const Json& p,Reply 
       send(t,"Page.getLayoutMetrics",Json::object(),[this,t,c,session,root_frame,captured](Json metrics){
         Json viewports=Json::object();const auto viewport=metrics.value("cssLayoutViewport",Json::object());
         if(cdp_ok(metrics)&&!viewport.empty()){
-          viewports[root_frame]={{"x",viewport.value("pageX",0.0)},{"y",viewport.value("pageY",0.0)},{"width",viewport.value("clientWidth",0.0)},{"height",viewport.value("clientHeight",0.0)}};
+          // Without a consistent layout scale the root frame is reported as unproven.
+          if(const auto snapshot_viewport=visible_snapshot_viewport(metrics);!snapshot_viewport.empty())viewports[root_frame]=snapshot_viewport;
           if(session.empty())c->viewport={{"pageX",viewport.value("pageX",0.0)},{"pageY",viewport.value("pageY",0.0)},{"width",viewport.value("clientWidth",0.0)},{"height",viewport.value("clientHeight",0.0)}};
         }
         send(t,"DOMSnapshot.captureSnapshot",{{"computedStyles",visible_snapshot_styles()},{"includeDOMRects",true},{"includePaintOrder",true},{"includeBlendedBackgroundColors",true},{"includeTextColorOpacities",true}},
@@ -2203,9 +2204,17 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
               {"truncated",evidence["truncated"]}};
           };
           auto& observation=after["result"];auto& screenshot=capture["result"];
-          auto viewport=screenshot["viewport"];viewport.erase("coordinates");
+          // The screenshot reports the fractional visual viewport; observations report
+          // Chromium's whole-pixel CSS layout viewport. At non-100% display scale they
+          // differ by that rounding alone. Scrolling, resizing or pinch zoom still fail.
+          const auto viewport=screenshot.value("viewport",Json::object()),observed=observation.value("viewport",Json::object());
+          bool same_viewport=true;
+          for(const auto* key:{"pageX","pageY","width","height"}){
+            const auto a=viewport.find(key),b=observed.find(key);
+            same_viewport=same_viewport&&a!=viewport.end()&&b!=observed.end()&&a->is_number()&&b->is_number()&&std::abs(a->get<double>()-b->get<double>())<=1;
+          }
           if(t->closed||t->epoch!=epoch||t->human_input!=human_input||t->protected_auth||
-             comparable(before["result"])!=comparable(observation)||viewport!=observation.value("viewport",Json::object())||
+             comparable(before["result"])!=comparable(observation)||!same_viewport||
              screenshot["documentId"]!=observation["documentId"]){
             t->screenshot.clear();reply(failure("inspection_changed","Document, viewport or rendered evidence changed during capture. Inspect again."));return;
           }
