@@ -150,6 +150,32 @@ try {
     await act('Rendered label action', 'Referenced label action completed');
     return { visibleLabelsUsed: true, hiddenNamesExcluded: true };
   });
+  await check('A control near the far viewport corner stays verified and clickable by reference and coordinates', async () => {
+    const observation = await observe();
+    const corner = observation.nodes.find(node => node.role === 'button' && node.name === 'Corner action' && node.ref);
+    assert(corner, 'A rendered control near the bottom-right viewport corner has no usable reference');
+    const { bounds } = corner, { viewport } = observation;
+    assert.equal(bounds.coordinateSpace, 'frame-document-css');
+    const right = bounds.x - viewport.pageX + bounds.width, bottom = bounds.y - viewport.pageY + bounds.height;
+    // Device-pixel bounds once pushed this region outside the CSS viewport at 125% display scale.
+    assert(right > viewport.width * 0.9 && bottom > viewport.height * 0.9, 'The corner control must reach beyond 90% of both CSS viewport axes');
+    assert(right <= viewport.width + 1 && bottom <= viewport.height + 1, 'Corner bounds must be CSS pixels inside the CSS viewport');
+    await tool('interact', { ...mutation(), observationId: observation.observationId, action: 'click', elementRef: corner.ref });
+    await until(async () => named(await observe(), 'Corner action 1'));
+    // Inspect asks clients to retry when evidence moves during capture, such as a hover transition.
+    const inspection = await until(async () => {
+      const response = await raw('inspect', { ...scope(), maxNodes: 1000 });
+      if (!response.isError) return response.structuredContent;
+      assert.equal(response.structuredContent?.error?.code, 'inspection_changed', `inspect: ${JSON.stringify(response.structuredContent ?? response.content)}`);
+      return false;
+    });
+    const clicked = inspection.nodes.find(node => node.role === 'button' && node.name === 'Corner action 1');
+    assert(clicked, 'Inspection lost the corner control');
+    const x = clicked.bounds.x - inspection.viewport.pageX + clicked.bounds.width / 2, y = clicked.bounds.y - inspection.viewport.pageY + clicked.bounds.height / 2;
+    await tool('interact', { ...mutation(), observationId: inspection.observationId, action: 'click', x, y });
+    await until(async () => named(await observe(), 'Corner action 2'));
+    return { viewport, bounds, screenshotScaleX: inspection.scaleX, referenceClick: true, coordinateClick: { x, y } };
+  });
   await check('Decorative box shadows preserve unrelated rendered control references and queries', async () => {
     const observation = await observe({ query: 'Visible input label' });
     const input = observation.nodes.find(node => node.role === 'textbox' && node.ref && node.name.includes('Visible input label'));
@@ -268,7 +294,7 @@ try {
     assert.equal(applicationDllSha256AtEnd, applicationDllSha256, 'Browser DLL changed during visibility validation');
   } catch (error) { results.push({ name: 'Tested binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe',
-    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 11 && results.every(result => result.passed), results };
+    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 12 && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true });
   const reportPath = resolve(root, 'out/visibility-integration-results.json');
   await writeFile(reportPath, JSON.stringify(report, null, 2));
