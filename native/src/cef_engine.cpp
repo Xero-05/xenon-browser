@@ -8,6 +8,7 @@
 #include "xenon/extension_install_fixture.hpp"
 #include "xenon/pointer_motion.hpp"
 #include "xenon/pointer_target.hpp"
+#include "xenon/input_viewport.hpp"
 #include "xenon/upload_entry.hpp"
 #include "xenon/ui_theme.hpp"
 #include "xenon/native_input_policy.hpp"
@@ -1762,11 +1763,12 @@ void CefEngine::Impl::click(const std::shared_ptr<Tab>& t,const Json& p,Reply re
   if(p.contains("x")&&p.contains("y")){
     if(field(p,"observationId")!=t->screenshot||t->screenshot.empty()){reply(failure("stale_observation","Coordinates require the current screenshot observationId."));return;}
     send(t,"Page.getLayoutMetrics",Json::object(),[this,t,p,reply,inject](Json r){
+      // A pinch or pan moves only the visual viewport, so both viewports must match.
       const auto viewport=t->screenshot_viewport;
-      if(!cdp_ok(r)||r.value("cssLayoutViewport",Json::object())!=viewport){reply(failure("stale_viewport","The viewport moved or resized since the screenshot."));return;}
+      if(!cdp_ok(r)||input_viewport(r)!=viewport){reply(failure("stale_viewport","The viewport moved, resized or zoomed since the screenshot."));return;}
       const double x=p.value("x",-1.0),y=p.value("y",-1.0);
-      if(!std::isfinite(x)||!std::isfinite(y)||x<0||y<0||x>=viewport.value("clientWidth",0.0)||y>=viewport.value("clientHeight",0.0)){reply(failure("invalid_coordinates","Coordinates must be inside the observed viewport."));return;}
-      inject(x,y,[this,t,viewport,reply](double,double,std::function<void()> ready){send(t,"Page.getLayoutMetrics",Json::object(),[viewport,reply,ready](Json result){if(!cdp_ok(result)||result.value("cssLayoutViewport",Json::object())!=viewport){reply(failure("stale_viewport","The viewport changed during pointer movement. No mouse-down was dispatched."));return;}ready();});});
+      if(!inside_input_viewport(viewport,x,y)){reply(failure("invalid_coordinates","Coordinates must be inside the observed viewport."));return;}
+      inject(x,y,[this,t,viewport,reply](double,double,std::function<void()> ready){send(t,"Page.getLayoutMetrics",Json::object(),[viewport,reply,ready](Json result){if(!cdp_ok(result)||input_viewport(result)!=viewport){reply(failure("stale_viewport","The viewport changed during pointer movement. No mouse-down was dispatched."));return;}ready();});});
     });return;
   }
   element(t,p,reply,[this,t,p,reply,inject](Element e,std::string object){point(t,e,object,reply,[this,t,e,object,p,reply,inject](double x,double y){
@@ -2293,7 +2295,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
       const auto epoch=t->epoch;
       send(t,"Page.getLayoutMetrics",Json::object(),[this,t,epoch,reply](Json metrics){
         if(!cdp_ok(metrics)){reply(failure("viewport_unavailable","The viewport is unavailable."));return;}
-        auto vp=metrics.value("cssVisualViewport",Json::object());auto layout=metrics.value("cssLayoutViewport",Json::object());
+        auto vp=metrics.value("cssVisualViewport",Json::object());const auto viewport=input_viewport(metrics);
         // An unclipped surface capture is the whole page view, scrollbars included, in physical pixels.
         // Image pixels per CSS pixel are Blink's CSS-to-physical zoom (display scale times browser zoom,
         // the ratio of the two visual viewport sizes) times pinch scale, the factors CDP input applies.
@@ -2302,8 +2304,9 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
         const double css_width=vp.value("clientWidth",0.0),css_height=vp.value("clientHeight",0.0),pinch=physical.value("scale",0.0);
         const double scale=css_width>0&&css_height>0?physical.value("clientWidth",0.0)/css_width*pinch:0.0;
         if(!std::isfinite(scale)||scale<=0||std::abs(physical.value("clientHeight",0.0)/css_height*pinch-scale)>scale*1e-4){reply(failure("viewport_unavailable","The viewport scale is unavailable."));return;}
+        if(viewport.empty()){reply(failure("viewport_unavailable","The viewport is unavailable."));return;}
         const auto captured_at=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        send(t,"Page.captureScreenshot",{{"format","png"},{"fromSurface",true},{"captureBeyondViewport",false}},[t,epoch,vp,layout,css_width,css_height,scale,captured_at,reply](Json r){
+        send(t,"Page.captureScreenshot",{{"format","png"},{"fromSurface",true},{"captureBeyondViewport",false}},[t,epoch,vp,viewport,css_width,css_height,scale,captured_at,reply](Json r){
           if(!cdp_ok(r)||!r.contains("data")||t->epoch!=epoch||t->protected_auth||t->screen_capture){reply(failure("screenshot_failed","The screenshot could not be safely captured."));return;}
           const auto png=CefBase64Decode(r["data"].get<std::string>());unsigned char header[24]{};
           if(!png||png->GetSize()<24||png->GetData(header,sizeof(header),0)!=sizeof(header)||header[0]!=137||header[1]!=80||header[2]!=78||header[3]!=71){reply(failure("screenshot_failed","The image dimensions could not be verified."));return;}
@@ -2311,7 +2314,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
           const auto image_width=dimension(16),image_height=dimension(20);
           // The image must cover the measured viewport; a smaller one means the view shrank during capture.
           if(!image_width||!image_height||image_width+1.0<css_width*scale||image_height+1.0<css_height*scale){reply(failure("screenshot_failed","The image does not cover the measured CSS viewport."));return;}
-          t->screenshot=nonce();t->observation=t->screenshot;t->screenshot_viewport=layout;reply(success({{"mimeType","image/png"},{"data",r["data"]},{"observationId",t->screenshot},{"documentId",t->document},
+          t->screenshot=nonce();t->observation=t->screenshot;t->screenshot_viewport=viewport;reply(success({{"mimeType","image/png"},{"data",r["data"]},{"observationId",t->screenshot},{"documentId",t->document},
             {"tabId",t->id},{"workspaceId",t->workspace},{"capturedAtUnixMs",captured_at},
             {"imageWidth",image_width},{"imageHeight",image_height},{"scaleX",scale},{"scaleY",scale},{"coordinateMapping","CSS x = image x / scaleX; CSS y = image y / scaleY"},
             {"viewport",{{"width",vp.value("clientWidth",0.0)},{"height",vp.value("clientHeight",0.0)},{"pageX",vp.value("pageX",0.0)},{"pageY",vp.value("pageY",0.0)},{"coordinates","CSS pixels"}}}}));
@@ -2380,11 +2383,12 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     }
     if(field(p,"observationId")!=t->screenshot||t->screenshot.empty()){reply(failure("stale_observation","Coordinate drag requires a current screenshot."));return;}
     send(t,"Page.getLayoutMetrics",Json::object(),[this,t,p,reply,gesture](Json m){
-      if(m.value("cssLayoutViewport",Json::object())!=t->screenshot_viewport){reply(failure("stale_viewport","The viewport changed since the screenshot."));return;}
-      const auto v=m.value("cssLayoutViewport",Json::object());double x=p.value("fromX",-1.0),y=p.value("fromY",-1.0),xx=p.value("toX",-1.0),yy=p.value("toY",-1.0);
-      for(const auto& point:std::vector<std::pair<double,double>>{{x,y},{xx,yy}})if(!std::isfinite(point.first)||!std::isfinite(point.second)||point.first<0||point.second<0||point.first>=v.value("clientWidth",0.0)||point.second>=v.value("clientHeight",0.0)){
+      const auto v=t->screenshot_viewport;
+      if(!cdp_ok(m)||input_viewport(m)!=v){reply(failure("stale_viewport","The viewport changed since the screenshot."));return;}
+      double x=p.value("fromX",-1.0),y=p.value("fromY",-1.0),xx=p.value("toX",-1.0),yy=p.value("toY",-1.0);
+      for(const auto& point:std::vector<std::pair<double,double>>{{x,y},{xx,yy}})if(!inside_input_viewport(v,point.first,point.second)){
         reply(failure("invalid_coordinates","Both drag endpoints must be within the observed viewport."));return;
-      }gesture(x,y,xx,yy,[this,t,v,reply](std::function<void()> ready){send(t,"Page.getLayoutMetrics",Json::object(),[v,reply,ready](Json result){if(!cdp_ok(result)||result.value("cssLayoutViewport",Json::object())!=v){reply(failure("stale_viewport","Drag viewport changed before press."));return;}ready();});});
+      }gesture(x,y,xx,yy,[this,t,v,reply](std::function<void()> ready){send(t,"Page.getLayoutMetrics",Json::object(),[v,reply,ready](Json result){if(!cdp_ok(result)||input_viewport(result)!=v){reply(failure("stale_viewport","Drag viewport changed before press."));return;}ready();});});
     });return;
   }
   if(command=="files.upload"){
@@ -2684,6 +2688,28 @@ void CefEngine::fixture_extension_manager(const std::string& workspace,const std
     else later(5000,[state]{if(state->reply)ExtensionManagerProbe::finish(state,failure("FIXTURE_FAILED","Synthetic manager probe timed out"));});
   });
 }
+void CefEngine::fixture_page_scale(const std::string& id,double scale,Reply reply){
+  on_ui([owner=impl_,id,scale,reply=std::move(reply)]{
+    if(owner->root_.parent_path().filename()!=L".cache"||!owner->root_.filename().wstring().starts_with(L"pinch-zoom-integration-")){reply(failure("FIXTURE_FAILED","Synthetic profile required"));return;}
+    const auto found=owner->tabs_.find(id);
+    if(found==owner->tabs_.end()||found->second->closed){reply(failure("FIXTURE_FAILED","Missing synthetic tab"));return;}
+    const auto t=found->second;
+    owner->send(t,"Page.getLayoutMetrics",Json::object(),[owner,t,scale,reply](Json before){
+      if(!cdp_ok(before)){reply(failure("FIXTURE_FAILED","Viewport unavailable"));return;}
+      if(scale==1){reply(success({{"before",before}}));return;}
+      // Chromium's synthetic touchpad pinch enters below Windows messages, as a
+      // DirectManipulation pinch does, so Xenon's input hooks do not see it.
+      const auto visual=before.value("cssVisualViewport",Json::object());
+      owner->send(t,"Input.synthesizePinchGesture",{{"x",visual.value("clientWidth",0.0)/2},{"y",visual.value("clientHeight",0.0)/2},{"scaleFactor",scale},{"gestureSourceType","mouse"}},
+        [owner,t,reply,before](Json pinched){
+          if(!cdp_ok(pinched)){reply(failure("FIXTURE_FAILED","Synthetic pinch was not dispatched"));return;}
+          owner->send(t,"Page.getLayoutMetrics",Json::object(),[reply,before](Json after){
+            reply(cdp_ok(after)?success({{"before",before},{"after",after}}):failure("FIXTURE_FAILED","Viewport unavailable"));
+          });
+        });
+    });
+  });
+}
 #endif
 size_t CefEngine::saved_account_count(const std::string& id){
   const auto found=impl_->tabs_.find(id);if(found==impl_->tabs_.end()||found->second->closed||!impl_->vault_||impl_->vault_->locked())return 0;
@@ -2825,13 +2851,14 @@ void CefEngine::Impl::developer_hit(const std::shared_ptr<Tab>& t,double x,doubl
 }
 void CefEngine::Impl::prepare_uncertain_click(const std::shared_ptr<Tab>& t,double x,double y,std::function<void(Json)> done){
   if(t->private_mode||t->protected_auth||t->auth_inflight||t->native_fill||t->uncertain_click_candidates.empty()){done(Json::object());return;}
-  const auto viewport=t->screenshot_viewport;
-  const Json expected={{"pageX",viewport.value("pageX",0.0)},{"pageY",viewport.value("pageY",0.0)},{"width",viewport.value("clientWidth",0.0)},{"height",viewport.value("clientHeight",0.0)}};
+  const auto viewport=t->screenshot_viewport;const auto layout=viewport.is_object()?viewport.value("layout",Json::object()):Json::object();
+  const Json expected={{"pageX",layout.value("pageX",0.0)},{"pageY",layout.value("pageY",0.0)},{"width",layout.value("clientWidth",0.0)},{"height",layout.value("clientHeight",0.0)}};
   if(t->uncertain_click_viewport!=expected){done(Json::object());return;}
   const auto epoch=t->epoch,human=t->human_input,generation=uncertain_click_log_.generation();
   const auto candidates=t->uncertain_click_candidates;
   auto valid=[this,t,epoch,human,generation]{return action_valid(t)&&t->epoch==epoch&&t->human_input==human&&!t->closed&&!t->private_mode&&!t->protected_auth&&!t->auth_inflight&&!t->native_fill&&uncertain_click_log_.enabled()&&uncertain_click_log_.generation()==generation;};
-  send(t,"DOM.getNodeForLocation",{{"x",static_cast<int>(std::floor(x+viewport.value("pageX",0.0)))},{"y",static_cast<int>(std::floor(y+viewport.value("pageY",0.0)))},{"includeUserAgentShadowDOM",false}},[this,t,x,y,expected,viewport,candidates,valid,done](Json hit){
+  const auto [document_x,document_y]=input_viewport_document_point(viewport,x,y);
+  send(t,"DOM.getNodeForLocation",{{"x",static_cast<int>(std::floor(document_x))},{"y",static_cast<int>(std::floor(document_y))},{"includeUserAgentShadowDOM",false}},[this,t,x,y,expected,viewport,candidates,valid,done](Json hit){
     if(!valid()||!cdp_ok(hit)){done(Json::object());return;}
     const auto backend=hit.value("backendNodeId",0);const auto frame=field(hit,"frameId");std::string session;
     for(const auto& [id,entry]:t->sessions)if(entry.frame==frame)session=id;
@@ -2850,7 +2877,7 @@ void CefEngine::Impl::prepare_uncertain_click(const std::shared_ptr<Tab>& t,doub
         if(!diagnostic.empty()){diagnostic["hitMatch"]="native_ax_ancestry";diagnostic["viewport"]=expected;diagnostic["click"]={{"x",x},{"y",y}};}
       }
       // Diagnostics never bypass the normal dispatch guard or moving-viewport check.
-      send(t,"Page.getLayoutMetrics",Json::object(),[valid,viewport,done,diagnostic](Json metrics){done(valid()&&cdp_ok(metrics)&&metrics.value("cssLayoutViewport",Json::object())==viewport?diagnostic:Json::object());});
+      send(t,"Page.getLayoutMetrics",Json::object(),[valid,viewport,done,diagnostic](Json metrics){done(valid()&&cdp_ok(metrics)&&input_viewport(metrics)==viewport?diagnostic:Json::object());});
     },session);
   });
 }

@@ -17,6 +17,7 @@
 #include "xenon/removal_fixture.hpp"
 #include "xenon/autofill_fixture.hpp"
 #include "xenon/extension_manager_fixture.hpp"
+#include "xenon/page_scale_fixture.hpp"
 #include "xenon/updater.hpp"
 #include "xenon/extension_store.hpp"
 #include "xenon/launch_urls.hpp"
@@ -92,7 +93,7 @@ std::vector<std::string> command_urls(CefRefPtr<CefCommandLine> command){
 }
 class App final : public CefApp,public CefBrowserProcessHandler {
  public:
-  App(std::filesystem::path root,Broker::Limits limits,std::wstring pipe,std::unique_ptr<ExtensionStore> extensions,bool test_removal=false,bool test_autofill=false,bool open_documentation=false,std::vector<std::string> launch={},bool test_extensions=false):root_(std::move(root)),limits_(limits),pipe_name_(std::move(pipe)),extensions_(std::move(extensions)),test_removal_enabled_(test_removal),test_autofill_enabled_(test_autofill),open_documentation_(open_documentation),test_extension_enabled_(test_extensions),launch_urls_(std::move(launch)){
+  App(std::filesystem::path root,Broker::Limits limits,std::wstring pipe,std::unique_ptr<ExtensionStore> extensions,bool test_removal=false,bool test_autofill=false,bool open_documentation=false,std::vector<std::string> launch={},bool test_extensions=false,bool test_page_scale=false):root_(std::move(root)),limits_(limits),pipe_name_(std::move(pipe)),extensions_(std::move(extensions)),test_removal_enabled_(test_removal),test_autofill_enabled_(test_autofill),open_documentation_(open_documentation),test_extension_enabled_(test_extensions),test_page_scale_enabled_(test_page_scale),launch_urls_(std::move(launch)){
     // Read once, before Chromium starts. Later changes apply after restart.
     try{extension_paths_=extensions_->startup_paths();}catch(const std::exception&){extension_paths_.clear();}
   }
@@ -206,6 +207,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
         removal_fixture_=std::make_shared<NativeRemovalFixture>(root_,*broker_);removal_fixture_->start();
       }
       if(test_autofill_enabled_){autofill_fixture_=std::make_shared<NativeAutofillFixture>(root_,*broker_,*engine_,*vault_);autofill_fixture_->start();}
+      if(test_page_scale_enabled_){page_scale_fixture_=std::make_shared<NativePageScaleFixture>(root_,*engine_);page_scale_fixture_->start();}
       if(test_extension_enabled_){
         extension_fixture_=std::make_shared<NativeExtensionManagerFixture>(root_,*engine_,[this]{return shell_&&shell_->fixture_store_menu();},[this](const std::string& action){return shell_?shell_->fixture_extension_panel(action,root_):failure("NOT_READY","Synthetic shell is initializing");});extension_fixture_->start();
       }
@@ -223,6 +225,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     removal_fixture_.reset();
     autofill_fixture_.reset();
     extension_fixture_.reset();
+    page_scale_fixture_.reset();
 #endif
     if(launch_window_){DestroyWindow(launch_window_);launch_window_=nullptr;}
     active_=nullptr;if(hook_){UnhookWindowsHookEx(hook_);hook_=nullptr;}
@@ -401,7 +404,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     }
   }
   static inline App* active_=nullptr;
-  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;std::unique_ptr<ExtensionStore> extensions_;std::vector<std::filesystem::path> extension_paths_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{},test_extension_enabled_{};std::vector<std::string> launch_urls_,handed_urls_;HWND launch_window_{};HHOOK hook_{};
+  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;std::unique_ptr<ExtensionStore> extensions_;std::vector<std::filesystem::path> extension_paths_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{},test_extension_enabled_{},test_page_scale_enabled_{};std::vector<std::string> launch_urls_,handed_urls_;HWND launch_window_{};HHOOK hook_{};
   NativeInputPolicy input_policy_;
   struct KeyboardPage {HWND page{};ULONGLONG observed_at{};};
   std::map<HWND,KeyboardPage> keyboard_pages_;
@@ -414,6 +417,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
   std::shared_ptr<NativeRemovalFixture> removal_fixture_;
   std::shared_ptr<NativeAutofillFixture> autofill_fixture_;
   std::shared_ptr<NativeExtensionManagerFixture> extension_fixture_;
+  std::shared_ptr<NativePageScaleFixture> page_scale_fixture_;
 #endif
   IMPLEMENT_REFCOUNTING(App);
 };
@@ -506,16 +510,17 @@ int run(HINSTANCE instance,void* sandbox_info){
   settings.persist_session_cookies=true;
   CefString(&settings.root_cache_path)=root.wstring();CefString(&settings.cache_path)=(root/"Default").wstring();
   settings.log_severity=LOGSEVERITY_DISABLE;
-  bool test_removal=false,test_autofill=false,test_extensions=false;
+  bool test_removal=false,test_autofill=false,test_extensions=false,test_page_scale=false;
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
   test_removal=command->HasSwitch("test-native-removal");
   test_autofill=command->HasSwitch("test-native-autofill");
   test_extensions=command->HasSwitch("test-extension-manager");
+  test_page_scale=command->HasSwitch("test-page-scale");
   if(test_extensions&&root.parent_path().filename()==L".cache"&&root.filename().wstring().starts_with(L"extension-manager-integration-")){
     settings.log_severity=LOGSEVERITY_WARNING;CefString(&settings.log_file)=(root/"cef-fixture.log").wstring();
   }
 #endif
-  CefRefPtr<App> app=new App(root,limits,pipe_name,std::make_unique<ExtensionStore>(root),test_removal,test_autofill,open_documentation,launch,test_extensions);
+  CefRefPtr<App> app=new App(root,limits,pipe_name,std::make_unique<ExtensionStore>(root),test_removal,test_autofill,open_documentation,launch,test_extensions,test_page_scale);
   if(!CefInitialize(args,settings,app,sandbox_info))return CefGetExitCode();
   startup_gate.release();
   CefRunMessageLoop();auto installer=app->pending_update();app->stop();app=nullptr;CefShutdown();

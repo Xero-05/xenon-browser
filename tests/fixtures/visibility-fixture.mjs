@@ -27,6 +27,26 @@ function frameHtml(kind) {
   ${kind === 'same' ? '<iframe src="/frame?kind=nested" style="width:300px;height:115px;border:1px solid #bbb"></iframe>' : ''}`;
 }
 
+// Screenshot-coordinate pages. Clicks are counted by the server, so a check does
+// not depend on rendered evidence of the pinched or mirrored page.
+const viewportTarget = (id, style) => `<div id="${id}" style="position:fixed;${style}" onclick="fetch('/click',{method:'POST',body:'${id}'})"></div>`;
+const tallPage = (attributes, body) => `<!doctype html><html ${attributes}><head><meta charset="utf-8"><title>Viewport fixture</title>
+  <style>body{margin:0;font:15px system-ui;color:#142237;background:#fff}main{height:300vh;padding:14px}</style></head>
+  <body><main><h1 id="ready">Viewport fixture ready</h1></main>${body}</body></html>`;
+// Right-to-left document: Windows Chromium could put its vertical scrollbar on the left.
+function rtlHtml() {
+  return tallPage('dir="rtl" lang="ar"', viewportTarget('rtl-left', 'left:0;top:48px;width:12px;height:12px;background:#f0f')
+    + viewportTarget('rtl-right', 'right:0;top:96px;width:12px;height:12px;background:#ff0'));
+}
+// Targets fixed to the layout viewport. A 2x pinch at its center shows the middle
+// half: center stays in view, left (30% across) moves near the left edge, and
+// corner leaves the visual viewport while staying inside the layout viewport.
+function pinchHtml() {
+  return tallPage('lang="en"', viewportTarget('pinch-center', 'left:calc(50% - 20px);top:calc(50% - 20px);width:40px;height:40px;background:#f0f')
+    + viewportTarget('pinch-left', 'left:calc(30% - 12px);top:calc(50% - 12px);width:24px;height:24px;background:#0ff')
+    + viewportTarget('pinch-corner', 'right:24px;bottom:24px;width:40px;height:40px;background:#ff0'));
+}
+
 function pageHtml(crossOrigin) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
   <title>${marker('DOCUMENT_TITLE')}</title><style>
@@ -112,7 +132,8 @@ function pageHtml(crossOrigin) {
 
 export async function startVisibilityFixture() {
   const servers = [];
-  const frameRequests = new Map();
+  const frameRequests = new Map(), clicks = new Map();
+  const clickTargets = new Set(['rtl-left', 'rtl-right', 'pinch-center', 'pinch-left', 'pinch-corner']);
   let control = { version: 0, action: '' }, appliedVersion = 0;
   const allowedChanges = new Set(['change-label', 'hide-cross', 'show-cross', 'hide-same', 'show-same']);
   async function start(crossOrigin) {
@@ -141,6 +162,14 @@ export async function startVisibilityFixture() {
         const kind = url.searchParams.get('kind'); frameRequests.set(kind, (frameRequests.get(kind) ?? 0) + 1);
         response.end(frameHtml(kind)); return;
       }
+      if (url.pathname === '/click' && request.method === 'POST') {
+        let body = '';
+        request.on('data', chunk => { body += chunk; if (body.length > 64) request.destroy(); });
+        request.on('end', () => { if (clickTargets.has(body)) clicks.set(body, (clicks.get(body) ?? 0) + 1); response.end('{}'); });
+        return;
+      }
+      if (url.pathname === '/rtl') { response.end(rtlHtml()); return; }
+      if (url.pathname === '/pinch') { response.end(pinchHtml()); return; }
       if (url.pathname === '/health') { response.end('ok'); return; }
       if (url.pathname !== '/') { response.writeHead(404).end(); return; }
       response.end(pageHtml(crossOrigin ?? origin));
@@ -155,7 +184,7 @@ export async function startVisibilityFixture() {
     // Chromium's cross-site/OOPIF boundary when site isolation is active.
     const crossOrigin = (await start()).replace('127.0.0.1', 'localhost');
     const origin = await start(crossOrigin);
-    return { origin, crossOrigin, requestedFrames: () => Object.fromEntries(frameRequests), async change(action) {
+    return { origin, crossOrigin, requestedFrames: () => Object.fromEntries(frameRequests), clicks: () => Object.fromEntries(clicks), async change(action) {
       if (!allowedChanges.has(action)) throw new Error('Unsupported synthetic fixture change');
       const { version } = await (await fetch(`${origin}/control`, { method: 'POST', body: action })).json();
       const deadline = Date.now() + 5000;
