@@ -1,7 +1,7 @@
 {
   "date": "2026-10-20",
   "scope": "Local branch candidate on stock CEF 154.0.34; no release or package",
-  "sourceBase": "2c34601 (rendered evidence and element actions under pinch zoom, unmerged) merged with main 8b73594",
+  "sourceBase": "Built and tested from 2c34601 (rendered evidence and element actions under pinch zoom) merged with main 8b73594. The commit now sits on main 9c5cca8, where that change landed through PR #53; native, adapter and build sources are identical to the tested tree, and only documentation and a test comment differ.",
   "display": "One 100% monitor; classic 15 CSS px scrollbars; 932x689 page view without the Elements panel, 509 px wide with it",
   "engineSha256": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7",
   "coordinateModel": "Window coordinates are page-window client pixels divided by display scale and browser zoom. CDP input coordinates are visual-viewport CSS pixels: window coordinates divided by the pinch scale (cssVisualViewport.scale). Both start at the window's page corner, where the visual viewport is drawn, so no pan offset separates them. Document points for DOM.getNodeForLocation add cssVisualViewport.pageX/pageY (layout scroll plus pinch pan).",
