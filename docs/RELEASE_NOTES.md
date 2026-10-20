@@ -10,6 +10,8 @@
 
 **Screenshot coordinates beside scrollbars.** A page screenshot includes its scrollbars, but its `scaleX`/`scaleY` treated the whole image as page content, so coordinates computed from the image drifted by up to the scrollbar width toward the right and bottom edges. The scale is now image pixels per CSS pixel at any display scale or browser zoom, and points over a scrollbar are rejected. See [MCP](MCP.md#tools).
 
+**Screenshot coordinates while pinch-zoomed.** A person can pinch-zoom a page with a touchscreen or precision touchpad. Coordinate checks used the unzoomed page area, so a click or drag could reach page content outside the magnified view the screenshot showed, and a pinch after a screenshot left its coordinates current. Coordinates must now fall inside the screenshot's visible area, and a pinch or pan invalidates them. See [MCP](MCP.md#tools).
+
 ## 0.1.7
 
 0.1.7 replaces the withdrawn 0.1.6 and includes all of its changes below. The [0.1.7 notes](RELEASE-0.1.7.md) also cover the engine and the release checks.

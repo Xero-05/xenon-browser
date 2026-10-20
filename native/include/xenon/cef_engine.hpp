@@ -99,6 +99,8 @@ class CefEngine final : public BrowserEngine {
   void layout_extension_surfaces(const std::string& tab_id,RECT dock,RECT toolbar_anchor);
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
   void fixture_extension_manager(const std::string& workspace,const std::string& action,Reply reply);
+  // Synthetic touchpad pinch by a relative factor (1 only reads the viewports).
+  void fixture_page_scale(const std::string& tab_id,double scale,Reply reply);
 #endif
   // Count of vault accounts for the tab's exact HTTPS origin; metadata only.
   size_t saved_account_count(const std::string& tab_id);

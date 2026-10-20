@@ -1,0 +1,351 @@
+{
+  "date": "2026-10-20",
+  "scope": "Local branch candidate on stock CEF 154.0.34, stacked on the unpushed screenshot-scale branch (cc24542); no release or package",
+  "sourceBase": "cc24542 (claude/strange-fermat-bfce7b)",
+  "display": "One 100% monitor; classic 15 CSS px scrollbars",
+  "engineSha256": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7",
+  "chromiumSource": {
+    "pinchEnabled": "components/input/switches.cc IsPinchToZoomEnabled: on unless --disable-pinch; ChromeContentBrowserClient::IsPinchToZoomAllowed returns true outside ChromeOS kiosk mode. Xenon passes neither.",
+    "inputScale": "content/browser/devtools/protocol/input_handler.cc InputHandler::ScaleFactor: browser zoom x CSS zoom x page (pinch) scale; Input.dispatchMouseEvent has no bounds check.",
+    "boxModel": "inspector_highlight.cc GetBoxModel: visual-viewport coordinates divided by pinch scale, the same space as CDP input, so element-reference clicks map correctly.",
+    "rtl": "layout_view.cc LayoutView::ShouldPlaceBlockDirectionScrollbarOnLogicalLeft: false for the outermost main frame unless placeRTLScrollbarsOnLeftSideInMainFrame (settings.json5 initial false; set only by web tests)."
+  },
+  "humanInput": "Synthetic pinch uses Chromium SyntheticTouchpadPinchGesture through the Aura window delegate, below Windows messages. A DirectManipulation touchpad pinch also stays out of Xenon's WH_GETMESSAGE hook, which classifies mouse buttons, wheel, keys and IME only. Physical touch and touchpad input were not exercised.",
+  "beforeFix": {
+    "note": "Native source cc24542 plus the AuthTest-only pinch driver; validation and stale checks used cssLayoutViewport only",
+    "pinch": {
+      "binary": "build/auth-fixture/Release/XenonAuthTest.dll",
+      "applicationDllSha256": "82ea6893586269c1303b057b91fb3bbab62d771e17046b7da32f9a66498b29cb",
+      "run": "pinch-zoom-integration-1792464396120-cb760932",
+      "passed": false,
+      "results": [
+        {
+          "name": "A pinch after the screenshot invalidates its coordinates",
+          "passed": false,
+          "error": "Coordinates from before the pinch were accepted: {\"reply\":{\"status\":\"dispatched\",\"operationId\":\"f2cc0cd3-1ecd-47bd-bb9e-80e926ca8af2\",\"dispatchStatus\":\"dispatched\",\"timing\":{\"executionMs\":406.4486,\"queueMs\":1.5766,\"totalMs\":408.0252},\"contentTrust\":{\"classification\":\"untrusted_website_content\",\"instructionAuthority\":\"none\"},\"textSafety\":{\"withheldValues\":0,\"limitation\":\"String values containing unsafe non-rendering characters are withheld in full. This is not a complete prompt-injection defense.\"}},\"clicks\":{}}"
+        },
+        {
+          "name": "Pinched screenshot pixels land on their targets",
+          "passed": true
+        },
+        {
+          "name": "Coordinates outside the pinched view are rejected before input",
+          "passed": false,
+          "error": "An unseen coordinate was accepted: {\"corner\":{\"x\":644,\"y\":473},\"reply\":{\"status\":\"dispatched\",\"operationId\":\"223ee0d8-a0c4-41c2-bfd4-36afd3b043f5\",\"dispatchStatus\":\"dispatched\",\"timing\":{\"executionMs\":501.6783,\"queueMs\":2.1229,\"totalMs\":503.8012},\"contentTrust\":{\"classification\":\"untrusted_website_content\",\"instructionAuthority\":\"none\"},\"textSafety\":{\"withheldValues\":0,\"limitation\":\"String values containing unsafe non-rendering characters are withheld in full. This is not a complete prompt-injection defense.\"}},\"clicks\":{\"pinch-center\":1,\"pinch-left\":1,\"pinch-corner\":1}}"
+        },
+        {
+          "name": "Unpinching restores the unpinched coordinate space",
+          "passed": false,
+          "error": "pinch-corner click count is 2, expected 1"
+        }
+      ]
+    },
+    "rtl": {
+      "binary": "build/app/Release/Xenon.dll",
+      "applicationDllSha256": "e136d4e78cd08b6a8ff2e75f86d1c6f4381474c1266367c0d9380d4965ee5267",
+      "run": "visibility-integration-1792464429982-6063cb41",
+      "suitePassed": true,
+      "checks": 13,
+      "check": {
+        "name": "Right-to-left screenshot coordinates keep the main-frame scrollbar on the right",
+        "passed": true,
+        "elapsedMs": 1349,
+        "details": {
+          "clicked": [
+            {
+              "id": "rtl-left",
+              "imageBox": {
+                "left": 0,
+                "top": 48,
+                "right": 11,
+                "bottom": 59
+              },
+              "x": 6,
+              "y": 54
+            },
+            {
+              "id": "rtl-right",
+              "imageBox": {
+                "left": 905,
+                "top": 96,
+                "right": 916,
+                "bottom": 107
+              },
+              "x": 911,
+              "y": 102
+            }
+          ],
+          "scrollbar": 15,
+          "imageWidth": 932,
+          "viewport": {
+            "coordinates": "CSS pixels",
+            "height": 689,
+            "pageX": 0,
+            "pageY": 0,
+            "width": 917
+          },
+          "scaleX": 1,
+          "rightScrollbarClickRejected": true
+        }
+      }
+    }
+  },
+  "afterFix": {
+    "nativeTests": {
+      "passed": true,
+      "groups": 23,
+      "command": "./scripts/build.ps1 -Test -Jobs 8 (CMake configured with -DXENON_BUILD_AUTH_FIXTURE=ON)",
+      "note": "adapter, login, autofill, protected-login, form-fill and passkey script suites and branding integrity also passed"
+    },
+    "pinch": {
+      "binary": "build/auth-fixture/Release/XenonAuthTest.dll",
+      "applicationDllSha256": "8fdb7fa06a58236ba2afada8230f10057fceee780cfecb922a0532f5739fe873",
+      "unchangedDuringRun": true,
+      "run": "pinch-zoom-integration-1792464535521-26b9d5b2",
+      "passed": true,
+      "results": [
+        {
+          "name": "A pinch after the screenshot invalidates its coordinates",
+          "passed": true,
+          "elapsedMs": 1105,
+          "details": {
+            "unpinchedPoint": {
+              "x": 275,
+              "y": 345
+            },
+            "pinch": {
+              "after": {
+                "cssLayoutViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "pageX": 0,
+                  "pageY": 0
+                },
+                "cssVisualViewport": {
+                  "clientHeight": 344.500244140625,
+                  "clientWidth": 458.5003356933594,
+                  "offsetX": 229,
+                  "offsetY": 172,
+                  "pageX": 229,
+                  "pageY": 172,
+                  "scale": 1.999998688697815,
+                  "zoom": 1
+                },
+                "visualViewport": {
+                  "clientHeight": 344.500244140625,
+                  "clientWidth": 458.5003356933594,
+                  "offsetX": 229,
+                  "offsetY": 172,
+                  "pageX": 229,
+                  "pageY": 172,
+                  "scale": 1.999998688697815,
+                  "zoom": 1
+                }
+              },
+              "before": {
+                "cssLayoutViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "pageX": 0,
+                  "pageY": 0
+                },
+                "cssVisualViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "pageX": 0,
+                  "pageY": 0,
+                  "scale": 1,
+                  "zoom": 1
+                },
+                "visualViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "pageX": 0,
+                  "pageY": 0,
+                  "scale": 1,
+                  "zoom": 1
+                }
+              }
+            },
+            "rejected": "stale_viewport"
+          }
+        },
+        {
+          "name": "Pinched screenshot pixels land on their targets",
+          "passed": true,
+          "elapsedMs": 2093,
+          "details": {
+            "scaleX": 1.999998688697815,
+            "zoom": 1,
+            "pinch": 1.999998688697815,
+            "imageWidth": 932,
+            "imageHeight": 689,
+            "viewport": {
+              "coordinates": "CSS pixels",
+              "height": 344.500244140625,
+              "pageX": 229,
+              "pageY": 172,
+              "width": 458.5003356933594
+            },
+            "hits": [
+              {
+                "id": "pinch-center",
+                "imageBox": {
+                  "left": 420,
+                  "top": 306,
+                  "right": 499,
+                  "bottom": 385
+                },
+                "x": 230.00015079985016,
+                "y": 173.0001134277134
+              },
+              {
+                "id": "pinch-left",
+                "imageBox": {
+                  "left": 68,
+                  "top": 322,
+                  "right": 115,
+                  "bottom": 369
+                },
+                "x": 46.00003015997003,
+                "y": 173.0001134277134
+              }
+            ]
+          }
+        },
+        {
+          "name": "Coordinates outside the pinched view are rejected before input",
+          "passed": true,
+          "elapsedMs": 1717,
+          "details": {
+            "corner": {
+              "x": 644,
+              "y": 473
+            },
+            "rejectedClick": true,
+            "rejectedDrag": true,
+            "rejectedScrollbar": true,
+            "metrics": {
+              "cssLayoutViewport": {
+                "clientHeight": 689,
+                "clientWidth": 917,
+                "pageX": 0,
+                "pageY": 0
+              },
+              "cssVisualViewport": {
+                "clientHeight": 344.500244140625,
+                "clientWidth": 458.5003356933594,
+                "offsetX": 229,
+                "offsetY": 172,
+                "pageX": 229,
+                "pageY": 172,
+                "scale": 1.999998688697815,
+                "zoom": 1
+              },
+              "visualViewport": {
+                "clientHeight": 344.500244140625,
+                "clientWidth": 458.5003356933594,
+                "offsetX": 229,
+                "offsetY": 172,
+                "pageX": 229,
+                "pageY": 172,
+                "scale": 1.999998688697815,
+                "zoom": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "Unpinching restores the unpinched coordinate space",
+          "passed": true,
+          "elapsedMs": 1368,
+          "details": {
+            "scaleX": 1,
+            "viewport": {
+              "coordinates": "CSS pixels",
+              "height": 689,
+              "pageX": 0,
+              "pageY": 0,
+              "width": 917
+            },
+            "layout": {
+              "clientHeight": 689,
+              "clientWidth": 917,
+              "pageX": 0,
+              "pageY": 0
+            }
+          }
+        }
+      ]
+    },
+    "visibility": {
+      "binary": "build/app/Release/Xenon.dll",
+      "applicationDllSha256": "2b9e60d787d98936967a899216b97fb349ec8421475306c9ba871757d6b4583b",
+      "unchangedDuringRun": true,
+      "run": "visibility-integration-1792464557301-18a7a278",
+      "passed": true,
+      "checks": 13,
+      "rtl": {
+        "name": "Right-to-left screenshot coordinates keep the main-frame scrollbar on the right",
+        "passed": true,
+        "elapsedMs": 1362,
+        "details": {
+          "clicked": [
+            {
+              "id": "rtl-left",
+              "imageBox": {
+                "left": 0,
+                "top": 48,
+                "right": 11,
+                "bottom": 59
+              },
+              "x": 6,
+              "y": 54
+            },
+            {
+              "id": "rtl-right",
+              "imageBox": {
+                "left": 905,
+                "top": 96,
+                "right": 916,
+                "bottom": 107
+              },
+              "x": 911,
+              "y": 102
+            }
+          ],
+          "scrollbar": 15,
+          "imageWidth": 932,
+          "viewport": {
+            "coordinates": "CSS pixels",
+            "height": 689,
+            "pageX": 0,
+            "pageY": 0,
+            "width": 917
+          },
+          "scaleX": 1,
+          "rightScrollbarClickRejected": true
+        }
+      }
+    },
+    "integration": {
+      "binary": "build/app/Release/Xenon.dll",
+      "applicationDllSha256": "2b9e60d787d98936967a899216b97fb349ec8421475306c9ba871757d6b4583b",
+      "run": "integration-1792464576188-275989b6",
+      "passed": true,
+      "checks": 17
+    }
+  },
+  "notCovered": [
+    "Physical touchscreen or precision-touchpad pinch",
+    "Display scaling other than 100% while pinched",
+    "Browser zoom combined with pinch",
+    "Overlay scrollbars",
+    "Rendered evidence and element references while pinched (they use the layout viewport)",
+    "xenon_inspect while pinched"
+  ]
+}
