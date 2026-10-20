@@ -12,6 +12,8 @@
 
 **Screenshot coordinates while pinch-zoomed.** A person can pinch-zoom a page with a touchscreen or precision touchpad. Coordinate checks used the unzoomed page area, so a click or drag could reach page content outside the magnified view the screenshot showed, and a pinch after a screenshot left its coordinates current. Coordinates must now fall inside the screenshot's visible area, and a pinch or pan invalidates them. See [MCP](MCP.md#tools).
 
+**Rendered evidence and element actions while pinch-zoomed.** Observations treated the whole unzoomed page area as rendered while a person had pinch-zoomed, so controls outside the magnified view were reported as visible with action references, and a click on one landed out of view. `xenon_inspect` also failed on every attempt while pinched. Observations now cover only the magnified view and report it as their `viewport`, element actions are rechecked against it, and agent pointer movement and scrolling stay inside it. See [MCP](MCP.md#tools).
+
 ## 0.1.7
 
 0.1.7 replaces the withdrawn 0.1.6 and includes all of its changes below. The [0.1.7 notes](RELEASE-0.1.7.md) also cover the engine and the release checks.

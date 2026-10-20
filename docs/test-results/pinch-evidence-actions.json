@@ -1,0 +1,679 @@
+{
+  "date": "2026-10-20",
+  "scope": "Local branch candidate on stock CEF 154.0.34; no release or package",
+  "sourceBase": "origin/main 8b73594, which includes PR #48 (pinch-zoom screenshot coordinates), the CSS-pixel rendered-evidence fix carried by PR #46 and PR #49 (touch, pen and touchpad gestures as human activity)",
+  "display": "One 100% monitor; classic 15 CSS px scrollbars; 932x689 page view",
+  "engineSha256": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7",
+  "chromiumSource": {
+    "layoutMetrics": "inspector_page_agent.cc getLayoutMetrics: cssLayoutViewport is the unpinched layout viewport; cssVisualViewport clientWidth/clientHeight are VisualViewport::VisibleRect (divided by pinch scale), and its pageX/pageY are the RootFrameViewport scroll offset (layout scroll plus pinch pan) in CSS pixels. visualViewport.clientWidth/cssVisualViewport.clientWidth is the layout-unit scale, independent of pinch.",
+    "pageGeometry": "local_dom_window.cc: innerWidth/innerHeight are the frame view size and scrollX/scrollY the layout viewport offset, unaffected by pinch; getBoundingClientRect and elementFromPoint use layout-viewport client coordinates. The in-page pointer check therefore cannot see a pinch.",
+    "input": "DOM.getBoxModel quads and Input.dispatchMouseEvent use visual-viewport CSS coordinates; dispatch has no bounds check, so a point past the visual viewport reaches content that is not on screen."
+  },
+  "humanInput": "The pinch came from the AuthTest-only driver (Chromium SyntheticTouchpadPinchGesture), not physical touch or touchpad input. Since PR #49 a person's pinch pauses the tab and requires fresh evidence. The driver's synthetic pinch is not seen as human input, so the broker accepted a pre-pinch observation and the native rendered-evidence recheck had to reject the reference. Observations taken after a real pinch use the same visual-viewport rules.",
+  "findings": {
+    "observe": "Confirmed: while pinched 2x, a control at 764.9,16 outside the 458.5x344.5 view at 229,172 was reported verified with an action reference, the in-flow heading at the page top was reported, and the observation viewport was the 917x689 layout viewport.",
+    "elementReference": "Confirmed: a reference observed before the pinch was clicked after it. The page counted the click, and its listener saw 11 mousemove, mousedown, mouseup and click events outside the visual viewport.",
+    "inspect": "Confirmed: xenon_inspect returned inspection_changed on all 5 attempts while pinched (screenshot viewport visual, observation viewport layout).",
+    "pointerMotion": "Confirmed: moving from a position recorded before the pinch, 7 mousemove events reached the page outside the visual viewport before the click landed.",
+    "scroll": "Confirmed (found while testing): at 3x the wheel was dispatched at the layout viewport center, outside the visual viewport."
+  },
+  "fix": "visible_snapshot_viewport intersects the layout viewport with the visual viewport (layout units), so observe, query/wait, element revalidation and frame-chain checks treat only the magnified view as rendered. Observations report cssVisualViewport as their viewport, the same rectangle as screenshots; xenon_inspect compares them exactly. Element points must lie inside the visual viewport after frame translation. Pointer moves are clamped to the visual viewport, starting from the clamped last position. Scroll wheels go to the visual viewport center. Uncertain-click diagnostics compare the visual viewport.",
+  "beforeFix": {
+    "note": "Earlier source base: 74b6014 (claude/admiring-chebyshev-9e5892) merged with PR #45 head 727e47b, plus the extended suite, before the native fix. Xenon.dll 005078756e603671da332d960810d658c21bb5a9ef55db88702666dbad2cd289 was built from it but not run live.",
+    "pinch": {
+      "binary": "XenonAuthTest.dll (copy of the unfixed build)",
+      "applicationDllSha256": "64be4c707ebe98d8dd0db43e49992270ed0db3696c58a7f52e36cf2a62fafe8b",
+      "unchangedDuringRun": true,
+      "run": "pinch-zoom-integration-1792480352659-e2d8841b",
+      "passed": false,
+      "checks": 9,
+      "results": [
+        {
+          "name": "A pinch after the screenshot invalidates its coordinates",
+          "passed": true,
+          "elapsedMs": 1132,
+          "details": {
+            "unpinchedPoint": {
+              "x": 275,
+              "y": 345
+            },
+            "pinch": {
+              "after": {
+                "cssLayoutViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "pageX": 0,
+                  "pageY": 0
+                },
+                "cssVisualViewport": {
+                  "clientHeight": 344.5000915527344,
+                  "clientWidth": 458.5001220703125,
+                  "offsetX": 229,
+                  "offsetY": 172,
+                  "pageX": 229,
+                  "pageY": 172,
+                  "scale": 1.9999995231628418,
+                  "zoom": 1
+                },
+                "visualViewport": {
+                  "clientHeight": 344.5000915527344,
+                  "clientWidth": 458.5001220703125,
+                  "offsetX": 229,
+                  "offsetY": 172,
+                  "pageX": 229,
+                  "pageY": 172,
+                  "scale": 1.9999995231628418,
+                  "zoom": 1
+                }
+              },
+              "before": {
+                "cssLayoutViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "pageX": 0,
+                  "pageY": 0
+                },
+                "cssVisualViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "pageX": 0,
+                  "pageY": 0,
+                  "scale": 1,
+                  "zoom": 1
+                },
+                "visualViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "pageX": 0,
+                  "pageY": 0,
+                  "scale": 1,
+                  "zoom": 1
+                }
+              }
+            },
+            "rejected": "stale_viewport"
+          }
+        },
+        {
+          "name": "Pinched screenshot pixels land on their targets",
+          "passed": true,
+          "elapsedMs": 1182,
+          "details": {
+            "scaleX": 1.9999995231628418,
+            "zoom": 1,
+            "pinch": 1.9999995231628418,
+            "imageWidth": 932,
+            "imageHeight": 689,
+            "viewport": {
+              "coordinates": "CSS pixels",
+              "height": 344.5000915527344,
+              "pageX": 229,
+              "pageY": 172,
+              "width": 458.5001220703125
+            },
+            "hits": [
+              {
+                "id": "pinch-center",
+                "imageBox": {
+                  "left": 420,
+                  "top": 306,
+                  "right": 499,
+                  "bottom": 385
+                },
+                "x": 230.00005483628627,
+                "y": 173.00004124642402
+              },
+              {
+                "id": "pinch-left",
+                "imageBox": {
+                  "left": 68,
+                  "top": 322,
+                  "right": 115,
+                  "bottom": 369
+                },
+                "x": 46.00001096725725,
+                "y": 173.00004124642402
+              }
+            ]
+          }
+        },
+        {
+          "name": "Coordinates outside the pinched view are rejected before input",
+          "passed": true,
+          "elapsedMs": 1665,
+          "details": {
+            "corner": {
+              "x": 644,
+              "y": 473
+            },
+            "rejectedClick": true,
+            "rejectedDrag": true,
+            "rejectedScrollbar": true,
+            "metrics": {
+              "cssLayoutViewport": {
+                "clientHeight": 689,
+                "clientWidth": 917,
+                "pageX": 0,
+                "pageY": 0
+              },
+              "cssVisualViewport": {
+                "clientHeight": 344.5000915527344,
+                "clientWidth": 458.5001220703125,
+                "offsetX": 229,
+                "offsetY": 172,
+                "pageX": 229,
+                "pageY": 172,
+                "scale": 1.9999995231628418,
+                "zoom": 1
+              },
+              "visualViewport": {
+                "clientHeight": 344.5000915527344,
+                "clientWidth": 458.5001220703125,
+                "offsetX": 229,
+                "offsetY": 172,
+                "pageX": 229,
+                "pageY": 172,
+                "scale": 1.9999995231628418,
+                "zoom": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "Pinched observation reports only the magnified view",
+          "passed": false,
+          "elapsedMs": 414,
+          "error": "Content outside the magnified view was reported as rendered: {\"viewport\":{\"height\":689,\"pageX\":0,\"pageY\":0,\"width\":917},\"visual\":{\"clientHeight\":344.5000915527344,\"clientWidth\":458.5001220703125,\"offsetX\":229,\"offsetY\":172,\"pageX\":229,\"pageY\":172,\"scale\":1.9999995231628418,\"zoom\":1},\"layout\":{\"clientHeight\":689,\"clientWidth\":917,\"pageX\":0,\"pageY\":0},\"coverage\":\"partial\",\"shown\":{\"bounds\":{\"coordinateSpace\":\"frame-document-css\",\"height\":21,\"width\":130.859375,\"x\":378.5,\"y\":392.5},\"boundsProvenance\":\"chromium-dom-snapshot\",\"frameId\":\"E7FFC1B99D4D9EDDB2A6BF3080F288F8\",\"geometryEvidence\":\"unoccluded_center_patch\",\"name\":\"Pinch shown action\",\"nameProvenance\":\"filtered_rendered_text\",\"provenance\":\"chromium-rendered-text-with-accessibility-role\",\"ref\":\"a583239b18b2599f9c036d32d8e9e68d\",\"role\":\"button\",\"screenshotRequired\":false,\"tag\":\"BUTTON\",\"visibilityStatus\":\"verified\"},\"unseen\":{\"bounds\":{\"coordinateSpace\":\"frame-document-css\",\"height\":21,\"width\":136.0625,\"x\":764.9375,\"y\":16},\"boundsProvenance\":\"chromium-dom-snapshot\",\"frameId\":\"E7FFC1B99D4D9EDDB2A6BF3080F288F8\",\"geometryEvidence\":\"unoccluded_center_patch\",\"name\":\"Pinch unseen action\",\"nameProvenance\":\"filtered_rendered_text\",\"provenance\":\"chromium-rendered-text-with-accessibility-role\",\"ref\":\"73b5ace14c4b8ca334fb7110aa020cff\",\"role\":\"button\",\"screenshotRequired\":false,\"tag\":\"BUTTON\",\"visibilityStatus\":\"verified\"},\"heading\":{\"bounds\":{\"coordinateSpace\":\"frame-document-css\",\"height\":40,\"width\":889,\"x\":14,\"y\":34.09375},\"boundsProvenance\":\"chromium-dom-snapshot\",\"frameId\":\"E7FFC1B99D4D9EDDB2A6BF3080F288F8\",\"geometryEvidence\":\"unoccluded_center_patch\",\"name\":\"Viewport fixture ready\",\"nameProvenance\":\"filtered_rendered_text\",\"provenance\":\"chromium-rendered-text-with-accessibility-role\",\"ref\":\"96fb3efa54068b0d11f45170750b8ca9\",\"role\":\"heading\",\"screenshotRequired\":false,\"visibilityStatus\":\"verified\"}}"
+        },
+        {
+          "name": "Inspection works while pinched and its bounds address the magnified view",
+          "passed": false,
+          "elapsedMs": 1901,
+          "error": "Inspection failed on every attempt while pinched: {\"attempts\":[\"inspection_changed\",\"inspection_changed\",\"inspection_changed\",\"inspection_changed\",\"inspection_changed\"],\"visual\":{\"clientHeight\":344.5000915527344,\"clientWidth\":458.5001220703125,\"offsetX\":229,\"offsetY\":172,\"pageX\":229,\"pageY\":172,\"scale\":1.9999995231628418,\"zoom\":1},\"layout\":{\"clientHeight\":689,\"clientWidth\":917,\"pageX\":0,\"pageY\":0}}"
+        },
+        {
+          "name": "Unpinching restores the unpinched coordinate space",
+          "passed": true,
+          "elapsedMs": 1364,
+          "details": {
+            "scaleX": 1,
+            "viewport": {
+              "coordinates": "CSS pixels",
+              "height": 689,
+              "pageX": 0,
+              "pageY": 0,
+              "width": 917
+            },
+            "layout": {
+              "clientHeight": 689,
+              "clientWidth": 917,
+              "pageX": 0,
+              "pageY": 0
+            }
+          }
+        },
+        {
+          "name": "An element reference that a pinch moves out of view is rejected before input",
+          "passed": false,
+          "elapsedMs": 2121,
+          "error": "A reference outside the magnified view was clicked: {\"reply\":{\"status\":\"dispatched\",\"operationId\":\"cb5a73b9-2fab-40d5-ba01-a9e7c8422236\",\"dispatchStatus\":\"dispatched\",\"timing\":{\"executionMs\":580.2289,\"queueMs\":1.8446,\"totalMs\":582.0735},\"contentTrust\":{\"classification\":\"untrusted_website_content\",\"instructionAuthority\":\"none\"},\"textSafety\":{\"withheldValues\":0,\"limitation\":\"String values containing unsafe non-rendering characters are withheld in full. This is not a complete prompt-injection defense.\"}},\"clicks\":{\"pinch-center\":1,\"pinch-left\":1,\"pinch-corner\":1,\"pinch-unseen\":1},\"outsidePointer\":{\"mousemove\":11,\"mousedown\":1,\"mouseup\":1,\"click\":1},\"bounds\":{\"coordinateSpace\":\"frame-document-css\",\"height\":21,\"width\":136.0625,\"x\":764.9375,\"y\":16},\"visual\":{\"clientHeight\":344.5002136230469,\"clientWidth\":458.5002746582031,\"offsetX\":229,\"offsetY\":172,\"pageX\":229,\"pageY\":172,\"scale\":1.9999988079071045,\"zoom\":1}}"
+        },
+        {
+          "name": "Agent pointer movement stays inside the pinched view",
+          "passed": false,
+          "elapsedMs": 1276,
+          "error": "Pointer events reached the page outside the magnified view: {\"outsidePointer\":{\"mousemove\":7},\"clicks\":{\"pinch-center\":2,\"pinch-left\":1,\"pinch-corner\":1,\"pinch-unseen\":1},\"point\":{\"x\":230.0001370907647,\"y\":173.00010311609694},\"visual\":{\"clientHeight\":344.5002136230469,\"clientWidth\":458.5002746582031,\"offsetX\":229,\"offsetY\":172,\"pageX\":229,\"pageY\":172,\"scale\":1.9999988079071045,\"zoom\":1}}\n+ actual - expected\n\n+ {\n+   mousemove: 7\n+ }\n- {}\n"
+        },
+        {
+          "name": "Scrolling while pinched sends the wheel inside the magnified view",
+          "passed": false,
+          "elapsedMs": 1088,
+          "error": "The wheel reached the page outside the magnified view: {\"outsidePointer\":{\"wheel\":1},\"visual\":{\"clientHeight\":229.66690063476562,\"clientWidth\":305.6669616699219,\"offsetX\":305,\"offsetY\":229,\"pageX\":305,\"pageY\":229,\"scale\":2.9999969005584717,\"zoom\":1},\"after\":{\"clientHeight\":229.66690063476562,\"clientWidth\":305.6669616699219,\"offsetX\":305,\"offsetY\":269,\"pageX\":305,\"pageY\":269,\"scale\":2.9999969005584717,\"zoom\":1}}\n+ actual - expected\n\n+ {\n+   wheel: 1\n+ }\n- {}\n"
+        }
+      ]
+    }
+  },
+  "afterFixOnEarlierBase": {
+    "note": "The same fix on the earlier source base, before rebasing onto main",
+    "nativeTests": {
+      "passed": true,
+      "groups": 23
+    },
+    "pinch": {
+      "applicationDllSha256": "f74bb71ec0541af852748c10fe863acd8e8fde1c505ff71f334f25d98a705ca1",
+      "run": "pinch-zoom-integration-1792480839216-54158a04",
+      "passed": true,
+      "checks": 9
+    },
+    "visibility": {
+      "applicationDllSha256": "a652ddb81964a0f73456ba1c978d72b999df3607ede10b58b999dbc5760d6cae",
+      "run": "visibility-integration-1792480873701-175b690b",
+      "passed": true,
+      "checks": 14
+    },
+    "integration": {
+      "applicationDllSha256": "a652ddb81964a0f73456ba1c978d72b999df3607ede10b58b999dbc5760d6cae",
+      "run": "integration-1792480899879-722f31c0",
+      "passed": true,
+      "checks": 17
+    },
+    "upload": {
+      "applicationDllSha256": "a652ddb81964a0f73456ba1c978d72b999df3607ede10b58b999dbc5760d6cae",
+      "run": "upload-entry-1792480980236-62009a53",
+      "passed": true,
+      "checks": 17
+    }
+  },
+  "afterFix": {
+    "nativeTests": {
+      "passed": true,
+      "groups": 24,
+      "command": "./scripts/build.ps1 -CefRoot <stock CEF 154.0.34> -Jobs 8 -Test (CMake configured with -DXENON_BUILD_AUTH_FIXTURE=ON)",
+      "note": "adapter (22), login capture (42), human autofill (31), protected login (10), form fill (6) and passkey guard (8) tests and five branding checks also passed"
+    },
+    "pinch": {
+      "binary": "build/auth-fixture/Release/XenonAuthTest.dll",
+      "applicationDllSha256": "421f47fc0b13ab64ceab3a19a16ed68e6112567810ecb8850e7e5233f55abfc1",
+      "unchangedDuringRun": true,
+      "run": "pinch-zoom-integration-1792523444197-b07b93dc",
+      "passed": true,
+      "checks": 9,
+      "results": [
+        {
+          "name": "A pinch after the screenshot invalidates its coordinates",
+          "passed": true,
+          "elapsedMs": 1132,
+          "details": {
+            "unpinchedPoint": {
+              "x": 275,
+              "y": 345
+            },
+            "pinch": {
+              "after": {
+                "cssLayoutViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "pageX": 0,
+                  "pageY": 0
+                },
+                "cssVisualViewport": {
+                  "clientHeight": 344.4997253417969,
+                  "clientWidth": 458.4996032714844,
+                  "offsetX": 229,
+                  "offsetY": 172,
+                  "pageX": 229,
+                  "pageY": 172,
+                  "scale": 2.0000016689300537,
+                  "zoom": 1
+                },
+                "visualViewport": {
+                  "clientHeight": 344.4997253417969,
+                  "clientWidth": 458.4996032714844,
+                  "offsetX": 229,
+                  "offsetY": 172,
+                  "pageX": 229,
+                  "pageY": 172,
+                  "scale": 2.0000016689300537,
+                  "zoom": 1
+                }
+              },
+              "before": {
+                "cssLayoutViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "pageX": 0,
+                  "pageY": 0
+                },
+                "cssVisualViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "pageX": 0,
+                  "pageY": 0,
+                  "scale": 1,
+                  "zoom": 1
+                },
+                "visualViewport": {
+                  "clientHeight": 689,
+                  "clientWidth": 917,
+                  "offsetX": 0,
+                  "offsetY": 0,
+                  "pageX": 0,
+                  "pageY": 0,
+                  "scale": 1,
+                  "zoom": 1
+                }
+              }
+            },
+            "rejected": "stale_viewport"
+          }
+        },
+        {
+          "name": "Pinched screenshot pixels land on their targets",
+          "passed": true,
+          "elapsedMs": 1123,
+          "details": {
+            "scaleX": 2.0000016689300537,
+            "zoom": 1,
+            "pinch": 2.0000016689300537,
+            "imageWidth": 932,
+            "imageHeight": 689,
+            "viewport": {
+              "coordinates": "CSS pixels",
+              "height": 344.4997253417969,
+              "pageX": 229,
+              "pageY": 172,
+              "width": 458.4996032714844
+            },
+            "hits": [
+              {
+                "id": "pinch-center",
+                "imageBox": {
+                  "left": 420,
+                  "top": 306,
+                  "right": 499,
+                  "bottom": 385
+                },
+                "x": 229.99980807320398,
+                "y": 172.9998556376708
+              },
+              {
+                "id": "pinch-left",
+                "imageBox": {
+                  "left": 68,
+                  "top": 322,
+                  "right": 115,
+                  "bottom": 369
+                },
+                "x": 45.999961614640796,
+                "y": 172.9998556376708
+              }
+            ]
+          }
+        },
+        {
+          "name": "Coordinates outside the pinched view are rejected before input",
+          "passed": true,
+          "elapsedMs": 2091,
+          "details": {
+            "corner": {
+              "x": 644,
+              "y": 473
+            },
+            "rejectedClick": true,
+            "rejectedDrag": true,
+            "rejectedScrollbar": true,
+            "metrics": {
+              "cssLayoutViewport": {
+                "clientHeight": 689,
+                "clientWidth": 917,
+                "pageX": 0,
+                "pageY": 0
+              },
+              "cssVisualViewport": {
+                "clientHeight": 344.4997253417969,
+                "clientWidth": 458.4996032714844,
+                "offsetX": 229,
+                "offsetY": 172,
+                "pageX": 229,
+                "pageY": 172,
+                "scale": 2.0000016689300537,
+                "zoom": 1
+              },
+              "visualViewport": {
+                "clientHeight": 344.4997253417969,
+                "clientWidth": 458.4996032714844,
+                "offsetX": 229,
+                "offsetY": 172,
+                "pageX": 229,
+                "pageY": 172,
+                "scale": 2.0000016689300537,
+                "zoom": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "Pinched observation reports only the magnified view",
+          "passed": true,
+          "elapsedMs": 402,
+          "details": {
+            "viewport": {
+              "height": 344.4997253417969,
+              "pageX": 229,
+              "pageY": 172,
+              "width": 458.4996032714844
+            },
+            "visual": {
+              "clientHeight": 344.4997253417969,
+              "clientWidth": 458.4996032714844,
+              "offsetX": 229,
+              "offsetY": 172,
+              "pageX": 229,
+              "pageY": 172,
+              "scale": 2.0000016689300537,
+              "zoom": 1
+            },
+            "layout": {
+              "clientHeight": 689,
+              "clientWidth": 917,
+              "pageX": 0,
+              "pageY": 0
+            },
+            "coverage": "partial",
+            "shown": {
+              "bounds": {
+                "coordinateSpace": "frame-document-css",
+                "height": 21,
+                "width": 130.859375,
+                "x": 378.5,
+                "y": 392.5
+              },
+              "boundsProvenance": "chromium-dom-snapshot",
+              "frameId": "A1EF97731855E219079140053A2EDA8D",
+              "geometryEvidence": "unoccluded_center_patch",
+              "name": "Pinch shown action",
+              "nameProvenance": "filtered_rendered_text",
+              "provenance": "chromium-rendered-text-with-accessibility-role",
+              "ref": "cc19a6aea880510f968b2bfa2800eac6",
+              "role": "button",
+              "screenshotRequired": false,
+              "tag": "BUTTON",
+              "visibilityStatus": "verified"
+            }
+          }
+        },
+        {
+          "name": "Inspection works while pinched and its bounds address the magnified view",
+          "passed": true,
+          "elapsedMs": 735,
+          "details": {
+            "attempts": [],
+            "viewport": {
+              "height": 344.4997253417969,
+              "pageX": 229,
+              "pageY": 172,
+              "width": 458.4996032714844
+            },
+            "scaleX": 2.0000016689300537,
+            "bounds": {
+              "coordinateSpace": "frame-document-css",
+              "height": 21,
+              "width": 130.859375,
+              "x": 378.5,
+              "y": 392.5
+            },
+            "click": {
+              "x": 214.9296875,
+              "y": 231
+            }
+          }
+        },
+        {
+          "name": "Unpinching restores the unpinched coordinate space",
+          "passed": true,
+          "elapsedMs": 1485,
+          "details": {
+            "scaleX": 1,
+            "viewport": {
+              "coordinates": "CSS pixels",
+              "height": 689,
+              "pageX": 0,
+              "pageY": 0,
+              "width": 917
+            },
+            "layout": {
+              "clientHeight": 689,
+              "clientWidth": 917,
+              "pageX": 0,
+              "pageY": 0
+            }
+          }
+        },
+        {
+          "name": "An element reference that a pinch moves out of view is rejected before input",
+          "passed": true,
+          "elapsedMs": 1550,
+          "details": {
+            "rejected": "stale_element",
+            "bounds": {
+              "coordinateSpace": "frame-document-css",
+              "height": 21,
+              "width": 136.0625,
+              "x": 764.9375,
+              "y": 16
+            },
+            "visual": {
+              "clientHeight": 344.4997863769531,
+              "clientWidth": 458.4997253417969,
+              "offsetX": 229,
+              "offsetY": 172,
+              "pageX": 229,
+              "pageY": 172,
+              "scale": 2.0000011920928955,
+              "zoom": 1
+            }
+          }
+        },
+        {
+          "name": "Agent pointer movement stays inside the pinched view",
+          "passed": true,
+          "elapsedMs": 1209,
+          "details": {
+            "outsidePointer": {},
+            "clicks": {
+              "pinch-center": 2,
+              "pinch-left": 1,
+              "pinch-shown": 1,
+              "pinch-corner": 1
+            },
+            "point": {
+              "x": 229.99986290939873,
+              "y": 172.999896884026
+            },
+            "visual": {
+              "clientHeight": 344.4997863769531,
+              "clientWidth": 458.4997253417969,
+              "offsetX": 229,
+              "offsetY": 172,
+              "pageX": 229,
+              "pageY": 172,
+              "scale": 2.0000011920928955,
+              "zoom": 1
+            }
+          }
+        },
+        {
+          "name": "Scrolling while pinched sends the wheel inside the magnified view",
+          "passed": true,
+          "elapsedMs": 1058,
+          "details": {
+            "outsidePointer": {},
+            "visual": {
+              "clientHeight": 229.66653442382812,
+              "clientWidth": 305.6664733886719,
+              "offsetX": 305,
+              "offsetY": 229,
+              "pageX": 305,
+              "pageY": 229,
+              "scale": 3.0000016689300537,
+              "zoom": 1
+            },
+            "after": {
+              "clientHeight": 229.66653442382812,
+              "clientWidth": 305.6664733886719,
+              "offsetX": 305,
+              "offsetY": 269,
+              "pageX": 305,
+              "pageY": 269,
+              "scale": 3.0000016689300537,
+              "zoom": 1
+            }
+          }
+        }
+      ]
+    },
+    "visibility": {
+      "binary": "build/app/Release/Xenon.dll",
+      "applicationDllSha256": "65d601cc49bd0484dbf582db357e54bccfefddde7db563d7602f502f4373bcd7",
+      "unchangedDuringRun": true,
+      "run": "visibility-integration-1792523464344-78a43cb9",
+      "passed": true,
+      "checks": 16,
+      "names": [
+        "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+        "Brightness hover keeps both rendered controls and their references usable",
+        "Visible button text remains actionable despite hostile accessibility labels",
+        "A control near the far viewport corner stays verified and clickable by reference and coordinates",
+        "At 120% browser zoom the far-corner control keeps CSS bounds and stays clickable by reference and coordinates",
+        "Browser zoom resets before the remaining checks",
+        "Decorative box shadows preserve unrelated rendered control references and queries",
+        "Icon-only control uses a semantic fallback without exposing its hidden label",
+        "Screenshot pixel coordinates land on narrow controls beside both scrollbars",
+        "Right-to-left screenshot coordinates keep the main-frame scrollbar on the right",
+        "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+        "Shadow and frame boundaries preserve visible controls without hidden text",
+        "Hidden parent frames reject stale nested and OOPIF child references before website input",
+        "Visible generated content is represented or explicitly marked incomplete",
+        "Hidden-only text cannot satisfy observation queries or waits",
+        "Visible page instructions remain untrusted content without instruction authority"
+      ]
+    },
+    "integration": {
+      "binary": "build/app/Release/Xenon.dll",
+      "applicationDllSha256": "65d601cc49bd0484dbf582db357e54bccfefddde7db563d7602f502f4373bcd7",
+      "run": "integration-1792523494391-aba7c533",
+      "passed": true,
+      "checks": 17
+    },
+    "upload": {
+      "binary": "build/app/Release/Xenon.dll",
+      "applicationDllSha256": "65d601cc49bd0484dbf582db357e54bccfefddde7db563d7602f502f4373bcd7",
+      "unchangedDuringRun": true,
+      "run": "upload-entry-1792523532219-0508cfd3",
+      "passed": true,
+      "checks": 17
+    },
+    "screenshot": {
+      "binary": "build/app/Release/Xenon.dll",
+      "applicationDllSha256": "65d601cc49bd0484dbf582db357e54bccfefddde7db563d7602f502f4373bcd7",
+      "unchangedDuringRun": true,
+      "run": "screenshot-integration-1792523550545-bffb8e5e",
+      "passed": true,
+      "checks": 10
+    }
+  },
+  "notCovered": [
+    "Physical touchscreen or precision-touchpad pinch",
+    "Display scaling other than 100% or browser zoom combined with pinch (unit tests cover 125% metrics)",
+    "The new final-point guard on element actions: the stale reference was rejected earlier, by the rendered-evidence recheck (stale_element); the guard is exercised only on accepted points",
+    "Drag, hover, fill, select, check and upload by reference while pinched (they share the revalidation and guard but were not driven pinched)",
+    "Out-of-process child frames while pinched (the visibility suite covers them unpinched)",
+    "The human inspector hover, the agent cursor overlay and recorded human pointer positions, which still use unpinched window coordinates"
+  ]
+}

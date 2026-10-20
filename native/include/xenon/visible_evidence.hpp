@@ -9,8 +9,10 @@ namespace xenon {
 Json visible_snapshot_styles();
 
 // Converts a Page.getLayoutMetrics result into the session root's viewport
-// entry for visible_snapshot: {x,y,width,height,scale}. Returns an empty object
-// when the CSS and layout-unit metrics are missing or inconsistent.
+// entry for visible_snapshot: {x,y,width,height,scale}. The rectangle is the
+// rendered part of the layout viewport, which a pinch zoom shrinks to the
+// visual viewport. Returns an empty object when the CSS and layout-unit
+// metrics are missing or inconsistent.
 Json visible_snapshot_viewport(const Json& layout_metrics);
 
 // viewports maps frame IDs to {x,y,width,height,scale?}. The rectangle uses the

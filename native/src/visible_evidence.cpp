@@ -489,7 +489,16 @@ Json visible_snapshot_viewport(const Json& metrics) {
   const double scale=*visual_w / *css_visual_w;
   if(!std::isfinite(scale) || scale<kMinLayoutScale || scale>kMaxLayoutScale || std::abs(*visual_h / *css_visual_h-scale)>scale*1e-4)return Json::object();
   if(std::abs(*w/scale-*css_w)>2 || std::abs(*h/scale-*css_h)>2)return Json::object();
-  return {{"x",*x},{"y",*y},{"width",*w},{"height",*h},{"scale",scale}};
+  // A person's pinch zoom magnifies only part of the layout viewport: the
+  // visual viewport, whose CSS page offset includes the layout scroll. Nothing
+  // outside it is on screen. Unpinched, and in an out-of-process child frame,
+  // the visual viewport covers the layout viewport, so this keeps the latter.
+  const auto visual_x=number(at(css_visual,"pageX")),visual_y=number(at(css_visual,"pageY"));
+  if(!visual_x || !visual_y)return Json::object();
+  const double left=std::max(*x,*visual_x*scale),top=std::max(*y,*visual_y*scale);
+  const double right=std::min(*x+*w,*visual_x*scale+*visual_w),bottom=std::min(*y+*h,*visual_y*scale+*visual_h);
+  if(!(right>left) || !(bottom>top))return Json::object();
+  return {{"x",left},{"y",top},{"width",right-left},{"height",bottom-top},{"scale",scale}};
 }
 
 Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_diagnostics, bool include_uncertain) {

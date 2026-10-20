@@ -1,5 +1,6 @@
 #pragma once
 #include "xenon/contracts.hpp"
+#include <algorithm>
 #include <cmath>
 #include <utility>
 namespace xenon {
@@ -37,6 +38,13 @@ inline bool inside_input_viewport(const Json& viewport, double x, double y) {
   const auto& visual = viewport.at("visual");
   return std::isfinite(x) && std::isfinite(y) && x >= 0 && y >= 0 &&
          x < visual.value("clientWidth", 0.0) && y < visual.value("clientHeight", 0.0);
+}
+// Pointer moves stay inside the visual viewport, just short of its far edges.
+// The last pointer position can predate a pinch and lie outside the view.
+inline std::pair<double, double> input_viewport_clamp(const Json& viewport, double x, double y) {
+  const auto visual = viewport.is_object() ? viewport.value("visual", Json::object()) : Json::object();
+  const double width = std::max(0.0, visual.value("clientWidth", 0.0) - .01), height = std::max(0.0, visual.value("clientHeight", 0.0) - .01);
+  return {std::clamp(std::isfinite(x) ? x : 0.0, 0.0, width), std::clamp(std::isfinite(y) ? y : 0.0, 0.0, height)};
 }
 // DOM.getNodeForLocation takes document coordinates: the frame point plus the
 // layout viewport's scroll offset. The visual viewport's pageX/pageY are that

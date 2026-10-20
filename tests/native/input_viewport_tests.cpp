@@ -32,6 +32,13 @@ int main(){try{
   auto fractional=metrics(1,0,0);fractional["cssLayoutViewport"]["clientWidth"]=1052;fractional["cssVisualViewport"]["clientWidth"]=1052.8;
   require(inside_input_viewport(input_viewport(fractional),1052.5,10),"The fractional last CSS pixel of the page remains valid");
 
+  // A pointer left at an unpinched corner is pulled into the pinched view.
+  const auto [clamped_x,clamped_y]=input_viewport_clamp(pinched,873,645);
+  require(inside_input_viewport(pinched,clamped_x,clamped_y)&&std::abs(clamped_x-458.49)<1e-9&&std::abs(clamped_y-336.99)<1e-9,"Pointer moves are clamped to the pinched view");
+  const auto [kept_x,kept_y]=input_viewport_clamp(pinched,100.5,200.25);
+  require(kept_x==100.5&&kept_y==200.25,"Points inside the pinched view are unchanged");
+  const auto [low_x,low_y]=input_viewport_clamp(pinched,-5,std::nan(""));
+  require(low_x==0&&low_y==0,"Negative or non-finite moves are clamped to the view origin");
   const auto [document_x,document_y]=input_viewport_document_point(pinched,10,20);
   require(std::abs(document_x-239.25)<1e-9&&std::abs(document_y-188.5)<1e-9,"Document hit points add the pinch pan offset");
 
