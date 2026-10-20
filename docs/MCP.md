@@ -91,6 +91,9 @@ Read the advertised tool schemas for exact parameters. Results are available as 
 
 Screenshot metadata includes actual PNG `imageWidth`/`imageHeight`, the CSS viewport and `scaleX`/`scaleY`. The scale values are image pixels per CSS pixel (Windows display scale times browser zoom, times pinch zoom). The image is the whole page view, including any scrollbars, so `imageWidth / scaleX` can exceed `viewport.width` by the scrollbar thickness, and likewise for height. Coordinate actions take viewport CSS pixels: divide image pixel coordinates by those scale values. A coordinate must fall inside the screenshot's `viewport`; points over a scrollbar are rejected. Do not assume one image pixel equals one CSS pixel on a high-DPI display. Use the matching screenshot `observationId`; scrolling, resizing or zooming invalidates its coordinate evidence.
 
+Screenshot safety checks inspect every current frame. A failed frame read or changed frame set triggers at most one complete fresh scan; partial scan results never authorize capture. Persistent failure returns `screenshot_unverified`, with `error.retryable: true` and an allowlisted `error.reason` (`frame_scan_timeout`, `frame_scan_failed` or `frame_changed`). No image is returned. After the page settles, a fresh screenshot request is supported; this is not evidence of credentials and does not call for **Resume after login**. Avoid repeated polling if the failure persists. Actual credential detection returns `screenshot_protected`, `retryable: false`, and reason `credential_fields` or `protected_authentication`; do not retry that protection. Navigation, human input and authority changes invalidate an in-flight scan/capture.
+
+
 A person can pinch-zoom a page with a touchscreen or precision touchpad. The screenshot `viewport` is then the magnified part of the page that the image shows, smaller than the `xenon_observe` viewport and offset into it. Coordinates outside it are rejected even where the page continues out of view. Pinching or panning after a screenshot invalidates its coordinates. A person's pinch is also physical page input and pauses the tab.
 
 ## Batching simple actions
@@ -235,6 +238,7 @@ An alert can block completion of an agent click that opened it. The current owne
 | `HUMAN_ACTIVITY` | Queued work was canceled before dispatch. Inspect activity and operation status, then obtain fresh evidence; do not replay the queue. |
 | `WORKSPACE_DENIED`, `SESSION_DENIED`, `ACCOUNT_DENIED`, `ACCESS_REVOKED` | Correct the scope or obtain native authorization. Claimed client names cannot bypass grants. |
 | Protected-authentication errors | Ask the human to complete the login and resume observation through native controls. |
+| `screenshot_unverified` | A frame safety check failed or the frame set changed; no image is returned. Let the page settle, then request fresh screenshot evidence. Persistent failure needs investigation or a human visual check, not login confirmation. |
 | `CAPACITY_EXCEEDED` | Retire finished connected workers or reduce outstanding work. No action is automatically retried by the adapter. |
 | `WORKER_DRAIN_PRESSURE` | Wait for accepted input and callbacks to settle before creating another worker; this is temporary retained-record pressure, not a lifetime quota. |
 | `SESSION_RETIRED`, missing retired/evicted handle | Use a new worker with the saved granted workspace; retirement cannot be undone. |

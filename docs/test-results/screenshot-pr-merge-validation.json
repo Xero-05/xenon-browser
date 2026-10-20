@@ -1,0 +1,87 @@
+{
+  "run": "screenshot-integration-1792483633597-a7fdd873",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "1438ce453cd535be97e57f26ab42ea0152190796228bf3cad47619c1b80fea87",
+  "applicationDllSha256AtEnd": "1438ce453cd535be97e57f26ab42ea0152190796228bf3cad47619c1b80fea87",
+  "coverage": "Production CEF/MCP synthetic fixtures. Safe and credential pages, same-origin/cross-origin frames, shadow root, frame replacement. Protocol timeout injection is unit coverage, not live browser coverage. No personal profiles or physical input.",
+  "results": [
+    {
+      "name": "Readiness keys are never reflected into fixture HTML",
+      "passed": true
+    },
+    {
+      "name": "Safe safe page returns PNG",
+      "passed": true
+    },
+    {
+      "name": "Safe same-safe page returns PNG",
+      "passed": true
+    },
+    {
+      "name": "Safe cross-safe page returns PNG",
+      "passed": true
+    },
+    {
+      "name": "password credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "shadow credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "same-password credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "cross-password credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "Replacing a credential frame with a verified safe frame restores capture",
+      "passed": true
+    },
+    {
+      "name": "Repeated nested cross-origin frame replacement stays capturable",
+      "passed": true,
+      "detail": {
+        "iterations": 24,
+        "maxCaptureMs": 101,
+        "captureMs": [
+          48,
+          39,
+          45,
+          34,
+          30,
+          31,
+          33,
+          37,
+          38,
+          53,
+          36,
+          33,
+          41,
+          101,
+          40,
+          39,
+          46,
+          42,
+          40,
+          36,
+          38,
+          45,
+          39,
+          35
+        ]
+      }
+    }
+  ],
+  "passed": true,
+  "validation": {
+    "base_revision": "1aa9a88d9a67174720adfefc7e644be37d0764da",
+    "production_build": "passed on the isolated PR source after merging current main",
+    "native_tests": "13 screenshot guard cases and broker_tests passed",
+    "adapter_script_tests": "146 passed",
+    "original_timeout": "Not reproduced on the original website; specific stalled frame remains unidentified. Timeout recovery uses deterministic native callback tests."
+  }
+}
