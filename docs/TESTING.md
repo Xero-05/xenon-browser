@@ -1,5 +1,24 @@
 # Validation
 
+## Screenshot scale beside scrollbars (local candidate, 2026-10-20)
+
+The [validation record](test-results/screenshot-scale.json) covers screenshot
+coordinates near the right and bottom edges. Chromium's unclipped surface
+capture includes the scrollbars, so dividing the image by the CSS viewport gave
+`scaleX` 1.0164 and `scaleY` 1.0223 at 100% with 15 CSS px scrollbars. The
+pre-fix production DLL clicked at x 896.3 for a 12 px target at 905–917, and
+the page recorded no click. The rebuilt DLL reports a scale of exactly 1. It
+passed all 12 visibility checks, which include hits on targets beside both
+scrollbars and rejection of a scrollbar pixel without input, and all 17
+production integration checks. The full build passed 22 native groups.
+
+The first run of the new check on the fixed DLL failed. Its fixed-position
+readout overlapped the heading block and was withheld from rendered evidence,
+so no click could be confirmed. That failure is retained in the record; the
+readout now sits in an in-flow row. Only one 100% monitor was available, so
+display scaling, browser zoom, pinch zoom, right-to-left scrollbars and overlay
+scrollbars were not live-tested.
+
 ## Device upload text entries (local candidate, 2026-10-19)
 
 The [validation record](test-results/upload-device-text.json) covers a verified

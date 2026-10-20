@@ -226,20 +226,20 @@ try {
       { side: 'bottom', matches: (r, g, b) => r > 180 && g > 180 && b < 90, expected: 'Edge clicks: right 1, bottom 1' },
     ]) {
       const { png, meta } = await capture(), { scaleX, scaleY, viewport } = meta;
+      const box = colorBox(png, target.matches);
+      assert(box, `The ${target.side} edge target is not in the screenshot`);
+      const imageX = (box.left + box.right + 1) / 2, imageY = (box.top + box.bottom + 1) / 2, x = imageX / scaleX, y = imageY / scaleY;
+      await tool('interact', { ...mutation(), observationId: meta.observationId, action: 'click', x, y });
+      await until(async () => edgeText(await observe()) === target.expected, 5000).catch(async () => {
+        throw new Error(`The ${target.side} edge click was not registered (${edgeText(await observe())}) at ${JSON.stringify({ x, y, box, scaleX, scaleY, imageWidth: png.width, imageHeight: png.height, viewport })}`);
+      });
       // The image is the whole page view, scrollbars included, so it extends past the CSS viewport.
       assert(Math.abs(scaleX - scaleY) < 1e-6, 'Image pixels must map to square CSS pixels');
       const scrollbar = { vertical: png.width / scaleX - viewport.width, horizontal: png.height / scaleY - viewport.height };
       assert(scrollbar.vertical >= 8 && scrollbar.horizontal >= 8, `The fixture must show classic scrollbars on both axes: ${JSON.stringify(scrollbar)}`);
-      const box = colorBox(png, target.matches);
-      assert(box, `The ${target.side} edge target is not in the screenshot`);
-      const imageX = (box.left + box.right + 1) / 2, imageY = (box.top + box.bottom + 1) / 2, x = imageX / scaleX, y = imageY / scaleY;
       // Dividing by the CSS viewport size, as the scale once did, puts this point outside the 12 px target.
       const legacy = { x: imageX * viewport.width / png.width, y: imageY * viewport.height / png.height };
       assert(target.side === 'right' ? legacy.x < viewport.width - 12 : legacy.y < viewport.height - 12, 'The fixture no longer distinguishes a viewport-based scale');
-      await tool('interact', { ...mutation(), observationId: meta.observationId, action: 'click', x, y });
-      await until(async () => edgeText(await observe()) === target.expected, 5000).catch(async () => {
-        throw new Error(`The ${target.side} edge click was not registered (${edgeText(await observe())}) at ${JSON.stringify({ x, y, box, scaleX, viewport })}`);
-      });
       clicks.push({ side: target.side, imageBox: box, x, y, legacy, scaleX, imageWidth: png.width, imageHeight: png.height, viewport, scrollbar });
     }
     // Image pixels over the vertical scrollbar map outside the CSS viewport and dispatch nothing.
