@@ -18,13 +18,15 @@ the view.
 The rendered viewport is now the visual viewport. Observations report it as
 `viewport`, the same rectangle as screenshots. Element points must fall inside
 it, and pointer movement and the scroll wheel stay inside it. The fixed DLL
-passed all nine pinch checks. The rebuilt production DLL passed 14 visibility,
-17 integration and 17 upload-entry checks, and the full build passed 23 native
-groups. The stale reference was rejected by the rendered-evidence recheck, so
-the new final-point guard was not exercised by a rejection. The pinch came from
-the test-only driver on one 100% monitor; physical touch input, display scaling
-or browser zoom combined with pinch, and out-of-process frames while pinched
-were not live-tested.
+passed all nine pinch checks. Rebased onto main, the production DLL passed 16
+visibility checks (including the 120% browser-zoom pass), 17 integration, 17
+upload-entry and 10 screenshot checks, and the full build passed 24 native
+groups. A person's pinch now also pauses the tab; the test driver's pinch does
+not, so it still reaches these native checks. The stale reference was rejected
+by the rendered-evidence recheck, so the new final-point guard was not
+exercised by a rejection. The pinch came from the test-only driver on one 100%
+monitor; physical touch input, display scaling or browser zoom combined with
+pinch, and out-of-process frames while pinched were not live-tested.
 
 ## Background native popups (isolated PR validation, 2026-10-20)
 
