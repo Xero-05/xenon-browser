@@ -2147,10 +2147,14 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     const bool folders=command=="files.folders";const char* key=folders?"folders":"files";Json all=Json::array();
     std::set<std::string> selected;for(const auto& id:p.value("allowedFileIds",Json::array()))if(id.is_string())selected.insert(id.get<std::string>());
     if(!folders){
+      if(p.contains("relativePath")&&(!p["relativePath"].is_string()||p.contains("query")||p.contains("cursor"))){
+        reply(failure("invalid_filter","Direct lookup requires a string relativePath and no query or cursor."));return;
+      }
       std::vector<std::string> scopes;for(const auto& scope:p.value("fileScopes",Json::array({field(p,"workspaceId")})))if(scope.is_string())scopes.push_back(scope.get<std::string>());
       reply(files_->discover_files(scopes,field(p,"folderId"),static_cast<size_t>(std::clamp(p.value("limit",100),1,1000)),
         field(p,"cursor"),field(p,"query"),p.value("restrictFileIds",false)?std::optional<std::set<std::string>>(selected):std::nullopt,
-        field(p,"clientId")+"/"+field(p,"agentSessionId")+"/"+field(p,"workspaceId")));
+        field(p,"clientId")+"/"+field(p,"agentSessionId")+"/"+field(p,"workspaceId"),
+        p.contains("relativePath")?std::optional<std::string>(p["relativePath"].get<std::string>()):std::nullopt));
       return;
     }
     bool found=field(p,"folderId").empty();const auto limit=static_cast<size_t>(std::clamp(p.value("limit",100),1,1000));
