@@ -194,6 +194,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       engine_->set_native_key_callback([this](HWND page,UINT message,WPARAM key){native_key(page,message,key);});
       POINT pointer{};if(GetCursorPos(&pointer))input_policy_.seed_pointer(pointer.x,pointer.y);
       hook_=SetWindowsHookExW(WH_GETMESSAGE,InputHook,nullptr,GetCurrentThreadId());
+      sent_hook_=SetWindowsHookExW(WH_CALLWNDPROC,SentInputHook,nullptr,GetCurrentThreadId());
       // A launch from Windows with a link opens it in the first Personal tab.
       const bool first_link=!open_documentation_&&!launch_urls_.empty();
       broker_->open_initial_human_workspace(open_documentation_?ui::utf8(ui::documentation_url):first_link?launch_urls_.front():"about:blank",[](Json){});
@@ -229,6 +230,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
 #endif
     if(launch_window_){DestroyWindow(launch_window_);launch_window_=nullptr;}
     active_=nullptr;if(hook_){UnhookWindowsHookEx(hook_);hook_=nullptr;}
+    if(sent_hook_){UnhookWindowsHookEx(sent_hook_);sent_hook_=nullptr;}
     if(input_timer_){KillTimer(nullptr,input_timer_);input_timer_=0;}
     if(engine_){engine_->set_native_key_callback({});engine_->set_workspace_label_callback({});}
     if(engine_){engine_->set_controls_callback({});engine_->set_updates_callback({});engine_->set_private_workspace_callback({});engine_->set_open_link_callback({});}
@@ -257,6 +259,17 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     }
     return CallNextHookEx(nullptr,code,wp,lp);
   }
+  // Pinned Chromium154 activates DirectManipulation on the legacy page window.
+  // Windows sends (never posts) DM_POINTERHITTEST when a precision-touchpad
+  // gesture starts there; Chromium then hands the contact to DirectManipulation,
+  // so its scroll or pinch never reaches the message queue.
+  static LRESULT CALLBACK SentInputHook(int code,WPARAM wp,LPARAM lp){
+    if(code>=0&&active_&&active_->engine_){
+      const auto& sent=*reinterpret_cast<const CWPSTRUCT*>(lp);
+      if(sent.message==DM_POINTERHITTEST)active_->touchpad_contact(sent.hwnd,GET_POINTERID_WPARAM(sent.wParam));
+    }
+    return CallNextHookEx(nullptr,code,wp,lp);
+  }
   static bool chrome_window(HWND window){
     wchar_t name[128]{};GetClassNameW(GetAncestor(window,GA_ROOT),name,128);
     return wcscmp(name,L"XenonBrowserShell")==0;
@@ -270,20 +283,21 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     // needed to distinguish it from the omnibox and native browser controls.
     return tab_host(window);
   }
-  static HWND mouse_page(const MSG& message){
-    const auto root=GetAncestor(message.hwnd,GA_ROOT);
+  static HWND mouse_page(const MSG& message){return input_page(message.hwnd,message.pt);}
+  static HWND input_page(HWND target,POINT screen){
+    const auto root=GetAncestor(target,GA_ROOT);
     if(!chrome_window(root)||GetPropW(root,L"XenonSidebarDrag"))return nullptr;
-    if(auto page=legacy_page(message.hwnd)){
+    if(auto page=legacy_page(target)){
       RECT bounds{};
-      if(GetWindowRect(page,&bounds)&&PtInRect(&bounds,message.pt))return page;
+      if(GetWindowRect(page,&bounds)&&PtInRect(&bounds,screen))return page;
       return nullptr;
     }
     // Aura capture and Windows wheel routing can address the root window.
     // Only a visible page child under this queued screen position qualifies.
     // Never substitute a live cursor position or classify the whole Chrome root.
-    HWND window=message.hwnd;
+    HWND window=target;
     for(unsigned depth=0;window&&depth<16;++depth){
-      POINT point=message.pt;if(!ScreenToClient(window,&point))return nullptr;
+      POINT point=screen;if(!ScreenToClient(window,&point))return nullptr;
       const auto child=ChildWindowFromPointEx(window,point,CWP_SKIPINVISIBLE|CWP_SKIPDISABLED);
       if(!child||child==window)return nullptr;
       if(auto page=legacy_page(child))return page;
@@ -306,6 +320,9 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     active_->emit_input(active_->input_policy_.reconcile(
       [](unsigned key){return (GetAsyncKeyState(static_cast<int>(key))&0x8000)!=0;},
       [](NativeInputPolicy::Window page){return IsWindow(reinterpret_cast<HWND>(page))!=FALSE;}));
+    active_->emit_input(active_->input_policy_.reconcile_contacts(
+      [](std::uint32_t pointer){POINTER_INFO info{};return GetPointerInfo(pointer,&info)!=FALSE&&(info.pointerFlags&POINTER_FLAG_INCONTACT)!=0;},
+      [](NativeInputPolicy::Window page){return IsWindow(reinterpret_cast<HWND>(page))!=FALSE;},GetTickCount64()));
     active_->update_input_timer();
   }
   static std::vector<unsigned> held_modifiers(){
@@ -334,6 +351,41 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     }else if(message==WM_KEYUP||message==WM_SYSKEYUP){
       emit_input(input_policy_.release(static_cast<unsigned>(key)));
     }
+    update_input_timer();
+  }
+  // Touch and pen arrive as posted pointer messages to the window under the
+  // contact, which keeps implicit capture until lift. Pinned Chromium154 never
+  // enables mouse-in-pointer and, outside drag and drop, suppresses mouse
+  // compatibility input for pen, so no button message follows. Pen hover stays
+  // passive like mouse hover.
+  void pointer_contact(const MSG& message){
+    const auto pointer=static_cast<std::uint32_t>(GET_POINTERID_WPARAM(message.wParam));
+    if(message.message==WM_POINTERUP||!IS_POINTER_INCONTACT_WPARAM(message.wParam)){emit_input(input_policy_.contact_end(pointer));return;}
+    const POINT point{static_cast<short>(LOWORD(message.lParam)),static_cast<short>(HIWORD(message.lParam))};
+    const bool down=message.message==WM_POINTERDOWN;
+    if(!down&&input_policy_.contacting(pointer)){emit_input(input_policy_.contact_move(pointer,point.x,point.y));return;}
+    // A contact this thread did not see begin (for example, after a missed
+    // release) resumes its hold without crediting a new credential edit.
+    const auto page=input_page(message.hwnd,point);
+    if(page)engine_->native_pointer(page,point,true);
+    else if(down)keyboard_pages_.erase(GetAncestor(message.hwnd,GA_ROOT));
+    // A touch or pen tip mirrors a left click; a pen barrel button a right click.
+    // Chromium notes that a touchpad scroll over an unfocused window can also
+    // post a pointer down; it pauses the page but is not a click.
+    POINTER_INPUT_TYPE type{};
+    const bool click=down&&!(GetPointerType(pointer,&type)&&type==PT_TOUCHPAD);
+    auto activity=input_policy_.contact(reinterpret_cast<NativeInputPolicy::Window>(page),pointer,point.x,point.y,true,GetTickCount64(),click);
+    if(activity)activity->primary_click=click&&IS_POINTER_FIRSTBUTTON_WPARAM(message.wParam)&&!IS_POINTER_SECONDBUTTON_WPARAM(message.wParam);
+    emit_input(activity);
+  }
+  // Touch and pen hit tests are ignored: their own posted messages follow.
+  void touchpad_contact(HWND target,std::uint32_t pointer){
+    POINTER_INPUT_TYPE type{};
+    if(GetPointerType(pointer,&type)&&type!=PT_TOUCHPAD)return;
+    // DirectManipulation chose this page window; the gesture has no queued point.
+    const auto root=GetAncestor(target,GA_ROOT);
+    const auto page=chrome_window(root)&&!GetPropW(root,L"XenonSidebarDrag")?legacy_page(target):nullptr;
+    emit_input(input_policy_.contact(reinterpret_cast<NativeInputPolicy::Window>(page),pointer,0,0,false,GetTickCount64()));
     update_input_timer();
   }
   void native_message(const MSG& message){
@@ -370,6 +422,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       case WM_XBUTTONUP:emit_input(input_policy_.release(HIWORD(message.wParam)==XBUTTON1?VK_XBUTTON1:VK_XBUTTON2));break;
       case WM_NCLBUTTONDOWN:case WM_NCRBUTTONDOWN:case WM_NCMBUTTONDOWN:case WM_NCXBUTTONDOWN:keyboard_pages_.erase(root);break;
       case WM_MOUSEWHEEL:case WM_MOUSEHWHEEL:emit_input(input_policy_.pulse(page_for_mouse()));break;
+      case WM_POINTERDOWN:case WM_POINTERUPDATE:case WM_POINTERUP:pointer_contact(message);break;
       case WM_KEYUP:case WM_SYSKEYUP:emit_input(input_policy_.release(static_cast<unsigned>(message.wParam)));break;
       case WM_KEYDOWN:case WM_SYSKEYDOWN:{
         const auto key=message.wParam;
@@ -404,7 +457,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     }
   }
   static inline App* active_=nullptr;
-  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;std::unique_ptr<ExtensionStore> extensions_;std::vector<std::filesystem::path> extension_paths_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{},test_extension_enabled_{},test_page_scale_enabled_{};std::vector<std::string> launch_urls_,handed_urls_;HWND launch_window_{};HHOOK hook_{};
+  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;std::unique_ptr<ExtensionStore> extensions_;std::vector<std::filesystem::path> extension_paths_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{},test_extension_enabled_{},test_page_scale_enabled_{};std::vector<std::string> launch_urls_,handed_urls_;HWND launch_window_{};HHOOK hook_{},sent_hook_{};
   NativeInputPolicy input_policy_;
   struct KeyboardPage {HWND page{};ULONGLONG observed_at{};};
   std::map<HWND,KeyboardPage> keyboard_pages_;

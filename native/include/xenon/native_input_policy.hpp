@@ -52,12 +52,44 @@ class NativeInputPolicy {
   // primary_click marks a left-button press; the engine may then offer saved
   // accounts again for a login field clicked in the same document.
   struct Activity {Window window{};bool busy{};bool credential_input{};bool substantive{};bool primary_click{};};
+  // A touchpad contact taken by DirectManipulation sends no further UI-thread
+  // messages; if Windows keeps reporting it in contact, the hold ends here.
+  static constexpr std::uint64_t unreported_contact_limit_ms=5000;
   void seed_pointer(long x,long y) noexcept {pointer_.seed(x,y);}
-  bool tracking() const noexcept {return !held_.empty()||!compositions_.empty();}
+  bool tracking() const noexcept {return !held_.empty()||!compositions_.empty()||!contacts_.empty();}
   bool busy(Window page) const {
     if(compositions_.contains(page))return true;
     for(const auto& [key,hold]:held_)if(hold.windows.contains(page))return true;
+    for(const auto& [pointer,contact]:contacts_)if(contact.windows.contains(page))return true;
     return false;
+  }
+  // Touch, pen and touchpad contacts are keyed by Windows pointer ID, separate
+  // from virtual keys. reported means the contact's own messages reach this
+  // thread (touch and pen); a touchpad hit test alone is not reported.
+  bool contacting(std::uint32_t pointer) const {return contacts_.contains(pointer);}
+  std::optional<Activity> contact(Window page,std::uint32_t pointer,long x,long y,bool reported,
+                                  std::uint64_t now,bool credential=false) {
+    if(!page)return std::nullopt;
+    // A pointer ID can be reused after a missed release; keep both pages held.
+    auto& held=contacts_[pointer];held.windows.insert(page);
+    held.x=x;held.y=y;held.reported=held.reported||reported;held.since=now;
+    return Activity{page,true,credential,true};
+  }
+  std::vector<Activity> contact_move(std::uint32_t pointer,long x,long y) {
+    const auto entry=contacts_.find(pointer);if(entry==contacts_.end())return {};
+    auto& held=entry->second;held.reported=true;
+    if(x==held.x&&y==held.y)return {};
+    held.x=x;held.y=y;
+    std::vector<Activity> out;
+    for(const auto page:held.windows)out.push_back({page,true,false});
+    return out;
+  }
+  std::vector<Activity> contact_end(std::uint32_t pointer) {
+    const auto entry=contacts_.find(pointer);if(entry==contacts_.end())return {};
+    const auto pages=entry->second.windows;contacts_.erase(entry);
+    std::vector<Activity> result;
+    for(const auto page:pages)result.push_back({page,busy(page),false,false});
+    return result;
   }
   std::optional<Activity> press(Window page,unsigned key,bool pointer,bool credential=false,
                                 const std::vector<unsigned>& modifiers={}) {
@@ -130,10 +162,31 @@ class NativeInputPolicy {
     for(const auto page:changed)if(exists(page))out.push_back({page,busy(page),false});
     return out;
   }
+  // A lift can be missed when the contact's capture moves elsewhere. Windows'
+  // current pointer state ends the hold; a touchpad hit test is also bounded.
+  template<class InContact,class Exists>
+  std::vector<Activity> reconcile_contacts(InContact in_contact,Exists exists,std::uint64_t now) {
+    std::set<Window> changed;
+    for(auto entry=contacts_.begin();entry!=contacts_.end();) {
+      auto& held=entry->second;
+      if(!in_contact(entry->first)||(!held.reported&&now-held.since>=unreported_contact_limit_ms)){
+        changed.insert(held.windows.begin(),held.windows.end());entry=contacts_.erase(entry);
+      }else{
+        for(auto page=held.windows.begin();page!=held.windows.end();)
+          if(!exists(*page)){changed.insert(*page);page=held.windows.erase(page);}else ++page;
+        if(held.windows.empty())entry=contacts_.erase(entry);else ++entry;
+      }
+    }
+    std::vector<Activity> out;
+    for(const auto page:changed)if(exists(page))out.push_back({page,busy(page),false});
+    return out;
+  }
  private:
   struct Hold {std::set<Window> windows;bool pointer{};};
+  struct Contact {std::set<Window> windows;long x{},y{};bool reported{};std::uint64_t since{};};
   ThreadPointerHistory pointer_;
   std::map<unsigned,Hold> held_;
+  std::map<std::uint32_t,Contact> contacts_;
   std::set<Window> compositions_;
 };
 
