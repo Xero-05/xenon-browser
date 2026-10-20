@@ -1,0 +1,260 @@
+{
+  "date": "2026-10-20",
+  "status": "Background reproduction fixed; foreground suggestion coverage incomplete",
+  "build": {
+    "command": "./scripts/build.ps1 -Jobs 6",
+    "exitCode": 0,
+    "log": "out/background-popup-build5.log",
+    "earlierRestrictedBuild": "out/background-popup-build1.log stalled before compilation and was interrupted"
+  },
+  "nativeTests": {
+    "command": "./build/Release/native_ui_tests.exe",
+    "exitCode": 0
+  },
+  "before": {
+    "run": "background-popup-1792483024070-5639f16b",
+    "startHashes": {
+      "Xenon.dll": "8ff30dfa0f08f2abbcbab9e2549ed08ee79a644e80dc49fc6428ccf33da59064",
+      "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+    },
+    "endHashes": {
+      "Xenon.dll": "8ff30dfa0f08f2abbcbab9e2549ed08ee79a644e80dc49fc6428ccf33da59064",
+      "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+    },
+    "checks": [
+      {
+        "name": "Choose a number",
+        "windows": [
+          "Chrome_WidgetWin_1 > XenonBrowserShell",
+          "XenonBrowserShell"
+        ],
+        "escaped": [
+          "Chrome_WidgetWin_1 > XenonBrowserShell"
+        ]
+      }
+    ],
+    "failure": "Choose a number: background popup escaped above the selected tab\n\n1 !== 0\n",
+    "passed": false,
+    "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+  },
+  "after": {
+    "run": "background-popup-1792484387023-03b748ae",
+    "startHashes": {
+      "Xenon.dll": "80e81d0bf14d68779f3b09c180cac87289e9e207fd812cadee71565aef3ba614",
+      "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+    },
+    "endHashes": {
+      "Xenon.dll": "80e81d0bf14d68779f3b09c180cac87289e9e207fd812cadee71565aef3ba614",
+      "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+    },
+    "checks": [
+      {
+        "name": "Choose a number",
+        "windows": [
+          "XenonBrowserShell"
+        ],
+        "escaped": [],
+        "capture": ""
+      },
+      {
+        "name": "Open suggestions",
+        "windows": [
+          "XenonBrowserShell"
+        ],
+        "escaped": [],
+        "capture": ""
+      },
+      {
+        "backgroundSelection": true,
+        "backgroundClick": true
+      }
+    ],
+    "passed": true,
+    "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+  },
+  "incompleteForeground": [
+    {
+      "run": "background-popup-1792483807267-35657e98",
+      "startHashes": {
+        "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "endHashes": {
+        "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "checks": [
+        {
+          "name": "Choose a number",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "name": "Number suggestions",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "name": "Number suggestions",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "backgroundSelection": true,
+          "backgroundClick": true
+        },
+        {
+          "foregroundSelectVisible": true
+        },
+        {
+          "tabSwitchDismissed": true
+        },
+        {
+          "minimizedDismissed": true
+        }
+      ],
+      "failure": "Foreground datalist suggestions must remain available",
+      "passed": false,
+      "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+    },
+    {
+      "run": "background-popup-1792483881676-52d4761d",
+      "startHashes": {
+        "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "endHashes": {
+        "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "checks": [
+        {
+          "name": "Choose a number",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "name": "Open suggestions",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "backgroundSelection": true,
+          "backgroundClick": true
+        },
+        {
+          "foregroundSelectVisible": true
+        },
+        {
+          "tabSwitchDismissed": true
+        },
+        {
+          "minimizedDismissed": true
+        }
+      ],
+      "failure": "Synthetic fixture lost foreground before the datalist check",
+      "passed": false,
+      "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+    },
+    {
+      "run": "background-popup-1792483904989-c33833cd",
+      "startHashes": {
+        "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "endHashes": {
+        "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "checks": [
+        {
+          "name": "Choose a number",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "name": "Open suggestions",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "backgroundSelection": true,
+          "backgroundClick": true
+        },
+        {
+          "foregroundSelectVisible": true
+        },
+        {
+          "tabSwitchDismissed": true
+        }
+      ],
+      "failure": "Reopening foreground select must work",
+      "passed": false,
+      "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+    },
+    {
+      "run": "background-popup-1792484292084-31b3b967",
+      "startHashes": {
+        "Xenon.dll": "80e81d0bf14d68779f3b09c180cac87289e9e207fd812cadee71565aef3ba614",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "endHashes": {
+        "Xenon.dll": "80e81d0bf14d68779f3b09c180cac87289e9e207fd812cadee71565aef3ba614",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "checks": [
+        {
+          "name": "Choose a number",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "name": "Open suggestions",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "backgroundSelection": true,
+          "backgroundClick": true
+        }
+      ],
+      "failure": "Synthetic fixture lost foreground before the select check",
+      "passed": false,
+      "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+    }
+  ],
+  "limits": [
+    "Native Windows messages and MCP actions against synthetic pages, not physical input.",
+    "Foreground select, tab switching and minimization passed in partial runs; the full foreground mode did not pass.",
+    "Datalist foreground positive control and real PD Portal remain unverified.",
+    "Installed browser and personal profiles were not modified."
+  ],
+  "validationContext": "The recorded browser binaries were built and tested in the shared working checkout before the popup-only changes were isolated onto current main for this PR. Unrelated local changes were present; these runs are not exact-PR-head browser acceptance."
+}

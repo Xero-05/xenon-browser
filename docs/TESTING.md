@@ -1,5 +1,27 @@
 # Validation
 
+## Background native popups (local candidate, 2026-10-20)
+
+`node tests/background-popup-integration.mjs` uses a disposable production
+browser and a loopback page. Before the fix, clicking a select in a covered
+agent tab created a visible `Chrome_WidgetWin_1` owned by the shell. The fixed
+run checks that covered select and suggestion-picker actions produce no extra
+visible windows or mouse capture, and verifies selection changes and ordinary
+button clicks through the website's callbacks. The full native build and
+`native_ui_tests` passed. Native tests additionally cover the original child
+owner, eligible display, eligibility loss, source destruction and unrelated
+shell popups. These binary runs used the shared checkout with other local
+changes present; they are not isolated PR-head browser acceptance.
+
+The optional `--foreground` mode needs an uninterrupted interactive desktop.
+Foreground select, tab-switch and minimize assertions passed in partial runs,
+but the complete foreground suite has not passed: some attempts lost foreground
+activation, and the datalist positive control did not consistently produce a
+popup, including an attempt with foreground retained. This is not complete
+suggestion-list, physical-input or real PD Portal coverage. The
+[binary-bound record](test-results/background-popups.json) retains the initial
+reproduction, passing covered-tab run and incomplete foreground attempts.
+
 ## Direct file lookup (local candidate, 2026-10-20)
 
 The [validation record](test-results/upload-direct-path.json) covers
