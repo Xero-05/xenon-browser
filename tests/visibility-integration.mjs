@@ -24,7 +24,9 @@ const hashDll = async () => createHash('sha256').update(await readFile(applicati
 const runFile = promisify(execFile);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const results = [];
-let browser, fixture, client, tab, applicationDllSha256, applicationDllSha256AtEnd, lastObservationResponse;
+let browser, fixture, client, tab, applicationDllSha256, applicationDllSha256AtEnd, lastObservationResponse, cornerAtZoom1, zoomBase;
+// Shell menu command IDs (native/src/cef_shell.cpp) posted to this run's own window.
+const MenuZoomIn = 2101, MenuZoomReset = 2103;
 
 const alivePipe = () => new Promise(resolve => {
   const socket = net.connect(pipe);
@@ -92,6 +94,53 @@ function assertExplicitLimitation(observation, reason) {
   const limitations = observation.visibility?.limitations ?? observation.limitations;
   assert(Array.isArray(limitations) && limitations.some(item => typeof item === 'string' ? item.length > 0 : item && typeof item === 'object'), `${reason} must explain its conservative coverage limit`);
 }
+const shell = (script, ...args) => runFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
+  resolve(root, 'tests/fixtures', script), '-ProcessId', String(browser.pid), ...args], { windowsHide: true });
+const selectedRow = ({ stdout }) => {
+  const match = /selected workspace row (\d+) of (\d+)/.exec(stdout);
+  assert(match, 'The sidebar helper did not report its selection');
+  return { row: Number(match[1]), rows: Number(match[2]) };
+};
+// Waits until the agent tab's CSS viewport shows the requested browser zoom
+// relative to base, then for the human pause the native zoom command starts.
+// That pause begins before the zoom reaches the page, so it cannot be missed.
+async function settleZoom(base, factor) {
+  return until(async () => {
+    const response = await raw('observe', { ...scope(), maxNodes: 1000 });
+    if (response.isError) return false;
+    const { viewport } = response.structuredContent;
+    if (['width', 'height'].some(axis => Math.abs(base[axis] / viewport[axis] - factor) > 0.04)) return false;
+    return !(await tool('control_status', scope())).humanPaused && viewport;
+  });
+}
+// The fixed bottom-right control counts its clicks in its label. Click it by
+// reference, then by viewport coordinates taken from inspection evidence.
+async function cornerPass() {
+  const observation = await observe();
+  const corner = observation.nodes.find(node => node.role === 'button' && /^Corner action( \d+)?$/.test(node.name) && node.ref);
+  assert(corner, 'A rendered control near the bottom-right viewport corner has no usable reference');
+  const clicks = Number(corner.name.slice('Corner action'.length)), { bounds } = corner, { viewport } = observation;
+  assert.equal(bounds.coordinateSpace, 'frame-document-css');
+  const right = bounds.x - viewport.pageX + bounds.width, bottom = bounds.y - viewport.pageY + bounds.height;
+  // Device-pixel bounds once pushed this region outside the CSS viewport at 125% display scale.
+  assert(right > viewport.width * 0.9 && bottom > viewport.height * 0.9, 'The corner control must reach beyond 90% of both CSS viewport axes');
+  assert(right <= viewport.width + 1 && bottom <= viewport.height + 1, 'Corner bounds must be CSS pixels inside the CSS viewport');
+  await tool('interact', { ...mutation(), observationId: observation.observationId, action: 'click', elementRef: corner.ref });
+  await until(async () => named(await observe(), `Corner action ${clicks + 1}`));
+  // Inspect asks clients to retry when evidence moves during capture, such as a hover transition.
+  const inspection = await until(async () => {
+    const response = await raw('inspect', { ...scope(), maxNodes: 1000 });
+    if (!response.isError) return response.structuredContent;
+    assert.equal(response.structuredContent?.error?.code, 'inspection_changed', `inspect: ${JSON.stringify(response.structuredContent ?? response.content)}`);
+    return false;
+  });
+  const clicked = inspection.nodes.find(node => node.role === 'button' && node.name === `Corner action ${clicks + 1}`);
+  assert(clicked, 'Inspection lost the corner control');
+  const x = clicked.bounds.x - inspection.viewport.pageX + clicked.bounds.width / 2, y = clicked.bounds.y - inspection.viewport.pageY + clicked.bounds.height / 2;
+  await tool('interact', { ...mutation(), observationId: inspection.observationId, action: 'click', x, y });
+  await until(async () => named(await observe(), `Corner action ${clicks + 2}`));
+  return { viewport, bounds, screenshotScaleX: inspection.scaleX, referenceClick: true, coordinateClick: { x, y } };
+}
 
 if (process.platform !== 'win32') throw new Error('Live visibility regression requires Windows.');
 if (await alivePipe()) throw new Error('The randomly allocated visibility test pipe is already in use.');
@@ -150,31 +199,28 @@ try {
     await act('Rendered label action', 'Referenced label action completed');
     return { visibleLabelsUsed: true, hiddenNamesExcluded: true };
   });
-  await check('A control near the far viewport corner stays verified and clickable by reference and coordinates', async () => {
-    const observation = await observe();
-    const corner = observation.nodes.find(node => node.role === 'button' && node.name === 'Corner action' && node.ref);
-    assert(corner, 'A rendered control near the bottom-right viewport corner has no usable reference');
-    const { bounds } = corner, { viewport } = observation;
-    assert.equal(bounds.coordinateSpace, 'frame-document-css');
-    const right = bounds.x - viewport.pageX + bounds.width, bottom = bounds.y - viewport.pageY + bounds.height;
-    // Device-pixel bounds once pushed this region outside the CSS viewport at 125% display scale.
-    assert(right > viewport.width * 0.9 && bottom > viewport.height * 0.9, 'The corner control must reach beyond 90% of both CSS viewport axes');
-    assert(right <= viewport.width + 1 && bottom <= viewport.height + 1, 'Corner bounds must be CSS pixels inside the CSS viewport');
-    await tool('interact', { ...mutation(), observationId: observation.observationId, action: 'click', elementRef: corner.ref });
-    await until(async () => named(await observe(), 'Corner action 1'));
-    // Inspect asks clients to retry when evidence moves during capture, such as a hover transition.
-    const inspection = await until(async () => {
-      const response = await raw('inspect', { ...scope(), maxNodes: 1000 });
-      if (!response.isError) return response.structuredContent;
-      assert.equal(response.structuredContent?.error?.code, 'inspection_changed', `inspect: ${JSON.stringify(response.structuredContent ?? response.content)}`);
-      return false;
-    });
-    const clicked = inspection.nodes.find(node => node.role === 'button' && node.name === 'Corner action 1');
-    assert(clicked, 'Inspection lost the corner control');
-    const x = clicked.bounds.x - inspection.viewport.pageX + clicked.bounds.width / 2, y = clicked.bounds.y - inspection.viewport.pageY + clicked.bounds.height / 2;
-    await tool('interact', { ...mutation(), observationId: inspection.observationId, action: 'click', x, y });
-    await until(async () => named(await observe(), 'Corner action 2'));
-    return { viewport, bounds, screenshotScaleX: inspection.scaleX, referenceClick: true, coordinateClick: { x, y } };
+  await check('A control near the far viewport corner stays verified and clickable by reference and coordinates', async () => (cornerAtZoom1 = await cornerPass()));
+  await check('At 120% browser zoom the far-corner control keeps CSS bounds and stays clickable by reference and coordinates', async () => {
+    zoomBase = (await observe()).viewport;
+    // Browser zoom scales DOMSnapshot layout units exactly like Windows display
+    // scale. Shell zoom acts on the selected tab; agent tabs are not selected.
+    const agentRow = selectedRow(await shell('select-shell-tab.ps1', '-Group', '-1', '-Index', '0'));
+    // The agent's automatic workspace follows the default one, which holds the original selection.
+    assert(agentRow.rows >= 2, 'The agent workspace must not be the only sidebar workspace');
+    await shell('post-shell-command.ps1', '-Command', String(MenuZoomIn));
+    const zoomed = await settleZoom(zoomBase, 1.2);
+    const pass = await cornerPass();
+    // The label, and so the width, changes with each click; the height must not scale.
+    if (cornerAtZoom1) assert(Math.abs(pass.bounds.height / cornerAtZoom1.bounds.height - 1) < 0.05, 'Zoomed corner bounds must stay in CSS pixels rather than layout units');
+    return { browserZoom: 1.2, agentRow, viewportAtZoom1: zoomBase, measuredScale: zoomBase.width / zoomed.width, ...pass };
+  });
+  await check('Browser zoom resets before the remaining checks', async () => {
+    await shell('post-shell-command.ps1', '-Command', String(MenuZoomReset));
+    assert(zoomBase, 'The zoom check recorded no unzoomed viewport');
+    const restored = await settleZoom(zoomBase, 1);
+    // Later checks keep the original selection, in which the agent tab is covered.
+    const originalRow = selectedRow(await shell('select-shell-tab.ps1', '-Group', '0', '-Index', '0'));
+    return { browserZoom: 1, viewport: restored, originalRow };
   });
   await check('Decorative box shadows preserve unrelated rendered control references and queries', async () => {
     const observation = await observe({ query: 'Visible input label' });
@@ -294,7 +340,7 @@ try {
     assert.equal(applicationDllSha256AtEnd, applicationDllSha256, 'Browser DLL changed during visibility validation');
   } catch (error) { results.push({ name: 'Tested binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe',
-    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 12 && results.every(result => result.passed), results };
+    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 14 && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true });
   const reportPath = resolve(root, 'out/visibility-integration-results.json');
   await writeFile(reportPath, JSON.stringify(report, null, 2));
