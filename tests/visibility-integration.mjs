@@ -7,11 +7,11 @@ import { promisify } from 'node:util';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { inflateSync } from 'node:zlib';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { writePrivateConfig } from '../adapter/dist/src/private-config.js';
 import { hiddenPrefix, hiddenMarkers, startVisibilityFixture } from './fixtures/visibility-fixture.mjs';
+import { colorBox, decodePng } from './fixtures/screenshot-pixels.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const run = `visibility-integration-${Date.now()}-${randomBytes(4).toString('hex')}`;
@@ -92,44 +92,6 @@ function assertExplicitLimitation(observation, reason) {
   assert.equal(observation.coverage, 'partial', `${reason} must not silently claim complete rendered coverage`);
   const limitations = observation.visibility?.limitations ?? observation.limitations;
   assert(Array.isArray(limitations) && limitations.some(item => typeof item === 'string' ? item.length > 0 : item && typeof item === 'object'), `${reason} must explain its conservative coverage limit`);
-}
-// Minimal decoder for the 8-bit, non-interlaced RGB(A) PNGs CEF captures (as in theme-integration.mjs).
-function decodePng(buffer) {
-  assert.equal(buffer.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'Screenshot must be a PNG');
-  let offset = 8, width, height, depth, type, interlace; const chunks = [];
-  while (offset < buffer.length) {
-    const length = buffer.readUInt32BE(offset), kind = buffer.toString('ascii', offset + 4, offset + 8);
-    const body = buffer.subarray(offset + 8, offset + 8 + length);
-    if (kind === 'IHDR') { width = body.readUInt32BE(0); height = body.readUInt32BE(4); depth = body[8]; type = body[9]; interlace = body[12]; }
-    else if (kind === 'IDAT') chunks.push(body);
-    else if (kind === 'IEND') break;
-    offset += 12 + length;
-  }
-  assert(depth === 8 && (type === 2 || type === 6) && interlace === 0, 'Unsupported screenshot PNG layout');
-  const channels = type === 6 ? 4 : 3, stride = width * channels, raw = inflateSync(Buffer.concat(chunks));
-  const pixels = Buffer.alloc(stride * height);
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)], line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
-    assert(filter <= 4, 'Invalid PNG filter');
-    const out = pixels.subarray(y * stride, (y + 1) * stride), prior = y ? pixels.subarray((y - 1) * stride, y * stride) : undefined;
-    for (let x = 0; x < stride; x++) {
-      const a = x >= channels ? out[x - channels] : 0, b = prior ? prior[x] : 0, c = prior && x >= channels ? prior[x - channels] : 0;
-      const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
-      const predictor = [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][filter];
-      out[x] = (line[x] + predictor) & 255;
-    }
-  }
-  return { width, height, channels, pixels };
-}
-// Image-pixel bounding box of a saturated fixture color; tolerant of display color conversion.
-function colorBox({ width, height, channels, pixels }, matches) {
-  let box;
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    const i = (y * width + x) * channels;
-    if (!matches(pixels[i], pixels[i + 1], pixels[i + 2])) continue;
-    box = box ? { left: Math.min(box.left, x), top: Math.min(box.top, y), right: Math.max(box.right, x), bottom: Math.max(box.bottom, y) } : { left: x, top: y, right: x, bottom: y };
-  }
-  return box;
 }
 
 if (process.platform !== 'win32') throw new Error('Live visibility regression requires Windows.');
@@ -251,6 +213,39 @@ try {
     assert.equal(after.viewport.pageY, before.viewport.pageY, 'Rejected scrollbar input scrolled the page');
     return { clicks, scrollbarClickRejected: true };
   });
+  await check('Right-to-left screenshot coordinates keep the main-frame scrollbar on the right', async () => {
+    // Chromium places an RTL scroller's vertical scrollbar on the left, but not the main frame's
+    // (LayoutView setting placeRTLScrollbarsOnLeftSideInMainFrame, off outside web tests).
+    // Validation assumes that: if it changes, the left target moves and the right one is rejected.
+    const rtl = await tool('tab_create', { agentSessionId: tab.agentSessionId, workspaceId: tab.workspaceId, url: `${fixture.origin}/rtl` });
+    const rtlScope = { agentSessionId: tab.agentSessionId, workspaceId: tab.workspaceId, tabId: rtl.tabId };
+    const rtlMutation = () => ({ ...rtlScope, ownershipGeneration: rtl.ownershipGeneration, operationId: randomUUID() });
+    try {
+      await until(async () => { const response = await raw('observe', { ...rtlScope, maxNodes: 100 }); return !response.isError && named(response.structuredContent, 'Viewport fixture ready'); });
+      const response = await raw('screenshot', rtlScope);
+      assert(!response.isError, `screenshot: ${JSON.stringify(response.structuredContent ?? response.content)}`);
+      const png = decodePng(Buffer.from(response.content.find(item => item.type === 'image').data, 'base64')), meta = response.structuredContent;
+      const { scaleX, scaleY, viewport } = meta;
+      const left = colorBox(png, (r, g, b) => r > 180 && g < 90 && b > 180), right = colorBox(png, (r, g, b) => r > 180 && g > 180 && b < 90);
+      assert(left && right, 'Both RTL edge targets must be in the screenshot');
+      assert(left.left <= 1, `A left scrollbar strip precedes the page: ${JSON.stringify(left)}`);
+      const scrollbar = png.width / scaleX - viewport.width;
+      assert(scrollbar >= 8, `The RTL fixture must show a classic vertical scrollbar: ${scrollbar}`);
+      assert(Math.abs((right.right + 1) / scaleX - viewport.width) <= 1, `The scrollbar is not on the right: ${JSON.stringify({ right, viewport, scaleX })}`);
+      const clicked = [];
+      for (const [id, box] of [['rtl-left', left], ['rtl-right', right]]) {
+        const x = (box.left + box.right + 1) / 2 / scaleX, y = (box.top + box.bottom + 1) / 2 / scaleY;
+        await tool('interact', { ...rtlMutation(), observationId: meta.observationId, action: 'click', x, y });
+        await until(() => fixture.clicks()[id] === 1, 5000).catch(() => { throw new Error(`${id} click at ${x},${y} was not registered: ${JSON.stringify(fixture.clicks())}`); });
+        clicked.push({ id, imageBox: box, x, y });
+      }
+      const rejected = await raw('interact', { ...rtlMutation(), observationId: meta.observationId, action: 'click', x: (png.width - 2) / scaleX, y: viewport.height / 2 });
+      assert.equal(rejected.structuredContent?.error?.code, 'invalid_coordinates', 'A right scrollbar pixel must not become page input');
+      const after = await raw('observe', { ...rtlScope, maxNodes: 100 });
+      assert.equal(after.structuredContent?.viewport?.pageY, 0, 'Rejected scrollbar input scrolled the RTL page');
+      return { clicked, scrollbar, imageWidth: png.width, viewport, scaleX, rightScrollbarClickRejected: true };
+    } finally { await raw('tab_close', rtlMutation()).catch(() => {}); }
+  });
   await check('A changed visible label invalidates its reference even when the hidden AX name is unchanged', async () => {
     const observation = await observe();
     const target = observation.nodes.find(node => node.role === 'button' && node.name === 'Stable visible target' && node.ref);
@@ -350,7 +345,7 @@ try {
     assert.equal(applicationDllSha256AtEnd, applicationDllSha256, 'Browser DLL changed during visibility validation');
   } catch (error) { results.push({ name: 'Tested binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe',
-    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 12 && results.every(result => result.passed), results };
+    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 13 && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true });
   const reportPath = resolve(root, 'out/visibility-integration-results.json');
   await writeFile(reportPath, JSON.stringify(report, null, 2));
