@@ -1,5 +1,27 @@
 # Validation
 
+## Touch, pen and touchpad human input (local candidate, 2026-10-20)
+
+A source review of Chromium 154 found that touchscreen, pen and
+precision-touchpad input did not pause agents or invalidate their evidence.
+Touch and pen arrive as posted `WM_POINTER` messages to the page window, and
+Xenon's message hook classified only mouse buttons, wheel, keys and IME.
+Chromium hands a precision-touchpad scroll or pinch to DirectManipulation after
+a sent `DM_POINTERHITTEST`, so no queued message follows. Touch and pen
+contacts now hold the pause until they lift. A thread `WH_CALLWNDPROC` hook
+detects the touchpad hit test and holds that gesture while Windows reports the
+contact, for at most five seconds.
+
+The full browser build passed 23 native groups, including new
+`native_input_policy_tests` cases for contacts, pinch, separate pointer and key
+IDs, reused pointer IDs, reconciliation and the touchpad bound. Adapter (22),
+login capture (42), human autofill (31), protected login (10), form fill (6)
+and passkey guard (8) tests and the branding check passed. No live suite ran,
+and no touchscreen, pen or precision touchpad was used. Message classification
+on real hardware is unverified. So is whether `GetPointerInfo` keeps reporting
+a DirectManipulation-owned touchpad contact until it lifts; the five-second
+bound covers that case.
+
 ## Screenshot coordinates under pinch zoom and right-to-left pages (local candidate, 2026-10-20)
 
 The [validation record](test-results/screenshot-pinch-rtl.json) covers two
