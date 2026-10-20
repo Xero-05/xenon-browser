@@ -20,6 +20,7 @@
 #include "xenon/introduction.hpp"
 #include "xenon/pointer_motion.hpp"
 #include "xenon/pointer_overlay.hpp"
+#include "xenon/page_popup_guard.hpp"
 #include "xenon/developer_elements.hpp"
 #include "xenon/local_security.hpp"
 #include "xenon/version.hpp"
@@ -680,6 +681,7 @@ struct BrowserShell::Impl {
         // Keyboard tab switching can choose a row outside the visible sidebar.
         // A scrolled sidebar has no meaningful glide origin.
         if(auto item=item_of(id)){const auto top=TreeView_GetFirstVisible(tree);TreeView_EnsureVisible(tree,item);if(TreeView_GetFirstVisible(tree)!=top)glide_start=0;}}selected=id;
+      shell.page_popups.refresh();
       status.clear();track_accent();
       if(previous!=id){if(extension_panel)extension_panel->close();if(extension_scope!=workspace())sync_extension_toolbar(Json::object());load_extensions(false);}
       // Full frame rate before the page is raised; the tab it covers slows down.
@@ -1140,6 +1142,12 @@ struct BrowserShell::Impl {
   void fixture_snapshot(const std::filesystem::path& destination);
 #endif
   Impl(Broker& b,CefEngine& e,NativeUi& n,ExtensionStore& x,std::filesystem::path path):broker(b),engine(e),native(n),extensions(x),data(path),root(std::move(path)){}
+  PagePopupGuard page_popups;
+  bool page_popup_allowed(HWND source) const {
+    for(const auto& [id,host]:hosts)if(host.window==source)return host.frame&&host.frame->selected==id&&
+      IsWindowVisible(host.frame->window)&&!IsIconic(host.frame->window)&&GetAncestor(GetForegroundWindow(),GA_ROOTOWNER)==host.frame->window;
+    return false;
+  }
   // Broker and engine replies may arrive on other threads. Shell state is
   // changed only on the UI thread through this queue.
   void post(std::function<void()> call){{std::lock_guard lock(mailbox->mutex);mailbox->calls.push_back(std::move(call));}PostMessageW(messages,ShellRun,0,0);}
@@ -1526,7 +1534,7 @@ struct BrowserShell::Impl {
     try{
       if(message==ShellRun){self->run_posted();return 0;}
       if(message==ShellHelpNotice){const auto event=LOWORD(lp);if(event==NIN_BALLOONUSERCLICK||event==NIN_SELECT||event==NIN_KEYSELECT)self->open_help_tab();return 0;}
-      if(message==WM_TIMER||message==ShellChanged){self->refresh();
+      if(message==WM_TIMER||message==ShellChanged){self->page_popups.refresh();self->refresh();
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
         if(message==WM_TIMER&&wp==2&&!self->fixture_destination.empty())self->fixture_snapshot(self->fixture_destination);
 #endif
@@ -2339,6 +2347,7 @@ BrowserShell::BrowserShell(Broker& broker,CefEngine& engine,NativeUi& native,Ext
   impl_->messages=CreateWindowExW(0,L"XenonShellMessages",L"",0,0,0,0,0,HWND_MESSAGE,nullptr,branding_module(),impl_.get());
   if(!impl_->messages||!impl_->create_frame())throw std::runtime_error("Cannot create native browser shell");
   impl_->active=impl_->frames.front().get();
+  impl_->page_popups.start([self=impl_.get()](HWND source){return self->page_popup_allowed(source);},[self=impl_.get()](HWND source){self->engine.dismiss_page_popups(source);});
   SetTimer(impl_->messages,1,16,nullptr);SetTimer(impl_->messages,2,1000,nullptr);
 }
 BrowserShell::~BrowserShell(){impl_->data.flush();impl_->hide_help_notice();if(impl_->messages){KillTimer(impl_->messages,1);KillTimer(impl_->messages,2);}

@@ -1,0 +1,824 @@
+{
+  "date": "2026-10-20",
+  "status": "Isolated production build passes complete background/foreground sequence twice; physical input and real PD Portal remain unverified",
+  "isolatedValidation": {
+    "branch": "codex/contain-background-popups",
+    "baseCommit": "da97fb38c96933fdc2fb6b11f5786c7494899402",
+    "initialCommit": "781ca5f0f464eb70f674c555646b6d0a787c3c91",
+    "context": "Dedicated managed worktree. Final runs bind production DLL hashes and the changed native/harness file bytes. No unrelated local changes or private profiles were copied.",
+    "initialBuild": {
+      "command": "./scripts/build.ps1 -Test -Jobs 6 -CefRoot <pinned local distribution>",
+      "exitCode": 0,
+      "log": "out/validation-build.log",
+      "nativeSuites": 24,
+      "adapterAndScriptTests": 119,
+      "brandingChecks": 5
+    },
+    "finalBuild": {
+      "command": "./scripts/build.ps1 -Test -Jobs 6",
+      "log": "out/validation-final-checks.log",
+      "nativeBuild": "passed",
+      "nativeUiTests": "passed including new dismissal regressions",
+      "nativeSuiteResult": "23 passed; workspace_storage_tests failed with Windows error 145 (directory not empty)",
+      "failedEvidence": "out/native-tests-final-failed.xml",
+      "focusedRerun": {
+        "command": "ctest --test-dir build -C Release -R ^workspace_storage_tests$ --output-on-failure",
+        "exitCode": 0,
+        "log": "out/validation-storage-rerun.log",
+        "binaryChanged": false
+      },
+      "adapterAndScriptTests": "119 passed in initial isolated build; adapter and script implementation unchanged afterward",
+      "branding": {
+        "command": "node tests/branding-resources.mjs --cef-root <pinned local distribution>",
+        "exitCode": 0,
+        "checks": 5,
+        "log": "out/validation-final-branding.log"
+      }
+    },
+    "findings": [
+      "WM_CLOSE alone did not retire renderer select-popup state: foreground reopening failed twice with foreground retained. NotifyMoveOrResizeStarted before the remaining HWND close fixes that lifecycle.",
+      "The datalist positive control required native page focus, as in ordinary human use. The driver now focuses CefBrowserWindow instead of assuming a Chromium widget class."
+    ],
+    "failedAttempts": [
+      {
+        "run": "background-popup-1792485433761-6d37bf40",
+        "startHashes": {
+          "Xenon.dll": "a6833f7744ea270d2cf709188a9fd5d82d1ce0222c6fb1f3c659f5945cea7681",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "a6833f7744ea270d2cf709188a9fd5d82d1ce0222c6fb1f3c659f5945cea7681",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "passed": false,
+        "failure": "Reopening foreground select must work",
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Open suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          },
+          {
+            "foregroundSelectVisible": true
+          },
+          {
+            "tabSwitchDismissed": true
+          }
+        ]
+      },
+      {
+        "run": "background-popup-1792485475077-4994d20b",
+        "startHashes": {
+          "Xenon.dll": "a6833f7744ea270d2cf709188a9fd5d82d1ce0222c6fb1f3c659f5945cea7681",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "a6833f7744ea270d2cf709188a9fd5d82d1ce0222c6fb1f3c659f5945cea7681",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "passed": false,
+        "failure": "Reopening foreground select must work",
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Open suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          },
+          {
+            "foregroundSelectVisible": true
+          },
+          {
+            "tabSwitchDismissed": true
+          },
+          {
+            "reopenedSelect": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "windows": [
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "run": "background-popup-1792485623987-5094d6a3",
+        "startHashes": {
+          "Xenon.dll": "7efe7cbe481a77da4c70b1bff741c9eea9b3de710a4640a195262b7d72a57cc5",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "7efe7cbe481a77da4c70b1bff741c9eea9b3de710a4640a195262b7d72a57cc5",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "passed": false,
+        "failure": "Foreground datalist suggestions must remain available",
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Open suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          },
+          {
+            "foregroundSelectVisible": true
+          },
+          {
+            "tabSwitchDismissed": true
+          },
+          {
+            "reopenedSelect": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "windows": [
+                "Chrome_WidgetWin_1 > XenonBrowserShell",
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "minimizedDismissed": true
+          }
+        ]
+      },
+      {
+        "run": "background-popup-1792485701710-1d05f8ef",
+        "startHashes": {
+          "Xenon.dll": "7efe7cbe481a77da4c70b1bff741c9eea9b3de710a4640a195262b7d72a57cc5",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "7efe7cbe481a77da4c70b1bff741c9eea9b3de710a4640a195262b7d72a57cc5",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "passed": false,
+        "failure": "Synthetic focus driver assumed a Chrome_WidgetWin_0 child; this CEF runtime uses Chrome_WidgetWin_1 under CefBrowserWindow.",
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Open suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          },
+          {
+            "foregroundSelectVisible": true
+          },
+          {
+            "tabSwitchDismissed": true
+          },
+          {
+            "reopenedSelect": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "focus": "Chrome_WidgetWin_1",
+              "windows": [
+                "Chrome_WidgetWin_1 > XenonBrowserShell",
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "minimizedDismissed": true
+          }
+        ]
+      },
+      {
+        "run": "background-popup-1792485748734-1f2417a0",
+        "startHashes": {
+          "Xenon.dll": "7efe7cbe481a77da4c70b1bff741c9eea9b3de710a4640a195262b7d72a57cc5",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "7efe7cbe481a77da4c70b1bff741c9eea9b3de710a4640a195262b7d72a57cc5",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "passed": false,
+        "failure": "Synthetic focus driver assumed a Chrome_WidgetWin_0 child; this CEF runtime uses Chrome_WidgetWin_1 under CefBrowserWindow.",
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Open suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          },
+          {
+            "foregroundSelectVisible": true
+          },
+          {
+            "tabSwitchDismissed": true
+          },
+          {
+            "reopenedSelect": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "focus": "Chrome_WidgetWin_1",
+              "windows": [
+                "Chrome_WidgetWin_1 > XenonBrowserShell",
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "minimizedDismissed": true
+          }
+        ]
+      }
+    ],
+    "passingRuns": [
+      {
+        "run": "background-popup-1792485995646-82993a62",
+        "sourceHashes": {
+          "native/include/xenon/page_popup_guard.hpp": "b7a5cb23652429776b62a915ccba5246e41ab7bf6bc75b596fa785dba60da1cb",
+          "native/include/xenon/cef_engine.hpp": "5f8c1c7968792fdd4ddb6788fb01b2c5d46e9605fab55e10a5d204e8c1858c7a",
+          "native/src/cef_engine.cpp": "0a4fdb8bb9373c33b856fea9204a77df7f0ef29e7d7c6586415e43b0f8945ade",
+          "native/src/cef_shell.cpp": "3db5d1d456400f359af62efa83e040fb9a35df47f795b16322821237af405ea9",
+          "tests/background-popup-integration.mjs": "55948b5427d830b62985bf56728b5a616faac7e4edd3fc759bd3b836cc2d63b3",
+          "tests/fixtures/popup-windows.ps1": "608ecd09159339b8dd17481f554dff33f9aaa53167a715aa1829e4927fe88531"
+        },
+        "startHashes": {
+          "Xenon.dll": "ac63e859b3432e258025b21fa86bcd56ddd6392d2475d2be7c99fc9d696ca528",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "ac63e859b3432e258025b21fa86bcd56ddd6392d2475d2be7c99fc9d696ca528",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Open suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          },
+          {
+            "foregroundSelectVisible": true,
+            "foregroundSelect": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "focus": "XenonBrowserShell",
+              "windows": [
+                "Chrome_WidgetWin_1 > XenonBrowserShell",
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "tabSwitchDismissed": true
+          },
+          {
+            "reopenedSelect": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "focus": "Chrome_WidgetWin_1",
+              "windows": [
+                "Chrome_WidgetWin_1 > XenonBrowserShell",
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "minimizedDismissed": true
+          },
+          {
+            "beforeDatalist": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "focus": "Chrome_WidgetWin_1",
+              "windows": [
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "foregroundDatalistVisible": true,
+            "foregroundDatalist": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "focus": "Chrome_WidgetWin_1",
+              "windows": [
+                "Chrome_WidgetWin_1 > XenonBrowserShell",
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "datalistSwitchDismissed": true
+          },
+          {
+            "coveredDatalistSuppressed": true
+          },
+          {
+            "foregroundDatalistReopened": true
+          },
+          {
+            "foregroundLossDismissed": true,
+            "covered": {
+              "foreground": "Static",
+              "foregroundOwn": false,
+              "capture": "",
+              "focus": "",
+              "windows": [
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          }
+        ],
+        "passed": true,
+        "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+      },
+      {
+        "run": "background-popup-1792486033931-ae4aa4e2",
+        "sourceHashes": {
+          "native/include/xenon/page_popup_guard.hpp": "b7a5cb23652429776b62a915ccba5246e41ab7bf6bc75b596fa785dba60da1cb",
+          "native/include/xenon/cef_engine.hpp": "5f8c1c7968792fdd4ddb6788fb01b2c5d46e9605fab55e10a5d204e8c1858c7a",
+          "native/src/cef_engine.cpp": "0a4fdb8bb9373c33b856fea9204a77df7f0ef29e7d7c6586415e43b0f8945ade",
+          "native/src/cef_shell.cpp": "3db5d1d456400f359af62efa83e040fb9a35df47f795b16322821237af405ea9",
+          "tests/background-popup-integration.mjs": "55948b5427d830b62985bf56728b5a616faac7e4edd3fc759bd3b836cc2d63b3",
+          "tests/fixtures/popup-windows.ps1": "608ecd09159339b8dd17481f554dff33f9aaa53167a715aa1829e4927fe88531"
+        },
+        "startHashes": {
+          "Xenon.dll": "ac63e859b3432e258025b21fa86bcd56ddd6392d2475d2be7c99fc9d696ca528",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "ac63e859b3432e258025b21fa86bcd56ddd6392d2475d2be7c99fc9d696ca528",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Open suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          },
+          {
+            "foregroundSelectVisible": true,
+            "foregroundSelect": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "focus": "XenonBrowserShell",
+              "windows": [
+                "Chrome_WidgetWin_1 > XenonBrowserShell",
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "tabSwitchDismissed": true
+          },
+          {
+            "reopenedSelect": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "focus": "Chrome_WidgetWin_1",
+              "windows": [
+                "Chrome_WidgetWin_1 > XenonBrowserShell",
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "minimizedDismissed": true
+          },
+          {
+            "beforeDatalist": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "focus": "Chrome_WidgetWin_1",
+              "windows": [
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "foregroundDatalistVisible": true,
+            "foregroundDatalist": {
+              "foreground": "XenonBrowserShell",
+              "foregroundOwn": true,
+              "capture": "",
+              "focus": "Chrome_WidgetWin_1",
+              "windows": [
+                "Chrome_WidgetWin_1 > XenonBrowserShell",
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          },
+          {
+            "datalistSwitchDismissed": true
+          },
+          {
+            "coveredDatalistSuppressed": true
+          },
+          {
+            "foregroundDatalistReopened": true
+          },
+          {
+            "foregroundLossDismissed": true,
+            "covered": {
+              "foreground": "Static",
+              "foregroundOwn": false,
+              "capture": "",
+              "focus": "",
+              "windows": [
+                "XenonAgentCursor > XenonBrowserShell",
+                "XenonBrowserShell"
+              ]
+            }
+          }
+        ],
+        "passed": true,
+        "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+      }
+    ],
+    "limits": [
+      "Synthetic production-browser MCP and native-message coverage, not physical mouse or keyboard input.",
+      "Real PD Portal and other authenticated sites were not visited.",
+      "The foreground mode requires an uninterrupted desktop; unrelated activation can invalidate the run.",
+      "The one storage-cleanup failure is preserved; a passing focused retry does not erase it."
+    ]
+  },
+  "previousSharedCheckout": {
+    "date": "2026-10-20",
+    "status": "Background reproduction fixed; foreground suggestion coverage incomplete",
+    "build": {
+      "command": "./scripts/build.ps1 -Jobs 6",
+      "exitCode": 0,
+      "log": "out/background-popup-build5.log",
+      "earlierRestrictedBuild": "out/background-popup-build1.log stalled before compilation and was interrupted"
+    },
+    "nativeTests": {
+      "command": "./build/Release/native_ui_tests.exe",
+      "exitCode": 0
+    },
+    "before": {
+      "run": "background-popup-1792483024070-5639f16b",
+      "startHashes": {
+        "Xenon.dll": "8ff30dfa0f08f2abbcbab9e2549ed08ee79a644e80dc49fc6428ccf33da59064",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "endHashes": {
+        "Xenon.dll": "8ff30dfa0f08f2abbcbab9e2549ed08ee79a644e80dc49fc6428ccf33da59064",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "checks": [
+        {
+          "name": "Choose a number",
+          "windows": [
+            "Chrome_WidgetWin_1 > XenonBrowserShell",
+            "XenonBrowserShell"
+          ],
+          "escaped": [
+            "Chrome_WidgetWin_1 > XenonBrowserShell"
+          ]
+        }
+      ],
+      "failure": "Choose a number: background popup escaped above the selected tab\n\n1 !== 0\n",
+      "passed": false,
+      "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+    },
+    "after": {
+      "run": "background-popup-1792484387023-03b748ae",
+      "startHashes": {
+        "Xenon.dll": "80e81d0bf14d68779f3b09c180cac87289e9e207fd812cadee71565aef3ba614",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "endHashes": {
+        "Xenon.dll": "80e81d0bf14d68779f3b09c180cac87289e9e207fd812cadee71565aef3ba614",
+        "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+      },
+      "checks": [
+        {
+          "name": "Choose a number",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "name": "Open suggestions",
+          "windows": [
+            "XenonBrowserShell"
+          ],
+          "escaped": [],
+          "capture": ""
+        },
+        {
+          "backgroundSelection": true,
+          "backgroundClick": true
+        }
+      ],
+      "passed": true,
+      "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+    },
+    "incompleteForeground": [
+      {
+        "run": "background-popup-1792483807267-35657e98",
+        "startHashes": {
+          "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Number suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Number suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          },
+          {
+            "foregroundSelectVisible": true
+          },
+          {
+            "tabSwitchDismissed": true
+          },
+          {
+            "minimizedDismissed": true
+          }
+        ],
+        "failure": "Foreground datalist suggestions must remain available",
+        "passed": false,
+        "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+      },
+      {
+        "run": "background-popup-1792483881676-52d4761d",
+        "startHashes": {
+          "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Open suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          },
+          {
+            "foregroundSelectVisible": true
+          },
+          {
+            "tabSwitchDismissed": true
+          },
+          {
+            "minimizedDismissed": true
+          }
+        ],
+        "failure": "Synthetic fixture lost foreground before the datalist check",
+        "passed": false,
+        "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+      },
+      {
+        "run": "background-popup-1792483904989-c33833cd",
+        "startHashes": {
+          "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "6dc98ec2613598c3ffc3fbdbc525572597942f458998620e22110f8341670351",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Open suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          },
+          {
+            "foregroundSelectVisible": true
+          },
+          {
+            "tabSwitchDismissed": true
+          }
+        ],
+        "failure": "Reopening foreground select must work",
+        "passed": false,
+        "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+      },
+      {
+        "run": "background-popup-1792484292084-31b3b967",
+        "startHashes": {
+          "Xenon.dll": "80e81d0bf14d68779f3b09c180cac87289e9e207fd812cadee71565aef3ba614",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "endHashes": {
+          "Xenon.dll": "80e81d0bf14d68779f3b09c180cac87289e9e207fd812cadee71565aef3ba614",
+          "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+        },
+        "checks": [
+          {
+            "name": "Choose a number",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "name": "Open suggestions",
+            "windows": [
+              "XenonBrowserShell"
+            ],
+            "escaped": [],
+            "capture": ""
+          },
+          {
+            "backgroundSelection": true,
+            "backgroundClick": true
+          }
+        ],
+        "failure": "Synthetic fixture lost foreground before the select check",
+        "passed": false,
+        "coverage": "Synthetic production-browser MCP actions and native window enumeration. No real accounts or physical mouse input."
+      }
+    ],
+    "limits": [
+      "Native Windows messages and MCP actions against synthetic pages, not physical input.",
+      "Foreground select, tab switching and minimization passed in partial runs; the full foreground mode did not pass.",
+      "Datalist foreground positive control and real PD Portal remain unverified.",
+      "Installed browser and personal profiles were not modified."
+    ],
+    "validationContext": "The recorded browser binaries were built and tested in the shared working checkout before the popup-only changes were isolated onto current main for this PR. Unrelated local changes were present; these runs are not exact-PR-head browser acceptance."
+  }
+}

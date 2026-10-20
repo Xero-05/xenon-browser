@@ -53,6 +53,8 @@ class CefEngine final : public BrowserEngine {
   // `since_unix_ms` (0: all), and for all time the stored data of `origins`
   // and the HTTP cache. Agent input in the workspace pauses; evidence is stale.
   void clear_browsing_data(const std::string& workspace,int64_t since_unix_ms,bool cookies,bool storage,bool cache,std::vector<std::string> origins,Reply reply);
+  // Retire renderer popup state after the shell suppresses a native popup.
+  void dismiss_page_popups(HWND page);
   void native_pointer(HWND page,POINT screen,bool substantive=false);
   void select_native_tab(const std::string& tab_id,bool awaiting_browser=false);
   // Native shell only: whether the tab is hidden behind its window's selected
