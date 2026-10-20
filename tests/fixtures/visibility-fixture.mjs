@@ -38,13 +38,25 @@ function rtlHtml() {
   return tallPage('dir="rtl" lang="ar"', viewportTarget('rtl-left', 'left:0;top:48px;width:12px;height:12px;background:#f0f')
     + viewportTarget('rtl-right', 'right:0;top:96px;width:12px;height:12px;background:#ff0'));
 }
+const viewportButton = (id, label, style) => `<button id="${id}" style="position:fixed;${style}" onclick="fetch('/click',{method:'POST',body:'${id}'})">${label}</button>`;
+// Reports page pointer events positioned outside the visual viewport, the part
+// of the page a pinch shows. Counts are kept by the server.
+const outsideView = `<script>
+  const reportOutside=event=>{const view=visualViewport,x=event.clientX-view.offsetLeft,y=event.clientY-view.offsetTop;
+    if(x<-1||y<-1||x>view.width+1||y>view.height+1)fetch('/pointer',{method:'POST',body:event.type});};
+  for(const type of ['mousemove','mousedown','mouseup','click','wheel'])addEventListener(type,reportOutside,{capture:true,passive:true});
+</script>`;
 // Targets fixed to the layout viewport. A 2x pinch at its center shows the middle
 // half: center stays in view, left (30% across) moves near the left edge, and
 // corner leaves the visual viewport while staying inside the layout viewport.
+// The labeled buttons give rendered evidence: one stays in the magnified view,
+// the other (top right) leaves it, as does the in-flow heading.
 function pinchHtml() {
   return tallPage('lang="en"', viewportTarget('pinch-center', 'left:calc(50% - 20px);top:calc(50% - 20px);width:40px;height:40px;background:#f0f')
     + viewportTarget('pinch-left', 'left:calc(30% - 12px);top:calc(50% - 12px);width:24px;height:24px;background:#0ff')
-    + viewportTarget('pinch-corner', 'right:24px;bottom:24px;width:40px;height:40px;background:#ff0'));
+    + viewportTarget('pinch-corner', 'right:24px;bottom:24px;width:40px;height:40px;background:#ff0')
+    + viewportButton('pinch-shown', 'Pinch shown action', 'left:calc(50% - 80px);top:calc(50% + 48px)')
+    + viewportButton('pinch-unseen', 'Pinch unseen action', 'right:16px;top:16px') + outsideView);
 }
 
 function pageHtml(crossOrigin) {
@@ -133,8 +145,9 @@ function pageHtml(crossOrigin) {
 
 export async function startVisibilityFixture() {
   const servers = [];
-  const frameRequests = new Map(), clicks = new Map();
-  const clickTargets = new Set(['rtl-left', 'rtl-right', 'pinch-center', 'pinch-left', 'pinch-corner']);
+  const frameRequests = new Map(), clicks = new Map(), outsidePointer = new Map();
+  const clickTargets = new Set(['rtl-left', 'rtl-right', 'pinch-center', 'pinch-left', 'pinch-corner', 'pinch-shown', 'pinch-unseen']);
+  const pointerTypes = new Set(['mousemove', 'mousedown', 'mouseup', 'click', 'wheel']);
   let control = { version: 0, action: '' }, appliedVersion = 0;
   const allowedChanges = new Set(['change-label', 'hide-cross', 'show-cross', 'hide-same', 'show-same']);
   async function start(crossOrigin) {
@@ -169,6 +182,12 @@ export async function startVisibilityFixture() {
         request.on('end', () => { if (clickTargets.has(body)) clicks.set(body, (clicks.get(body) ?? 0) + 1); response.end('{}'); });
         return;
       }
+      if (url.pathname === '/pointer' && request.method === 'POST') {
+        let body = '';
+        request.on('data', chunk => { body += chunk; if (body.length > 64) request.destroy(); });
+        request.on('end', () => { if (pointerTypes.has(body)) outsidePointer.set(body, (outsidePointer.get(body) ?? 0) + 1); response.end('{}'); });
+        return;
+      }
       if (url.pathname === '/rtl') { response.end(rtlHtml()); return; }
       if (url.pathname === '/pinch') { response.end(pinchHtml()); return; }
       if (url.pathname === '/health') { response.end('ok'); return; }
@@ -185,7 +204,9 @@ export async function startVisibilityFixture() {
     // Chromium's cross-site/OOPIF boundary when site isolation is active.
     const crossOrigin = (await start()).replace('127.0.0.1', 'localhost');
     const origin = await start(crossOrigin);
-    return { origin, crossOrigin, requestedFrames: () => Object.fromEntries(frameRequests), clicks: () => Object.fromEntries(clicks), async change(action) {
+    return { origin, crossOrigin, requestedFrames: () => Object.fromEntries(frameRequests), clicks: () => Object.fromEntries(clicks),
+      // Page pointer events outside the visual viewport, by type, since the last reset.
+      outsidePointer: () => Object.fromEntries(outsidePointer), resetOutsidePointer: () => outsidePointer.clear(), async change(action) {
       if (!allowedChanges.has(action)) throw new Error('Unsupported synthetic fixture change');
       const { version } = await (await fetch(`${origin}/control`, { method: 'POST', body: action })).json();
       const deadline = Date.now() + 5000;

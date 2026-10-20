@@ -1,4 +1,5 @@
-// Screenshot coordinates under pinch zoom, through real MCP against a synthetic page.
+// Screenshot coordinates, rendered evidence and element actions under pinch
+// zoom, through real MCP against a synthetic page.
 // A person pinches with a touchscreen or precision touchpad; Xenon's input hooks
 // do not see that gesture. This suite stands in for it with the unshipped
 // XenonAuthTest driver, which asks Chromium for a synthetic touchpad pinch. It
@@ -188,6 +189,43 @@ try {
     return { corner, rejectedClick: true, rejectedDrag: true, rejectedScrollbar: true, metrics };
   });
 
+  // Rendered evidence is what the pinched view shows: the visual viewport.
+  await check('Pinched observation reports only the magnified view', async () => {
+    const metrics = await settle(2);
+    const observation = await tool('observe', { ...scope(), maxNodes: 300 });
+    const visual = metrics.cssVisualViewport, node = name => observation.nodes.find(item => item.name === name);
+    const evidence = { viewport: observation.viewport, visual, layout: metrics.cssLayoutViewport, coverage: observation.coverage,
+      shown: node('Pinch shown action'), unseen: node('Pinch unseen action'), heading: node('Viewport fixture ready') };
+    assert(evidence.shown?.ref && evidence.shown.visibilityStatus === 'verified', `The control inside the magnified view is not actionable: ${JSON.stringify(evidence)}`);
+    assert(!evidence.unseen && !evidence.heading, `Content outside the magnified view was reported as rendered: ${JSON.stringify(evidence)}`);
+    for (const [key, value] of [['pageX', visual.pageX], ['pageY', visual.pageY], ['width', visual.clientWidth], ['height', visual.clientHeight]])
+      assert(Math.abs(observation.viewport[key] - value) < 0.01, `Observation viewport ${key} must be the visual viewport: ${JSON.stringify(evidence)}`);
+    return evidence;
+  });
+
+  await check('Inspection works while pinched and its bounds address the magnified view', async () => {
+    const metrics = await settle(2);
+    const attempts = [];
+    let inspection;
+    for (let attempt = 0; attempt < 5 && !inspection; ++attempt) {
+      const response = await raw('inspect', { ...scope(), maxNodes: 300 });
+      if (!response.isError) inspection = response.structuredContent;
+      else { attempts.push(response.structuredContent?.error?.code ?? JSON.stringify(response.content)); await sleep(250); }
+    }
+    assert(inspection, `Inspection failed on every attempt while pinched: ${JSON.stringify({ attempts, visual: metrics.cssVisualViewport, layout: metrics.cssLayoutViewport })}`);
+    const visual = metrics.cssVisualViewport;
+    assert(Math.abs(inspection.viewport.width - visual.clientWidth) < 0.01 && Math.abs(inspection.viewport.pageX - visual.pageX) < 0.01,
+      `Inspection viewport must be the visual viewport: ${JSON.stringify({ viewport: inspection.viewport, visual })}`);
+    const shown = inspection.nodes.find(node => node.name === 'Pinch shown action' && node.ref);
+    assert(shown, 'Inspection lost the control inside the magnified view');
+    // Root-frame bounds minus the viewport offset are coordinate-input CSS pixels.
+    const x = shown.bounds.x - inspection.viewport.pageX + shown.bounds.width / 2, y = shown.bounds.y - inspection.viewport.pageY + shown.bounds.height / 2;
+    const before = clicks('pinch-shown');
+    await tool('interact', { ...mutation(), observationId: inspection.observationId, action: 'click', x, y });
+    await clicked('pinch-shown', before + 1);
+    return { attempts, viewport: inspection.viewport, scaleX: inspection.scaleX, bounds: shown.bounds, click: { x, y } };
+  });
+
   await check('Unpinching restores the unpinched coordinate space', async () => {
     await driver('pinch', 0.5);
     const metrics = await settle(1);
@@ -197,6 +235,62 @@ try {
     await tool('interact', { ...mutation(), observationId: meta.observationId, action: 'click', ...imageCenter(box, meta) });
     await clicked('pinch-corner', 1);
     return { scaleX: meta.scaleX, viewport: meta.viewport, layout: metrics.cssLayoutViewport };
+  });
+  // A reference observed before a pinch. A person's pinch pauses the tab and
+  // requires fresh evidence, but the driver's synthetic pinch is not seen as
+  // human input, so the broker accepts the reference and the native rendered
+  // check must reject it.
+  await check('An element reference that a pinch moves out of view is rejected before input', async () => {
+    await settle(1);
+    const observation = await tool('observe', { ...scope(), maxNodes: 300 });
+    const unseen = observation.nodes.find(node => node.name === 'Pinch unseen action' && node.ref);
+    assert(unseen, 'The top-right control is not actionable before the pinch');
+    await driver('pinch', 2);
+    const metrics = await settle(2);
+    fixture.resetOutsidePointer();
+    const before = clicks('pinch-unseen');
+    const response = await raw('interact', { ...mutation(), observationId: observation.observationId, action: 'click', elementRef: unseen.ref });
+    await sleep(400);
+    const evidence = { reply: response.structuredContent, clicks: fixture.clicks(), outsidePointer: fixture.outsidePointer(), bounds: unseen.bounds, visual: metrics.cssVisualViewport };
+    assert(response.isError, `A reference outside the magnified view was clicked: ${JSON.stringify(evidence)}`);
+    assert.equal(clicks('pinch-unseen'), before, `The unseen control received input: ${JSON.stringify(evidence)}`);
+    assert.deepEqual(fixture.outsidePointer(), {}, `Pointer events reached the page outside the magnified view: ${JSON.stringify(evidence)}`);
+    return { rejected: response.structuredContent?.error?.code, bounds: unseen.bounds, visual: metrics.cssVisualViewport };
+  });
+
+  // The previous agent click was at the corner target, unpinched. That point is
+  // now outside the magnified view; the move toward the center must not pass there.
+  await check('Agent pointer movement stays inside the pinched view', async () => {
+    const metrics = await settle(2);
+    const { png, meta } = await capture();
+    const box = colorBox(png, colors['pinch-center']);
+    assert(box, 'The center target is in the pinched screenshot');
+    fixture.resetOutsidePointer();
+    const before = clicks('pinch-center'), point = imageCenter(box, meta);
+    await tool('interact', { ...mutation(), observationId: meta.observationId, action: 'click', ...point });
+    await clicked('pinch-center', before + 1);
+    await sleep(400);
+    const evidence = { outsidePointer: fixture.outsidePointer(), clicks: fixture.clicks(), point, visual: metrics.cssVisualViewport };
+    assert.deepEqual(evidence.outsidePointer, {}, `Pointer events reached the page outside the magnified view: ${JSON.stringify(evidence)}`);
+    return evidence;
+  });
+
+  // At 3x the layout viewport's center is outside the magnified view.
+  await check('Scrolling while pinched sends the wheel inside the magnified view', async () => {
+    await driver('pinch', 1.5);
+    const metrics = await settle(3);
+    const observation = await tool('observe', { ...scope(), maxNodes: 100 });
+    fixture.resetOutsidePointer();
+    await tool('interact', { ...mutation(), observationId: observation.observationId, action: 'scroll', direction: 'down', amount: 120 });
+    const after = await until(async () => {
+      const current = (await driver('metrics')).before;
+      return current.cssVisualViewport.pageY > metrics.cssVisualViewport.pageY && current;
+    }, 5000).catch(() => null);
+    await sleep(300);
+    const evidence = { outsidePointer: fixture.outsidePointer(), visual: metrics.cssVisualViewport, after: after?.cssVisualViewport ?? null };
+    assert.deepEqual(evidence.outsidePointer, {}, `The wheel reached the page outside the magnified view: ${JSON.stringify(evidence)}`);
+    assert(after, `The wheel did not scroll the pinched page: ${JSON.stringify(evidence)}`);
+    return evidence;
   });
 } catch (error) {
   results.push({ name: 'Pinch-zoom harness', passed: false, error: error.message });
@@ -216,7 +310,7 @@ try {
     assert.equal(applicationDllSha256AtEnd, applicationDllSha256, 'Browser DLL changed during pinch-zoom validation');
   } catch (error) { results.push({ name: 'Tested binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/auth-fixture/Release/XenonAuthTest.exe', driver: 'XenonAuthTest synthetic touchpad pinch',
-    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 4 && results.every(result => result.passed), results };
+    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 9 && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true });
   const reportPath = resolve(root, 'out/pinch-zoom-integration-results.json');
   await writeFile(reportPath, JSON.stringify(report, null, 2));

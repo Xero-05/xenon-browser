@@ -1649,7 +1649,9 @@ void CefEngine::Impl::observe(const std::shared_ptr<Tab>& t,const Json& p,Reply 
         for(const auto& child:entry.value("childFrames",Json::array()))visit(child,frame);
       };visit(tree["frameTree"],"");
       send(t,"Page.getLayoutMetrics",Json::object(),[this,t,c,session,root_frame,captured](Json metrics){
-        Json viewports=Json::object();const auto viewport=metrics.value("cssLayoutViewport",Json::object());
+        // The reported viewport is the rendered visual viewport, the same rectangle
+        // and coordinate space as a screenshot's. A pinch zoom shrinks and offsets it.
+        Json viewports=Json::object();const auto viewport=metrics.value("cssVisualViewport",Json::object());
         if(cdp_ok(metrics)&&!viewport.empty()){
           // Without a consistent layout scale the root frame is reported as unproven.
           if(const auto snapshot_viewport=visible_snapshot_viewport(metrics);!snapshot_viewport.empty())viewports[root_frame]=snapshot_viewport;
@@ -1693,7 +1695,15 @@ void CefEngine::Impl::point(const std::shared_ptr<Tab>& t,const Element& e,const
         if(!cdp_ok(box)||q.size()!=8||t->epoch!=e.epoch){reply(failure("geometry_unavailable","The current element geometry is unavailable."));return;}
         double fx=v["fx"].get<double>(),fy=v["fy"].get<double>();
         const auto [x,y]=pointer_box_point(q.get<std::array<double,8>>(),fx,fy);
-        translate(t,e.session,x,y,reply,fn);
+        translate(t,e.session,x,y,reply,[this,t,e,reply,fn](double root_x,double root_y){
+          // The page check proves visibility in its frame's layout viewport. A
+          // pinch zoom shows only the visual viewport, the space of these points.
+          send(t,"Page.getLayoutMetrics",Json::object(),[t,e,root_x,root_y,reply,fn](Json metrics){
+            if(!cdp_ok(metrics)||t->epoch!=e.epoch){reply(failure("geometry_unavailable","The current element geometry is unavailable."));return;}
+            if(!inside_input_viewport(input_viewport(metrics),root_x,root_y)){reply(failure("not_actionable","The element is outside the viewport, obscured or changed. Scroll or observe again."));return;}
+            fn(root_x,root_y);
+          });
+        });
       },e.session);
     },e.session);
 }
@@ -1724,25 +1734,35 @@ void CefEngine::Impl::translate(const std::shared_ptr<Tab>& t,const std::string&
 }
 void CefEngine::Impl::move_pointer(const std::shared_ptr<Tab>& t,double x,double y,Reply reply,std::function<void()> done,bool dragging) {
   if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was canceled before dispatch."));return;}
-  const PointerMotion motion(t->pointer,{x,y},static_cast<uint32_t>(std::stoul(local_security::random_hex(4),nullptr,16)));
+  const auto seed=static_cast<uint32_t>(std::stoul(local_security::random_hex(4),nullptr,16));
   if(!dragging)++t->pointer_sync_revision;
-  defer(dragging?0:90,[this,t,motion,reply,done,dragging]{
+  defer(dragging?0:90,[this,t,x,y,seed,reply,done,dragging]{
     if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was canceled before dispatch."));return;}
-    auto step=std::make_shared<std::function<void(int)>>();const int count=(motion.duration_ms()+15)/16;
-    const std::weak_ptr<std::function<void(int)>> weak_step=step;
-    // Scheduled callbacks own the next step. The function holds only a weak
-    // reference, so cancellation never destroys its currently executing captures.
-    *step=[this,t,motion,reply,done,dragging,weak_step,count](int n){
-      if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was interrupted."));return;}
-      auto position=motion.at(static_cast<double>(n)/count);RECT bounds{};auto window=t->browser->GetHost()->GetWindowHandle();GetClientRect(window,&bounds);const auto scale=GetDpiForWindow(window)/96.0*std::pow(1.2,t->browser->GetHost()->GetZoomLevel());position.x=std::clamp(position.x,0.0,std::max(0.0,bounds.right/scale-.01));position.y=std::clamp(position.y,0.0,std::max(0.0,bounds.bottom/scale-.01));
-      Json params={{"type","mouseMoved"},{"x",position.x},{"y",position.y}};
-      if(dragging){params["button"]="left";params["buttons"]=1;}
-      send(t,"Input.dispatchMouseEvent",params,[this,step=weak_step.lock(),reply,done,n,count](Json result){
-        if(!cdp_ok(result)){reply(failure("input_interrupted","Pointer movement was interrupted. Observe before retrying."));return;}
-        if(n==count){done();return;}
-        defer(16,[step,n]{if(step&&*step)(*step)(n+1);});
-      });
-    };(*step)(1);
+    // Moves stay inside the rendered view, in input coordinates. A pinch zoom
+    // shrinks that view inside the window, and the last pointer position can
+    // predate the pinch.
+    send(t,"Page.getLayoutMetrics",Json::object(),[this,t,x,y,seed,reply,done,dragging](Json metrics){
+      if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was canceled before dispatch."));return;}
+      const auto view=input_viewport(metrics);
+      if(!cdp_ok(metrics)||view.empty()){reply(failure("viewport_unavailable","The viewport is unavailable. No pointer movement was dispatched."));return;}
+      const auto inside=[view](PointerPoint point){const auto [clamped_x,clamped_y]=input_viewport_clamp(view,point.x,point.y);return PointerPoint{clamped_x,clamped_y};};
+      const PointerMotion motion(inside(t->pointer),{x,y},seed);
+      auto step=std::make_shared<std::function<void(int)>>();const int count=(motion.duration_ms()+15)/16;
+      const std::weak_ptr<std::function<void(int)>> weak_step=step;
+      // Scheduled callbacks own the next step. The function holds only a weak
+      // reference, so cancellation never destroys its currently executing captures.
+      *step=[this,t,motion,inside,reply,done,dragging,weak_step,count](int n){
+        if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was interrupted."));return;}
+        const auto position=inside(motion.at(static_cast<double>(n)/count));
+        Json params={{"type","mouseMoved"},{"x",position.x},{"y",position.y}};
+        if(dragging){params["button"]="left";params["buttons"]=1;}
+        send(t,"Input.dispatchMouseEvent",params,[this,step=weak_step.lock(),reply,done,n,count](Json result){
+          if(!cdp_ok(result)){reply(failure("input_interrupted","Pointer movement was interrupted. Observe before retrying."));return;}
+          if(n==count){done();return;}
+          defer(16,[step,n]{if(step&&*step)(*step)(n+1);});
+        });
+      };(*step)(1);
+    });
   });
 }
 void CefEngine::Impl::click(const std::shared_ptr<Tab>& t,const Json& p,Reply reply,bool hover) {
@@ -2215,14 +2235,13 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
               {"truncated",evidence["truncated"]}};
           };
           auto& observation=after["result"];auto& screenshot=capture["result"];
-          // The screenshot reports the fractional visual viewport; observations report
-          // Chromium's whole-pixel CSS layout viewport. At non-100% display scale they
-          // differ by that rounding alone. Scrolling, resizing or pinch zoom still fail.
+          // Both report Chromium's rendered visual viewport, so any difference means
+          // the page scrolled, resized, zoomed, pinched or panned during capture.
           const auto viewport=screenshot.value("viewport",Json::object()),observed=observation.value("viewport",Json::object());
           bool same_viewport=true;
           for(const auto* key:{"pageX","pageY","width","height"}){
             const auto a=viewport.find(key),b=observed.find(key);
-            same_viewport=same_viewport&&a!=viewport.end()&&b!=observed.end()&&a->is_number()&&b->is_number()&&std::abs(a->get<double>()-b->get<double>())<=1;
+            same_viewport=same_viewport&&a!=viewport.end()&&b!=observed.end()&&a->is_number()&&b->is_number()&&a->get<double>()==b->get<double>();
           }
           if(t->closed||t->epoch!=epoch||t->human_input!=human_input||t->protected_auth||
              comparable(before["result"])!=comparable(observation)||!same_viewport||
@@ -2263,7 +2282,8 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   if(command=="page.scroll"){
     auto dir=field(p,"direction","down");double amount=std::clamp(p.value("amount",500.0),1.0,3000.0);
     if(dir!="down"&&dir!="up"&&dir!="left"&&dir!="right"){reply(failure("invalid_direction","Use up, down, left or right."));return;}
-    send(t,"Page.getLayoutMetrics",Json::object(),[this,t,dir,amount,reply](Json m){auto vp=m.value("cssLayoutViewport",Json::object());
+    // The wheel goes to the center of the rendered view, which a pinch zoom shrinks.
+    send(t,"Page.getLayoutMetrics",Json::object(),[this,t,dir,amount,reply](Json m){auto vp=m.value("cssVisualViewport",Json::object());
       if(!cdp_ok(m)||vp.empty()){reply(failure("viewport_unavailable","The viewport is unavailable."));return;}
       send(t,"Input.dispatchMouseEvent",{{"type","mouseWheel"},{"x",vp.value("clientWidth",0.0)/2},{"y",vp.value("clientHeight",0.0)/2},
         {"deltaX",dir=="right"?amount:dir=="left"?-amount:0},{"deltaY",dir=="down"?amount:dir=="up"?-amount:0}},
@@ -2875,8 +2895,8 @@ void CefEngine::Impl::developer_hit(const std::shared_ptr<Tab>& t,double x,doubl
 }
 void CefEngine::Impl::prepare_uncertain_click(const std::shared_ptr<Tab>& t,double x,double y,std::function<void(Json)> done){
   if(t->private_mode||t->protected_auth||t->auth_inflight||t->native_fill||t->uncertain_click_candidates.empty()){done(Json::object());return;}
-  const auto viewport=t->screenshot_viewport;const auto layout=viewport.is_object()?viewport.value("layout",Json::object()):Json::object();
-  const Json expected={{"pageX",layout.value("pageX",0.0)},{"pageY",layout.value("pageY",0.0)},{"width",layout.value("clientWidth",0.0)},{"height",layout.value("clientHeight",0.0)}};
+  const auto viewport=t->screenshot_viewport;const auto visual=viewport.is_object()?viewport.value("visual",Json::object()):Json::object();
+  const Json expected={{"pageX",visual.value("pageX",0.0)},{"pageY",visual.value("pageY",0.0)},{"width",visual.value("clientWidth",0.0)},{"height",visual.value("clientHeight",0.0)}};
   if(t->uncertain_click_viewport!=expected){done(Json::object());return;}
   const auto epoch=t->epoch,human=t->human_input,generation=uncertain_click_log_.generation();
   const auto candidates=t->uncertain_click_candidates;

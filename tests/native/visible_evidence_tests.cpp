@@ -383,25 +383,57 @@ Json layout_metrics(Json layout,Json css,Json visual,Json css_visual) {
   return {{"layoutViewport",std::move(layout)},{"cssLayoutViewport",std::move(css)},{"visualViewport",std::move(visual)},{"cssVisualViewport",std::move(css_visual)}};
 }
 Json layout_viewport(double x,double y,double w,double h) {return {{"pageX",x},{"pageY",y},{"clientWidth",w},{"clientHeight",h}};}
-Json visual_viewport(double w,double h) {return {{"offsetX",0},{"offsetY",0},{"pageX",0},{"pageY",0},{"clientWidth",w},{"clientHeight",h},{"scale",1},{"zoom",1}};}
+// page_x/page_y are CSS pixels: the layout scroll plus any pinch-zoom pan offset.
+Json visual_viewport(double w,double h,double page_x=0,double page_y=0,double offset_x=0,double offset_y=0,double pinch=1) {
+  return {{"offsetX",offset_x},{"offsetY",offset_y},{"pageX",page_x},{"pageY",page_y},{"clientWidth",w},{"clientHeight",h},{"scale",pinch},{"zoom",1}};
+}
 void layout_metrics_supply_snapshot_scale() {
   auto close=[](const Json& value,double expected){return value.is_number() && std::abs(value.get<double>()-expected)<1e-6;};
   // Chromium 155 metrics measured at 125% display scale: the legacy viewports
   // use layout units, the CSS layout viewport is rounded to whole CSS pixels.
   auto root=xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,0,1596,1025),layout_viewport(0,0,1276,820),visual_viewport(1596,1025),visual_viewport(1276.800048828125,820)));
   require(root["x"]==0 && root["width"]==1596 && root["height"]==1025 && close(root["scale"],1.25),"Root layout viewport or scale was not derived");
-  auto scrolled=xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,313,1596,1025),layout_viewport(0,251,1276,819),visual_viewport(1596,1025),visual_viewport(1276.800048828125,820)));
-  require(scrolled["y"]==313 && close(scrolled["scale"],1.25),"Scrolled viewport did not keep snapshot layout units");
+  auto scrolled=xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,313,1596,1025),layout_viewport(0,251,1276,819),visual_viewport(1596,1025,0,250.4),visual_viewport(1276.800048828125,820,0,250.4)));
+  require(std::abs(scrolled["y"].get<double>()-313)<1e-3 && std::abs(scrolled["height"].get<double>()-1025)<1e-3 && close(scrolled["scale"],1.25),"Scrolled viewport did not keep snapshot layout units");
   auto oopif=xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,0,500,250),layout_viewport(0,0,400,200),visual_viewport(1615,1025),visual_viewport(1292,820)));
   require(oopif["width"]==500 && close(oopif["scale"],1.25),"Out-of-process frame viewport was not derived");
   auto pinched=xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,0,1596,1025),layout_viewport(0,0,1276,820),visual_viewport(798,512.5),visual_viewport(638.4000244140625,410)));
   require(close(pinched["scale"],1.25),"Pinch zoom changed the layout scale");
-  auto unscaled=xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,40,1052,729),layout_viewport(0,40,1052,729),visual_viewport(1052,729),visual_viewport(1052,729)));
-  require(unscaled["y"]==40 && unscaled["scale"]==1,"Unscaled viewport changed");
+  auto unscaled=xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,40,1052,729),layout_viewport(0,40,1052,729),visual_viewport(1052,729,0,40),visual_viewport(1052,729,0,40)));
+  require(unscaled["y"]==40 && unscaled["height"]==729 && unscaled["scale"]==1,"Unscaled viewport changed");
   require(xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,0,1596,1025),layout_viewport(0,0,1052,729),visual_viewport(1596,1025),visual_viewport(1276.8,820))).empty(),"Inconsistent CSS layout viewport was accepted");
   require(xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,0,1596,1025),layout_viewport(0,0,1276,820),visual_viewport(1596,1025),visual_viewport(1276.8,683))).empty(),"Disagreeing axis scales were accepted");
   require(xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,0,1596,1025),layout_viewport(0,0,1276,820),Json(),visual_viewport(1276.8,820))).empty(),"Missing visual viewport was guessed");
   require(xenon::visible_snapshot_viewport({{"cssLayoutViewport",layout_viewport(0,0,1052,729)}}).empty(),"CSS-only metrics were accepted for layout-unit snapshots");
+  auto offset=layout_metrics(layout_viewport(0,0,1596,1025),layout_viewport(0,0,1276,820),visual_viewport(1596,1025),visual_viewport(1276.800048828125,820));
+  offset["cssVisualViewport"].erase("pageY");
+  require(xenon::visible_snapshot_viewport(offset).empty(),"A missing visual viewport offset was guessed");
+}
+void pinch_zoom_limits_rendered_viewport() {
+  auto close=[](const Json& value,double expected){return value.is_number() && std::abs(value.get<double>()-expected)<1e-3;};
+  // Measured live: a 2x touchpad pinch at the center of a 917x689 CSS view at
+  // 100% display scale leaves the layout viewport unchanged. Only the middle
+  // quarter, the visual viewport, is on screen.
+  const auto pinched=xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,0,917,689),layout_viewport(0,0,917,689),
+    visual_viewport(458.5001220703125,344.5000915527344,229,172,229,172,2),visual_viewport(458.5001220703125,344.5000915527344,229,172,229,172,2)));
+  require(close(pinched["x"],229) && close(pinched["y"],172) && close(pinched["width"],458.5) && close(pinched["height"],344.5) && pinched["scale"]==1,"Pinch zoom did not limit the rendered viewport to the visual viewport");
+  // At 125% display scale the snapshot uses layout units; the visual page
+  // offset includes the layout scroll (251 CSS) and the pinch pan.
+  const auto scaled=xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,313,1596,1025),layout_viewport(0,251,1276,819),
+    visual_viewport(798,512.5,319.2,455.4,319.2,205,2),visual_viewport(638.4000244140625,410,319.2,455.4,319.2,205,2)));
+  require(close(scaled["x"],399) && close(scaled["y"],569.25) && close(scaled["width"],798) && close(scaled["height"],512.5) && close(scaled["scale"],1.25),"Pinched viewport was not converted to layout units");
+  // Rendered evidence and actionability follow: inside stays, outside goes.
+  Fixture f;f.viewports={{"main",xenon::visible_snapshot_viewport(layout_metrics(layout_viewport(0,0,800,600),layout_viewport(0,0,800,600),
+    visual_viewport(400,300,200,150,200,150,2),visual_viewport(400,300,200,150,200,150,2)))}};
+  const int inside=f.button(0,1,"Pinch inside",300,200).first;
+  const int outside=f.button(0,1,"HIDDEN_LAYOUT_ONLY",600,20).first;
+  const int straddling=f.button(0,1,"HIDDEN_STRADDLES_EDGE",500,300).first;
+  const auto result=f.run();
+  require(Fixture::output(result,inside)["name"]=="Pinch inside","A control inside the pinched view was withheld");
+  require(Fixture::output(result,outside).is_null() && Fixture::output(result,straddling).is_null() && result.dump().find("HIDDEN_")==std::string::npos,
+    "Content outside the pinched view was reported as rendered");
+  const auto& viewport=result["frames"]["main"]["viewport"];
+  require(viewport["x"]==200 && viewport["y"]==150 && viewport["width"]==400 && viewport["height"]==300,"The pinched frame viewport was not reported");
 }
 void display_scale_uses_css_pixels() {
   // Reported at 125%: a button at CSS x=825 in a 1052x729 CSS viewport came
@@ -451,7 +483,7 @@ int main(int argc,char** argv) {
     // Optional offline replay accepts only a caller-selected synthetic snapshot;
     // no browser diagnostics or raw website snapshots are enabled in production.
     if(argc==2){std::ifstream input(argv[1]);Json fixture;input>>fixture;std::cout<<xenon::visible_snapshot(fixture.at("snapshot"),fixture.at("viewports")).dump(2)<<'\n';return 0;}
-    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();bounded_backdrop_paint();rectangular_clips_and_blur_bounds();bounded_text_shadows_and_rounded_clips();uncertain_controls_are_structural_only();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();repeated_inline_fragments_preserve_paint_ancestry();identity_transform_is_not_uncertain_geometry();utf16_and_unicode_controls();child_frames_and_malformed_evidence();layout_metrics_supply_snapshot_scale();display_scale_uses_css_pixels();
+    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();bounded_backdrop_paint();rectangular_clips_and_blur_bounds();bounded_text_shadows_and_rounded_clips();uncertain_controls_are_structural_only();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();repeated_inline_fragments_preserve_paint_ancestry();identity_transform_is_not_uncertain_geometry();utf16_and_unicode_controls();child_frames_and_malformed_evidence();layout_metrics_supply_snapshot_scale();pinch_zoom_limits_rendered_viewport();display_scale_uses_css_pixels();
     std::cout<<"Visible evidence regression tests passed\n";return 0;
   }catch(const std::exception& e){std::cerr<<"Visible evidence test failed: "<<e.what()<<'\n';return 1;}
 }

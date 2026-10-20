@@ -1,5 +1,31 @@
 # Validation
 
+## Rendered evidence and element actions under pinch zoom (local candidate, 2026-10-20)
+
+The [validation record](test-results/pinch-evidence-actions.json) covers what
+the pinch-zoom coordinate fix left out. Observation, element revalidation, the
+in-page pointer check and agent pointer movement still used the unpinched layout
+viewport. Under the same 2x synthetic touchpad pinch, on the unfixed
+`XenonAuthTest` DLL, a control outside the 458.5 x 344.5 view was reported
+verified with an action reference, and the observation viewport stayed 917 x
+689. A reference observed before the pinch clicked that control, and the page
+saw mouse events outside the view. `xenon_inspect` returned
+`inspection_changed` on all five attempts. A pointer move starting from a
+pre-pinch position sent seven mousemove events outside the view. A 3x pinch
+also showed that scrolling put the wheel at the layout viewport center, outside
+the view.
+
+The rendered viewport is now the visual viewport. Observations report it as
+`viewport`, the same rectangle as screenshots. Element points must fall inside
+it, and pointer movement and the scroll wheel stay inside it. The fixed DLL
+passed all nine pinch checks. The rebuilt production DLL passed 14 visibility,
+17 integration and 17 upload-entry checks, and the full build passed 23 native
+groups. The stale reference was rejected by the rendered-evidence recheck, so
+the new final-point guard was not exercised by a rejection. The pinch came from
+the test-only driver on one 100% monitor; physical touch input, display scaling
+or browser zoom combined with pinch, and out-of-process frames while pinched
+were not live-tested.
+
 ## Background native popups (isolated PR validation, 2026-10-20)
 
 `node tests/background-popup-integration.mjs --foreground` uses a disposable
@@ -708,7 +734,7 @@ actual website outcome check.
 | Production browser | `node tests/integration.mjs` | Actual CEF pages controlled through separate adapters and multiplexed workers, isolation, interactions, visual evidence, dialogs, downloads, live handoff and reconnect. |
 | Simple-action batches | `node tests/batch-integration.mjs` | Production CEF with modern/legacy MCP clients, eight-action form/button sequences, deduplication, stopped suffixes for replaced/covered targets and navigation, and a separate-call timing comparison. Verifies synthetic website state; excludes model inference and physical input. Native broker tests cover handoff, human epochs, read-only policy, permission/client/workspace revocation, unknown outcomes and metadata-only restart without replay. |
 | Hidden-content defense | `node tests/visibility-integration.mjs` | Adversarial invisible text and accessibility labels are withheld; visible controls remain usable, searches use the same filter, and page instructions remain untrusted data. Coordinates computed from screenshot pixels (`image pixel / scale`) must hit 12 px controls beside both native scrollbars, and a scrollbar pixel must be rejected without input. A right-to-left page must keep its main-frame scrollbar on the right: targets at both page edges are hit and a right scrollbar pixel is rejected. A far-corner control must stay verified and clickable by reference and by coordinates from inspection bounds, first at browser zoom 1 and again at 1.2, where its bounds must remain CSS pixels inside the smaller CSS viewport. Browser zoom scales Chromium's layout units the way Windows display scale does. The suite selects its agent tab in its own window, posts the native **Zoom in** command, waits for the resulting human pause to end, and resets the zoom before the remaining checks. Chromium switches such as `--force-device-scale-factor` are ignored, so on a 100% monitor the zoom pass is the only coverage of scaled layout units; it does not change the window's display scale or native UI scaling. |
-| Pinch-zoom coordinates | `node tests/pinch-zoom-integration.mjs` | Unshipped `XenonAuthTest` (configure CMake with `-DXENON_BUILD_AUTH_FIXTURE=ON`) with a compile-time-gated driver that asks Chromium for a synthetic 2x touchpad pinch on a marked disposable `.cache/pinch-zoom-integration-*` profile. Coordinates from a screenshot taken before the pinch are rejected as stale, pinched screenshot pixels hit their targets, a click, drag or scrollbar pixel outside the magnified view is rejected without input, and unpinching restores the full page area. The driver stands in for a person's touchscreen or precision-touchpad gesture; physical touch input is not exercised. |
+| Pinch zoom | `node tests/pinch-zoom-integration.mjs` | Unshipped `XenonAuthTest` (configure CMake with `-DXENON_BUILD_AUTH_FIXTURE=ON`) with a compile-time-gated driver that asks Chromium for a synthetic 2x touchpad pinch on a marked disposable `.cache/pinch-zoom-integration-*` profile. Coordinates from a screenshot taken before the pinch are rejected as stale, pinched screenshot pixels hit their targets, a click, drag or scrollbar pixel outside the magnified view is rejected without input, and unpinching restores the full page area. While pinched, observation reports only the magnified view as its `viewport` and gives no reference to content outside it; `xenon_inspect` succeeds and its node bounds address the view; a reference observed before a pinch that moved its control out of view is rejected without input; and agent pointer movement and a 3x-pinched scroll send no page pointer events outside the view, which a page listener would report. The driver stands in for a person's touchscreen or precision-touchpad gesture; physical touch input is not exercised. |
 | Worker lifecycle | `node tests/worker-lifecycle-integration.mjs` | More than 16 sequential workers reuse one live tab; retirement preserves page state, reconnect honors concurrent capacity, and queued work is not replayed. |
 | Workspace removal | `node tests/workspace-removal-integration.mjs` | Actual CEF and MCP with the unshipped `XenonAuthTest` native driver: workspace/popup closure, access and pending-read revocation, preservation of another live workspace and shared files, then tombstoned-profile cleanup and survivor cookie/storage checks after restart. This mode does not exercise the human confirmation dialog. |
 | Human workspace removal | `node tests/workspace-removal-integration.mjs --manual` | Same generated-profile checks using production `Xenon.exe`. At READY, select only the named fixture workspace in that test instance's Controls, click **Remove workspace**, and approve the confirmation. No other profile or workspace is authorized by this harness. |
