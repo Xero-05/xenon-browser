@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { inflateSync } from 'node:zlib';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { writePrivateConfig } from '../adapter/dist/src/private-config.js';
@@ -141,6 +142,44 @@ async function cornerPass() {
   await until(async () => named(await observe(), `Corner action ${clicks + 2}`));
   return { viewport, bounds, screenshotScaleX: inspection.scaleX, referenceClick: true, coordinateClick: { x, y } };
 }
+// Minimal decoder for the 8-bit, non-interlaced RGB(A) PNGs CEF captures (as in theme-integration.mjs).
+function decodePng(buffer) {
+  assert.equal(buffer.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'Screenshot must be a PNG');
+  let offset = 8, width, height, depth, type, interlace; const chunks = [];
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset), kind = buffer.toString('ascii', offset + 4, offset + 8);
+    const body = buffer.subarray(offset + 8, offset + 8 + length);
+    if (kind === 'IHDR') { width = body.readUInt32BE(0); height = body.readUInt32BE(4); depth = body[8]; type = body[9]; interlace = body[12]; }
+    else if (kind === 'IDAT') chunks.push(body);
+    else if (kind === 'IEND') break;
+    offset += 12 + length;
+  }
+  assert(depth === 8 && (type === 2 || type === 6) && interlace === 0, 'Unsupported screenshot PNG layout');
+  const channels = type === 6 ? 4 : 3, stride = width * channels, raw = inflateSync(Buffer.concat(chunks));
+  const pixels = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)], line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    assert(filter <= 4, 'Invalid PNG filter');
+    const out = pixels.subarray(y * stride, (y + 1) * stride), prior = y ? pixels.subarray((y - 1) * stride, y * stride) : undefined;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= channels ? out[x - channels] : 0, b = prior ? prior[x] : 0, c = prior && x >= channels ? prior[x - channels] : 0;
+      const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+      const predictor = [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][filter];
+      out[x] = (line[x] + predictor) & 255;
+    }
+  }
+  return { width, height, channels, pixels };
+}
+// Image-pixel bounding box of a saturated fixture color; tolerant of display color conversion.
+function colorBox({ width, height, channels, pixels }, matches) {
+  let box;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const i = (y * width + x) * channels;
+    if (!matches(pixels[i], pixels[i + 1], pixels[i + 2])) continue;
+    box = box ? { left: Math.min(box.left, x), top: Math.min(box.top, y), right: Math.max(box.right, x), bottom: Math.max(box.bottom, y) } : { left: x, top: y, right: x, bottom: y };
+  }
+  return box;
+}
 
 if (process.platform !== 'win32') throw new Error('Live visibility regression requires Windows.');
 if (await alivePipe()) throw new Error('The randomly allocated visibility test pipe is already in use.');
@@ -241,6 +280,49 @@ try {
     await until(async () => named(await observe(), 'Icon action completed'));
     return { role: 'button', name: button.name, visualEvidenceAvailable: true, actionable: true };
   });
+  await check('Screenshot pixel coordinates land on narrow controls beside both scrollbars', async () => {
+    const capture = async () => {
+      const response = await raw('screenshot', scope());
+      assert(!response.isError, `screenshot: ${JSON.stringify(response.structuredContent ?? response.content)}`);
+      const image = response.content.find(item => item.type === 'image');
+      assert(image, 'Screenshot must include image bytes');
+      const png = decodePng(Buffer.from(image.data, 'base64')), meta = response.structuredContent;
+      assert.equal(png.width, meta.imageWidth); assert.equal(png.height, meta.imageHeight);
+      return { png, meta };
+    };
+    const edgeText = observation => observation.nodes?.find(node => node.name?.startsWith('Edge clicks:'))?.name;
+    assert.equal(edgeText(await observe()), 'Edge clicks: right 0, bottom 0', 'The edge click readout must be rendered evidence before any click');
+    const clicks = [];
+    for (const target of [
+      { side: 'right', matches: (r, g, b) => r > 180 && g < 90 && b > 180, expected: 'Edge clicks: right 1, bottom 0' },
+      { side: 'bottom', matches: (r, g, b) => r > 180 && g > 180 && b < 90, expected: 'Edge clicks: right 1, bottom 1' },
+    ]) {
+      const { png, meta } = await capture(), { scaleX, scaleY, viewport } = meta;
+      const box = colorBox(png, target.matches);
+      assert(box, `The ${target.side} edge target is not in the screenshot`);
+      const imageX = (box.left + box.right + 1) / 2, imageY = (box.top + box.bottom + 1) / 2, x = imageX / scaleX, y = imageY / scaleY;
+      await tool('interact', { ...mutation(), observationId: meta.observationId, action: 'click', x, y });
+      await until(async () => edgeText(await observe()) === target.expected, 5000).catch(async () => {
+        throw new Error(`The ${target.side} edge click was not registered (${edgeText(await observe())}) at ${JSON.stringify({ x, y, box, scaleX, scaleY, imageWidth: png.width, imageHeight: png.height, viewport })}`);
+      });
+      // The image is the whole page view, scrollbars included, so it extends past the CSS viewport.
+      assert(Math.abs(scaleX - scaleY) < 1e-6, 'Image pixels must map to square CSS pixels');
+      const scrollbar = { vertical: png.width / scaleX - viewport.width, horizontal: png.height / scaleY - viewport.height };
+      assert(scrollbar.vertical >= 8 && scrollbar.horizontal >= 8, `The fixture must show classic scrollbars on both axes: ${JSON.stringify(scrollbar)}`);
+      // Dividing by the CSS viewport size, as the scale once did, puts this point outside the 12 px target.
+      const legacy = { x: imageX * viewport.width / png.width, y: imageY * viewport.height / png.height };
+      assert(target.side === 'right' ? legacy.x < viewport.width - 12 : legacy.y < viewport.height - 12, 'The fixture no longer distinguishes a viewport-based scale');
+      clicks.push({ side: target.side, imageBox: box, x, y, legacy, scaleX, imageWidth: png.width, imageHeight: png.height, viewport, scrollbar });
+    }
+    // Image pixels over the vertical scrollbar map outside the CSS viewport and dispatch nothing.
+    const before = await observe(), { png, meta } = await capture();
+    const rejected = await raw('interact', { ...mutation(), observationId: meta.observationId, action: 'click', x: (png.width - 2) / meta.scaleX, y: meta.viewport.height / 2 });
+    assert.equal(rejected.structuredContent?.error?.code, 'invalid_coordinates', 'A scrollbar pixel must not become page input');
+    const after = await observe();
+    assert(named(after, 'Edge clicks: right 1, bottom 1'));
+    assert.equal(after.viewport.pageY, before.viewport.pageY, 'Rejected scrollbar input scrolled the page');
+    return { clicks, scrollbarClickRejected: true };
+  });
   await check('A changed visible label invalidates its reference even when the hidden AX name is unchanged', async () => {
     const observation = await observe();
     const target = observation.nodes.find(node => node.role === 'button' && node.name === 'Stable visible target' && node.ref);
@@ -340,7 +422,7 @@ try {
     assert.equal(applicationDllSha256AtEnd, applicationDllSha256, 'Browser DLL changed during visibility validation');
   } catch (error) { results.push({ name: 'Tested binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe',
-    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 14 && results.every(result => result.passed), results };
+    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 15 && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true });
   const reportPath = resolve(root, 'out/visibility-integration-results.json');
   await writeFile(reportPath, JSON.stringify(report, null, 2));

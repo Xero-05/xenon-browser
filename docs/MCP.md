@@ -89,7 +89,7 @@ Read the advertised tool schemas for exact parameters. Results are available as 
 
 `fill` accepts a native date input's canonical `YYYY-MM-DD` value. Invalid dates are rejected before changing the field. Date inputs use a fixed native setter and input/change events because Chromium's date control does not accept ordinary text insertion; those events are script-generated. Ordinary text fields retain native text insertion. A dispatched result still requires fresh website evidence to establish the final value or website success.
 
-Screenshot metadata includes actual PNG `imageWidth`/`imageHeight`, the CSS viewport and `scaleX`/`scaleY`. Coordinate actions take viewport CSS pixels: divide image pixel coordinates by those scale values. Do not assume one image pixel equals one CSS pixel on a high-DPI display. Use the matching screenshot `observationId`; scrolling or resizing invalidates its coordinate evidence.
+Screenshot metadata includes actual PNG `imageWidth`/`imageHeight`, the CSS viewport and `scaleX`/`scaleY`. The scale values are image pixels per CSS pixel (Windows display scale times browser zoom). The image is the whole page view, including any scrollbars, so `imageWidth / scaleX` can exceed `viewport.width` by the scrollbar thickness, and likewise for height. Coordinate actions take viewport CSS pixels: divide image pixel coordinates by those scale values. Points over a scrollbar fall outside the viewport and are rejected. Do not assume one image pixel equals one CSS pixel on a high-DPI display. Use the matching screenshot `observationId`; scrolling or resizing invalidates its coordinate evidence.
 
 ## Batching simple actions
 

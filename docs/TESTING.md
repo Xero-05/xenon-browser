@@ -1,5 +1,24 @@
 # Validation
 
+## Screenshot scale beside scrollbars (local candidate, 2026-10-20)
+
+The [validation record](test-results/screenshot-scale.json) covers screenshot
+coordinates near the right and bottom edges. Chromium's unclipped surface
+capture includes the scrollbars, so dividing the image by the CSS viewport gave
+`scaleX` 1.0164 and `scaleY` 1.0223 at 100% with 15 CSS px scrollbars. The
+pre-fix production DLL clicked at x 896.3 for a 12 px target at 905–917, and
+the page recorded no click. The rebuilt DLL reports a scale of exactly 1. It
+passed all 12 visibility checks, which include hits on targets beside both
+scrollbars and rejection of a scrollbar pixel without input, and all 17
+production integration checks. The full build passed 22 native groups.
+
+The first run of the new check on the fixed DLL failed. Its fixed-position
+readout overlapped the heading block and was withheld from rendered evidence,
+so no click could be confirmed. That failure is retained in the record; the
+readout now sits in an in-flow row. Only one 100% monitor was available, so
+display scaling, browser zoom, pinch zoom, right-to-left scrollbars and overlay
+scrollbars were not live-tested.
+
 ## Device upload text entries (local candidate, 2026-10-19)
 
 The [validation record](test-results/upload-device-text.json) covers a verified
@@ -593,7 +612,7 @@ actual website outcome check.
 | Native login policy | `ctest --test-dir build -C Release -R '^login_capture_tests$' --output-on-failure` | Production secret-free capture state: physical-input freshness, form/context/document binding, one-shot provenance, SSO origin retention, MFA input, cancellation, plus real DPAPI vault confirmation and destination-origin denial. |
 | Production browser | `node tests/integration.mjs` | Actual CEF pages controlled through separate adapters and multiplexed workers, isolation, interactions, visual evidence, dialogs, downloads, live handoff and reconnect. |
 | Simple-action batches | `node tests/batch-integration.mjs` | Production CEF with modern/legacy MCP clients, eight-action form/button sequences, deduplication, stopped suffixes for replaced/covered targets and navigation, and a separate-call timing comparison. Verifies synthetic website state; excludes model inference and physical input. Native broker tests cover handoff, human epochs, read-only policy, permission/client/workspace revocation, unknown outcomes and metadata-only restart without replay. |
-| Hidden-content defense | `node tests/visibility-integration.mjs` | Adversarial invisible text and accessibility labels are withheld; visible controls remain usable, searches use the same filter, and page instructions remain untrusted data. A far-corner control must stay verified and clickable by reference and screenshot coordinates, first at browser zoom 1 and again at 1.2, where its bounds must remain CSS pixels inside the smaller CSS viewport. Browser zoom scales Chromium's layout units the way Windows display scale does. The suite selects its agent tab in its own window, posts the native **Zoom in** command, waits for the resulting human pause to end, and resets the zoom before the remaining checks. Chromium switches such as `--force-device-scale-factor` are ignored, so on a 100% monitor the zoom pass is the only scaled-geometry coverage; it does not change the window's display scale or native UI scaling. |
+| Hidden-content defense | `node tests/visibility-integration.mjs` | Adversarial invisible text and accessibility labels are withheld; visible controls remain usable, searches use the same filter, and page instructions remain untrusted data. Coordinates computed from screenshot pixels (`image pixel / scale`) must hit 12 px controls beside both native scrollbars, and a scrollbar pixel must be rejected without input. A far-corner control must stay verified and clickable by reference and by coordinates from inspection bounds, first at browser zoom 1 and again at 1.2, where its bounds must remain CSS pixels inside the smaller CSS viewport. Browser zoom scales Chromium's layout units the way Windows display scale does. The suite selects its agent tab in its own window, posts the native **Zoom in** command, waits for the resulting human pause to end, and resets the zoom before the remaining checks. Chromium switches such as `--force-device-scale-factor` are ignored, so on a 100% monitor the zoom pass is the only scaled-geometry coverage; it does not change the window's display scale or native UI scaling. |
 | Worker lifecycle | `node tests/worker-lifecycle-integration.mjs` | More than 16 sequential workers reuse one live tab; retirement preserves page state, reconnect honors concurrent capacity, and queued work is not replayed. |
 | Workspace removal | `node tests/workspace-removal-integration.mjs` | Actual CEF and MCP with the unshipped `XenonAuthTest` native driver: workspace/popup closure, access and pending-read revocation, preservation of another live workspace and shared files, then tombstoned-profile cleanup and survivor cookie/storage checks after restart. This mode does not exercise the human confirmation dialog. |
 | Human workspace removal | `node tests/workspace-removal-integration.mjs --manual` | Same generated-profile checks using production `Xenon.exe`. At READY, select only the named fixture workspace in that test instance's Controls, click **Remove workspace**, and approve the confirmation. No other profile or workspace is authorized by this harness. |
