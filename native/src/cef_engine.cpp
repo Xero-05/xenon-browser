@@ -21,6 +21,7 @@
 #include "xenon/human_autofill.hpp"
 #include "xenon/protected_login.hpp"
 #include "xenon/passkey_guard.hpp"
+#include "xenon/screenshot_guard.hpp"
 #include "xenon/site_info.hpp"
 #include "xenon/external_protocol.hpp"
 #include "xenon/tab_render_pacing.hpp"
@@ -268,6 +269,7 @@ struct Tab {
   Reply developer_picker;
   uint64_t developer_revision=0;
   std::map<std::string, FrameSession> sessions;
+  uint64_t screenshot_frame_revision=0;
   std::map<int, CdpReply> pending;
   int next_message = 1;
   CefRefPtr<CefRegistration> registration;
@@ -696,7 +698,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       auto i = t->pending.find(id);
       if (i != t->pending.end()) {
         auto cb = std::move(i->second); t->pending.erase(i);
-        cb({{"error",{{"message","Browser operation timed out; outcome may be unknown"}}}});
+        cb({{"error",{{"message","Browser operation timed out; outcome may be unknown"},{"xenonTimeout",true}}}});
       }
     });
   }
@@ -771,19 +773,24 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       const auto sid=field(p,"sessionId");
       const auto info=p.value("targetInfo",Json::object());
       if (field(info,"type")=="iframe") {
+        ++t->screenshot_frame_revision;
         t->sessions[sid]={sid,field(info,"targetId"),session}; enable_session(t,sid);
       } else send(t,"Runtime.runIfWaitingForDebugger",Json::object(),[](Json){},sid);
     } else if (method=="Target.detachedFromTarget") {
       developer_clear(t);
+      ++t->screenshot_frame_revision;
       const auto sid=field(p,"sessionId"); t->sessions.erase(sid);t->guards.erase(sid);
       for(auto i=t->main_contexts.begin();i!=t->main_contexts.end();)if(i->first==sid)i=t->main_contexts.erase(i);else ++i;
       passkey_released(t,t->passkey.drop_prefix(sid+"|"));
       for(auto i=t->elements.begin(); i!=t->elements.end();) {
         if(i->second.session==sid)i=t->elements.erase(i);else ++i;
       }
-    } else if (method=="Page.frameNavigated" && session.empty()) {
+    } else if (method=="Page.frameAttached" || method=="Page.frameDetached") {
+      ++t->screenshot_frame_revision;
+    } else if (method=="Page.frameNavigated") {
+      ++t->screenshot_frame_revision;
       const auto f=p.value("frame",Json::object());
-      if (!f.contains("parentId")){t->main_frame=field(f,"id");t->last_url=field(f,"url");invalidate(t);persist_session();}
+      if (session.empty()&&!f.contains("parentId")){t->main_frame=field(f,"id");t->last_url=field(f,"url");invalidate(t);persist_session();}
     } else if (method=="Page.navigatedWithinDocument" && session.empty()) {
       // A single-page sign-in that moves on after a script-driven attempt.
       if(field(p,"frameId")==t->main_frame&&t->login.navigated_within_document())notify_login(t,t->login.candidate());
@@ -2275,25 +2282,24 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     callback->Continue(action=="accept",field(p,"text"));reply(success({{"status","handled"}}));return;
   }
   if(command=="page.screenshot"){
-    if(t->guards.size()<t->sessions.size()+1){reply(failure("privacy_guard_initializing","The credential guard is not ready to capture this page."));return;}
-    if(t->screen_capture){reply(failure("screen_sharing","This tab is sharing the person's screen. Screenshots are withheld until sharing stops."));return;}
-    struct Scan {size_t pending;bool secret=false,failed=false;};auto scan=std::make_shared<Scan>();
-    std::vector<std::string> sessions={""};for(auto& [id,f]:t->sessions)sessions.push_back(id);scan->pending=sessions.size();
-    for(const auto& session:sessions)send(t,"DOM.getDocument",{{"depth",-1},{"pierce",true}},[this,t,scan,reply](Json dom){
-      if(!cdp_ok(dom)||!dom.contains("root"))scan->failed=true;
-      else {
-        std::function<void(const Json&)> visit=[&](const Json& n){
-          if(n.contains("attributes")){const auto& a=n["attributes"];for(size_t i=0;i+1<a.size();i+=2){auto k=a[i].get<std::string>(),v=a[i+1].get<std::string>();
-            std::transform(v.begin(),v.end(),v.begin(),[](unsigned char ch){return static_cast<char>(std::tolower(ch));});
-            if((k=="type"&&v=="password")||(k=="autocomplete"&&(v.find("password")!=std::string::npos||v.find("one-time-code")!=std::string::npos)))scan->secret=true;}}
-          for(const char* key:{"children","shadowRoots"})if(n.contains(key))for(const auto& child:n[key])visit(child);
-          if(n.contains("contentDocument"))visit(n["contentDocument"]);
-        };visit(dom["root"]);
+    auto state=[this,t]{
+      screenshot::State value;value.epoch=t->epoch;value.human=t->human_input;
+      value.frames=t->screenshot_frame_revision;value.valid=!t->closed&&action_valid(t);
+      value.protected_auth=t->protected_auth;value.screen_sharing=t->screen_capture;
+      value.guards_ready=t->guards.contains("");
+      value.sessions={""};for(const auto& [id,frame]:t->sessions){
+        value.sessions.push_back(id);value.guards_ready=value.guards_ready&&t->guards.contains(id);
       }
-      if(--scan->pending)return;
-      if(scan->secret||scan->failed||t->protected_auth){reply(failure("screenshot_protected","A credential form or unverified frame prevents a safe screenshot."));return;}
+      return value;
+    };
+    screenshot::check(state,[this,t](const std::string& session,Reply done){
+      send(t,"DOM.getDocument",{{"depth",-1},{"pierce",true}},std::move(done),session);
+    },[this,t,reply,state](Json checked,screenshot::State scanned){
+      if(!checked.value("ok",false)){reply(std::move(checked));return;}
       const auto epoch=t->epoch;
-      send(t,"Page.getLayoutMetrics",Json::object(),[this,t,epoch,reply](Json metrics){
+      send(t,"Page.getLayoutMetrics",Json::object(),[this,t,epoch,reply,state,scanned](Json metrics){
+        auto valid=screenshot::validate(scanned,state());
+        if(!valid.value("ok",false)){reply(std::move(valid));return;}
         if(!cdp_ok(metrics)){reply(failure("viewport_unavailable","The viewport is unavailable."));return;}
         auto vp=metrics.value("cssVisualViewport",Json::object());const auto viewport=input_viewport(metrics);
         // An unclipped surface capture is the whole page view, scrollbars included, in physical pixels.
@@ -2306,7 +2312,9 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
         if(!std::isfinite(scale)||scale<=0||std::abs(physical.value("clientHeight",0.0)/css_height*pinch-scale)>scale*1e-4){reply(failure("viewport_unavailable","The viewport scale is unavailable."));return;}
         if(viewport.empty()){reply(failure("viewport_unavailable","The viewport is unavailable."));return;}
         const auto captured_at=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        send(t,"Page.captureScreenshot",{{"format","png"},{"fromSurface",true},{"captureBeyondViewport",false}},[t,epoch,vp,viewport,css_width,css_height,scale,captured_at,reply](Json r){
+        send(t,"Page.captureScreenshot",{{"format","png"},{"fromSurface",true},{"captureBeyondViewport",false}},[t,epoch,vp,viewport,css_width,css_height,scale,captured_at,reply,state,scanned](Json r){
+          auto valid=screenshot::validate(scanned,state());
+          if(!valid.value("ok",false)){reply(std::move(valid));return;}
           if(!cdp_ok(r)||!r.contains("data")||t->epoch!=epoch||t->protected_auth||t->screen_capture){reply(failure("screenshot_failed","The screenshot could not be safely captured."));return;}
           const auto png=CefBase64Decode(r["data"].get<std::string>());unsigned char header[24]{};
           if(!png||png->GetSize()<24||png->GetData(header,sizeof(header),0)!=sizeof(header)||header[0]!=137||header[1]!=80||header[2]!=78||header[3]!=71){reply(failure("screenshot_failed","The image dimensions could not be verified."));return;}
@@ -2320,7 +2328,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
             {"viewport",{{"width",vp.value("clientWidth",0.0)},{"height",vp.value("clientHeight",0.0)},{"pageX",vp.value("pageX",0.0)},{"pageY",vp.value("pageY",0.0)},{"coordinates","CSS pixels"}}}}));
         });
       });
-    },session);return;
+    });return;
   }
   if(command=="page.wait"){
     const auto wanted=field(p,"text");const int timeout=std::clamp(p.value("timeoutMs",3000),100,15000);

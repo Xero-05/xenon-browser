@@ -1,0 +1,76 @@
+{
+  "run": "screenshot-integration-1792482363494-912c0b9a",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "8ff30dfa0f08f2abbcbab9e2549ed08ee79a644e80dc49fc6428ccf33da59064",
+  "applicationDllSha256AtEnd": "8ff30dfa0f08f2abbcbab9e2549ed08ee79a644e80dc49fc6428ccf33da59064",
+  "coverage": "Production CEF/MCP synthetic fixtures. Safe and credential pages, same-origin/cross-origin frames, shadow root, frame replacement. Protocol timeout injection is unit coverage, not live browser coverage. No personal profiles or physical input. Additional stress: 24 replacements of four-level alternating-origin frame trees; settled captures must return an image within 2500 ms, without helper retries.",
+  "results": [
+    {
+      "name": "Safe safe page returns PNG",
+      "passed": true
+    },
+    {
+      "name": "Safe same-safe page returns PNG",
+      "passed": true
+    },
+    {
+      "name": "Safe cross-safe page returns PNG",
+      "passed": true
+    },
+    {
+      "name": "password credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "shadow credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "same-password credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "cross-password credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "Replacing a credential frame with a verified safe frame restores capture",
+      "passed": true
+    },
+    {
+      "name": "Repeated nested cross-origin frame replacement stays capturable",
+      "passed": true,
+      "detail": {
+        "iterations": 24,
+        "maxCaptureMs": 47,
+        "captureMs": [
+          38,
+          37,
+          33,
+          36,
+          35,
+          35,
+          34,
+          30,
+          43,
+          30,
+          33,
+          33,
+          47,
+          35,
+          29,
+          33,
+          33,
+          36,
+          38,
+          34,
+          34,
+          32,
+          31,
+          37
+        ]
+      }
+    }
+  ],
+  "passed": true
+}

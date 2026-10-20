@@ -1,0 +1,50 @@
+{
+  "run": "screenshot-integration-1792482002309-5a7f0efa",
+  "binary": "build/app/Release/Xenon.exe",
+  "applicationDllSha256": "8ff30dfa0f08f2abbcbab9e2549ed08ee79a644e80dc49fc6428ccf33da59064",
+  "applicationDllSha256AtEnd": "8ff30dfa0f08f2abbcbab9e2549ed08ee79a644e80dc49fc6428ccf33da59064",
+  "coverage": "Production CEF/MCP synthetic fixtures. Safe and credential pages, same-origin/cross-origin frames, shadow root, frame replacement. Protocol timeout injection is unit coverage, not live browser coverage. No personal profiles or physical input.",
+  "results": [
+    {
+      "name": "Safe safe page returns PNG",
+      "passed": true
+    },
+    {
+      "name": "Safe same-safe page returns PNG",
+      "passed": true
+    },
+    {
+      "name": "Safe cross-safe page returns PNG",
+      "passed": true
+    },
+    {
+      "name": "password credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "shadow credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "same-password credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "cross-password credentials withhold every image",
+      "passed": true
+    },
+    {
+      "name": "Replacing a credential frame with a verified safe frame restores capture",
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "validation": {
+    "full_native_build": "passed (production and authentication fixture)",
+    "native_tests": "screenshot_guard_tests (13 cases) and broker_tests passed",
+    "adapter_and_script_tests": "146 passed",
+    "typecheck": "passed",
+    "diff_check": "passed",
+    "original_site_limit": "The reported website was not revisited; its exact failed frame remains unidentified. Timeout recovery was reproduced with deterministic native transport callbacks."
+  }
+}
