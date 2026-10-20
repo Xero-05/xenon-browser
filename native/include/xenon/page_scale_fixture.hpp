@@ -3,7 +3,9 @@
 // AuthTest browser. It has no renderer binding, native pipe or MCP endpoint.
 // It performs one fixed gesture: a synthetic touchpad pinch on a broker tab of
 // a marked disposable profile, the gesture a person makes on a precision
-// touchpad. Results carry viewport numbers only, never page content.
+// touchpad. It can also record a person's passive hover position, as the mouse
+// hook does, without sending input. Results carry viewport numbers only, never
+// page content.
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
 #include "xenon/cef_engine.hpp"
 #include "xenon/local_security.hpp"
@@ -106,6 +108,15 @@ class NativePageScaleFixture : public std::enable_shared_from_this<NativePageSca
       const auto action = request.at("action").get<std::string>();
       const auto tab = request.at("tabId");
       if (!handle(tab)) throw std::runtime_error("Invalid fixture tab");
+      const auto weak = weak_from_this();
+      // A person's passive hover at a page-window client pixel. It records the
+      // position the mouse hook would; it sends no input and pauses nothing.
+      if (action == "hover") {
+        const auto x = request.at("clientX").get<int>(), y = request.at("clientY").get<int>();
+        if (x < 0 || y < 0 || x > 16384 || y > 16384) throw std::runtime_error("Invalid fixture point");
+        engine_.fixture_human_pointer(tab.get<std::string>(), x, y, [weak, id](Json reply) { if (auto self = weak.lock()) self->finish(id, std::move(reply)); });
+        return;
+      }
       // A relative pinch factor; the reciprocal of an earlier pinch restores it.
       // Factor 1 reads the viewports without a gesture.
       double scale = 1;
@@ -113,7 +124,6 @@ class NativePageScaleFixture : public std::enable_shared_from_this<NativePageSca
         scale = request.at("scale").get<double>();
         if (!std::isfinite(scale) || scale < 0.2 || scale > 5 || std::abs(scale - 1) < 0.01) throw std::runtime_error("Invalid fixture scale");
       } else if (action != "metrics") throw std::runtime_error("Unknown fixture action");
-      const auto weak = weak_from_this();
       engine_.fixture_page_scale(tab.get<std::string>(), scale, [weak, id](Json reply) { if (auto self = weak.lock()) self->finish(id, std::move(reply)); });
     } catch (const std::exception&) { finish(id, failure("FIXTURE_FAILED", "Native fixture request failed")); }
   }

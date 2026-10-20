@@ -42,9 +42,22 @@ int main(){try{
   const auto [document_x,document_y]=input_viewport_document_point(pinched,10,20);
   require(std::abs(document_x-239.25)<1e-9&&std::abs(document_y-188.5)<1e-9,"Document hit points add the pinch pan offset");
 
+  // A person's pointer at window point (600,400) is input (300,200) at 2x,
+  // with or without a pan: the visual viewport is drawn at the window corner.
+  require(input_viewport_scale(unpinched)==1&&input_viewport_scale(pinched)==2,"The pinch scale comes from the visual viewport");
+  const auto [window_x,window_y]=input_viewport_from_window(pinched,600,400);
+  const auto [panned_x,panned_y]=input_viewport_from_window(panned,600,400);
+  require(window_x==300&&window_y==200&&panned_x==300&&panned_y==200,"Window points divide by the pinch scale without a pan offset");
+  require(inside_input_viewport(pinched,window_x,window_y)&&!inside_input_viewport(pinched,600,400),"Only the converted window point is inside the pinched view");
+  const auto [unpinched_x,unpinched_y]=input_viewport_from_window(unpinched,600,400);
+  require(unpinched_x==600&&unpinched_y==400,"Unpinched window points are input points");
+  const auto [inspected_x,inspected_y]=input_viewport_document_point(pinched,window_x,window_y);
+  require(std::abs(inspected_x-529.25)<1e-9&&std::abs(inspected_y-368.5)<1e-9,"An inspected window point hits the document under it");
+  require(input_viewport_scale(Json())==1&&input_viewport_scale(Json::object())==1,"Without a viewport, window points pass through unscaled");
+
   for(const auto* key:{"cssLayoutViewport","cssVisualViewport"}){auto missing=metrics(1,0,0);missing.erase(key);require(input_viewport(missing).empty(),"A missing viewport fails closed");}
   for(const auto* key:{"scale","clientWidth","clientHeight"}){auto zero=metrics(1,0,0);zero["cssVisualViewport"][key]=0;require(input_viewport(zero).empty(),"An empty or unscaled visual viewport fails closed");}
   auto text=metrics(1,0,0);text["cssVisualViewport"]["offsetX"]="0";require(input_viewport(text).empty(),"Non-numeric metrics fail closed");
   require(!inside_input_viewport(Json(),1,1)&&!inside_input_viewport(Json::object(),1,1),"No screenshot viewport accepts no coordinates");
-  std::cout<<"Input viewport passed: pinch and pan identity, visual bounds, fractional edges and fail-closed metrics\n";return 0;
+  std::cout<<"Input viewport passed: pinch and pan identity, visual bounds, window conversion, fractional edges and fail-closed metrics\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
