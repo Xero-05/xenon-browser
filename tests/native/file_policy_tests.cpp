@@ -103,6 +103,85 @@ void junction(const std::filesystem::path& path, const std::filesystem::path& ta
   CloseHandle(handle);
   require(success, "Could not create junction test");
 }
+void direct_lookup_regression(const std::filesystem::path& root) {
+  const auto inputs = root / "large-folder";
+  std::filesystem::create_directories(inputs);
+  for (int i = 0; i < 5002; ++i)
+    std::filesystem::create_directory(inputs / ("entry-" + std::to_string(i)));
+  // Choose a target beyond the real traversal bound, independent of filesystem
+  // directory ordering. Adding a child does not change the parent's entries.
+  auto tail = std::filesystem::directory_iterator(inputs);
+  for (int i = 0; i < 5001; ++i) ++tail;
+  const auto document = tail->path() / "cover-letter.pdf";
+  write(document, "Synthetic cover letter");
+  FilePolicy files(root / "direct-downloads", {inputs / "protected"});
+  const auto folder = files.grant_folder("client-a", inputs)["result"]["folderId"].get<std::string>();
+  const auto relative = document.lexically_relative(inputs).generic_string();
+  const auto scan = files.discover_files({"client-a"}, folder, 100, {}, relative)["result"];
+  require(scan["files"].empty() && scan["scanIncomplete"] == true && scan["nextCursor"].is_null(),
+          "Large-folder fixture must reproduce a missed exact query without a continuation");
+  const auto exact = files.discover_files({"client-a"}, folder, 100, {}, {}, std::nullopt, "worker-a", relative)["result"];
+  require(exact["files"].size() == 1 && exact["files"][0]["name"] == "cover-letter.pdf" &&
+          exact["scanIncomplete"] == false && exact["truncated"] == false && exact["nextCursor"].is_null(),
+          "Direct relative-path lookup must find the approved file beyond the traversal limit");
+  require(files.resolve_upload("client-a", exact["files"][0]["fileId"].get<std::string>()).has_value(),
+          "Direct lookup must return a usable upload handle");
+  const auto id = exact["files"][0]["fileId"].get<std::string>();
+  const auto lookup = [&](const std::string& path, const std::optional<std::set<std::string>>& selected = std::nullopt) {
+    return files.discover_files({"client-a"}, folder, 1, {}, {}, selected, "worker-a", path);
+  };
+  require(lookup(relative, std::set<std::string>{folder})["result"]["files"].size() == 1,
+          "Inherited selected folder permits direct lookup");
+  require(lookup(relative, std::set<std::string>{id})["result"]["files"][0]["fileId"] == id,
+          "Individually selected derived file remains discoverable");
+  require(!lookup(relative, std::set<std::string>{})["ok"].get<bool>(), "Empty selection must deny direct lookup");
+  require(!files.discover_files({"workspace-b"}, folder, 1, {}, {}, std::nullopt, {}, relative)["ok"].get<bool>(),
+          "Direct lookup cannot cross scopes");
+  require(!files.discover_files({"client-a"}, {}, 1, {}, {}, std::nullopt, {}, relative)["ok"].get<bool>(),
+          "Direct lookup requires a folder handle");
+  require(!files.discover_files({"client-a"}, folder, 1, {}, "query", std::nullopt, {}, relative)["ok"].get<bool>(),
+          "Direct lookup cannot silently combine with substring filtering");
+  require(!files.discover_files({"client-a"}, folder, 1, "cursor", {}, std::nullopt, {}, relative)["ok"].get<bool>(),
+          "Direct lookup cannot reuse a listing cursor");
+  for (const std::string& bad : std::vector<std::string>{"", "../outside.pdf", "nested/../file.pdf", "./file.pdf", "/file.pdf", "C:file.pdf",
+      "C:\\file.pdf", "\\\\server\\share\\file.pdf", "\\\\?\\C:\\file.pdf", "file.pdf:stream", "a//file.pdf",
+      "file.pdf.", "file.pdf ", "a/", "a/*", "a/\nfile.pdf", std::string("a\0b", 3), std::string("\xff", 1), std::string(501, 'a')}) {
+    require(!lookup(bad)["ok"].get<bool>(), "Unsafe direct path must be rejected by native policy");
+  }
+  write(inputs / "other.pdf", "Another eligible file");
+  require(lookup("other.pdf", std::set<std::string>{id})["result"]["files"].empty(),
+          "Selected single file cannot widen to a sibling");
+  require(lookup("missing.pdf")["result"]["files"].empty(), "Missing direct path returns no handle");
+  std::filesystem::create_directories(inputs / "protected");
+  write(inputs / "protected" / "secret.pdf", "Synthetic protected file");
+  write(inputs / "pairing.txt", "{\"clientId\":\"synthetic\",\"token\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}");
+  write(inputs / "export.csv", "Synthetic credential export");
+  files.deny_source(inputs / "export.csv");
+  require(CreateHardLinkW((inputs / "alias.pdf").c_str(), (inputs / "other.pdf").c_str(), nullptr), "Direct hardlink fixture failed");
+  junction(inputs / "junction", document.parent_path());
+  for (const auto* excluded : {"protected/secret.pdf", "pairing.txt", "export.csv", "alias.pdf", "junction/cover-letter.pdf", "protected"}) {
+    require(lookup(excluded)["result"]["files"].empty(), "Direct lookup must exclude protected files, links and directories");
+  }
+  require(RemoveDirectoryW((inputs / "junction").c_str()), "Direct junction cleanup failed");
+  write(inputs / L"r\u00e9sum\u00e9.pdf", "Synthetic Unicode document");
+  require(lookup("R\xc3\x89SUM\xc3\x89.PDF")["result"]["files"].size() == 1, "Direct lookup supports Unicode Windows case matching");
+  const auto backslash_relative = document.lexically_relative(inputs).string();
+  require(lookup(backslash_relative)["result"]["files"][0]["fileId"] == id, "Both slash forms resolve the same handle");
+  auto deep = inputs;
+  for (int i = 0; i < 10; ++i) deep /= "deep";
+  std::filesystem::create_directories(deep);
+  write(deep / "letter.pdf", "Synthetic deep file");
+  require(lookup((deep / "letter.pdf").lexically_relative(inputs).generic_string())["result"]["files"].size() == 1,
+          "Direct lookup is independent of recursive discovery depth");
+  std::filesystem::rename(document, document.parent_path() / "old.pdf");
+  write(document, "Replacement document");
+  require(!files.resolve_upload("client-a", id), "Old direct handle cannot upload a replacement file");
+  const auto replacement = lookup(relative)["result"]["files"][0]["fileId"].get<std::string>();
+  require(replacement != id, "Fresh lookup binds replacement identity to a new handle");
+  require(files.revoke_grant("client-a", folder)["ok"].get<bool>(), "Direct folder revocation failed");
+  require(!lookup(relative)["ok"].get<bool>() && !files.resolve_upload("client-a", replacement),
+          "Revocation removes direct lookup authority and derived handles");
+}
 }
 int main() {
   try {
@@ -243,7 +322,8 @@ int main() {
     const auto second = files.allocate_download("workspace-a", "../../escape.txt");
     require(first != second && first.parent_path() == second.parent_path(), "Download names not uniquely scoped");
     require(first.parent_path().parent_path() == scratch.root / "downloads", "Download escaped its managed root");
-    std::cout << "Persistent file/folder capability, revocation, identity, path, junction and download tests passed.\n";
+    direct_lookup_regression(scratch.root);
+    std::cout << "Persistent file/folder capability, direct lookup, revocation, identity, path, junction and download tests passed.\n";
     return 0;
   } catch (const std::exception& error) { std::cerr << "File policy test failed: " << error.what() << '\n'; return 1; }
 }

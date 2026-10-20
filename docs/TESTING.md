@@ -1,5 +1,24 @@
 # Validation
 
+## Direct file lookup (local candidate, 2026-10-20)
+
+The [validation record](test-results/upload-direct-path.json) covers
+`xenon_files` with an approved `folderId` and exact `relativePath`. The native
+regression first reproduced a known file missing beyond 5,000 entries with no
+continuation, then passed direct lookup plus path, scope, selected-resource,
+protected-file, link, replacement and revocation checks. Both MCP SDK versions
+accept and forward the new parameter and reject invalid combinations.
+
+The isolated production browser build passed all 17 upload-entry checks. The
+live suite resolved a file beyond the recursive depth limit and verified its
+contents at the synthetic upload server. Typechecking and all 146 adapter and
+fixed-script tests passed. Initial reproduction, sandbox build/cleanup failures
+and a corrected test-fixture interference failure remain recorded. This covers
+the current working tree, including pre-existing changes, with synthetic grants
+and disposable profiles; it does not establish real portal, physical UI or
+installed-package behavior. The running user browser was preserved. Restart
+with the updated browser and reconnect the adapter before using direct lookup.
+
 ## Touch, pen and touchpad human input (local candidate, 2026-10-20)
 
 A source review of Chromium 154 found that touchscreen, pen and

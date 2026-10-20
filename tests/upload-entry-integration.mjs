@@ -17,10 +17,11 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { writePrivateConfig } from '../adapter/dist/src/private-config.js';
 
 const root = resolve(import.meta.dirname, '..');
+const buildRoot = resolve(root, process.env.XENON_TEST_BUILD_DIR ?? 'build');
 const run = 'upload-entry-' + Date.now() + '-' + randomBytes(4).toString('hex');
 const profile = resolve(root, '.cache', 'auth-integration-' + run), uploadsRoot = profile + '-uploads';
 const pipeName = 'xenon-test-' + run, slash = String.fromCharCode(92), pipe = slash + slash + '.' + slash + 'pipe' + slash + pipeName;
-const binary = resolve(root, 'build/app/Release/Xenon.exe'), dll = resolve(root, 'build/app/Release/Xenon.dll');
+const binary = resolve(buildRoot, 'app/Release/Xenon.exe'), dll = resolve(buildRoot, 'app/Release/Xenon.dll');
 const baseline = process.argv.includes('--baseline'), benchmarkIndex = process.argv.indexOf('--benchmark');
 if (benchmarkIndex >= 0 && !process.argv[benchmarkIndex + 1]) throw new Error('--benchmark requires the source path');
 const benchmarkSource = benchmarkIndex >= 0 ? resolve(process.argv[benchmarkIndex + 1]) : undefined;
@@ -235,7 +236,7 @@ if (process.platform !== 'win32') throw new Error('Upload regression requires Wi
 if (await alivePipe()) throw new Error('Randomly allocated private pipe already exists.');
 try {
   await mkdir(profile, { recursive: true }); await writeFile(resolve(profile, 'SYNTHETIC_TEST_PROFILE'), 'XENON_SYNTHETIC_AUTH_FIXTURE\n');
-  const seeded = JSON.parse((await runFile(resolve(root, 'build/Release/vault_fixture_seed.exe'), [profile], { windowsHide: true })).stdout.trim()); folderId = seeded.folderId;
+  const seeded = JSON.parse((await runFile(resolve(buildRoot, 'Release/vault_fixture_seed.exe'), [profile], { windowsHide: true })).stdout.trim()); folderId = seeded.folderId;
   await mkdir(resolve(uploadsRoot, 'nested'), { recursive: true });
   for (let index = 0; index < 7; index++) await writeFile(resolve(uploadsRoot, 'nested', `page-${index}.txt`), `Synthetic discovery file ${index}\n`);
   const identity = { clientId: 'upload_' + randomBytes(8).toString('hex'), token: randomBytes(32).toString('hex'), pipe };
@@ -262,7 +263,21 @@ try {
     for (let index = 0; index < 7; index++) assert(names.some(name => name.replaceAll('\\', '/') === `nested/page-${index}.txt`));
     const filtered = await tool('files', { ...args, limit: 1, query: 'NESTED/PAGE-6.TXT' });
     assert.equal(filtered.files.length, 1); assert.equal(filtered.files[0].name, 'page-6.txt'); assert.equal(filtered.truncated, false);
-    return { pages, uniqueFiles: names.length, laterPageFilterVerified: true };
+    if (!baseline) {
+      const relativePath = 'deep/'.repeat(10) + 'approved-report.txt';
+      await mkdir(resolve(uploadsRoot, 'deep/'.repeat(10)), { recursive: true });
+      await writeFile(resolve(uploadsRoot, relativePath), 'Xenon synthetic approved upload.\n');
+      const incomplete = await tool('files', { ...args, query: relativePath });
+      assert.deepEqual(incomplete.files, []); assert.equal(incomplete.scanIncomplete, true); assert.equal(incomplete.nextCursor, null);
+      const exact = await tool('files', { ...args, relativePath });
+      assert.equal(exact.files.length, 1); assert.equal(exact.files[0].relativePath.replaceAll('\\', '/'), relativePath);
+      assert.equal(exact.scanIncomplete, false); assert.equal(exact.truncated, false); assert.equal(exact.nextCursor, null);
+      const denied = await raw('files', { ...workerScope(otherWorker), folderId, relativePath });
+      assert.equal(denied.isError, true);
+      // All following uploads verify the contents of the directly resolved file.
+      fileId = exact.files[0].fileId;
+    }
+    return { pages, uniqueFiles: names.length, laterPageFilterVerified: true, directLookupBeyondDepthVerified: !baseline };
   });
   await check('Visible direct file input transfers only an approved opaque file', async () => {
     const tab = await open('direct', 'direct'), response = await upload(tab, 'Direct upload', fileId, 'INPUT');
@@ -415,7 +430,7 @@ try {
     applicationDllSha256AtEnd = await hashDll(); assert.equal(applicationDllSha256AtEnd, applicationDllSha256, 'Browser DLL changed during test');
     if (benchmarkSource && benchmarkMetadata) { assert.equal(sha256(await readFile(benchmarkSource)), benchmarkMetadata.sourceSha256, 'External source changed during reproduction'); benchmarkMetadata.sourceUnchangedAfterRun = true; }
   } catch (error) { results.push({ name: 'Source and binary stability', passed: false, error: error.message }); }
-  const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe', profile,
+  const report = { run, capturedAt: new Date().toISOString(), binary, profile,
     applicationDllSha256, applicationDllSha256AtEnd, mode: baseline ? 'baseline_failure_reproduction' : 'acceptance', benchmark: benchmarkMetadata ?? null,
     passed: results.length === 7 + (baseline ? 0 : 10) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0) && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true }); const reportPath = resolve(root, 'out', `${run}${baseline ? '-baseline' : ''}.json`);
