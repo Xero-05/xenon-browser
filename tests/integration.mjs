@@ -12,11 +12,12 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { writePrivateConfig } from '../adapter/dist/src/private-config.js';
 
 const root = resolve(import.meta.dirname, '..');
+const buildRoot = resolve(root, process.env.XENON_TEST_BUILD_DIR ?? 'build');
 const run = `integration-${Date.now()}-${randomBytes(4).toString('hex')}`;
 const pipeName = `xenon-test-${run}`;
 const pipe = '\\\\.\\pipe\\' + pipeName;
 const profile = resolve(root, '.cache', run);
-const applicationDllSha256 = createHash('sha256').update(await readFile(resolve(root, 'build/app/Release/Xenon.dll'))).digest('hex');
+const applicationDllSha256 = createHash('sha256').update(await readFile(resolve(buildRoot, 'app/Release/Xenon.dll'))).digest('hex');
 const base = 'http://127.0.0.1:18765';
 const results = [];
 const clients = [];
@@ -120,7 +121,7 @@ const fixtures = Array.from({ length: 4 }, (_, i) => ({ clientId: `fixture_clien
 await writeFile(resolve(profile, 'broker-state.json'), JSON.stringify({ version: 1, clients: fixtures.map((c, i) => ({ id: c.clientId, name: `Integration ${i}`, tokenHash: createHash('sha256').update(c.token).digest('hex') })), workspaces: [{ id: 'fixture_shared', clients: fixtures.map(c => c.clientId) }], accountGrants: [], operations: [] }));
 for (let i = 0; i < fixtures.length; i++) await writePrivateConfig(resolve(profile, `client-${i}.json`), { ...fixtures[i], pipe });
 const server = spawn(process.execPath, [resolve(root, 'tests/fixtures/server.mjs')], { windowsHide: true, stdio: 'ignore' });
-const browser = spawn(resolve(root, 'build/app/Release/Xenon.exe'), [`--user-data-dir=${profile}`, `--broker-pipe=${pipeName}`], { windowsHide: true, stdio: 'ignore' });
+const browser = spawn(resolve(buildRoot, 'app/Release/Xenon.exe'), [`--user-data-dir=${profile}`, `--broker-pipe=${pipeName}`], { windowsHide: true, stdio: 'ignore' });
 try {
   await until(alivePipe, 30000);
   await until(async () => { try { return (await fetch(`${base}/health`)).ok; } catch { return false; } });
@@ -361,9 +362,9 @@ finally {
   // Kill only the process tree created with this unique disposable test profile.
   if (browser.pid) await runFile('taskkill.exe', ['/PID', String(browser.pid), '/T', '/F'], { windowsHide: true }).catch(() => {});
   server.kill();
-  const finalHash=createHash('sha256').update(await readFile(resolve(root,'build/app/Release/Xenon.dll'))).digest('hex');
+  const finalHash=createHash('sha256').update(await readFile(resolve(buildRoot,'app/Release/Xenon.dll'))).digest('hex');
   if(finalHash!==applicationDllSha256)results.push({name:'Binary remained unchanged during test run',passed:false,error:'Application was rebuilt during validation'});
-  const report = { run, capturedAt: new Date().toISOString(), binary: 'build/app/Release/Xenon.exe', applicationDllSha256, profile, passed: results.every(r => r.passed), results };
+  const report = { run, capturedAt: new Date().toISOString(), binary: resolve(buildRoot,'app/Release/Xenon.exe'), applicationDllSha256, profile, passed: results.every(r => r.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true });
   await writeFile(resolve(root, 'out/integration-results.json'), JSON.stringify(report, null, 2));
   console.log(`Report: ${resolve(root, 'out/integration-results.json')}`);

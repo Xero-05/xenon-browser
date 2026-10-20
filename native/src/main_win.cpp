@@ -16,6 +16,7 @@
 #include "xenon/workspace_storage.hpp"
 #include "xenon/removal_fixture.hpp"
 #include "xenon/autofill_fixture.hpp"
+#include "xenon/extension_manager_fixture.hpp"
 #include "xenon/updater.hpp"
 #include "xenon/extension_store.hpp"
 #include "xenon/launch_urls.hpp"
@@ -91,7 +92,7 @@ std::vector<std::string> command_urls(CefRefPtr<CefCommandLine> command){
 }
 class App final : public CefApp,public CefBrowserProcessHandler {
  public:
-  App(std::filesystem::path root,Broker::Limits limits,std::wstring pipe,std::unique_ptr<ExtensionStore> extensions,bool test_removal=false,bool test_autofill=false,bool open_documentation=false,std::vector<std::string> launch={}):root_(std::move(root)),limits_(limits),pipe_name_(std::move(pipe)),extensions_(std::move(extensions)),test_removal_enabled_(test_removal),test_autofill_enabled_(test_autofill),open_documentation_(open_documentation),launch_urls_(std::move(launch)){
+  App(std::filesystem::path root,Broker::Limits limits,std::wstring pipe,std::unique_ptr<ExtensionStore> extensions,bool test_removal=false,bool test_autofill=false,bool open_documentation=false,std::vector<std::string> launch={},bool test_extensions=false):root_(std::move(root)),limits_(limits),pipe_name_(std::move(pipe)),extensions_(std::move(extensions)),test_removal_enabled_(test_removal),test_autofill_enabled_(test_autofill),open_documentation_(open_documentation),test_extension_enabled_(test_extensions),launch_urls_(std::move(launch)){
     // Read once, before Chromium starts. Later changes apply after restart.
     try{extension_paths_=extensions_->startup_paths();}catch(const std::exception&){extension_paths_.clear();}
   }
@@ -108,6 +109,10 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       command->RemoveSwitch("force-light-mode");command->RemoveSwitch("force-dark-mode");
       ui::web_theme_mode=ui::theme_mode;
       if(const auto scheme=ui::web_color_scheme_switch(ui::web_theme_mode))command->AppendSwitch(scheme);
+      // The native site switch must affect Chromium's real extension access,
+      // including renderer content scripts, rather than just hiding actions.
+      auto enabled_features=command->GetSwitchValue("enable-features").ToWString();
+      command->RemoveSwitch("enable-features");command->AppendSwitchWithValue("enable-features",(enabled_features.empty()?std::wstring{}:enabled_features+L",")+L"ExtensionsMenuAccessControl");
       // Human-installed unpacked extensions from Xenon's managed copies. They
       // load into every persistent workspace profile; MCP cannot change them.
       command->RemoveSwitch("load-extension");
@@ -125,6 +130,12 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     command->AppendSwitch("disable-backgrounding-occluded-windows");
     command->AppendSwitch("disable-background-timer-throttling");
     // Chrome initializes its logger separately from CEF's log-severity setting.
+#if defined(XENON_TEST_FIXTURE_CERT_SHA256)
+    if(test_extension_enabled_&&root_.parent_path().filename()==L".cache"&&root_.filename().wstring().starts_with(L"extension-manager-integration-")){
+      command->AppendSwitch("disable-background-networking");command->AppendSwitch("disable-default-apps");
+      command->RemoveSwitch("disable-logging");command->AppendSwitch("enable-logging");command->AppendSwitchWithValue("log-file",(root_/"cef-fixture.log").wstring());
+    }else
+#endif
     command->AppendSwitch("disable-logging");
     command->RemoveSwitch("restore-last-session");
   }
@@ -143,6 +154,12 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       engine_->set_vault(vault_.get());
       engine_->set_file_policy(files_.get());
       broker_=std::make_unique<Broker>(*engine_,root_,limits_);
+      engine_->set_workspace_label_callback([this](const std::string& id){
+        const auto state=broker_->state();
+        for(const auto& workspace:state["workspaces"])if(workspace.value("workspaceId",std::string{})==id)
+          return ui::workspace_label(id,workspace.value("displayName",std::string{}),false);
+        return std::string(id=="native-default"?"Personal":"Workspace");
+      });
       // The vault outlives the broker (see stop()), and its lookups never call the broker.
       broker_->set_account_directory([vault=vault_.get()](const std::string& account){return vault->account_metadata(account);});
       const auto removed=broker_->removed_workspaces();
@@ -189,6 +206,9 @@ class App final : public CefApp,public CefBrowserProcessHandler {
         removal_fixture_=std::make_shared<NativeRemovalFixture>(root_,*broker_);removal_fixture_->start();
       }
       if(test_autofill_enabled_){autofill_fixture_=std::make_shared<NativeAutofillFixture>(root_,*broker_,*engine_,*vault_);autofill_fixture_->start();}
+      if(test_extension_enabled_){
+        extension_fixture_=std::make_shared<NativeExtensionManagerFixture>(root_,*engine_,[this]{return shell_&&shell_->fixture_store_menu();},[this](const std::string& action){return shell_?shell_->fixture_extension_panel(action,root_):failure("NOT_READY","Synthetic shell is initializing");});extension_fixture_->start();
+      }
 #endif
     }catch(const std::exception&){MessageBoxW(nullptr,ui::tr(L"Xenon could not initialize its protected local state."),ui::tr(L"Xenon Browser"),MB_OK|MB_ICONERROR);CefQuitMessageLoop();}
   }
@@ -202,11 +222,12 @@ class App final : public CefApp,public CefBrowserProcessHandler {
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
     removal_fixture_.reset();
     autofill_fixture_.reset();
+    extension_fixture_.reset();
 #endif
     if(launch_window_){DestroyWindow(launch_window_);launch_window_=nullptr;}
     active_=nullptr;if(hook_){UnhookWindowsHookEx(hook_);hook_=nullptr;}
     if(input_timer_){KillTimer(nullptr,input_timer_);input_timer_=0;}
-    if(engine_)engine_->set_native_key_callback({});
+    if(engine_){engine_->set_native_key_callback({});engine_->set_workspace_label_callback({});}
     if(engine_){engine_->set_controls_callback({});engine_->set_updates_callback({});engine_->set_private_workspace_callback({});engine_->set_open_link_callback({});}
     if(broker_)broker_->set_ui_state_callback({});
     if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_passkey_control_callback({});engine_->set_permission_callback({});
@@ -380,7 +401,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     }
   }
   static inline App* active_=nullptr;
-  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;std::unique_ptr<ExtensionStore> extensions_;std::vector<std::filesystem::path> extension_paths_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{};std::vector<std::string> launch_urls_,handed_urls_;HWND launch_window_{};HHOOK hook_{};
+  std::filesystem::path root_;Broker::Limits limits_;std::wstring pipe_name_;std::unique_ptr<ExtensionStore> extensions_;std::vector<std::filesystem::path> extension_paths_;bool test_removal_enabled_{},test_autofill_enabled_{},open_documentation_{},test_extension_enabled_{};std::vector<std::string> launch_urls_,handed_urls_;HWND launch_window_{};HHOOK hook_{};
   NativeInputPolicy input_policy_;
   struct KeyboardPage {HWND page{};ULONGLONG observed_at{};};
   std::map<HWND,KeyboardPage> keyboard_pages_;
@@ -392,6 +413,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
   std::shared_ptr<NativeRemovalFixture> removal_fixture_;
   std::shared_ptr<NativeAutofillFixture> autofill_fixture_;
+  std::shared_ptr<NativeExtensionManagerFixture> extension_fixture_;
 #endif
   IMPLEMENT_REFCOUNTING(App);
 };
@@ -484,12 +506,16 @@ int run(HINSTANCE instance,void* sandbox_info){
   settings.persist_session_cookies=true;
   CefString(&settings.root_cache_path)=root.wstring();CefString(&settings.cache_path)=(root/"Default").wstring();
   settings.log_severity=LOGSEVERITY_DISABLE;
-  bool test_removal=false,test_autofill=false;
+  bool test_removal=false,test_autofill=false,test_extensions=false;
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
   test_removal=command->HasSwitch("test-native-removal");
   test_autofill=command->HasSwitch("test-native-autofill");
+  test_extensions=command->HasSwitch("test-extension-manager");
+  if(test_extensions&&root.parent_path().filename()==L".cache"&&root.filename().wstring().starts_with(L"extension-manager-integration-")){
+    settings.log_severity=LOGSEVERITY_WARNING;CefString(&settings.log_file)=(root/"cef-fixture.log").wstring();
+  }
 #endif
-  CefRefPtr<App> app=new App(root,limits,pipe_name,std::make_unique<ExtensionStore>(root),test_removal,test_autofill,open_documentation,launch);
+  CefRefPtr<App> app=new App(root,limits,pipe_name,std::make_unique<ExtensionStore>(root),test_removal,test_autofill,open_documentation,launch,test_extensions);
   if(!CefInitialize(args,settings,app,sandbox_info))return CefGetExitCode();
   startup_gate.release();
   CefRunMessageLoop();auto installer=app->pending_update();app->stop();app=nullptr;CefShutdown();

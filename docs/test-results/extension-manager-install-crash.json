@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-19",
+  "status": "Reproduced and fixed; original-profile acceptance pending",
+  "userReport": "Browser crashed after something downloaded during a random Chrome Web Store extension install",
+  "rootCause": "The native manager rejected a Chromium-created post-install browser too early. A queued ExtensionInstalledWatcher completion callback then accessed its closed active tab.",
+  "fix": [
+    "Suppress native show requests for rejected Chrome windows",
+    "Add one UI queue turn before Chromium schedules destructive close, preserving its already-queued completion callback",
+    "Track auxiliary browsers through OnBeforeClose and drain them on workspace removal/shutdown",
+    "Reject auxiliary navigation and isolate its callbacks from visible manager state",
+    "Retain existing toolbar-free appearance, native permission confirmation, TLS and package verification"
+  ],
+  "production": {
+    "sha256": "46bde23cf3f51127d9c30113a2e965c51ddb592bc334904359758b9cce178444",
+    "binary": "build/extensions-fix/app/Release/Xenon.dll"
+  },
+  "fixture": {
+    "compileTimeGated": true,
+    "explicitOptInMarker": true,
+    "nativeConfirmationDriver": "Fixed Windows UI Automation invocation inside the disposable fixture process",
+    "binary": "build/extensions-fix/auth-fixture/Release/XenonAuthTest.dll",
+    "sha256": "3e1de2e38be104f978beb6c99d5d6bcc8e273b52703cbdb5cd15bfecee3d37c8",
+    "physicalUi": false,
+    "globalMouseKeyboardInput": false
+  },
+  "validation": {
+    "build": {
+      "log": "out/extensions-install-crash-build-10.log",
+      "exitCode": 0
+    },
+    "manager": {
+      "passed": 14,
+      "log": "out/extensions-install-crash-live-10.log",
+      "auxiliaryBrowsersDrained": true,
+      "run": "extension-manager-integration-1792397323318-744c6d62",
+      "storePackageId": "ddkjiahejlhfcafbddmgiahcphecmpfh",
+      "storeReportsInstalled": true,
+      "mismatchRejected": true,
+      "shutdownClean": true,
+      "exitCode": 0,
+      "testDriver": true
+    },
+    "diffCheck": {
+      "log": "out/extensions-install-crash-diff-2.log",
+      "exitCode": 0
+    },
+    "native": {
+      "passed": 22,
+      "exitCode": 0,
+      "log": "out/extensions-install-crash-native-1.log"
+    }
+  },
+  "reproductions": [
+    {
+      "note": "Full native-confirmed Store-install reproduction hit the auxiliary completion callback. Debugger used a nearby optimized symbol name; the later stack identified TriggerPostInstallDialog and ExtensionInstalledWatcher.",
+      "exception": "0xc0000005",
+      "exitCode": 1,
+      "log": "out/extensions-install-crash-live-7.log"
+    },
+    {
+      "note": "Experimental infobar-feature workaround did not repair the successful-install continuation; removed.",
+      "exitCode": 1,
+      "log": "out/extensions-install-crash-live-8.log"
+    },
+    {
+      "note": "Experimental hidden-toolbar workaround did not repair the continuation; removed.",
+      "exitCode": 1,
+      "log": "out/extensions-install-crash-live-9.log"
+    }
+  ],
+  "earlierDiagnostics": [
+    {
+      "note": "User restarted the main output while build ran; production DLL was locked. Fixture target built; user process was preserved.",
+      "exitCode": 1,
+      "log": "out/extensions-install-crash-build-1.log"
+    },
+    {
+      "note": "Debugger attached too early during process startup. Attach moved after fixture readiness.",
+      "exitCode": 1,
+      "log": "out/extensions-install-crash-live-1.log"
+    },
+    {
+      "note": "Generated prompt cancellation and manager checks; no full install.",
+      "exitCode": 0,
+      "log": "out/extensions-install-crash-live-2.log"
+    },
+    {
+      "note": "Download dispatch only, not evidence of installation or package completion; temporary diagnostic removed.",
+      "exitCode": 0,
+      "log": "out/extensions-install-crash-live-3.log"
+    },
+    {
+      "note": "Secondary-window rejection alone did not reproduce the post-install continuation.",
+      "exitCode": 0,
+      "log": "out/extensions-install-crash-live-4.log"
+    },
+    {
+      "note": "Test UI Automation header needed explicit COM declarations; corrected.",
+      "exitCode": 1,
+      "log": "out/extensions-install-crash-build-4.log"
+    },
+    {
+      "note": "CEF stripped the extra custom opt-in switch. Replaced with an exact bounded marker in the disposable profile.",
+      "exitCode": 1,
+      "log": "out/extensions-install-crash-live-5.log"
+    },
+    {
+      "note": "Full install timed out after an unrelated package-move failure. Fixture profile names shortened and TEMP/TMP isolated on the same volume.",
+      "exitCode": 1,
+      "log": "out/extensions-install-crash-live-6.log"
+    }
+  ],
+  "limits": [
+    "One fixed public signed extension tested; arbitrary extension compatibility and later updates not established",
+    "Native UI Automation and debugger coverage, not physical UI acceptance in the user profile",
+    "No user profile inspected, copied or modified; only generated test profiles used",
+    "No personal screenshots, raw browser logs, native dumps or debugger memory published",
+    "Experimental feature/toolbar workarounds are absent from the final implementation"
+  ]
+}

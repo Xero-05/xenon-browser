@@ -1,0 +1,184 @@
+{
+  "date": "2026-10-18",
+  "architecture": "Embedded Extensions content with Views compositor visibility; native address-bar alias xenon://extensions/",
+  "production": {
+    "sha256": "b3090d00a90e415542bf73debefa5c3e5865f7acd5037928d96763e7181dccfd",
+    "binary": "build/extensions-fix/app/Release/Xenon.dll"
+  },
+  "nativeFixture": {
+    "physicalInput": false,
+    "binary": "build/extensions-fix/auth-fixture/Release/XenonAuthTest.dll",
+    "compileTimeGated": true,
+    "extensionInstalled": false,
+    "sha256": "a02fc6259465447590fa434a533d7824f730a37ffe9db06d9e2730adc797b0a9"
+  },
+  "checks": {
+    "fullNativeBuild": {
+      "exitCode": 0,
+      "log": "out/extensions-branded-build-2.log"
+    },
+    "productionBrowsing": {
+      "passedChecks": 17,
+      "exitCode": 0,
+      "run": "integration-1792354685209-df3cc197"
+    },
+    "nativeSuites": {
+      "passedSuites": 22,
+      "exitCode": 0,
+      "log": "out/extensions-branded-native.log"
+    },
+    "diffCheck": {
+      "exitCode": 0
+    },
+    "nativeManager": {
+      "syntheticPngInspected": true,
+      "viewsVisible": true,
+      "run": "extension-manager-integration-1792354674917-6c023210",
+      "paintedContent": true,
+      "passedChecks": 6,
+      "exitCode": 0
+    }
+  },
+  "verified": [
+    "Native address alias round trips preserve paths and queries; websites retain actual URLs; alias does not grant page navigation authority",
+    "Views compositor is visible and actual management HWND has painted content",
+    "Synthetic screenshot visibly contains Extensions header, search, developer mode and Store link",
+    "Embedded page fills Xenon host without Chromium browser frame",
+    "Native Store installation API bindings remain available",
+    "Manager reuse, close/reopen and shutdown pass",
+    "Production browsing, ownership, related popups, handoff and reconnect pass"
+  ],
+  "manualAcceptanceRemaining": [
+    "Complete direct Store installation and human permission confirmation/positioning",
+    "Physical keyboard and focus behavior; automatic extension updates; full popup/tab-API compatibility with Alloy pages"
+  ],
+  "priorEmbeddedValidation": {
+    "supersededReason": "User screenshot showed a blank page despite API/geometry passes; the native HWND was shown without updating Views compositor visibility",
+    "record": {
+      "date": "2026-10-18",
+      "architecture": "Extensions and Store inside a Xenon sidebar tab; frameless embedded Chrome BrowserView with no Chrome toolbar",
+      "production": {
+        "binary": "build/app/Release/Xenon.dll",
+        "sha256": "5322f423482d0d2f5ee00a938c5502fe24529a4e2e24d941d9bc9860981000b4"
+      },
+      "nativeFixture": {
+        "physicalInput": false,
+        "extensionInstalled": false,
+        "sha256": "30432af6725e577602a4349c1066c5b2a5320fd35354f352bbfa5b7643075821",
+        "compileTimeGated": true,
+        "binary": "build/auth-fixture/Release/XenonAuthTest.dll"
+      },
+      "checks": {
+        "productionBrowser": {
+          "command": "node tests/integration.mjs",
+          "passedChecks": 17,
+          "exitCode": 0,
+          "run": "integration-1792353772303-297352b8"
+        },
+        "fullBuildAndChecks": {
+          "command": "./scripts/build.ps1 -Test",
+          "log": "out/extension-manager-embedded-build-6.log",
+          "exitCode": 0,
+          "nativeSuites": 22
+        },
+        "diffCheck": {
+          "command": "git diff --check",
+          "exitCode": 0
+        },
+        "persistence": {
+          "command": "node tests/persistence-integration.mjs",
+          "passedChecks": 3,
+          "exitCode": 0,
+          "run": "persistence-integration-1792353806531-1c3ba376"
+        },
+        "nativeManager": {
+          "command": "node tests/extension-manager-integration.mjs",
+          "passedChecks": 6,
+          "exitCode": 0,
+          "run": "extension-manager-integration-1792353762144-d2e3b037"
+        }
+      },
+      "verified": [
+        "Real extension WebUI and developerPrivate API in the persistent workspace profile",
+        "Manager is a child of XenonTabHost inside XenonBrowserShell",
+        "No Chromium window caption or browser toolbar; browser content fills the host",
+        "Repeated open reuses the native surface without adding broker tabs",
+        "Real HTTPS Chrome Web Store receives native beginInstallWithManifest3 bindings",
+        "Closing and reopening preserve workspace tabs; shutdown exits cleanly",
+        "Production browsing, ownership, popups, handoff and reconnect",
+        "Workspace isolation and persistent storage across forced restart"
+      ],
+      "manualAcceptanceRemaining": [
+        "Physical UI, embedded keyboard/focus behavior, and permission-dialog positioning",
+        "Complete direct Store installation through human permission confirmation",
+        "Automatic extension updates; debugging and full popup/tab-API behavior with Alloy tabs"
+      ],
+      "earlierFailuresRetainedLocally": [
+        "Embedded close crashed when the native parent was destroyed during CEF teardown; deferred cleanup passed",
+        "Fixture request replacement hit a transient Windows file lock; bounded retry added",
+        "BrowserView admission was checked before CEF associated the view; explicit native creation identity passed"
+      ],
+      "previousStandaloneWindowValidation": {
+        "record": {
+          "date": "2026-10-18",
+          "production": {
+            "binary": "build/app/Release/Xenon.dll",
+            "sha256": "15039cab12c8a13a8059126bb8ec5b81e9a5bd87117ed97a047987d216ce9b2d"
+          },
+          "nativeFixture": {
+            "binary": "build/auth-fixture/Release/XenonAuthTest.dll",
+            "sha256": "157b82c7c21ca48b8fa3527f17a56dbd1aabee5760f1b744fbcfa7c9415fa151",
+            "compileTimeGated": true,
+            "physicalInput": false,
+            "extensionInstalled": false
+          },
+          "checks": {
+            "fullBuildAndChecks": {
+              "command": "./scripts/build.ps1 -Test",
+              "exitCode": 0,
+              "nativeSuites": 22
+            },
+            "nativeManager": {
+              "command": "node tests/extension-manager-integration.mjs",
+              "exitCode": 0,
+              "passedChecks": 5
+            },
+            "productionBrowser": {
+              "command": "node tests/integration.mjs",
+              "exitCode": 0,
+              "passedChecks": 17
+            },
+            "persistence": {
+              "command": "node tests/persistence-integration.mjs",
+              "exitCode": 0,
+              "passedChecks": 3
+            },
+            "diffCheck": {
+              "command": "git diff --check",
+              "exitCode": 0
+            }
+          },
+          "verified": [
+            "Real Chromium extension WebUI and developerPrivate API in the selected persistent profile",
+            "Repeated manager opens reuse the native workspace surface without adding broker tabs",
+            "Real HTTPS Chrome Web Store receives native beginInstallWithManifest3 API bindings",
+            "Manager close and reopen preserve workspace tabs",
+            "Shutdown drains native manager windows before CEF exits",
+            "Production browsing, ownership, popups, handoff and reconnect checks",
+            "Persistent workspace isolation and restart recovery"
+          ],
+          "manualAcceptanceRemaining": [
+            "Physical UI and complete direct Store installation through human permission confirmation",
+            "Automatic extension update cycle",
+            "Extension debugging and full popup/tab-API behavior with ordinary Alloy tabs"
+          ],
+          "earlierFailuresRetainedLocally": [
+            "Native fixture launch flag was not captured before CEF command-line filtering",
+            "Waiting for all Store resources to finish loading timed out; native API readiness passed"
+          ]
+        },
+        "supersededReason": "User rejected the separate original Chromium browser shell; prior API and protocol passes did not establish acceptable UI"
+      }
+    }
+  }
+}

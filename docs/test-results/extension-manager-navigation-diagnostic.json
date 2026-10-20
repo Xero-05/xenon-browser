@@ -1,0 +1,154 @@
+{
+  "date": "2026-10-19",
+  "status": "Account-host policy fix built and validated; original-session human acceptance pending",
+  "humanAcceptance": {
+    "personalScreenshotPublished": false,
+    "computerControlReleased": true,
+    "passed": false,
+    "observed": "Store hyperlink starts loading, then remains on Extensions with the address unchanged",
+    "reportedStatus": "Blocked: accounts.google.com"
+  },
+  "production": {
+    "sha256": "6c401d71b09deee3f3fbc4d12f91926d354ab49de92759a0f9bd8a4d7b3738ce",
+    "binary": "build/extensions-fix/app/Release/Xenon.dll"
+  },
+  "nativeFixture": {
+    "sha256": "c5b8d1b671cf3b59837172993d1eb8a790915d3cc73f085fcc08550a4cca55d3",
+    "binary": "build/extensions-fix/auth-fixture/Release/XenonAuthTest.dll",
+    "compileTimeGated": true
+  },
+  "checks": {
+    "nativeBuild": {
+      "log": "out/extensions-store-errors-build-1.log",
+      "exitCode": 0
+    },
+    "loadedExtensionVariant": {
+      "note": "Harmless generated extension in its own disposable profile; earlier diagnostic-stage binary",
+      "exitCode": 0,
+      "log": "out/extensions-store-loaded-live-1.log"
+    },
+    "nativeSuites": {
+      "exitCode": 0,
+      "passed": 22,
+      "log": "out/extensions-store-errors-native.log"
+    },
+    "manager": {
+      "exitCode": 0,
+      "passed": 9,
+      "run": "extension-manager-integration-1792394014861-d2a5c10f",
+      "log": "out/extensions-store-errors-live-1.log"
+    },
+    "diffCheck": {
+      "exitCode": 0
+    }
+  },
+  "coverage": [
+    "Public native workspace/context validation for manager opening",
+    "Native shell Store command through WM_COMMAND",
+    "Fixed native mouse messages to actual rendered sidebar Store link",
+    "Store navigation with zero ordinary tabs",
+    "Manager reuse, native API bindings, close/reopen and shutdown"
+  ],
+  "limits": [
+    "Passing disposable fixtures do not establish success in the failing user session",
+    "No extension installed or permission confirmation approved",
+    "Native mouse messages are fixture-driver coverage, separate from brief real-window UI inspection"
+  ],
+  "nextEvidenceNeeded": "Original-session Store acceptance using build/extensions-fix/app/Release/Xenon.exe",
+  "hostnameDiagnostic": {
+    "productionBinary": "build/app/Release/Xenon.dll",
+    "productionSha256": "4852428ac3155450e45894869d4601c96f0d0d15ff768feef80482b837ec1cf1",
+    "fixtureBinary": "build/auth-fixture/Release/XenonAuthTest.dll",
+    "fixtureSha256": "032e6c217a7f77c5d70f4c59880c2226ffce2ba2e33a16506ddcf8af70e9d42f",
+    "build": {
+      "log": "out/extensions-blocked-host-build-1.log",
+      "exitCode": 0
+    },
+    "nativeSuites": {
+      "exitCode": 0,
+      "log": "out/extensions-blocked-host-native-1.log",
+      "passed": 22
+    },
+    "manager": {
+      "run": "extension-manager-integration-1792394489243-318e6148",
+      "exitCode": 0,
+      "log": "out/extensions-blocked-host-live-1.log",
+      "passed": 9
+    },
+    "scope": "Status reports hostname/port only, redacts URL credentials/path/query/fragment and does not change navigation authority",
+    "humanAcceptancePassed": false
+  },
+  "accountRouteFix": {
+    "productionBinary": "build/extensions-fix/app/Release/Xenon.dll",
+    "productionSha256": "f87611594ffa35fcedb830e9a2a787cad532a536720cf039e6a4421d8b7fcab2",
+    "fixtureBinary": "build/extensions-fix/auth-fixture/Release/XenonAuthTest.dll",
+    "fixtureSha256": "ceb717807d792a4a60d5f892b6e31edbae3c2d0dfc9e71788642960d6ef74869",
+    "build": {
+      "exitCode": 0,
+      "log": "out/extensions-account-redirect-build-6.log"
+    },
+    "nativeSuites": {
+      "passed": 22,
+      "log": "out/extensions-account-redirect-native-1.log",
+      "exitCode": 0,
+      "note": "Policy code unchanged since this check; later builds adjust CEF cancellation status and fixture coverage"
+    },
+    "manager": {
+      "passed": 10,
+      "run": "extension-manager-integration-1792395160362-992b90c2",
+      "log": "out/extensions-account-redirect-live-6.log",
+      "exitCode": 0
+    },
+    "diffCheck": {
+      "exitCode": 0,
+      "log": "out/extensions-account-redirect-diff-2.log"
+    },
+    "coverage": [
+      "Exact HTTPS account host admitted only after Store navigation",
+      "Manager or extension-page navigation revokes account allowance",
+      "Credentials, ports, HTTP and lookalike hosts rejected",
+      "Real signed-out Google account page loaded in disposable profile, with no Store/developer APIs",
+      "Return to Store retains native Store APIs and no broker tab is added",
+      "No credential entry or extension installation"
+    ],
+    "failedIterations": [
+      {
+        "log": "out/extensions-account-redirect-live-1.log",
+        "reason": "Policy cancellation replaced the expected diagnostic; ERR_ABORTED now preserves it",
+        "exitCode": 1
+      },
+      {
+        "log": "out/extensions-account-redirect-live-2.log",
+        "reason": "Synthetic response fixture crashed; responder removed",
+        "exitCode": 1
+      },
+      {
+        "log": "out/extensions-account-redirect-live-3.log",
+        "reason": "Synthetic response fixture crashed; responder removed",
+        "exitCode": 1
+      },
+      {
+        "log": "out/extensions-account-redirect-live-4.log",
+        "reason": "Synthetic response fixture crashed; responder removed",
+        "exitCode": 1
+      },
+      {
+        "log": "out/extensions-account-redirect-live-5.log",
+        "reason": "Synthetic response fixture crashed; responder removed",
+        "exitCode": 1
+      }
+    ],
+    "limits": [
+      "Fixed live account navigation sequence; original authenticated-session server redirect not automated",
+      "Original-session user acceptance remains pending",
+      "No sign-in or installation permission confirmation automated",
+      "Local fixture diagnostic logs are not published"
+    ]
+  },
+  "subsequentInstallReport": {
+    "status": "Post-install callback lifecycle fixed and complete isolated installation validated",
+    "userReachedStoreInstall": true,
+    "resolutionEvidence": "extension-manager-install-crash.json",
+    "reportedCrashAfterDownload": true
+  }
+}

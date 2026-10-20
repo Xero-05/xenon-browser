@@ -1,5 +1,6 @@
 #include "xenon/extension_store.hpp"
 #include "xenon/local_security.hpp"
+#include "xenon/web_store.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -211,6 +212,47 @@ ExtensionRecord ExtensionStore::install_unpacked(const fs::path& chosen) {
   if (find(record.id)) { size_t budget{}; try { remove_tree(target, budget); } catch (...) {} throw std::runtime_error("This extension is already installed. Remove it before adding it again."); }
   records_.push_back(record);
   try { save(); } catch (...) { records_.pop_back(); size_t budget{}; try { remove_tree(target, budget); } catch (...) {} throw; }
+  return record;
+}
+
+ExtensionRecord ExtensionStore::install_web_store(const web_store::Package& package) {
+  if(records_.size()>=max_extensions)throw std::runtime_error("Remove an extension before adding another.");
+  if(find(package.id))throw std::runtime_error("This extension is already installed. Remove it before adding it again.");
+  const auto keyed=key_id(package.public_key);
+  if(!keyed||*keyed!=package.id||!package.manifest.is_object()||package.manifest.value("manifest_version",0)!=3)
+    throw std::runtime_error("The verified extension identity or manifest is invalid.");
+  auto manifest=package.manifest;
+  if(manifest.contains("key")&&(!manifest["key"].is_string()||key_id(manifest["key"].get<std::string>())!=keyed))
+    throw std::runtime_error("The manifest key does not match the verified extension.");
+  manifest["key"]=package.public_key; // Preserve the signed package's Chromium ID when loaded unpacked.
+  fs::create_directories(root_);local_security::restrict_path(root_);
+  std::string folder;do folder=local_security::random_hex(8);while(fs::exists(root_/folder)||fs::exists(root_/(folder+".partial")));
+  const auto partial=root_/(folder+".partial"),target=root_/folder;
+  ExtensionRecord record;record.id=package.id;record.folder=folder;
+  try {
+    fs::create_directory(partial);local_security::restrict_path(partial);
+    size_t count{};uint64_t bytes{};std::set<std::string> names;bool has_manifest=false;
+    for(const auto& file:package.files){
+      // Reuse the archive path policy even at this final storage boundary.
+      // The worker already applies it before decompression.
+      web_store::validate_file_name(file.name);
+      auto name=file.name;std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
+      if(!names.insert(name).second||++count>max_files||(bytes+=file.bytes.size())>max_bytes)throw std::runtime_error("The staged extension exceeds its file limits or has duplicate paths.");
+      if(name=="manifest.json"){
+        if(file.name!="manifest.json"||file.bytes.size()>1024*1024||Json::parse(file.bytes,nullptr,false,true)!=package.manifest)throw std::runtime_error("The staged manifest does not match the permission review.");
+        has_manifest=true;
+      }
+      const auto path=partial/fs::path(file.name);fs::create_directories(path.parent_path());
+      std::ofstream out(path,std::ios::binary|std::ios::trunc);const auto content=name=="manifest.json"?manifest.dump():file.bytes;out.write(content.data(),static_cast<std::streamsize>(content.size()));out.close();if(!out)throw std::runtime_error("The extension files could not be saved.");
+    }
+    if(!has_manifest)throw std::runtime_error("The extension manifest is missing.");
+    record.name=display_text(localized(partial,manifest,field(manifest,"name")),120);record.version=display_text(field(manifest,"version"),32);
+    if(record.name.empty()||record.version.empty())throw std::runtime_error("The extension manifest needs a name and version.");
+    record.options_page=relative_page(field(manifest.value("options_ui",Json::object()),"page"));if(record.options_page.empty())record.options_page=relative_page(field(manifest,"options_page"));
+    record.popup_page=relative_page(field(manifest.value("action",Json::object()),"default_popup"));
+    fs::rename(partial,target);records_.push_back(record);
+    try{save();}catch(...){records_.pop_back();throw;}
+  }catch(...){size_t budget{};try{if(fs::exists(partial))remove_tree(partial,budget);budget=0;if(fs::exists(target))remove_tree(target,budget);}catch(...){}throw;}
   return record;
 }
 

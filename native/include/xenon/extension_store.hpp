@@ -8,7 +8,8 @@
 #include <vector>
 
 namespace xenon {
-// Native human UI only. Extensions are never installed, listed, enabled or
+namespace web_store { class Package; }
+// Legacy copied extensions, native human UI only. Never installed, listed, enabled or
 // opened through MCP or the broker. Chromium loads the enabled set once, when
 // the browser process starts; changes apply after the next restart.
 struct ExtensionRecord {
@@ -31,6 +32,10 @@ class ExtensionStore {
   // Throws std::runtime_error with a user-facing message; nothing is left
   // half-installed on failure.
   ExtensionRecord install_unpacked(const std::filesystem::path& source);
+  // In-memory tree from the native verified Web Store pipeline. Never exposed
+  // to MCP. Rechecks the tree/identity; the caller must obtain native human
+  // confirmation for this exact package first.
+  ExtensionRecord install_web_store(const web_store::Package& package);
   bool set_enabled(const std::string& id, bool enabled);
   bool remove(const std::string& id);
   // Called once before Chromium starts. Returns the folders to load and

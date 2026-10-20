@@ -1,0 +1,283 @@
+{
+  "date": "2026-10-19",
+  "status": "Implemented; isolated native-driver and production validation passed",
+  "behavior": [
+    "Genuine Chromium action.openPopup host and load-completion promise, explicit window target and existing-popup rejection",
+    "Programmatic popup does not grant activeTab or expose unpermitted source URLs",
+    "Genuine docked kExtensionSidePanel host with close header, native divider and reserved website geometry",
+    "Global and contextual panels, native tab activation events, sidePanel options, open/close and opened/closed events",
+    "Chromium user-gesture enforcement and native foreground, profile, selected-source and protected/private guards",
+    "Nonactivating metadata helpers and safe pending-tab transition preserve native panel interaction"
+  ],
+  "production": {
+    "binary": "build/extension-surfaces/app/Release/Xenon.exe",
+    "applicationDllSha256": "067b6ecd8eb4565db28c1a64a3d0e359c57ffab3c4b50c690f2b5d638df85844",
+    "engineDllSha256": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+  },
+  "fixture": {
+    "binary": "build/extension-surfaces/auth-fixture/Release/XenonAuthTest.exe",
+    "applicationDllSha256": "6d753aaa80bb81d90dec02d3e25ddfe374f4a2e4e1af05b4f2c00aac8bc7b55d",
+    "compileTimeGated": true,
+    "disposableProfile": true,
+    "physicalUi": false,
+    "globalMouseKeyboardInput": false,
+    "foregroundChecksPreserved": true
+  },
+  "engine": {
+    "patch": "scripts/patches/cef-extension-actions.patch",
+    "patchSha256": "6dab6747cc8332b093d79779e971ac46b875387da6cb4122fd0625a99c4d8e7b",
+    "bothRecipesPinned": true,
+    "recipe": "mediaSourceBuild",
+    "cefAbiUnchanged": true,
+    "sandboxPreserved": true,
+    "buildLog": "out/extension-surfaces-engine-build-4.log",
+    "exitCode": 0,
+    "provenanceValidated": true,
+    "provenanceLog": "out/extension-surfaces-final-provenance.json"
+  },
+  "validation": {
+    "nativeBuild": {
+      "log": "out/extension-surfaces-native-build-8.log",
+      "exitCode": 0
+    },
+    "nativeTests": {
+      "log": "out/extension-surfaces-ctest-1.log",
+      "exitCode": 0,
+      "passed": 22,
+      "stage": "Core suites passed before the final UI-only fixes; core test sources were unchanged afterwards"
+    },
+    "extensionIntegration": {
+      "log": "out/extension-surfaces-live-final-10.log",
+      "report": "out/extension-manager-integration-1792443127052-96b6a10c.json",
+      "exitCode": 0,
+      "passed": 36,
+      "checks": [
+        {
+          "name": "Quick list contains enabled extensions without opening a visible manager or broker tab",
+          "passed": true
+        },
+        {
+          "name": "Quick list distinguishes site access from other extensions on a real content-script page",
+          "passed": true
+        },
+        {
+          "name": "Quick list withholds a result after its source page navigates",
+          "passed": true
+        },
+        {
+          "name": "Programmatic openPopup resolves after a genuine popup loads without granting activeTab",
+          "passed": true
+        },
+        {
+          "name": "Programmatic popup rejection preserves an existing popup and rejects unknown windows",
+          "passed": true
+        },
+        {
+          "name": "Toolbar action opens a genuine docked side panel and reserves website space",
+          "passed": true
+        },
+        {
+          "name": "Global side panel remains docked across same-workspace tab changes and closes through its API",
+          "passed": true
+        },
+        {
+          "name": "Disabling side-panel options retires the existing host",
+          "passed": true
+        },
+        {
+          "name": "Tab-specific side panel hides on other tabs and restores on its source tab",
+          "passed": true
+        },
+        {
+          "name": "sidePanel.open preserves Chromium user-gesture enforcement and works from onClicked",
+          "passed": true
+        },
+        {
+          "name": "Protected source interaction closes panels and rejects extension-requested popups",
+          "passed": true
+        },
+        {
+          "name": "Private selection retires side panels and refuses extension-requested popups",
+          "passed": true
+        },
+        {
+          "name": "Compact extension panel renders icons, site switch and per-extension controls",
+          "passed": true
+        },
+        {
+          "name": "Native panel pin button updates the workspace toolbar and persists its state",
+          "passed": true
+        },
+        {
+          "name": "Native row opens a genuine dynamic action popup with current-tab activeTab permission",
+          "passed": true
+        },
+        {
+          "name": "Clicking outside dismisses the action popup",
+          "passed": true
+        },
+        {
+          "name": "Pinned extension button opens its action popup",
+          "passed": true
+        },
+        {
+          "name": "Navigation closes the popup and invalidates its source page",
+          "passed": true
+        },
+        {
+          "name": "Actions without popup dispatch the real Chromium onClicked event",
+          "passed": true
+        },
+        {
+          "name": "Native site switch blocks action invocation without opening a popup",
+          "passed": true
+        },
+        {
+          "name": "Per-extension site access withholds and restores a real content script",
+          "passed": true
+        },
+        {
+          "name": "Site permission changes cannot grant an origin outside the manifest request",
+          "passed": true
+        },
+        {
+          "name": "Native Chrome extension manager uses the persistent workspace profile",
+          "passed": true
+        },
+        {
+          "name": "Repeated open reuses the workspace manager without new broker tabs",
+          "passed": true
+        },
+        {
+          "name": "Extension page is embedded in Xenon without a Chromium browser frame",
+          "passed": true
+        },
+        {
+          "name": "Drawer hides Chrome logos and its actual Store link opens the Store in Xenon",
+          "passed": true
+        },
+        {
+          "name": "Chrome Web Store receives Chromium native installation API bindings",
+          "passed": true
+        },
+        {
+          "name": "Native Store install permission prompt can be canceled by closing its manager",
+          "passed": true
+        },
+        {
+          "name": "Chromium-created untracked window is rejected without crashing its caller",
+          "passed": true
+        },
+        {
+          "name": "Mismatched Store manifest is rejected without crashing the embedded browser",
+          "passed": true
+        },
+        {
+          "name": "Store signed-package installation completes in its disposable workspace",
+          "passed": true
+        },
+        {
+          "name": "Quick list immediately includes a newly installed signed Store extension",
+          "passed": true
+        },
+        {
+          "name": "Google account route requires a Store visit and can return to Store",
+          "passed": true
+        },
+        {
+          "name": "Store navigation works when Extensions is the only remaining tab",
+          "passed": true
+        },
+        {
+          "name": "Closing the manager preserves workspace tabs and permits reopening",
+          "passed": true
+        },
+        {
+          "name": "Browser shutdown drains embedded manager before CEF exits",
+          "passed": true
+        }
+      ],
+      "signedStoreInstall": true,
+      "manifestMismatchRejected": true
+    },
+    "productionIntegration": {
+      "log": "out/extension-surfaces-production-final.log",
+      "report": "out/extension-surfaces-production-results.json",
+      "exitCode": 0,
+      "passed": 17,
+      "applicationDllSha256": "067b6ecd8eb4565db28c1a64a3d0e359c57ffab3c4b50c690f2b5d638df85844"
+    },
+    "mediaIntegration": {
+      "log": "out/extension-surfaces-media-final.log",
+      "report": "out/media-integration-1792443271143-ea472448.json",
+      "exitCode": 0,
+      "passed": true,
+      "stableBinaryHashes": true,
+      "coverage": "Synthetic H.264/AAC MP4 and Media Source playback with nonblank decoded pictures and measured audio PCM, pause, seek/resume and volume. MCP click supplies user activation. decodeAudioData capability recorded separately. No physical input, audible output or DRM validation.",
+      "audioBufferDecodeSupported": false
+    },
+    "recipeChecks": [
+      {
+        "log": "out/extension-surfaces-recipe-python-final.log",
+        "passed": 17,
+        "exitCode": 0
+      },
+      {
+        "log": "out/extension-surfaces-recipe-gate-final.log",
+        "passed": 25,
+        "exitCode": 0
+      },
+      {
+        "log": "out/extension-surfaces-release-final.log",
+        "passed": 43,
+        "exitCode": 0
+      }
+    ],
+    "visualReview": {
+      "source": "out/extension-manager-integration-1792442815871-c4918b08-side-panel.png",
+      "syntheticOnly": true,
+      "observed": "Native dock, close header, website beside panel, no second browser frame"
+    }
+  },
+  "failureHistory": [
+    {
+      "issue": "Engine compilation rejected constructor member ordering",
+      "log": "out/extension-surfaces-engine-compile-failure-1.log",
+      "resolution": "Initializer order corrected; subsequent audited builds passed"
+    },
+    {
+      "issue": "Early native menu attempts timed out or lost foreground during metadata refresh",
+      "logs": [
+        "out/extension-surfaces-live-smoke-1.log",
+        "out/extension-surfaces-live-smoke-2.log",
+        "out/extension-surfaces-live-3.log",
+        "out/extension-surfaces-focus-diagnostic-4.log",
+        "out/extension-surfaces-live-5.log",
+        "out/extension-surfaces-live-final-6.log"
+      ],
+      "resolution": "Preserve pending read requests, make hidden helpers explicitly nonactivating, and wait for the fixture window to be foreground"
+    },
+    {
+      "issue": "Native popup guard was unavailable after early startup registration",
+      "log": "out/extension-surfaces-live-final-7.log",
+      "resolution": "Register guard again on live tab registration/selection; real popup and permission tests then passed"
+    },
+    {
+      "issue": "Pending new-tab selection retired the global dock before browser creation",
+      "log": "out/extension-surfaces-live-final-8.log",
+      "resolution": "Preserve the dock only during same-workspace pending creation, while the native selected-source guard rejects old-source requests"
+    },
+    {
+      "issue": "Existing-popup check observed popup dismissal during the foreground-readiness run",
+      "log": "out/extension-surfaces-live-final-9.log",
+      "resolution": "Retained failed evidence; fresh untouched-window final run passed all 36 checks"
+    }
+  ],
+  "limits": [
+    "Native fixture messages and fixed permission-dialog UI Automation are test-driver coverage, not physical keyboard, screen-reader or everyday extension acceptance",
+    "Global panels follow selected live tabs but are retired if their currently bound source tab is destroyed",
+    "Full Chrome window/tab manipulation APIs, broad extension compatibility and automatic update cycles remain outside this validation",
+    "The source-built engine and complete app are local outputs; no engine archive or browser release was published",
+    "Media fixture checks decoded pictures and measured PCM; decodeAudioData for AAC remains unsupported"
+  ]
+}

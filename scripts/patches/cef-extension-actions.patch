@@ -1,0 +1,960 @@
+diff --git a/cef/libcef/browser/chrome/extensions/chrome_extension_util.h b/cef/libcef/browser/chrome/extensions/chrome_extension_util.h
+--- a/cef/libcef/browser/chrome/extensions/chrome_extension_util.h
++++ b/cef/libcef/browser/chrome/extensions/chrome_extension_util.h
+@@ -6,6 +6,14 @@
+ #define CEF_LIBCEF_BROWSER_CHROME_EXTENSIONS_CHROME_EXTENSION_UTIL_H_
+ #pragma once
+ 
++#include <vector>
++#include <optional>
++#include <string>
++#include "base/functional/callback_forward.h"
++#include "base/types/expected.h"
++namespace extensions { class Extension; class ExtensionHost; }
++
++
+ namespace content {
+ class WebContents;
+ }  // namespace content
+@@ -13,6 +21,27 @@
+ class Profile;
+ 
+ namespace cef {
++
++// Native-registered human browser tabs only; never private or WebUI helpers.
++struct AlloyExtensionTab {
++  content::WebContents* contents;
++  int window_id;
++  int index;
++  bool active;
++  bool current_window;
++};
++std::vector<AlloyExtensionTab> GetAlloyExtensionTabs(
++    Profile* profile, content::WebContents* caller);
++bool GetAlloyExtensionTabState(content::WebContents* contents,
++                               int* window, int* index, bool* active);
++bool HasAlloyExtensionTabs(Profile* profile);
++bool OpenAlloyExtensionPopup(Profile* profile, const extensions::Extension& extension,
++    int window_id, base::OnceCallback<void(extensions::ExtensionHost*)> callback,
++    std::string* error);
++base::expected<bool, std::string> SetAlloyExtensionSidePanel(Profile* profile,
++    const extensions::Extension& extension, std::optional<int> tab_id,
++    std::optional<int> window_id, bool open);
++
+ 
+ // Same as ExtensionTabUtil::GetTabById but searching only Alloy style
+ // CefBrowserHosts.
+diff --git a/cef/libcef/browser/chrome/extensions/chrome_extension_util.cc b/cef/libcef/browser/chrome/extensions/chrome_extension_util.cc
+--- a/cef/libcef/browser/chrome/extensions/chrome_extension_util.cc
++++ b/cef/libcef/browser/chrome/extensions/chrome_extension_util.cc
+@@ -72,3 +72,5 @@
+ }
+ 
+ }  // namespace cef
++
++#include "cef/libcef/browser/chrome/extensions/chrome_extension_actions.inc"
+diff --git a/cef/libcef/browser/chrome/extensions/chrome_extension_actions.inc b/cef/libcef/browser/chrome/extensions/chrome_extension_actions.inc
+new file mode 100644
+--- /dev/null
++++ b/cef/libcef/browser/chrome/extensions/chrome_extension_actions.inc
+@@ -0,0 +1,714 @@
++// Copyright 2026 The Xenon Authors
++// Use of this source code is governed by the BSD-style license in cef/LICENSE.txt.
++// Included once by chrome_extension_util.cc. The versioned native-only entry
++// point deliberately leaves CEF's public ABI and sandbox bootstrap unchanged.
++#if BUILDFLAG(IS_WIN)
++#include <map>
++#include <set>
++#include "base/functional/bind.h"
++#include "base/no_destructor.h"
++#include "base/scoped_observation.h"
++#include "base/strings/utf_string_conversions.h"
++#include "base/timer/timer.h"
++#include "base/task/single_thread_task_runner.h"
++#include "chrome/browser/extensions/extension_action_runner.h"
++#include "chrome/browser/extensions/extension_view_host.h"
++#include "chrome/browser/extensions/api/side_panel/side_panel_service.h"
++#include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
++#include "chrome/browser/ui/views/extensions/extension_view_views.h"
++#include "content/public/browser/browser_thread.h"
++#include "content/public/browser/keyboard_event_processing_result.h"
++#include "content/public/browser/eye_dropper.h"
++#include "content/public/browser/navigation_handle.h"
++#include "content/public/browser/web_contents_observer.h"
++#include "extensions/browser/extension_action.h"
++#include "extensions/browser/extension_action_manager.h"
++#include "extensions/browser/event_router.h"
++#include "chrome/common/extensions/api/tabs.h"
++#include "extensions/browser/extension_host_registry.h"
++#include "extensions/browser/extension_registry.h"
++#include "extensions/browser/extension_registry_observer.h"
++#include "extensions/browser/extension_registrar.h"
++#include "extensions/browser/permissions/scripting_permissions_modifier.h"
++#include "extensions/browser/permissions/active_tab_permission_granter.h"
++#include "extensions/browser/permissions_manager.h"
++#include "extensions/browser/permissions/site_permissions_helper.h"
++#include "extensions/common/constants.h"
++#include "extensions/common/extension_features.h"
++#include "extensions/common/permissions/permissions_data.h"
++#include "extensions/browser/uninstall_reason.h"
++#include "extensions/common/mojom/view_type.mojom.h"
++#include "ui/aura/window.h"
++#include "ui/aura/window_tree_host.h"
++#include "ui/base/page_transition_types.h"
++#include "ui/base/mojom/dialog_button.mojom.h"
++#include "ui/display/win/screen_win.h"
++#include "ui/display/screen.h"
++#include "ui/views/bubble/bubble_dialog_delegate_view.h"
++#include "ui/views/bubble/bubble_frame_view.h"
++#include "ui/views/layout/fill_layout.h"
++#include "ui/views/layout/box_layout.h"
++#include "ui/views/controls/label.h"
++#include "ui/views/controls/button/label_button.h"
++#include "ui/views/widget/widget.h"
++#include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
++#include "url/origin.h"
++
++namespace cef {
++namespace {
++class XenonActionPopup;
++class XenonSidePanel;
++void CloseActionPopup(int browser);
++void CloseSidePanel(HWND window);
++void SelectSidePanel(int browser);
++bool SurfaceAllowed(int browser);
++struct XenonExtensionTab {
++  base::WeakPtr<content::WebContents> contents;
++  HWND window = nullptr;
++  int window_id = 0;
++  bool active = false;
++  gfx::Rect anchor;
++};
++struct XenonExtensionState {
++  std::map<int, XenonExtensionTab> tabs;
++  std::map<HWND, int> windows;
++  std::map<int, XenonActionPopup*> popups;
++  std::map<HWND, XenonSidePanel*> panels;
++  int (*guard)(int) = nullptr;
++  int next_window = 0x10000000;
++  int current = 0;
++};
++XenonExtensionState& ActionState() {
++  static base::NoDestructor<XenonExtensionState> state;
++  return *state;
++}
++
++class XenonPopupDelegate final : public extensions::ExtensionViewHost::Delegate {
++ public:
++  explicit XenonPopupDelegate(content::WebContents* source)
++      : source_(source->GetWeakPtr()) {}
++  void SetSource(content::WebContents* source) { source_ = source->GetWeakPtr(); }
++  content::WebContents* OpenURL(
++      const content::OpenURLParams& params,
++      base::OnceCallback<void(content::NavigationHandle&)> callback) override {
++    return source_ ? source_->OpenURL(params, std::move(callback)) : nullptr;
++  }
++  content::KeyboardEventProcessingResult PreHandleKeyboardEvent(
++      content::WebContents*, const input::NativeWebKeyboardEvent&) override {
++    return content::KeyboardEventProcessingResult::NOT_HANDLED;
++  }
++  std::unique_ptr<content::EyeDropper> OpenEyeDropper(
++      content::RenderFrameHost*, content::EyeDropperListener*) override {
++    return nullptr;
++  }
++  extensions::WindowController* GetExtensionWindowController() override {
++    return nullptr;
++  }
++ private:
++  base::WeakPtr<content::WebContents> source_;
++};
++
++class XenonPopupContent final : public views::View {
++ public:
++  explicit XenonPopupContent(base::RepeatingClosure resized) : resized_(std::move(resized)) {
++    SetLayoutManager(std::make_unique<views::FillLayout>());
++  }
++  gfx::Size CalculatePreferredSize(const views::SizeBounds& bounds) const override {
++    auto size = views::View::CalculatePreferredSize(bounds);
++    size.SetToMax({25,25}); size.SetToMin({800,600}); return size;
++  }
++  void ChildPreferredSizeChanged(views::View*) override { resized_.Run(); }
++ private:base::RepeatingClosure resized_;
++};
++class XenonActionPopup final
++    : public views::BubbleDialogDelegate,
++      public ExtensionViewViews::Container,
++      public content::WebContentsObserver,
++      public extensions::ExtensionRegistryObserver,
++      public extensions::ExtensionHostRegistry::Observer {
++ public:
++  XenonActionPopup(int owner, content::WebContents* source,
++                   const extensions::Extension& extension, const GURL& url,
++                   const gfx::Rect& anchor,
++                   base::OnceCallback<void(extensions::ExtensionHost*)> ready = {})
++      : views::BubbleDialogDelegate(nullptr, views::BubbleBorder::TOP_RIGHT,
++                                    views::BubbleBorder::STANDARD_SHADOW, true),
++        content::WebContentsObserver(source), owner_(owner),
++        ready_(std::move(ready)), source_(source->GetWeakPtr()) {
++    SetButtons(static_cast<int>(ui::mojom::DialogButton::kNone));
++    set_margins(gfx::Insets());
++    SetAnchorRect(anchor);
++    set_parent_window(source->GetNativeView());
++    set_close_on_deactivate(true);
++    SetTitle(base::UTF8ToUTF16(extension.name()));
++    contents_ = SetContentsView(std::make_unique<XenonPopupContent>(base::BindRepeating(
++        [](XenonActionPopup* self) { if (self->GetWidget()) self->SizeToContents(); },
++        base::Unretained(this))));
++    host_ = std::make_unique<extensions::ExtensionViewHost>(
++        &extension, source->GetBrowserContext(), url,
++        extensions::mojom::ViewType::kExtensionPopup,
++        std::make_unique<XenonPopupDelegate>(source));
++    host_->SetCloseHandler(base::BindOnce(
++        [](XenonActionPopup* self, extensions::ExtensionHost*) { self->Close(); },
++        base::Unretained(this)));
++    registry_.Observe(extensions::ExtensionRegistry::Get(source->GetBrowserContext()));
++    hosts_.Observe(extensions::ExtensionHostRegistry::Get(source->GetBrowserContext()));
++    view_ = contents_->AddChildView(std::make_unique<ExtensionViewViews>(
++        Profile::FromBrowserContext(source->GetBrowserContext()), host_.get()));
++    view_->SetContainer(this);
++    view_->Init();
++    ActionState().popups[owner] = this;
++    load_timeout_.Start(FROM_HERE, base::Seconds(15), base::BindOnce(
++        [](XenonActionPopup* self) { self->Close(); }, base::Unretained(this)));
++  }
++  ~XenonActionPopup() override {
++    Shutdown();
++    auto& popups = ActionState().popups;
++    if (auto it = popups.find(owner_); it != popups.end() && it->second == this)
++      popups.erase(it);
++  }
++  void ShowHost() {
++    widget_ = views::BubbleDialogDelegate::CreateBubble(this, base::BindOnce(
++        [](base::WeakPtr<XenonActionPopup> self, views::Widget::ClosedReason) {
++          if (self) self->RetireSoon();
++        }, weak_factory_.GetWeakPtr()));
++  }
++  void RetireSoon() {
++    closing_ = true;
++    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE, base::BindOnce(
++        [](base::WeakPtr<XenonActionPopup> self) { if (self) CloseActionPopup(self->owner_); },
++        weak_factory_.GetWeakPtr()));
++  }
++  void Shutdown() {
++    closing_ = true; weak_factory_.InvalidateWeakPtrs(); load_timeout_.Stop();
++    hosts_.Reset(); registry_.Reset(); Observe(nullptr);
++    if (ready_) std::move(ready_).Run(nullptr);
++    view_ = nullptr; host_.reset(); contents_ = nullptr; widget_.reset();
++  }
++  void Close() { closing_ = true; if (widget_) widget_->Close(); else RetireSoon(); }
++  void OnWidgetClosing(views::Widget*) override { closing_ = true; load_timeout_.Stop(); }
++  void OnBeforeBubbleWidgetInit(views::Widget::InitParams* params, views::Widget* widget) const override {
++    // Alloy's Aura root covers only the website, not Xenon's Win32 chrome.
++    // Use a desktop bubble for native activation, dismissal and unclipped bounds.
++    params->native_widget = new views::DesktopNativeWidgetAura(widget);
++  }
++  content::WebContents* source() const { return source_.get(); }
++  content::WebContents* popup_contents() const { return host_->host_contents(); }
++  gfx::Size GetMinBounds() override { return {25, 25}; }
++  gfx::Size GetMaxBounds() override {
++    gfx::Size size(800,600);
++    const auto anchor = GetAnchorRect();
++    const auto screen = display::Screen::Get()->GetDisplayNearestPoint(anchor.CenterPoint()).work_area();
++    gfx::Size available;
++    for (const auto arrow : {views::BubbleBorder::TOP_LEFT, views::BubbleBorder::TOP_RIGHT,
++                             views::BubbleBorder::BOTTOM_LEFT, views::BubbleBorder::BOTTOM_RIGHT})
++      available.SetToMax(views::BubbleDialogDelegate::GetAvailableSpaceToPlaceBubble(arrow,anchor,screen));
++    size.SetToMin(available);
++    size.SetToMax({25,25}); return size;
++  }
++  views::View* GetInitiallyFocusedView() override { return view_; }
++  void OnExtensionHostCompletedFirstLoad(content::BrowserContext*,
++                                          extensions::ExtensionHost* host) override {
++    if (host == host_.get() && !closing_ && source_ && GetWidget()) {
++      if(!SurfaceAllowed(owner_)){Close();return;}
++      load_timeout_.Stop();
++      SizeToContents(); GetWidget()->Show(); host_->host_contents()->Focus();
++      if (ready_) std::move(ready_).Run(host_.get());
++    }
++  }
++  void OnExtensionHostRenderProcessGone(content::BrowserContext*,
++                                        extensions::ExtensionHost* host) override {
++    if (host == host_.get()) Close();
++  }
++  void OnExtensionUnloaded(content::BrowserContext*,
++                           const extensions::Extension* extension,
++                           extensions::UnloadedExtensionReason) override {
++    if (extension->id() == host_->extension_id()) {
++      if (view_) contents_->RemoveChildViewT(view_.ExtractAsDangling());
++      Close();
++    }
++  }
++  void DidStartNavigation(content::NavigationHandle* navigation) override {
++    if (navigation->IsInPrimaryMainFrame()) Close();
++  }
++  void WebContentsDestroyed() override { source_.reset(); Close(); }
++ private:
++  int owner_;
++  bool closing_ = false;
++  base::OnceCallback<void(extensions::ExtensionHost*)> ready_;
++  base::WeakPtr<content::WebContents> source_;
++  std::unique_ptr<extensions::ExtensionViewHost> host_;
++  std::unique_ptr<views::Widget> widget_;
++  raw_ptr<XenonPopupContent> contents_ = nullptr;
++  raw_ptr<ExtensionViewViews> view_ = nullptr;
++  base::OneShotTimer load_timeout_;
++  base::ScopedObservation<extensions::ExtensionRegistry,
++                          extensions::ExtensionRegistryObserver> registry_{this};
++  base::ScopedObservation<extensions::ExtensionHostRegistry,
++                          extensions::ExtensionHostRegistry::Observer> hosts_{this};
++  base::WeakPtrFactory<XenonActionPopup> weak_factory_{this};
++};
++
++// One dock per native window, with genuine side-panel extension bindings.
++// The native shell reserves its rectangle; this widget never creates a browser
++// window, tab, toolbar or remotely controllable native surface.
++class XenonSidePanel final : public content::WebContentsObserver,
++    public extensions::ExtensionRegistryObserver,
++    public extensions::ExtensionHostRegistry::Observer,
++    public extensions::SidePanelService::Observer {
++ public:
++  XenonSidePanel(int owner, const extensions::Extension& extension,
++                std::optional<int> contextual, std::string path)
++      : owner_(owner), window_(ActionState().tabs.at(owner).window),
++        profile_(Profile::FromBrowserContext(ActionState().tabs.at(owner).contents->GetBrowserContext())),
++        id_(extension.id()), contextual_(contextual), path_(std::move(path)) {
++    Observe(ActionState().tabs.at(owner).contents.get());
++    auto delegate = std::make_unique<XenonPopupDelegate>(web_contents());
++    delegate_ = delegate.get();
++    host_ = std::make_unique<extensions::ExtensionViewHost>(&extension, profile_,
++        extension.GetResourceURL(path_), extensions::mojom::ViewType::kExtensionSidePanel,
++        std::move(delegate));
++    host_->SetCloseHandler(base::BindOnce([](XenonSidePanel* self, extensions::ExtensionHost*) {
++      self->RetireSoon();
++    }, base::Unretained(this)));
++    registry_.Observe(extensions::ExtensionRegistry::Get(profile_));
++    hosts_.Observe(extensions::ExtensionHostRegistry::Get(profile_));
++    service_.Observe(extensions::SidePanelService::Get(profile_));
++    widget_ = std::make_unique<views::Widget>();
++    views::Widget::InitParams params(views::Widget::InitParams::CLIENT_OWNS_WIDGET,
++                                    views::Widget::InitParams::TYPE_CONTROL);
++    params.parent_widget = window_; params.child = true;
++    params.bounds = gfx::Rect(0,0,320,480);
++    params.native_widget = new views::DesktopNativeWidgetAura(widget_.get());
++    widget_->Init(std::move(params));
++    auto contents = std::make_unique<views::View>();
++    auto* layout = contents->SetLayoutManager(std::make_unique<views::BoxLayout>(
++        views::BoxLayout::Orientation::kVertical));
++    auto* header = contents->AddChildView(std::make_unique<views::View>());
++    auto* header_layout = header->SetLayoutManager(std::make_unique<views::BoxLayout>(
++        views::BoxLayout::Orientation::kHorizontal, gfx::Insets(8), 8));
++    auto* title = header->AddChildView(std::make_unique<views::Label>(base::UTF8ToUTF16(extension.name())));
++    header_layout->SetFlexForView(title,1);
++    header->AddChildView(std::make_unique<views::LabelButton>(base::BindRepeating(
++        [](XenonSidePanel* self) { self->RetireSoon(); }, base::Unretained(this)), u"Close"));
++    view_ = contents->AddChildView(std::make_unique<ExtensionViewViews>(profile_,host_.get()));
++    layout->SetFlexForView(view_,1); view_->Init();
++    widget_->SetContentsView(std::move(contents));
++    ActionState().panels[window_] = this;
++    PostMessageW(window_,WM_APP+93,0,0);
++    load_timeout_.Start(FROM_HERE,base::Seconds(15),base::BindOnce(
++        &XenonSidePanel::RetireSoon,base::Unretained(this)));
++  }
++  ~XenonSidePanel() override {
++    weak_factory_.InvalidateWeakPtrs();load_timeout_.Stop();
++    SetAnnounced(false);
++    service_.Reset();hosts_.Reset();registry_.Reset();Observe(nullptr);
++    view_=nullptr;delegate_=nullptr;host_.reset();widget_.reset();
++    PostMessageW(window_,WM_APP+93,0,0);
++  }
++  int owner() const { return owner_; }
++  Profile* profile() const { return profile_; }
++  const std::string& id() const { return id_; }
++  bool contextual() const { return contextual_.has_value(); }
++  std::optional<int> context_id() const { return contextual_; }
++  content::WebContents* popup_contents() const { return host_->host_contents(); }
++  bool VisibleFor(int browser) const { return !closing_ && owner_==browser && (!contextual_ ||
++      (web_contents() && sessions::SessionTabHelper::IdForTab(web_contents()).id()==*contextual_)); }
++  void SetAnnounced(bool open) {
++    if(!service_.IsObserving()){announced_=false;return;}
++    if (announced_==open) return; announced_=open;
++    if(open)extensions::SidePanelService::Get(profile_)->DispatchOnOpenedEvent(id_,ActionState().windows.at(window_),contextual_,path_);
++    else extensions::SidePanelService::Get(profile_)->DispatchOnClosedEvent(id_,ActionState().windows.at(window_),contextual_,path_);
++  }
++  void Select(int browser) {
++    const auto& tab = ActionState().tabs.at(browser);
++    if (tab.contents->GetBrowserContext()!=profile_) {widget_->Hide();SetAnnounced(false);RetireSoon();return;}
++    const int tab_id=sessions::SessionTabHelper::IdForTab(tab.contents.get()).id();
++    if(contextual_ && *contextual_!=tab_id){widget_->Hide();SetAnnounced(false);PostMessageW(window_,WM_APP+93,0,0);return;}
++    owner_=browser;Observe(tab.contents.get());delegate_->SetSource(tab.contents.get());
++    PostMessageW(window_,WM_APP+93,0,0);
++    RefreshOptions();
++  }
++  void Layout(const gfx::Rect& bounds) {
++    if (closing_ || bounds.IsEmpty()) {widget_->Hide();SetAnnounced(false);return;}
++    // DesktopNativeWidgetAura with external parent uses physical child bounds.
++    SetWindowPos(widget_->GetNativeWindow()->GetHost()->GetAcceleratedWidget(),nullptr,
++        bounds.x(),bounds.y(),bounds.width(),bounds.height(),SWP_NOACTIVATE|SWP_NOZORDER);
++    if (loaded_ && VisibleFor(ActionState().current)) {widget_->ShowInactive();SetAnnounced(true);}
++  }
++  void RetireSoon() {
++    if(closing_)return;closing_=true;
++    if(widget_)widget_->Hide();SetAnnounced(false);
++    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,base::BindOnce(
++        [](base::WeakPtr<XenonSidePanel> self){if(self)CloseSidePanel(self->window_);},weak_factory_.GetWeakPtr()));
++  }
++  void RefreshOptions() {
++    if(closing_)return;
++    const auto* extension=extensions::ExtensionRegistry::Get(profile_)->enabled_extensions().GetByID(id_);
++    if(!extension){RetireSoon();return;}
++    const auto options=extensions::SidePanelService::Get(profile_)->GetOptions(*extension,
++        contextual_ ? contextual_ : std::optional<int>(sessions::SessionTabHelper::IdForTab(web_contents()).id()));
++    if(!options.enabled.value_or(false)||!options.path){RetireSoon();return;}
++    const auto url=extension->GetResourceURL(*options.path);
++    if(!url.SchemeIs(extensions::kExtensionScheme)||url.host()!=id_){RetireSoon();return;}
++    if(path_!=*options.path){path_=*options.path;host_->host_contents()->GetController().LoadURL(url,content::Referrer(),ui::PAGE_TRANSITION_AUTO_TOPLEVEL,std::string());}
++  }
++  void OnPanelOptionsChanged(const std::string& id,const extensions::api::side_panel::PanelOptions&) override {
++    if(id==id_)base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,base::BindOnce(
++        [](base::WeakPtr<XenonSidePanel> self){if(self)self->RefreshOptions();},weak_factory_.GetWeakPtr()));
++  }
++  void OnSidePanelServiceShutdown() override {service_.Reset();RetireSoon();}
++  void OnExtensionUnloaded(content::BrowserContext*,const extensions::Extension* extension,
++      extensions::UnloadedExtensionReason) override {
++    if(extension->id()==id_){if(view_&&view_->parent())view_->parent()->RemoveChildViewT(view_.ExtractAsDangling());RetireSoon();}
++  }
++  void OnExtensionHostCompletedFirstLoad(content::BrowserContext*,extensions::ExtensionHost* host) override {
++    if(host==host_.get()&&!closing_){loaded_=true;load_timeout_.Stop();PostMessageW(window_,WM_APP+93,0,0);}
++  }
++  void OnExtensionHostRenderProcessGone(content::BrowserContext*,extensions::ExtensionHost* host) override {
++    if(host==host_.get())RetireSoon();
++  }
++  void WebContentsDestroyed() override {RetireSoon();}
++ private:
++  int owner_; HWND window_; raw_ptr<Profile> profile_; std::string id_;
++  std::optional<int> contextual_; std::string path_;
++  bool closing_=false,loaded_=false,announced_=false;
++  std::unique_ptr<extensions::ExtensionViewHost> host_;
++  std::unique_ptr<views::Widget> widget_;
++  raw_ptr<ExtensionViewViews> view_=nullptr;
++  raw_ptr<XenonPopupDelegate> delegate_=nullptr;
++  base::OneShotTimer load_timeout_;
++  base::ScopedObservation<extensions::ExtensionRegistry,extensions::ExtensionRegistryObserver> registry_{this};
++  base::ScopedObservation<extensions::ExtensionHostRegistry,extensions::ExtensionHostRegistry::Observer> hosts_{this};
++  base::ScopedObservation<extensions::SidePanelService,extensions::SidePanelService::Observer> service_{this};
++  base::WeakPtrFactory<XenonSidePanel> weak_factory_{this};
++};
++void CloseSidePanel(HWND window) {
++  auto& panels=ActionState().panels;
++  if(window){auto it=panels.find(window);if(it!=panels.end()){auto* panel=it->second;panels.erase(it);delete panel;}}
++  else while(!panels.empty())CloseSidePanel(panels.begin()->first);
++}
++void SelectSidePanel(int browser) {
++  const auto& tab=ActionState().tabs.at(browser);
++  if(auto it=ActionState().panels.find(tab.window);it!=ActionState().panels.end())it->second->Select(browser);
++}
++
++void CloseActionPopup(int browser) {
++  auto& state = ActionState();
++  if (browser) {
++    auto it = state.popups.find(browser);
++    if (it != state.popups.end()) {
++      auto* popup = it->second; state.popups.erase(it); popup->Shutdown(); delete popup;
++    }
++  } else {
++    while (!state.popups.empty()) CloseActionPopup(state.popups.begin()->first);
++  }
++}
++}  // namespace
++
++std::vector<AlloyExtensionTab> GetAlloyExtensionTabs(
++    Profile* profile, content::WebContents* caller) {
++  std::vector<AlloyExtensionTab> result;
++  auto& state = ActionState();
++  int current = state.current;
++  for (const auto& [id, popup] : state.popups)
++    if (caller == popup->popup_contents()) { current = id; break; }
++  for (const auto& [window, panel] : state.panels)
++    if (caller == panel->popup_contents()) { current = panel->owner(); break; }
++  const auto selected = state.tabs.find(current);
++  const int window = selected == state.tabs.end() ? 0 : selected->second.window_id;
++  std::map<int, int> indexes;
++  for (const auto& [id, tab] : state.tabs) {
++    auto* contents = tab.contents.get();
++    if (!contents || contents->GetBrowserContext() != profile || profile->IsOffTheRecord())
++      continue;
++    result.push_back({contents, tab.window_id, indexes[tab.window_id]++, tab.active,
++                      tab.window_id == window});
++  }
++  return result;
++}
++
++bool GetAlloyExtensionTabState(content::WebContents* contents,
++                               int* window, int* index, bool* active) {
++  if (!contents) return false;
++  for (const auto& tab : GetAlloyExtensionTabs(
++           Profile::FromBrowserContext(contents->GetBrowserContext()), nullptr)) {
++    if (tab.contents == contents) {
++      *window = tab.window_id; *index = tab.index; *active = tab.active; return true;
++    }
++  }
++  return false;
++}
++
++bool HasAlloyExtensionTabs(Profile* profile) {
++  return !GetAlloyExtensionTabs(profile,nullptr).empty();
++}
++namespace {
++XenonExtensionTab* ResolveSurfaceTab(Profile* profile,std::optional<int> tab_id,
++                                    std::optional<int> window_id,int* browser) {
++  auto& state=ActionState();
++  for(auto& [id,tab]:state.tabs){
++    if(!tab.contents||tab.contents->GetBrowserContext()!=profile||profile->IsOffTheRecord())continue;
++    if(tab_id && sessions::SessionTabHelper::IdForTab(tab.contents.get()).id()!=*tab_id)continue;
++    if(window_id && *window_id!=-2 && tab.window_id!=*window_id)continue;
++    if(!tab_id && (!tab.active || (window_id.value_or(-2)==-2 && id!=state.current)))continue;
++    *browser=id;return &tab;
++  }
++  return nullptr;
++}
++bool SurfaceAllowed(int browser) {
++  const auto& state=ActionState();
++  const auto it=state.tabs.find(browser);
++  return it!=state.tabs.end()&&it->second.active&&browser==state.current&&state.guard&&state.guard(browser)&&
++      IsWindowEnabled(it->second.window)&&GetAncestor(GetForegroundWindow(),GA_ROOTOWNER)==GetAncestor(it->second.window,GA_ROOTOWNER);
++}
++}
++bool OpenAlloyExtensionPopup(Profile* profile,const extensions::Extension& extension,
++    int window_id,base::OnceCallback<void(extensions::ExtensionHost*)> callback,std::string* error) {
++  int browser=0;auto* tab=ResolveSurfaceTab(profile,std::nullopt,window_id,&browser);
++  auto fail=[&](const char* message){*error=message;return false;};
++  if(!tab||!SurfaceAllowed(browser))return fail("No eligible active Xenon window.");
++  if(!extensions::ExtensionRegistry::Get(profile)->enabled_extensions().Contains(extension.id()))return fail("Extension is not enabled.");
++  if(!ActionState().popups.empty())return fail("An extension popup is already open.");
++  auto* action=extensions::ExtensionActionManager::Get(profile)->GetExtensionAction(extension);
++  const int tab_id=sessions::SessionTabHelper::IdForTab(tab->contents.get()).id();
++  if(!action||!action->GetIsVisible(tab_id)||!action->HasPopup(tab_id)||tab->anchor.IsEmpty())return fail("No active extension popup.");
++  if(extensions::PermissionsManager::Get(profile)->GetUserSiteSetting(url::Origin::Create(tab->contents->GetLastCommittedURL()))==
++      extensions::PermissionsManager::UserSiteSetting::kBlockAllExtensions)return fail("Extensions are blocked on this site.");
++  const auto url=action->GetPopupUrl(tab_id);
++  if(!url.SchemeIs(extensions::kExtensionScheme)||url.host()!=extension.id())return fail("Invalid extension popup.");
++  // An API call is not a toolbar click: never RunAction or grant activeTab.
++  auto* popup=new XenonActionPopup(browser,tab->contents.get(),extension,url,tab->anchor,std::move(callback));
++  popup->ShowHost();return true;
++}
++base::expected<bool,std::string> SetAlloyExtensionSidePanel(Profile* profile,
++    const extensions::Extension& extension,std::optional<int> tab_id,
++    std::optional<int> window_id,bool open) {
++  int browser=0;auto* tab=ResolveSurfaceTab(profile,tab_id,window_id,&browser);
++  if(!tab)return base::unexpected("No matching Xenon tab or window.");
++  auto& state=ActionState();auto existing=state.panels.find(tab->window);
++  if(!open){
++    if(existing==state.panels.end()||existing->second->profile()!=profile||existing->second->id()!=extension.id()||
++        (tab_id ? existing->second->context_id()!=tab_id : existing->second->contextual()))return base::unexpected("No matching open side panel.");
++    CloseSidePanel(tab->window);return true;
++  }
++  if(!SurfaceAllowed(browser))return base::unexpected("No eligible active Xenon window.");
++  if(!extensions::ExtensionRegistry::Get(profile)->enabled_extensions().Contains(extension.id()))return base::unexpected("Extension is not enabled.");
++  if(extensions::PermissionsManager::Get(profile)->GetUserSiteSetting(url::Origin::Create(tab->contents->GetLastCommittedURL()))==
++      extensions::PermissionsManager::UserSiteSetting::kBlockAllExtensions)return base::unexpected("Extensions are blocked on this site.");
++  auto* service=extensions::SidePanelService::Get(profile);
++  const auto options=service->GetOptions(extension,tab_id);
++  if(!options.path||!options.enabled.value_or(false))return base::unexpected("No enabled side panel for this target.");
++  const auto url=extension.GetResourceURL(*options.path);
++  if(!url.SchemeIs(extensions::kExtensionScheme)||url.host()!=extension.id())return base::unexpected("Invalid side panel path.");
++  const auto specific=tab_id?service->GetSpecificOptionsForTab(extension,*tab_id):extensions::api::side_panel::PanelOptions();
++  const auto contextual=specific.path?tab_id:std::nullopt;
++  if(existing!=state.panels.end()&&existing->second->id()==extension.id()&&existing->second->profile()==profile&&
++      existing->second->context_id()==contextual) {existing->second->Select(browser);return true;}
++  CloseActionPopup(0);CloseSidePanel(tab->window);
++  new XenonSidePanel(browser,extension,contextual,*options.path);return true;
++}
++}  // namespace cef
++
++extern "C" __declspec(dllexport) void cef_xenon_extension_guard_v1(int (*guard)(int)) {
++  if(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI))cef::ActionState().guard=guard;
++}
++
++// ABI v1: 0=version, 1=register, 2=select, 3=unregister, 4=invoke action,
++// 5=close popup(s), 6=count popups. IDs and rectangles come from native chrome.
++// Result: version=1; invoke=1 dispatched, 2 no action, -1 refused, -2 blocked,
++// -3 unsupported side panel. Other commands return 1, count returns its size.
++extern "C" __declspec(dllexport) int cef_xenon_extension_action_v1(
++    int command, int browser_id, const char* extension_id,
++    int x, int y, int width, int height) {
++  if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) return -1;
++  auto& state = cef::ActionState();
++  if (command == 0) return 1;
++  if (command == 18) return 1 | (base::FeatureList::IsEnabled(extensions_features::kExtensionsMenuAccessControl) ? 2 : 0);
++  if (command == 5) { cef::CloseActionPopup(browser_id); return 1; }
++  if (command == 6) return browser_id ? state.popups.count(browser_id) : state.popups.size();
++  if(command==24){
++    cef::CloseActionPopup(browser_id);
++    if(browser_id){if(auto it=state.tabs.find(browser_id);it!=state.tabs.end())cef::CloseSidePanel(it->second.window);}
++    else cef::CloseSidePanel(nullptr);
++    return 1;
++  }
++  if(command==26)return state.panels.size();
++  if (command == 16) {
++    cef::CloseActionPopup(0);
++    cef::CloseSidePanel(nullptr);
++    if (auto it = state.tabs.find(state.current); it != state.tabs.end()) it->second.active = false;
++    state.current = 0; return 1;
++  }
++  if (command == 3) {
++    for(auto it=state.panels.begin();it!=state.panels.end();) {
++      const auto window=it->first;++it;
++      if(state.panels.at(window)->owner()==browser_id)cef::CloseSidePanel(window);
++    }
++    cef::CloseActionPopup(browser_id); state.tabs.erase(browser_id);
++    if (state.current == browser_id) state.current = 0;
++    for (auto it = state.windows.begin(); it != state.windows.end();) {
++      const auto window = it->first;
++      if (std::ranges::none_of(state.tabs, [window](const auto& tab) { return tab.second.window == window; })) it = state.windows.erase(it);
++      else ++it;
++    }
++    return 1;
++  }
++  auto browser = CefBrowserHostBase::GetBrowserForBrowserId(browser_id);
++  if (!browser || !browser->IsAlloyStyle() || browser->WillBeDestroyed()) return -1;
++  auto* source = browser->GetWebContents();
++  auto* profile = Profile::FromBrowserContext(source->GetBrowserContext());
++  if (profile->IsOffTheRecord()) return -1;
++  if (command == 1 || command == 2) {
++    HWND owner = GetAncestor(browser->GetWindowHandle(), GA_ROOT);
++    if (!owner) return -1;
++    auto [window, inserted] = state.windows.try_emplace(owner, state.next_window);
++    if (inserted) ++state.next_window;
++    auto& tab = state.tabs[browser_id];
++    if(tab.window && tab.window!=owner){cef::CloseSidePanel(tab.window);cef::CloseActionPopup(browser_id);tab.active=false;}
++    tab.contents = source->GetWeakPtr(); tab.window = owner; tab.window_id = window->second;
++    if (command == 2) {
++      const bool changed=!tab.active;
++      if (state.current != browser_id) cef::CloseActionPopup(0);
++      for (auto& [id, other] : state.tabs)
++        if (other.window == owner) other.active = id == browser_id;
++      state.current = browser_id;
++      cef::SelectSidePanel(browser_id);
++      if(changed){
++        base::DictValue info;info.Set("tabId",sessions::SessionTabHelper::IdForTab(source).id());info.Set("windowId",tab.window_id);
++        base::ListValue args;args.Append(std::move(info));
++        extensions::EventRouter::Get(profile)->BroadcastEvent(std::make_unique<extensions::Event>(
++            extensions::events::TABS_ON_ACTIVATED,extensions::api::tabs::OnActivated::kEventName,std::move(args),profile));
++      }
++    }
++    return 1;
++  }
++  if(command>=19&&command<=22){
++    const auto it=state.tabs.find(browser_id);if(it==state.tabs.end())return -1;
++    auto panel=state.panels.find(it->second.window);
++    if(command==19){it->second.anchor=display::win::GetScreenWin()->ScreenToDIPRect(it->second.window,gfx::Rect(x,y,width,height));return 1;}
++    if(command==20)return panel!=state.panels.end()&&panel->second->VisibleFor(browser_id)?1:0;
++    if(command==21){if(panel!=state.panels.end())cef::CloseSidePanel(it->second.window);return 1;}
++    if(panel!=state.panels.end()&&panel->second->VisibleFor(browser_id))panel->second->Layout(gfx::Rect(x,y,width,height));
++    return 1;
++  }
++  if ((command != 4 && command != 7 && command != 25 && (command < 8 || command > 17)) || !state.tabs.contains(browser_id) || !extension_id) return -1;
++  if (command != 17 && (!state.tabs[browser_id].active || state.current != browser_id ||
++      width < 1 || height < 1 || width > 4096 || height > 4096)) return -1;
++  const auto url = source->GetLastCommittedURL();
++  auto* permissions = extensions::PermissionsManager::Get(profile);
++  if (command == 10 || command == 11) {
++    if (!url.SchemeIsHTTPOrHTTPS() || !base::FeatureList::IsEnabled(extensions_features::kExtensionsMenuAccessControl)) return -1;
++    cef::CloseActionPopup(0);
++    if(command==10)cef::CloseSidePanel(state.tabs.at(browser_id).window);
++    permissions->UpdateUserSiteSetting(url::Origin::Create(url), command == 10 ?
++      extensions::PermissionsManager::UserSiteSetting::kBlockAllExtensions :
++      extensions::PermissionsManager::UserSiteSetting::kCustomizeByExtension);
++    return 1;
++  }
++  const std::string id(extension_id, strnlen(extension_id, 33));
++  if (id.size() != 32 || !std::ranges::all_of(id, [](char c) { return c >= 'a' && c <= 'p'; })) return -1;
++  const auto* extension = extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(id);
++  if (!extension) return -1;
++  if (command == 17) {
++    const auto* action = extensions::ExtensionActionManager::Get(profile)->GetExtensionAction(*extension);
++    const int tab = sessions::SessionTabHelper::IdForTab(source).id();
++    int flags = action ? 1 : 0;
++    if (action && action->GetIsVisible(tab)) flags |= 2;
++    if (action && action->HasPopup(tab)) flags |= 4;
++    const auto access = extension->permissions_data()->GetPageAccess(url, tab, nullptr);
++    if (access == extensions::PermissionsData::PageAccess::kAllowed) flags |= 8;
++    if (access == extensions::PermissionsData::PageAccess::kWithheld ||
++        (extension->permissions_data()->HasAPIPermission("activeTab") &&
++         !extension->permissions_data()->IsRestrictedUrl(url,nullptr))) flags |= 16;
++    if (permissions->GetUserSiteSetting(url::Origin::Create(url)) ==
++        extensions::PermissionsManager::UserSiteSetting::kBlockAllExtensions) flags |= 32;
++    if (permissions->CanAffectExtension(*extension)) {
++      using Access = extensions::PermissionsManager::UserSiteAccess;
++      if (permissions->CanUserSelectSiteAccess(*extension,url,Access::kOnClick)) flags |= 128;
++      if (permissions->CanUserSelectSiteAccess(*extension,url,Access::kOnSite)) flags |= 256;
++      if (permissions->CanUserSelectSiteAccess(*extension,url,Access::kOnAllSites)) flags |= 512;
++    }
++    const auto* toolbar = ToolbarActionsModel::Get(profile);
++    if (toolbar && toolbar->action_ids().contains(id) && !toolbar->IsActionForcePinned(id)) flags |= 1024;
++    const auto panel=extensions::SidePanelService::Get(profile)->GetOptions(*extension,tab);
++    if(panel.path&&panel.enabled.value_or(false))flags|=2048;
++    return flags;
++  }
++  if(command==25){
++    auto panel=state.panels.find(state.tabs.at(browser_id).window);
++    if(panel!=state.panels.end()&&panel->second->id()==id&&panel->second->VisibleFor(browser_id)){
++      cef::CloseSidePanel(panel->first);return 1;
++    }
++    const int tab=sessions::SessionTabHelper::IdForTab(source).id();
++    return cef::SetAlloyExtensionSidePanel(profile,*extension,tab,std::nullopt,true).has_value()?1:-1;
++  }
++  if (command == 8 || command == 9) {
++    auto* toolbar = ToolbarActionsModel::Get(profile);
++    if (!toolbar || !toolbar->action_ids().contains(id) || toolbar->IsActionForcePinned(id)) return -1;
++    if (toolbar->IsActionPinned(id) != (command == 8)) toolbar->SetActionVisibility(id, command == 8);
++    return toolbar->IsActionPinned(id) == (command == 8) ? 1 : -1;
++  }
++  if (command >= 12 && command <= 14) {
++    if (!url.SchemeIsHTTPOrHTTPS() || !permissions->CanAffectExtension(*extension)) return -1;
++    using Access = extensions::PermissionsManager::UserSiteAccess;
++    const auto access = command == 12 ? Access::kOnClick : command == 13 ? Access::kOnSite : Access::kOnAllSites;
++    if (!permissions->CanUserSelectSiteAccess(*extension,url,access)) return -1;
++    cef::CloseActionPopup(0);
++    extensions::ScriptingPermissionsModifier modifier(profile, extension);
++    if (command == 14) modifier.SetWithholdHostPermissions(false);
++    else {
++      if (permissions->HasBroadGrantedHostPermissions(*extension)) modifier.RemoveBroadGrantedHostPermissions();
++      if (!permissions->HasWithheldHostPermissions(*extension)) {
++        modifier.SetWithholdHostPermissions(true); modifier.RemoveAllGrantedHostPermissions();
++      }
++      if (command == 13) modifier.GrantHostPermission(url);
++      else {
++        URLPattern pattern(extensions::Extension::kValidHostPermissionSchemes);
++        if (pattern.Parse(url::Origin::Create(url).Serialize() + "/*") != URLPattern::ParseResult::kSuccess) return -1;
++        modifier.RemoveHostPermissions(pattern, base::DoNothing());
++        if (auto* granter = extensions::ActiveTabPermissionGranter::FromWebContents(source))
++          granter->ClearActiveExtensionAndNotify(id);
++      }
++    }
++    return 1;
++  }
++  if (command == 15) {
++    cef::CloseActionPopup(0); std::u16string error;
++    return extensions::ExtensionRegistrar::Get(profile)->UninstallExtension(
++      id, extensions::UNINSTALL_REASON_USER_INITIATED, &error) ? 1 : -1;
++  }
++  if (!url.SchemeIsHTTPOrHTTPS() ||
++      extensions::PermissionsManager::Get(profile)->GetUserSiteSetting(url::Origin::Create(url)) ==
++          extensions::PermissionsManager::UserSiteSetting::kBlockAllExtensions) return -2;
++  auto* action = extensions::ExtensionActionManager::Get(profile)->GetExtensionAction(*extension);
++  if (!action) return 2;
++  auto* runner = extensions::ExtensionActionRunner::GetForWebContents(source);
++  if (!runner) return -1;
++  const bool needs_reload = extensions::SitePermissionsHelper(profile).PageNeedsRefreshToRun(
++      runner->GetBlockedActions(extension->id()));
++  if (needs_reload && command != 7) return -4;
++  cef::CloseActionPopup(0);
++  const auto outcome = runner->RunAction(extension, true);
++  if (needs_reload) {
++    source->GetController().Reload(content::ReloadType::NORMAL, true);
++    return 1;
++  }
++  if (outcome == extensions::ExtensionAction::ShowAction::kToggleSidePanel) {
++    auto panel=state.panels.find(state.tabs.at(browser_id).window);
++    if(panel!=state.panels.end()&&panel->second->id()==id&&panel->second->VisibleFor(browser_id)){
++      cef::CloseSidePanel(panel->first);return 1;
++    }
++    return cef::SetAlloyExtensionSidePanel(profile,*extension,
++        sessions::SessionTabHelper::IdForTab(source).id(),std::nullopt,true).has_value()?1:-1;
++  }
++  if (outcome != extensions::ExtensionAction::ShowAction::kShowPopup) return 1;
++  const auto popup_url = action->GetPopupUrl(sessions::SessionTabHelper::IdForTab(source).id());
++  if (!popup_url.is_valid() || popup_url.host() != id || !popup_url.SchemeIs(extensions::kExtensionScheme)) return -1;
++  const auto anchor = display::win::GetScreenWin()->ScreenToDIPRect(
++      state.tabs[browser_id].window, gfx::Rect(x, y, width, height));
++  auto* popup = new cef::XenonActionPopup(browser_id, source, *extension, popup_url, anchor);
++  popup->ShowHost();
++  return 1;
++}
++#endif  // BUILDFLAG(IS_WIN)
+diff --git a/chrome/browser/extensions/api/tabs/tabs_api.cc b/chrome/browser/extensions/api/tabs/tabs_api.cc
+--- a/chrome/browser/extensions/api/tabs/tabs_api.cc
++++ b/chrome/browser/extensions/api/tabs/tabs_api.cc
+@@ -3,6 +3,10 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/api/tabs/tabs_api.h"
++#include "cef/libcef/features/features.h"
++#if BUILDFLAG(ENABLE_CEF) && BUILDFLAG(IS_WIN)
++#include "cef/libcef/browser/chrome/extensions/chrome_extension_util.h"
++#endif
+ 
+ #include "base/metrics/histogram_functions.h"
+ #include "base/metrics/histogram_macros.h"
+@@ -1847,6 +1851,45 @@
+     int window_id,
+     int tab_index) {
+   base::ListValue result;
++#if BUILDFLAG(ENABLE_CEF) && BUILDFLAG(IS_WIN)
++  // Alloy has no Chrome tab strip. The embedder explicitly registers its
++  // human web tabs and selection; query/filter these through normal permission
++  // scrubbing, without exposing private profiles or hidden WebUI helpers.
++  const auto native_tabs = cef::GetAlloyExtensionTabs(
++      Profile::FromBrowserContext(browser_context()),
++      render_frame_host() ? content::WebContents::FromRenderFrameHost(render_frame_host()) : nullptr);
++  for (const auto& native : native_tabs) {
++    auto* contents = native.contents;
++    auto tab = tabs_internal::CreateTabObjectHelper(
++        contents, extension(), source_context_type(), nullptr, native.index);
++    if ((window_id >= 0 && window_id != native.window_id) ||
++        (window_id == extension_misc::kCurrentWindowId && !native.current_window) ||
++        !MatchesBool(query_info_.current_window, native.current_window) ||
++        !MatchesBool(query_info_.last_focused_window, native.current_window) ||
++        (!window_type.empty() && window_type != "normal") ||
++        (tab_index >= 0 && tab_index != native.index) ||
++        !MatchesBool(query_info_.active, native.active) ||
++        !MatchesBool(query_info_.highlighted, native.active) ||
++        !MatchesBool(query_info_.pinned, tab.pinned) ||
++        !MatchesBool(query_info_.audible, tab.audible.value_or(false)) ||
++        !MatchesBool(query_info_.muted, contents->IsAudioMuted()) ||
++        !MatchesBool(query_info_.discarded, tab.discarded) ||
++        !MatchesBool(query_info_.frozen, tab.frozen) ||
++        !MatchesBool(query_info_.auto_discardable, tab.auto_discardable) ||
++        (query_info_.group_id && *query_info_.group_id != -1) ||
++        (query_info_.split_view_id && *query_info_.split_view_id != -1) ||
++        (query_info_.status != tabs::TabStatus::kNone && query_info_.status != tab.status)) continue;
++    if ((query_info_.title && !query_info_.title->empty()) || !url_patterns.is_empty()) {
++      // CreateTabObjectHelper has already scrubbed URL/title for this caller.
++      if (!tab.url || !tab.title ||
++          (query_info_.title && !base::MatchPattern(*tab.title, *query_info_.title)) ||
++          (!url_patterns.is_empty() && !url_patterns.MatchesURL(GURL(*tab.url)))) continue;
++    }
++    result.Append(tab.ToValue());
++  }
++  // Chromium's auxiliary management windows are not Xenon browsing tabs.
++  if (!native_tabs.empty()) return result;
++#endif
+   // Historically, we queried browsers in creation order. Maintain that behavior
+   // (for now).
+   std::vector<BrowserWindowInterface*> all_browsers =
+diff --git a/chrome/browser/extensions/extension_tab_util.cc b/chrome/browser/extensions/extension_tab_util.cc
+--- a/chrome/browser/extensions/extension_tab_util.cc
++++ b/chrome/browser/extensions/extension_tab_util.cc
+@@ -375,6 +375,17 @@
+   tab_object.selected = is_active;
+   tab_object.highlighted = tab_interface && tab_interface->IsSelected();
+   tab_object.pinned = tab_interface && tab_interface->IsPinned();
++#if BUILDFLAG(ENABLE_CEF) && BUILDFLAG(IS_WIN)
++  int native_window = 0, native_index = 0;
++  bool native_active = false;
++  if (cef::GetAlloyExtensionTabState(contents, &native_window, &native_index, &native_active)) {
++    tab_object.window_id = native_window;
++    tab_object.index = native_index;
++    tab_object.active = native_active;
++    tab_object.selected = native_active;
++    tab_object.highlighted = native_active;
++  }
++#endif
+ 
+   tab_object.group_id = -1;
+   if (tab_interface) {
+diff --git a/chrome/browser/extensions/extension_action_runner.cc b/chrome/browser/extensions/extension_action_runner.cc
+--- a/chrome/browser/extensions/extension_action_runner.cc
++++ b/chrome/browser/extensions/extension_action_runner.cc
+@@ -3,6 +3,10 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/extension_action_runner.h"
++#include "cef/libcef/features/features.h"
++#if BUILDFLAG(ENABLE_CEF) && BUILDFLAG(IS_WIN)
++#include "cef/libcef/browser/chrome/extensions/chrome_extension_util.h"
++#endif
+ 
+ #include <algorithm>
+ #include <memory>
+@@ -179,6 +183,13 @@
+                PermissionsManager::UserSiteAccess::kOnClick;
+       }));
+ 
++#if BUILDFLAG(ENABLE_CEF) && BUILDFLAG(IS_WIN)
++  // Xenon's native human action entry point obtains reload confirmation before
++  // granting these permissions. Alloy has no Chrome window for this bubble.
++  int native_window = 0, native_index = 0;
++  bool native_active = false;
++  if (cef::GetAlloyExtensionTabState(web_contents(), &native_window, &native_index, &native_active)) return;
++#endif
+   ShowReloadPageBubble(extensions);
+ }
+ 
+diff --git a/chrome/browser/extensions/api/extension_action/extension_action_api.cc b/chrome/browser/extensions/api/extension_action/extension_action_api.cc
+--- a/chrome/browser/extensions/api/extension_action/extension_action_api.cc
++++ b/chrome/browser/extensions/api/extension_action/extension_action_api.cc
+@@ -3,6 +3,11 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
++#include "cef/libcef/features/features.h"
++#if BUILDFLAG(ENABLE_CEF) && BUILDFLAG(IS_WIN)
++#include "cef/libcef/browser/chrome/extensions/chrome_extension_util.h"
++#include "chrome/browser/profiles/profile.h"
++#endif
+ 
+ #include <stddef.h>
+ 
+@@ -544,6 +549,16 @@
+     }
+   }
+ 
++#if BUILDFLAG(ENABLE_CEF) && BUILDFLAG(IS_WIN)
++  if (cef::HasAlloyExtensionTabs(Profile::FromBrowserContext(browser_context()))) {
++    std::string error;
++    if (!cef::OpenAlloyExtensionPopup(Profile::FromBrowserContext(browser_context()),
++        *extension(), window_id,
++        base::BindOnce(&ActionOpenPopupFunction::OnShowPopupComplete, this), &error))
++      return RespondNow(Error(std::move(error)));
++    return RespondLater();
++  }
++#endif
+   BrowserWindowInterface* browser = nullptr;
+   Profile* profile = Profile::FromBrowserContext(browser_context());
+   std::string error;
+diff --git a/chrome/browser/extensions/api/side_panel/side_panel_api.cc b/chrome/browser/extensions/api/side_panel/side_panel_api.cc
+--- a/chrome/browser/extensions/api/side_panel/side_panel_api.cc
++++ b/chrome/browser/extensions/api/side_panel/side_panel_api.cc
+@@ -3,6 +3,11 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/api/side_panel/side_panel_api.h"
++#include "cef/libcef/features/features.h"
++#if BUILDFLAG(ENABLE_CEF) && BUILDFLAG(IS_WIN)
++#include "cef/libcef/browser/chrome/extensions/chrome_extension_util.h"
++#include "chrome/browser/profiles/profile.h"
++#endif
+ 
+ #include <optional>
+ 
+@@ -88,6 +93,14 @@
+         Error("At least one of `tabId` and `windowId` must be provided"));
+   }
+ 
++#if BUILDFLAG(ENABLE_CEF) && BUILDFLAG(IS_WIN)
++  if (cef::HasAlloyExtensionTabs(Profile::FromBrowserContext(browser_context()))) {
++    auto result = cef::SetAlloyExtensionSidePanel(Profile::FromBrowserContext(browser_context()),
++        *extension(), params->options.tab_id, params->options.window_id, true);
++    if (!result.has_value()) return RespondNow(Error(std::move(result.error())));
++    return RespondNow(NoArguments());
++  }
++#endif
+   if (params->options.window_id) {
+     // Resolve the window ID. This handles e.g. the `WINDOW_ID_CURRENT` constant
+     // by converting it to the concrete window ID. See crbug.com/466946001.
+@@ -147,6 +160,14 @@
+         Error("At least one of `tabId` and `windowId` must be provided"));
+   }
+ 
++#if BUILDFLAG(ENABLE_CEF) && BUILDFLAG(IS_WIN)
++  if (cef::HasAlloyExtensionTabs(Profile::FromBrowserContext(browser_context()))) {
++    auto result = cef::SetAlloyExtensionSidePanel(Profile::FromBrowserContext(browser_context()),
++        *extension(), params->options.tab_id, params->options.window_id, false);
++    if (!result.has_value()) return RespondNow(Error(std::move(result.error())));
++    return RespondNow(NoArguments());
++  }
++#endif
+   SidePanelService* service = GetService();
+   base::expected<bool, std::string> close_panel_result;
+   if (params->options.tab_id) {

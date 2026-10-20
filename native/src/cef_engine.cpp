@@ -1,6 +1,11 @@
 #include "xenon/cef_engine.hpp"
 #include "xenon/form_fill.hpp"
 #include "xenon/cef_branding.hpp"
+#include "xenon/cef_extension_manager.hpp"
+#include "xenon/extension_action_engine.hpp"
+#include "xenon/cef_default_client.hpp"
+#include "xenon/extension_manager_policy.hpp"
+#include "xenon/extension_install_fixture.hpp"
 #include "xenon/pointer_motion.hpp"
 #include "xenon/pointer_target.hpp"
 #include "xenon/upload_entry.hpp"
@@ -47,6 +52,7 @@
 #include <algorithm>
 #include <limits>
 #include <chrono>
+#include <charconv>
 #include <condition_variable>
 #include <cmath>
 #include <map>
@@ -299,6 +305,8 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   void prepare_uncertain_click(const std::shared_ptr<Tab>&,double,double,std::function<void(Json)>);
   std::map<std::string, std::shared_ptr<Tab>> tabs_;
   std::map<std::string, CefRefPtr<CefRequestContext>> contexts_;
+  std::unique_ptr<CefExtensionManager> extension_manager_;
+  std::function<std::string(const std::string&)> workspace_label_;
   enum class ContextState { initializing, ready, failed };
   struct PendingCreate { std::string workspace,id,url; bool human{};std::function<bool()> permit; };
   std::map<std::string,ContextState> context_states_;
@@ -602,7 +610,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     if(missing&&remembered.empty()){const auto saved=vault_->list_accounts(*origin);if(!saved.value("ok",false)||!saved["result"]["accounts"].empty())return;}
     const auto& username=missing?remembered:data.value["username"].get_ref<const std::string&>();
     discard_login(t);
-    developer_clear(t);t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
+    developer_clear(t);extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
     event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
     const auto candidate=vault_->propose_login(*origin,username,data.value["password"].get_ref<const std::string&>());
     if(!candidate)return;
@@ -750,7 +758,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       t->login.contexts_cleared(session);
     } else if(method=="Runtime.bindingCalled"&&field(p,"name")=="__xenon_mark_sensitive"&&field(p,"payload")=="protected") {
       if(t->guard_contexts.contains({session,p.value("executionContextId",0)})&&!t->protected_auth){
-        t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
+        extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
         developer_clear(t);
         event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
       }
@@ -796,6 +804,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   void finish_shutdown();
   void created(CefRefPtr<CefBrowser>, const std::string&, const std::string&, const std::string&);
   void closed(CefRefPtr<CefBrowser> browser) {
+    extension_action::call(extension_action::unregister_tab,browser->GetIdentifier());
     auto t=find(browser); if(!t){
       auto removed=removed_closing_browsers_.extract(browser->GetIdentifier());
       if(!removed.empty())finish_workspace_removal(removed.mapped());
@@ -1125,6 +1134,15 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
   void OnGotFocus(CefRefPtr<CefBrowser> b)override{if(auto o=owner_.lock())if(auto t=o->find(b))if(o->active_tab_==t->id)o->active_windows_[GetAncestor(b->GetHost()->GetWindowHandle(),GA_ROOT)]=t->id;}
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> b,CefRefPtr<CefFrame> frame,CefRefPtr<CefRequest> request,bool gesture,bool)override {
     const auto url=request->GetURL().ToString();
+    // A native human Store navigation enters the real Chrome-style extension
+    // surface. Agent-owned tabs never acquire this human-only UI capability.
+    if(frame&&frame->IsMain()&&extension_manager::store_url(url)){
+      if(auto owner=owner_.lock())if(auto tab=owner->find(b))
+        if(owner->passkey_human_controls_&&owner->passkey_human_controls_(tab->id)&&!tab->private_mode&&!tab->protected_auth&&!owner->shutting_down_&&!owner->removed_workspaces_.contains(tab->workspace)){
+          const auto context=owner->contexts_.find(tab->workspace);
+          if(context!=owner->contexts_.end()&&owner->extension_manager_->open(tab->workspace,context->second,url,owner->workspace_label_?owner->workspace_label_(tab->workspace):std::string{}))return true;
+        }
+    }
     // Chromium password management is replaced by the Xenon vault.
     if(url.rfind("chrome://password-manager",0)==0||url.rfind("chrome://settings/passwords",0)==0) {
       if(auto o=owner_.lock())if(o->controls_)o->controls_();return true;
@@ -1376,6 +1394,10 @@ void CefEngine::Impl::create_ready(const PendingCreate& request) {
 }
 void CefEngine::Impl::finish_shutdown() {
   shutting_down_=true;
+  extension_action::call(extension_action::close_surfaces);
+  extension_action::set_guard({});
+  extension_manager_->close();
+  if(extension_manager_->has_browsers())return;
   CefQuitMessageLoop();
 }
 void CefEngine::Impl::remove_workspace(const std::string& workspace,Reply reply) {
@@ -1405,12 +1427,14 @@ void CefEngine::Impl::close_workspace_tabs(const std::string& workspace){
   for(int key=1;!busy&&key<256;++key)busy=(GetAsyncKeyState(key)&0x8000)!=0;
   if(busy){later(50,[self=shared_from_this(),workspace]{self->close_workspace_tabs(workspace);});return;}
   std::vector<CefRefPtr<CefBrowser>> closing;
+  extension_manager_->close(workspace);
   for(const auto& [id,t]:tabs_)if(t->workspace==workspace)closing.push_back(t->browser);
   for(const auto& browser:closing)browser->GetHost()->CloseBrowser(true);
   finish_workspace_removal(workspace);
 }
 void CefEngine::Impl::finish_workspace_removal(const std::string& workspace) {
   const auto pending=removal_waiters_.find(workspace);if(pending==removal_waiters_.end())return;
+  if(extension_manager_->has_browsers(workspace))return;
   for(const auto& [id,t]:tabs_)if(t->workspace==workspace)return;
   for(const auto& [id,closing]:removed_closing_browsers_)if(closing==workspace)return;
   bool file_cleanup_pending=false;
@@ -1445,6 +1469,7 @@ void CefEngine::Impl::created(CefRefPtr<CefBrowser> b,const std::string& workspa
   t->native_host=GetParent(b->GetHost()->GetWindowHandle());
   tabs_[id]=t;browser_ids_[b->GetIdentifier()]=id;pace(id);
   if(active_tab_.empty())active_tab_=id;
+  if(!t->private_mode){extension_action::call(extension_action::register_tab,b->GetIdentifier());if(active_tab_==id)extension_action::call(extension_action::select_tab,b->GetIdentifier());}
   t->registration=b->GetHost()->AddDevToolsMessageObserver(new Observer(weak_from_this(),t));
   enable_session(t,"");
   Json e={{"tabId",id},{"workspaceId",t->workspace}};if(!opener.empty())e["openerTabId"]=opener;
@@ -1866,7 +1891,7 @@ void CefEngine::Impl::autofill_use(const std::string& id,const std::string& acco
   const auto request=++t->autofill_requested;
   t->native_fill=true;t->autofill_human_qualified=false;discard_login(t);clear_login_edit(t);
   human_activity(t,t->human_gesture,false); // Pause/cancel agents without changing their owner.
-  developer_clear(t);t->protected_auth=true;event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
+  developer_clear(t);extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
   const auto human=t->human_input;
   auto guard=std::make_shared<ActionGuard>();guard->epoch=offer->epoch;guard->human=human;guard->native_auth=true;
   guard->permit=[self=shared_from_this(),t,request,origin=offer->origin]{return t->native_fill&&t->autofill_requested==request&&!t->closed&&self->vault_&&!self->vault_->locked()&&
@@ -2316,7 +2341,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     if(field(p,"grantedOrigin")!=*origin){reply(failure("origin_denied","The active page origin does not match the credential grant."));return;}
     auto secret=vault_->get_secret(field(p,"accountId"),*origin);
     if(!secret){reply(failure("account_unavailable","The selected account is unavailable for this origin."));return;}
-    developer_clear(t);t->protected_auth=true;t->auth_inflight=true;event("auth.protected",{{"tabId",t->id},{"protected",true}});
+    developer_clear(t);extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;t->auth_inflight=true;event("auth.protected",{{"tabId",t->id},{"protected",true}});
     persist_session();
     auto held=std::make_shared<Secret>(std::move(*secret));
     login(t,p,held,*origin,reply,false,std::chrono::steady_clock::now()+std::chrono::seconds(15));return;
@@ -2360,7 +2385,22 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   reply(failure("unsupported_command","This browser operation is not supported."));
 }
 
-CefEngine::CefEngine(std::filesystem::path root):impl_(std::make_shared<Impl>(std::move(root))){}
+CefEngine::CefEngine(std::filesystem::path root):impl_(std::make_shared<Impl>(std::move(root))){
+  extension_action::set_guard([weak=std::weak_ptr<Impl>(impl_)](int browser){
+    auto owner=weak.lock();if(!owner||owner->shutting_down_)return 0;
+    const auto cef_browser=CefBrowserHost::GetBrowserByIdentifier(browser);if(!cef_browser)return 0;
+    const auto tab=owner->find(cef_browser);
+    if(!tab||tab->closed||tab->private_mode||tab->id!=owner->active_tab_||tab->protected_auth||tab->auth_inflight||tab->native_fill||tab->dialog||tab->human_dialog||tab->passkey.pending()||owner->removed_workspaces_.contains(tab->workspace))return 0;
+    const auto context=owner->contexts_.find(tab->workspace);
+    return context!=owner->contexts_.end()&&context->second&&context->second->IsSame(tab->browser->GetHost()->GetRequestContext())?1:0;
+  });
+  impl_->extension_manager_=std::make_unique<CefExtensionManager>([weak=std::weak_ptr<Impl>(impl_)](const std::string& workspace){
+    if(auto owner=weak.lock()){
+      owner->finish_workspace_removal(workspace);
+      if(owner->shutting_down_&&owner->tabs_.empty()&&owner->creating_.empty())owner->finish_shutdown();
+    }
+  });
+}
 CefEngine::~CefEngine()=default;
 void CefEngine::initialize(){execute("tabs.create",{{"workspaceId","human-default"},{"url","about:blank"}},[](Json){});}
 void CefEngine::shutdown(){on_ui([p=impl_]{p->persist_session();p->shutting_down_=true;for(auto& [id,t]:p->tabs_)t->browser->GetHost()->CloseBrowser(true);if(p->tabs_.empty()&&p->creating_.empty())p->finish_shutdown();});}
@@ -2389,9 +2429,254 @@ void CefEngine::set_native_key_callback(std::function<void(CefWindowHandle,UINT,
 void CefEngine::set_dialog_callback(std::function<void(const std::string&)> f){impl_->dialog_opened_=std::move(f);}
 void CefEngine::set_private_workspace_callback(std::function<void()> f){impl_->private_workspace_=std::move(f);}
 void CefEngine::set_host_callbacks(std::function<HWND(const std::string&,const std::string&,bool,const std::string&)> create,
-  std::function<void(const std::string&,HWND)> created,std::function<void(const std::string&)> closed){impl_->create_host_=std::move(create);impl_->host_created_=std::move(created);impl_->host_closed_=std::move(closed);}
+  std::function<void(const std::string&,HWND)> created,std::function<void(const std::string&)> closed){
+    impl_->create_host_=std::move(create);impl_->host_created_=std::move(created);impl_->host_closed_=std::move(closed);
+    impl_->extension_manager_->set_hosts(impl_->create_host_?[make=impl_->create_host_](const std::string& workspace,const std::string& id){return make(workspace,id,true,{});}:std::function<HWND(const std::string&,const std::string&)>{},impl_->host_created_,impl_->host_closed_);
+  }
 void CefEngine::set_open_link_callback(std::function<void(const std::string&,const std::string&,bool)> f){impl_->open_link_=std::move(f);}
 void CefEngine::set_extension_ids(std::set<std::string> ids){on_ui([p=impl_,ids=std::move(ids)]{p->extension_ids_=ids;});}
+void CefEngine::open_extensions_manager(const std::string& workspace,const std::string& url,Reply reply){
+  on_ui([owner=impl_,workspace,url,reply=std::move(reply)]{
+    auto done=[&](Json result){if(reply)reply(std::move(result));};
+    if(owner->shutting_down_||owner->removed_workspaces_.contains(workspace)||owner->private_workspaces_.contains(workspace)){
+      done(failure("workspace_unavailable","Open Extensions in a non-private workspace."));return;
+    }
+    const auto context=owner->contexts_.find(workspace);const auto state=owner->context_states_.find(workspace);
+    if(context==owner->contexts_.end()||state==owner->context_states_.end()||state->second!=Impl::ContextState::ready){done(failure("workspace_unavailable","Open a tab in this workspace, then try Extensions again."));return;}
+    const auto expected=(owner->root_/("workspace-"+local_security::sha256(workspace))).lexically_normal();
+    if(!context->second||context->second->IsGlobal()||std::filesystem::path(context->second->GetCachePath().ToWString()).lexically_normal()!=expected){done(failure("workspace_unavailable","The workspace profile could not be verified."));return;}
+    done(owner->extension_manager_->open(workspace,context->second,url,owner->workspace_label_?owner->workspace_label_(workspace):std::string{})?success():failure("extension_manager_unavailable","The extension manager could not be opened."));
+  });
+}
+void CefEngine::set_workspace_label_callback(std::function<std::string(const std::string&)> callback){impl_->workspace_label_=std::move(callback);}
+void CefEngine::extension_quick_list(const std::string& tab_id,const std::string& workspace,Reply reply){
+  on_ui([owner=impl_,tab_id,workspace,reply=std::move(reply)]{
+    if(owner->shutting_down_||owner->removed_workspaces_.contains(workspace)){reply(failure("workspace_unavailable","This workspace is unavailable."));return;}
+    if(owner->private_workspaces_.contains(workspace)){reply(success({{"extensions",Json::array()},{"private",true},{"origin",""}}));return;}
+    const auto context=owner->contexts_.find(workspace);const auto state=owner->context_states_.find(workspace);
+    const auto expected=(owner->root_/("workspace-"+local_security::sha256(workspace))).lexically_normal();
+    if(context==owner->contexts_.end()||state==owner->context_states_.end()||state->second!=Impl::ContextState::ready||!context->second||context->second->IsGlobal()||std::filesystem::path(context->second->GetCachePath().ToWString()).lexically_normal()!=expected){reply(failure("workspace_unavailable","Open a tab in this workspace, then try Extensions again."));return;}
+    std::string url,origin;uint64_t epoch=0;const auto tab=owner->tabs_.find(tab_id);const bool source_page=tab!=owner->tabs_.end();
+    if(tab!=owner->tabs_.end()){
+      if(tab->second->workspace!=workspace||tab->second->closed){reply(failure("stale_target","The selected tab changed."));return;}
+      epoch=tab->second->epoch;url=tab->second->browser->GetMainFrame()->GetURL().ToString();CefURLParts parts;
+      if(CefParseURL(url,parts)){const auto scheme=CefString(&parts.scheme).ToString();if(scheme=="http"||scheme=="https"){origin=CefString(&parts.origin).ToString();if(origin.ends_with('/'))origin.pop_back();}}
+    }else if(tab_id!="xenon-extensions:"+workspace||!owner->extension_manager_->has_browsers(workspace)){reply(failure("stale_target","The selected tab changed."));return;}
+    owner->extension_manager_->quick_list(workspace,context->second,origin,[owner,tab_id,workspace,url,epoch,source_page,reply=std::move(reply)](Json result){
+      if(owner->shutting_down_||owner->removed_workspaces_.contains(workspace)||!owner->contexts_.contains(workspace)){reply(failure("workspace_unavailable","The extension list was canceled."));return;}
+      if(source_page){const auto current=owner->tabs_.find(tab_id);if(current==owner->tabs_.end()||current->second->closed||current->second->epoch!=epoch||current->second->workspace!=workspace||current->second->browser->GetMainFrame()->GetURL().ToString()!=url){reply(failure("stale_target","The page changed. Open Extensions again."));return;}}
+      if(result.value("ok",false)){
+        result["result"]["documentEpoch"]=epoch;
+        const int capabilities=extension_action::call(extension_action::capabilities);
+        result["result"]["siteToggleAvailable"]=capabilities>=0&&(capabilities&2)!=0;
+        if(source_page&&!result["result"].value("origin",std::string{}).empty()&&capabilities>0){
+          const auto current=owner->tabs_.at(tab_id);Json rows=Json::array();
+          for(auto row:result["result"]["extensions"]){
+            const auto id=field(row,"id");const auto flags=extension_action::call(extension_action::info,current->browser->GetIdentifier(),id.c_str());
+            if(flags==-1)continue;
+            if(flags>=0){
+              const auto previous=row.value("access",std::string{});
+              row["access"]=(flags&32)&&((flags&24)||previous!="other")?"blocked":flags&8?"allowed":flags&16?"on_click":"other";
+              row["canOnClick"]=(flags&128)!=0;row["canOnSite"]=(flags&256)!=0;row["canAllSites"]=(flags&512)!=0;
+              row["canChangeSite"]=(flags&(128|256|512))!=0;row["hasAction"]=(flags&1)!=0;
+              row["canPin"]=(flags&1024)!=0;row["hasSidePanel"]=(flags&2048)!=0;
+            }
+            rows.push_back(std::move(row));
+          }
+          result["result"]["extensions"]=std::move(rows);
+        }
+      }
+      reply(std::move(result));
+    });
+  });
+}
+void CefEngine::invoke_extension_action(const std::string& tab_id,const std::string& workspace,
+                                const std::string& extension,const std::string& command,uint64_t epoch,RECT anchor,Reply reply){
+  on_ui([owner=impl_,tab_id,workspace,extension,command,epoch,anchor,reply=std::move(reply)]{
+    if(owner->shutting_down_||owner->removed_workspaces_.contains(workspace)||owner->private_workspaces_.contains(workspace)||owner->active_tab_!=tab_id){reply(failure("stale_target","Select a regular website tab first."));return;}
+    const auto found=owner->tabs_.find(tab_id);
+    if(found==owner->tabs_.end()||found->second->workspace!=workspace||found->second->closed||found->second->epoch!=epoch){reply(failure("stale_target","The selected page changed. Open Extensions again."));return;}
+    const auto tab=found->second;const auto context=owner->contexts_.find(workspace);
+    const auto expected=(owner->root_/("workspace-"+local_security::sha256(workspace))).lexically_normal();
+    if(context==owner->contexts_.end()||!context->second||!context->second->IsSame(tab->browser->GetHost()->GetRequestContext())||std::filesystem::path(context->second->GetCachePath().ToWString()).lexically_normal()!=expected){reply(failure("workspace_unavailable","The extension workspace changed."));return;}
+    if(tab->protected_auth||tab->auth_inflight||tab->native_fill||tab->dialog||tab->human_dialog){reply(failure("extension_action_unavailable","Finish the protected interaction before opening an extension."));return;}
+    const auto root=GetAncestor(tab->browser->GetHost()->GetWindowHandle(),GA_ROOT);
+    if(GetAncestor(GetForegroundWindow(),GA_ROOTOWNER)!=GetAncestor(root,GA_ROOTOWNER)||!IsWindowEnabled(root)){reply(failure("stale_target","The selected window changed."));return;}
+    using namespace extension_action;
+    const std::map<std::string,Command> commands{{"activate",invoke},{"activate-reload",invoke_with_reload},{"side-panel",side_toggle},{"pin",pin},{"unpin",unpin},{"block-site",block_site},{"allow-site",allow_site},{"on-click",on_click},{"on-site",on_site},{"on-all-sites",on_all_sites},{"remove",remove}};
+    const auto op=commands.find(command);if(op==commands.end()){reply(failure("invalid_action","Unknown extension action."));return;}
+    // A human extension action invalidates agent evidence and pauses queued
+    // input without changing the tab's owner or replaying interrupted work.
+    if(command!="pin"&&command!="unpin")owner->human_activity(tab,tab->human_gesture,false);
+    const auto result=call(op->second,tab->browser->GetIdentifier(),extension.c_str(),anchor);
+    if(result==1){reply(success({{"dispatched",true}}));return;}
+    if(result==2){reply(success({{"noAction",true}}));return;}
+    if(result==-4){reply(failure("extension_reload_required","Reload this page to run the extension?"));return;}
+    if(result==-2){reply(failure("extension_site_blocked","Extensions are blocked on this site."));return;}
+    if(result==-100){reply(failure("extension_engine_required","Restart Xenon using the engine build with extension action support."));return;}
+    reply(failure("extension_action_unavailable","The extension action is unavailable for this page."));
+  });
+}
+void CefEngine::dismiss_extension_action(const std::string& tab_id){on_ui([owner=impl_,tab_id]{
+  const auto tab=owner->tabs_.find(tab_id);if(tab!=owner->tabs_.end())extension_action::call(extension_action::close,tab->second->browser->GetIdentifier());
+});}
+bool CefEngine::extension_side_visible(const std::string& tab_id){
+  const auto it=impl_->tabs_.find(tab_id);return it!=impl_->tabs_.end()&&!it->second->closed&&extension_action::call(extension_action::side_visible,it->second->browser->GetIdentifier())==1;
+}
+void CefEngine::layout_extension_surfaces(const std::string& tab_id,RECT dock,RECT toolbar_anchor){
+  const auto it=impl_->tabs_.find(tab_id);if(it==impl_->tabs_.end()||it->second->closed)return;
+  const int browser=it->second->browser->GetIdentifier();
+  extension_action::call(extension_action::anchor,browser,nullptr,toolbar_anchor);
+  extension_action::call(extension_action::side_layout,browser,nullptr,dock);
+}
+#if defined(XENON_TEST_FIXTURE_CERT_SHA256)
+namespace {
+class ExtensionManagerProbe final:public CefDevToolsMessageObserver {
+ public:
+  struct State {CefRefPtr<CefRegistration> registration;Reply reply;bool native_click=false;};
+  explicit ExtensionManagerProbe(std::shared_ptr<State> state):state_(std::move(state)){}
+  static void finish(const std::shared_ptr<State>& state,Json value){auto reply=std::exchange(state->reply,{});state->registration=nullptr;if(reply)reply(std::move(value));}
+  void OnDevToolsMethodResult(CefRefPtr<CefBrowser> browser,int id,bool ok,const void* bytes,size_t size)override{
+    if(id!=991001||!state_->reply)return;
+    auto state=state_;
+    try{
+      const auto data=Json::parse(static_cast<const char*>(bytes),static_cast<const char*>(bytes)+size);
+      if(!ok||data.contains("exceptionDetails"))throw std::runtime_error("Probe evaluation failed");
+      const auto value=data.at("result").at("value");Json result=Json::object();
+      if(state->native_click){
+        if(!value.value("found",false)){finish(state,failure("NOT_READY","Synthetic link is not ready"));return;}
+        const auto root=browser->GetHost()->GetWindowHandle();const auto scale=GetDpiForWindow(root)/96.0*std::pow(1.2,browser->GetHost()->GetZoomLevel());
+        POINT screen{static_cast<LONG>(std::lround(value.at("x").get<double>()*scale)),static_cast<LONG>(std::lround(value.at("y").get<double>()*scale))};ClientToScreen(root,&screen);
+        HWND target=root;for(int depth=0;depth<12;++depth){POINT point=screen;ScreenToClient(target,&point);const auto child=ChildWindowFromPointEx(target,point,CWP_SKIPINVISIBLE|CWP_SKIPDISABLED);if(!child||child==target)break;target=child;}
+        POINT point=screen;ScreenToClient(target,&point);const auto at=MAKELPARAM(point.x,point.y);
+        const bool sent=PostMessageW(target,WM_MOUSEMOVE,0,at)&&PostMessageW(target,WM_LBUTTONDOWN,MK_LBUTTON,at)&&PostMessageW(target,WM_LBUTTONUP,0,at);
+        finish(state,sent?success({{"clicked",true}}):failure("FIXTURE_FAILED","Synthetic native link dispatch failed"));return;
+      }
+      for(const char* key:{"managerPage","managerElement","developerApi","storePage","storeApi","drawerOpen","drawerLogoHidden","storeLogoHidden","clicked","accountPage","installed","installRejected","contentScriptActive","fixturePageReady","popupActiveTab","popupView","popupDynamic","actionClicked"})if(value.contains(key)&&value[key].is_boolean())result[key]=value[key];
+      finish(state,success(std::move(result)));
+    }catch(...){finish(state,failure("FIXTURE_FAILED","Synthetic extension-manager probe failed"));}
+  }
+ private:std::shared_ptr<State> state_;IMPLEMENT_REFCOUNTING(ExtensionManagerProbe);
+};
+}
+void CefEngine::fixture_extension_manager(const std::string& workspace,const std::string& action,Reply reply){
+  on_ui([this,owner=impl_,workspace,action,reply=std::move(reply)]{
+    if(workspace!="native-default"||owner->root_.parent_path().filename()!=L".cache"||!owner->root_.filename().wstring().starts_with(L"extension-manager-integration-")){
+      reply(failure("FIXTURE_FAILED","Synthetic profile required"));return;
+    }
+    if(action=="close"){owner->extension_manager_->close(workspace);reply(success());return;}
+    if(action=="close-pages"){for(const auto& [id,tab]:owner->tabs_)tab->browser->GetHost()->CloseBrowser(true);reply(success());return;}
+    if(action=="inventory"){auto state=owner->extension_manager_->fixture_surface(workspace);state["managerOpen"]=owner->extension_manager_->fixture_browser(workspace)!=nullptr;state["brokerTabs"]=owner->tabs_.size();reply(success(std::move(state)));return;}
+    if(action=="popup-state"){
+      int selected_browser=0;if(auto it=owner->tabs_.find(owner->active_tab_);it!=owner->tabs_.end()&&!it->second->closed)selected_browser=it->second->browser->GetIdentifier();
+      reply(success({{"popups",extension_action::call(extension_action::pending)},{"sidePanels",extension_action::call(extension_action::side_pending)},
+        {"nativeGuardAllowsSource",selected_browser&&extension_action::guard_callback(selected_browser)>0},{"supported",extension_action::call(extension_action::version)==1}}));return;
+    }
+    if(action=="side-close"){extension_action::call(extension_action::close_surfaces);reply(success());return;}
+    if(action=="side-protect"||action=="side-unprotect"){
+      for(const auto& [id,tab]:owner->tabs_)if(tab->workspace==workspace&&!tab->closed&&tab->id==owner->active_tab_){tab->protected_auth=action=="side-protect";if(tab->protected_auth)extension_action::call(extension_action::close_surfaces,tab->browser->GetIdentifier());reply(success());return;}
+      reply(failure("NOT_READY","Synthetic selected page required"));return;
+    }
+    if(action=="popup-close"){extension_action::call(extension_action::close);reply(success());return;}
+    if(action=="popup-marker"||action=="action-side"||action=="side-button"||action=="action-popup"||action=="action-click"||action=="action-allow-site"||action=="action-on-click-matching"||action=="action-on-site-matching"||action=="action-on-site-other"){
+      std::shared_ptr<Tab> source;for(const auto& [id,tab]:owner->tabs_)if(tab->workspace==workspace&&!tab->closed){if(!source)source=tab;if(id==owner->active_tab_){source=tab;break;}}
+      if(!source){reply(failure("NOT_READY","Synthetic website is initializing"));return;}
+      if(action=="popup-marker"){
+        const auto state=std::make_shared<ExtensionManagerProbe::State>();state->reply=std::move(reply);state->registration=source->browser->GetHost()->AddDevToolsMessageObserver(new ExtensionManagerProbe(state));
+        const auto request=Json{{"id",991001},{"method","Runtime.evaluate"},{"params",{{"expression",R"JS((()=>{const d=location.hostname==='127.0.0.1'?document.documentElement.dataset:{};return {popupActiveTab:d.xenonActionPopup==='active',popupView:d.xenonActionView==='true',popupDynamic:d.xenonActionVariant==='actual',actionClicked:d.xenonActionClicked==='active'};})())JS"},{"returnByValue",true}}}}.dump();
+        source->browser->GetHost()->SendDevToolsMessage(request.data(),request.size());later(5000,[state]{if(state->reply)ExtensionManagerProbe::finish(state,failure("FIXTURE_FAILED","Synthetic popup marker timed out"));});return;
+      }
+      const auto root=GetAncestor(source->browser->GetHost()->GetWindowHandle(),GA_ROOT);SetForegroundWindow(root);select_native_tab(source->id);
+      extension_quick_list(source->id,workspace,[this,source,workspace,action,root,reply=std::move(reply)](Json list){
+        if(!list.value("ok",false)){reply(std::move(list));return;}
+        const auto name=action=="action-side"||action=="side-button"?"Synthetic side panel":action=="action-click"?"Synthetic action click":action=="action-on-site-other"?"Synthetic other extension":action=="action-on-click-matching"||action=="action-on-site-matching"?"Synthetic matching extension":"Synthetic action popup";std::string extension;
+        for(const auto& row:list["result"]["extensions"])if(field(row,"name")==name){extension=field(row,"id");break;}
+        if(extension.empty()){reply(failure("NOT_READY","Synthetic action extension is initializing"));return;}
+        RECT rect{};GetWindowRect(root,&rect);rect.left=rect.right-120;rect.top+=40;rect.right=rect.left+32;rect.bottom=rect.top+32;
+        invoke_extension_action(source->id,workspace,extension,action=="side-button"?"side-panel":action=="action-allow-site"?"allow-site":action=="action-on-click-matching"?"on-click":action=="action-on-site-matching"||action=="action-on-site-other"?"on-site":"activate",list["result"].value("documentEpoch",uint64_t{}),rect,std::move(reply));
+      });return;
+    }
+    if(action=="quick-list"||action=="quick-site"||action=="quick-stale"||action=="quick-marker"){
+      std::shared_ptr<Tab> source;for(const auto& [id,tab]:owner->tabs_)if(tab->workspace==workspace&&!tab->closed){if(!source)source=tab;if(id==owner->active_tab_){source=tab;break;}}
+      if(!source){reply(failure("NOT_READY","Synthetic website tab is initializing"));return;}
+      if(action=="quick-site"){
+        const auto path=owner->root_/"extension-quicklist-port.txt";const auto attrs=GetFileAttributesW(path.c_str());
+        if(attrs==INVALID_FILE_ATTRIBUTES||(attrs&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY))||std::filesystem::file_size(path)>5){reply(failure("FIXTURE_FAILED","Synthetic server port required"));return;}
+        std::ifstream input(path);std::string port;input>>port;int number{};const auto parsed=std::from_chars(port.data(),port.data()+port.size(),number);
+        if(parsed.ec!=std::errc{}||parsed.ptr!=port.data()+port.size()||number<1||number>65535){reply(failure("FIXTURE_FAILED","Invalid synthetic server port"));return;}
+        source->browser->GetMainFrame()->LoadURL("http://127.0.0.1:"+port+"/");reply(success());return;
+      }
+      if(action=="quick-marker"){
+        const auto state=std::make_shared<ExtensionManagerProbe::State>();state->reply=std::move(reply);state->registration=source->browser->GetHost()->AddDevToolsMessageObserver(new ExtensionManagerProbe(state));
+        const auto request=Json{{"id",991001},{"method","Runtime.evaluate"},{"params",{{"expression","({fixturePageReady:location.hostname==='127.0.0.1'&&document.readyState==='complete',contentScriptActive:location.hostname==='127.0.0.1'&&document.documentElement.dataset.xenonExtensionFixture==='active'})"},{"returnByValue",true}}}}.dump();
+        source->browser->GetHost()->SendDevToolsMessage(request.data(),request.size());later(5000,[state]{if(state->reply)ExtensionManagerProbe::finish(state,failure("FIXTURE_FAILED","Synthetic marker probe timed out"));});return;
+      }
+      extension_quick_list(source->id,workspace,std::move(reply));
+      if(action=="quick-stale")source->browser->GetMainFrame()->LoadURL("about:blank");return;
+    }
+    const auto context=owner->contexts_.find(workspace);
+    if(context==owner->contexts_.end()){reply(failure("NOT_READY","Synthetic workspace is initializing"));return;}
+    if(action=="manager"||action=="store"){
+      const auto url=action=="store"?extension_manager::store:extension_manager::home;
+      reply(owner->extension_manager_->open(workspace,context->second,url)?success():failure("NOT_READY","Synthetic manager is initializing"));return;
+    }
+    auto browser=owner->extension_manager_->fixture_browser(workspace);
+    if(!browser||!browser->IsValid()||!browser->GetMainFrame()||!browser->GetMainFrame()->IsValid()){reply(failure("NOT_READY","Synthetic manager is loading"));return;}
+    if(browser->GetHost()->GetRuntimeStyle()!=CEF_RUNTIME_STYLE_CHROME||!context->second->IsSame(browser->GetHost()->GetRequestContext())){
+      reply(failure("FIXTURE_FAILED","Synthetic manager context/runtime mismatch"));return;
+    }
+    if(action=="account-redirect"||action=="account-direct"){
+      reply(owner->extension_manager_->fixture_account_navigation(workspace)?success():failure("FIXTURE_FAILED","Synthetic account navigation failed"));return;
+    }
+    if(action=="untracked-window"){
+      reply(owner->extension_manager_->fixture_untracked_window(workspace)?success():failure("FIXTURE_FAILED","Synthetic Chrome window creation failed"));return;
+    }
+    if(action=="install-page"||action=="confirm-install"||action=="install-click"||action=="install-mismatch"){
+      const auto optin_path=owner->root_/"STORE_INSTALL_TEST_ALLOWED";const auto attrs=GetFileAttributesW(optin_path.c_str());
+      if(attrs==INVALID_FILE_ATTRIBUTES||(attrs&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY))||std::filesystem::file_size(optin_path)>128){reply(failure("FIXTURE_FAILED","Explicit Store-install fixture opt-in required"));return;}
+      std::ifstream optin(optin_path,std::ios::binary);const std::string optin_text{std::istreambuf_iterator<char>(optin),{}};
+      if(optin_text!="XENON_SIGNED_STORE_INSTALL_FIXTURE:ddkjiahejlhfcafbddmgiahcphecmpfh\n"){reply(failure("FIXTURE_FAILED","Explicit Store-install fixture opt-in required"));return;}
+      if(action=="install-page"){browser->GetMainFrame()->LoadURL("https://chromewebstore.google.com/detail/ddkjiahejlhfcafbddmgiahcphecmpfh");reply(success());return;}
+      const auto url=browser->GetMainFrame()->GetURL().ToString();
+      if(!extension_manager::store_url(url)||url.find("ddkjiahejlhfcafbddmgiahcphecmpfh")==std::string::npos){reply(failure("FIXTURE_FAILED","Fixed Store package page required"));return;}
+      if(action=="confirm-install"){
+        CefPostTask(TID_FILE_BACKGROUND,new Task([reply=std::move(reply)]{const auto invoked=extension_install_fixture::confirm_signed_fixture();on_ui([reply,invoked]{reply(success({{"clicked",invoked}}));});}));return;
+      }
+    }
+    const auto state=std::make_shared<ExtensionManagerProbe::State>();state->reply=std::move(reply);state->native_click=action=="native-sidebar-link";
+    state->registration=browser->GetHost()->AddDevToolsMessageObserver(new ExtensionManagerProbe(state));
+    // Fixed synthetic-driver inspection of the browser's own native manager
+    // or public Store API. No arbitrary script/data is accepted from the file.
+    std::string expression=R"JS((()=>{
+      const manager=document.querySelector('extensions-manager')?.shadowRoot;
+      const drawer=manager?.querySelector('cr-drawer')?.shadowRoot;
+      const slot=drawer?.querySelector('slot[name="header-icon"]');
+      const sidebar=manager?.querySelector('cr-drawer extensions-sidebar')?.shadowRoot;
+      const icon=sidebar?.querySelector('#web-store-icon');
+      return {managerPage:location.href.startsWith('chrome://extensions/'),managerElement:!!manager,
+        developerApi:typeof chrome.developerPrivate?.getExtensionsInfo==='function',
+        storePage:location.origin==='https://chromewebstore.google.com',
+        accountPage:location.origin==='https://accounts.google.com',
+        storeApi:typeof chrome.webstorePrivate?.beginInstallWithManifest3==='function',
+        drawerOpen:!!drawer?.querySelector('dialog')?.open,
+        drawerLogoHidden:!!slot&&getComputedStyle(slot).display==='none',
+        storeLogoHidden:!!icon&&getComputedStyle(icon).display==='none'};
+    })())JS";
+    if(action=="drawer")expression=R"JS((()=>{const button=document.querySelector('extensions-manager')?.shadowRoot?.querySelector('extensions-toolbar')?.shadowRoot?.querySelector('cr-toolbar')?.shadowRoot?.querySelector('#menuButton');if(!button)return {clicked:false};button.click();return {clicked:true};})())JS";
+    else if(action=="sidebar-link")expression=R"JS((()=>{const link=document.querySelector('extensions-manager')?.shadowRoot?.querySelector('cr-drawer extensions-sidebar')?.shadowRoot?.querySelector('#discover-more-text a');if(!link)return {clicked:false};link.click();return {clicked:true};})())JS";
+    else if(action=="native-sidebar-link")expression=R"JS((()=>{const link=document.querySelector('extensions-manager')?.shadowRoot?.querySelector('cr-drawer extensions-sidebar')?.shadowRoot?.querySelector('#discover-more-text a');const rect=link?.getClientRects()[0];return rect?{found:true,x:rect.x+rect.width/2,y:rect.y+rect.height/2}:{found:false};})())JS";
+    else if(action=="empty-store-link")expression=R"JS((()=>{const link=document.querySelector('extensions-manager')?.shadowRoot?.querySelector('extensions-item-list')?.shadowRoot?.querySelector('#no-items a');if(!link)return {clicked:false};link.click();return {clicked:true};})())JS";
+    else if(action=="install-prompt")expression=R"JS((()=>{if(location.origin!=='https://chromewebstore.google.com'||typeof chrome.webstorePrivate?.beginInstallWithManifest3!=='function')return {clicked:false};chrome.webstorePrivate.beginInstallWithManifest3({id:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',manifest:JSON.stringify({manifest_version:3,name:'Xenon synthetic install prompt',version:'1.0',permissions:['tabs']})},()=>{void chrome.runtime.lastError;});return {clicked:true};})())JS";
+    else if(action=="install-click")expression=R"JS((()=>{if(location.origin!=='https://chromewebstore.google.com'||!location.pathname.includes('ddkjiahejlhfcafbddmgiahcphecmpfh'))return {clicked:false};const button=[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Add to Chrome')&&!b.disabled&&b.getBoundingClientRect().width>0);if(!button)return {clicked:false};button.click();return {clicked:true};})())JS";
+    else if(action=="install-rejected")expression=R"JS(({installRejected:globalThis.__xenonFixtureInstallRejected===true}))JS";
+    else if(action=="install-mismatch")expression=R"JS((()=>{if(location.origin!=='https://chromewebstore.google.com')return {clicked:false};globalThis.__xenonFixtureInstallRejected=false;chrome.webstorePrivate.beginInstallWithManifest3({id:'ddkjiahejlhfcafbddmgiahcphecmpfh',localizedName:'uBlock Origin Lite',manifest:JSON.stringify({manifest_version:3,name:'Xenon mismatched manifest fixture',version:'1.0',permissions:['tabs']})},result=>{if(result){void chrome.runtime.lastError;return;}chrome.webstorePrivate.completeInstall('ddkjiahejlhfcafbddmgiahcphecmpfh',()=>{globalThis.__xenonFixtureInstallRejected=!!chrome.runtime.lastError;});});return {clicked:true};})())JS";
+    else if(action=="installed")expression=R"JS(new Promise(resolve=>{if(location.origin!=='https://chromewebstore.google.com'||typeof chrome.webstorePrivate?.getExtensionStatus!=='function'){resolve({installed:false});return;}chrome.webstorePrivate.getExtensionStatus('ddkjiahejlhfcafbddmgiahcphecmpfh',status=>{void chrome.runtime.lastError;resolve({installed:status==='enabled'||status==='disabled'});});}))JS";
+    const auto request=Json{{"id",991001},{"method","Runtime.evaluate"},{"params",{{"expression",expression},{"returnByValue",true},{"awaitPromise",true},{"userGesture",action=="drawer"||action=="sidebar-link"||action=="empty-store-link"||action=="install-prompt"||action=="install-click"||action=="install-mismatch"}}}}.dump();
+    if(!browser->GetHost()->SendDevToolsMessage(request.data(),request.size()))ExtensionManagerProbe::finish(state,failure("FIXTURE_FAILED","Synthetic manager probe dispatch failed"));
+    else later(5000,[state]{if(state->reply)ExtensionManagerProbe::finish(state,failure("FIXTURE_FAILED","Synthetic manager probe timed out"));});
+  });
+}
+#endif
 size_t CefEngine::saved_account_count(const std::string& id){
   const auto found=impl_->tabs_.find(id);if(found==impl_->tabs_.end()||found->second->closed||!impl_->vault_||impl_->vault_->locked())return 0;
   const auto origin=Vault::normalize_https_origin(found->second->browser->GetMainFrame()->GetURL().ToString());if(!origin)return 0;
@@ -2402,7 +2687,10 @@ void CefEngine::set_passkey_control_callback(std::function<bool(const std::strin
 void CefEngine::set_permission_callback(std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> callback){impl_->permission_=std::move(callback);}
 void CefEngine::set_tab_covered(const std::string& id,bool covered){on_ui([owner=impl_,id,covered]{
   if(!owner->tabs_.contains(id)&&!owner->creating_.contains(id))return;owner->pacing_.set_covered(id,covered);owner->pace(id);});}
-void CefEngine::select_native_tab(const std::string& id){
+void CefEngine::select_native_tab(const std::string& id,bool awaiting_browser){
+  if(auto tab=impl_->tabs_.find(id);tab!=impl_->tabs_.end()&&!tab->second->private_mode&&!tab->second->closed)extension_action::call(extension_action::select_tab,tab->second->browser->GetIdentifier());
+  else if(awaiting_browser)extension_action::call(extension_action::close);
+  else extension_action::call(extension_action::clear_selection);
   impl_->active_tab_=id;if(auto found=impl_->tabs_.find(id);found!=impl_->tabs_.end())impl_->active_windows_[GetAncestor(found->second->browser->GetHost()->GetWindowHandle(),GA_ROOT)]=id;
 }
 void CefEngine::native_pointer(HWND page,POINT screen,bool substantive){on_ui([owner=impl_,page,screen,substantive]{
@@ -2606,6 +2894,7 @@ void CefEngine::developer_pick_point(const std::string& id,double x,double y){on
 });}
 void CefEngine::native_command(const std::string& id,const std::string& command,const std::string& value,Reply reply){on_ui([owner=impl_,id,command,value,reply]{
   try {
+    if(owner->extension_manager_->native_command(id,command,value,reply))return;
     if(command=="theme") {for(const auto& [workspace,context]:owner->contexts_)context->SetChromeColorScheme(ui::theme_mode==ui::ThemeMode::dark?CEF_COLOR_VARIANT_DARK:ui::theme_mode==ui::ThemeMode::light?CEF_COLOR_VARIANT_LIGHT:CEF_COLOR_VARIANT_SYSTEM,0);if(reply)reply(success());return;}
     auto found=owner->tabs_.find(id);if(found==owner->tabs_.end()){if(reply)reply(failure("tab_closed","Select an open tab."));return;}auto tab=found->second;auto browser=tab->browser;auto host=browser->GetHost();
     if(command=="focus"){if(owner->active_tab_==id)host->SetFocus(true);return;}
@@ -2803,7 +3092,7 @@ void CefEngine::exclude_workspaces(const std::vector<std::string>& workspaces){
 }
 void CefEngine::restore_session(const std::vector<std::string>& workspaces,Reply reply){on_ui([p=impl_,workspaces,reply]{p->restore(workspaces,reply);});}
 Json CefEngine::native_dialogs(){Json result=Json::array();for(const auto& [id,t]:impl_->tabs_)if(t->dialog)result.push_back({{"tabId",id},{"type",t->dialog_type},{"message",t->dialog_message},{"origin",t->dialog_origin}});return result;}
-Json CefEngine::native_tabs(){Json result=Json::array();for(const auto& [id,t]:impl_->tabs_)result.push_back({{"tabId",id},{"workspaceId",t->workspace},
+Json CefEngine::native_tabs(){Json result=impl_->extension_manager_->native_tabs();for(const auto& [id,t]:impl_->tabs_)result.push_back({{"tabId",id},{"workspaceId",t->workspace},
   {"title",t->title.empty()?(t->last_url.empty()||t->last_url=="about:blank"?"New tab":t->last_url):t->title},
   {"url",t->protected_auth?"[Protected authentication]":t->browser->GetMainFrame()->GetURL().ToString()},{"loading",t->browser->IsLoading()},
   {"canGoBack",t->browser->CanGoBack()},{"canGoForward",t->browser->CanGoForward()},{"private",t->private_mode},{"protected",t->protected_auth},
@@ -2821,7 +3110,15 @@ void CefEngine::set_fullscreen_callback(std::function<void(const std::string&,bo
 void CefEngine::set_external_link_callback(std::function<void(const std::string&,const std::string&,const std::string&,const std::string&,bool,std::function<void(bool)>)> f){impl_->external_link_=std::move(f);}
 void CefEngine::set_screen_share_callback(std::function<void(const std::string&,const std::string&,bool,std::function<void(bool)>)> f){impl_->screen_share_=std::move(f);}
 void CefEngine::answer_native_dialog(const std::string& id,bool accept,const std::string& text){on_ui([p=impl_,id,accept,text]{auto i=p->tabs_.find(id);if(i==p->tabs_.end()||!i->second->dialog)return;auto t=i->second;auto callback=t->dialog;t->dialog=nullptr;t->dialog_type.clear();t->dialog_message.clear();t->dialog_origin.clear();t->human_dialog=false;p->human_activity(t,t->human_gesture,false);callback->Continue(accept,text);});}
-CefRefPtr<CefClient> CefEngine::default_client(){return new Impl::Client(impl_,"human-default");}
+CefRefPtr<CefClient> CefEngine::default_client(){
+  return new CefDefaultClient([weak=std::weak_ptr<Impl>(impl_)](CefRefPtr<CefBrowser> browser)->CefRefPtr<CefClient>{
+    if(auto owner=weak.lock()){
+      if(owner->extension_manager_->handles(browser))return owner->extension_manager_->default_client();
+      return new Impl::Client(owner,"human-default");
+    }
+    return nullptr;
+  });
+}
 CefRefPtr<CefRequestContextHandler> CefEngine::default_context_handler(){return new Impl::ContextHandler;}
 void CefEngine::native_input(CefWindowHandle window,bool busy,bool credential_input,bool substantive,bool primary_click){
   on_ui([p=impl_,window,busy,credential_input,substantive,primary_click]{

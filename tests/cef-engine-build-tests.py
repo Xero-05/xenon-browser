@@ -29,7 +29,7 @@ class EngineRecipeTests(unittest.TestCase):
         # the local codec build, so they behave alike apart from H.264/AAC.
         media = LOCK['cef']['mediaSourceBuild']
         for key in ['cefCommit', 'chromiumCommit', 'branch', 'depotToolsCommit', 'automateSha256', 'windowsSdk',
-                    'videoSchedulingPatch', 'backgroundFrameRatePatch']:
+                    'videoSchedulingPatch', 'backgroundFrameRatePatch', 'extensionActionPatch']:
             self.assertEqual(self.recipe[key], media[key], key)
         build_options = 'is_official_build=true use_thin_lto=false chrome_pgo_phase=0 symbol_level=0'
         self.assertTrue(self.recipe['gnDefines'].startswith(build_options + ' '))
@@ -84,7 +84,7 @@ class EngineSourceTests(unittest.TestCase):
         with patch.object(source_build, 'run', side_effect=self.revision):
             _, patches = source_build.validate(self.source, 'engine')
         recipe = LOCK['cef']['engineSourceBuild']
-        self.assertEqual(patches, [ROOT / recipe['videoSchedulingPatch']['path'], ROOT / recipe['backgroundFrameRatePatch']['path']])
+        self.assertEqual(patches, [ROOT / recipe[key]['path'] for key in source_build.RECIPES['engine']['patches']])
 
     def test_validate_rejects_a_checkout_carrying_the_codec_patch(self):
         self.options.write_text('declare_args() {\n  xenon_windows_codecs = false\n}\n')

@@ -1,5 +1,13 @@
 # Release notes
 
+## Unreleased
+
+**Extension panel and extension surfaces.** The Extensions button opens a compact panel with icons, current-site access, a site switch, pin controls and individual menus for options, details, permissions and removal. Pinned extensions appear on the workspace's toolbar. Xenon's engine hosts genuine Chromium action popups, extension-requested `chrome.action.openPopup()` and docked side panels for ordinary Alloy tabs. Programmatic popups do not grant click permissions; `sidePanel.open()` retains its user-gesture check. Global and tab-specific panels support closing, options and opened/closed events. Stale pages and protected/private contexts refuse action dispatch. Broader Chrome window/tab APIs remain limited.
+
+**Store installation crash.** Chromium can create a temporary browser for its installation-completion UI. Xenon now keeps that hidden browser alive through the queued completion callback before closing it, preventing a crash after download while retaining native permission confirmation and package verification.
+
+**Chromium extension manager and direct Store installation.** **Extensions → Manage extensions…** opens Chromium's actual manager for the current workspace, with extension cards, search, details, permission controls and Chromium's lifecycle. **Extensions → Chrome Web Store** opens the real Store and native install confirmation in that workspace's Extensions tab. These tabs are human-only and cannot enter MCP tab inventories. Existing copied extensions remain under **Legacy copied extensions…** with their original restart-based behavior and optional verified link importer. Xenon's ordinary pages still use Alloy hosts, so this does not establish full extension popup/tab-API compatibility. See the [user guide](USER_GUIDE.md#extensions) and [security boundary](SECURITY.md#extensions).
+
 ## 0.1.7
 
 0.1.7 replaces the withdrawn 0.1.6 and includes all of its changes below. The [0.1.7 notes](RELEASE-0.1.7.md) also cover the engine and the release checks.

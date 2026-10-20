@@ -16,6 +16,7 @@ Paths below are relative to `native/` unless prefixed with `../`. Headers are in
 | Vault, CSV import, file capabilities and profile cleanup | `src/vault.cpp`, `src/file_policy.cpp`, `src/workspace_storage.cpp`, matching headers and `include/xenon/local_security.hpp` |
 | Rendered-evidence filter, isolated-world credential scripts and main-world passkey gate | `src/visible_evidence.cpp`, `include/xenon/login_monitor.hpp`, `include/xenon/human_autofill.hpp`, `include/xenon/passkey_guard.hpp` |
 | Native update checks and Windows setup | `src/updater.cpp`, `include/xenon/updater.hpp`, `../installer/`, `../scripts/build-installer.ps1`, `../VERSION` |
+| Native Chromium extension manager, action popups, legacy installation and Web Store verification | `src/cef_extension_manager.cpp`, `src/cef_extension_catalog.cpp`, `src/cef_extension_panel.cpp`, `include/xenon/extension_action_engine.hpp`, `include/xenon/extension_manager_policy.hpp`, `src/extension_store.cpp`, `src/web_store.cpp`, `src/cef_extension_installer.cpp`, matching headers, `src/cef_engine.cpp`, `src/native_ui.cpp`; engine patch workflow in [BUILD](../docs/BUILD.md#extension-action-engine-patch) |
 
 ## Implementation workflow
 
