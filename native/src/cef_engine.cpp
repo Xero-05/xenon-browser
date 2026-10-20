@@ -278,7 +278,12 @@ struct Tab {
   Json downloads = Json::array();
   std::map<uint32_t,CefRefPtr<CefDownloadItemCallback>> active_downloads;
   HWND native_host{};
+  // The last agent or human pointer position, in window coordinates (see
+  // input_viewport_from_window), so a person's pointer needs no CDP read and
+  // the overlay draws it directly. Agent input is in input coordinates; the
+  // current gesture's pinch scale converts it.
   PointerPoint pointer;
+  double pointer_scale=1;
   bool pointer_known{};
   uint64_t pointer_revision{};
   uint64_t agent_pointer_revision{},pointer_sync_revision{},human_pointer_revision{};
@@ -686,7 +691,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     const double pointer_x=pointer_message?message["params"].value("x",0.0):0,pointer_y=pointer_message?message["params"].value("y",0.0):0;
     t->pending[id] = [weak=weak_from_this(),t,action,pointer_message,pointer_x,pointer_y,callback=std::move(callback)](Json result){if(auto self=weak.lock()){
       ActionScope scope(*self,action);
-      if(pointer_message&&cdp_ok(result)&&(!action||action->human==t->human_input)){t->pointer={pointer_x,pointer_y};t->pointer_known=true;++t->pointer_revision;++t->agent_pointer_revision;}
+      if(pointer_message&&cdp_ok(result)&&(!action||action->human==t->human_input)){t->pointer={pointer_x*t->pointer_scale,pointer_y*t->pointer_scale};t->pointer_known=true;++t->pointer_revision;++t->agent_pointer_revision;}
       callback(std::move(result));}};
     auto bytes = message.dump();
     if (!t->browser->GetHost()->SendDevToolsMessage(bytes.data(), bytes.size())) {
@@ -1740,13 +1745,15 @@ void CefEngine::Impl::move_pointer(const std::shared_ptr<Tab>& t,double x,double
     if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was canceled before dispatch."));return;}
     // Moves stay inside the rendered view, in input coordinates. A pinch zoom
     // shrinks that view inside the window, and the last pointer position can
-    // predate the pinch.
+    // predate the pinch. The motion starts where the last pointer is now.
     send(t,"Page.getLayoutMetrics",Json::object(),[this,t,x,y,seed,reply,done,dragging](Json metrics){
       if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was canceled before dispatch."));return;}
       const auto view=input_viewport(metrics);
       if(!cdp_ok(metrics)||view.empty()){reply(failure("viewport_unavailable","The viewport is unavailable. No pointer movement was dispatched."));return;}
       const auto inside=[view](PointerPoint point){const auto [clamped_x,clamped_y]=input_viewport_clamp(view,point.x,point.y);return PointerPoint{clamped_x,clamped_y};};
-      const PointerMotion motion(inside(t->pointer),{x,y},seed);
+      const auto [start_x,start_y]=input_viewport_from_window(view,t->pointer.x,t->pointer.y);
+      t->pointer_scale=input_viewport_scale(view);
+      const PointerMotion motion(inside({start_x,start_y}),{x,y},seed);
       auto step=std::make_shared<std::function<void(int)>>();const int count=(motion.duration_ms()+15)/16;
       const std::weak_ptr<std::function<void(int)>> weak_step=step;
       // Scheduled callbacks own the next step. The function holds only a weak
@@ -2285,6 +2292,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     // The wheel goes to the center of the rendered view, which a pinch zoom shrinks.
     send(t,"Page.getLayoutMetrics",Json::object(),[this,t,dir,amount,reply](Json m){auto vp=m.value("cssVisualViewport",Json::object());
       if(!cdp_ok(m)||vp.empty()){reply(failure("viewport_unavailable","The viewport is unavailable."));return;}
+      t->pointer_scale=input_viewport_scale(input_viewport(m));
       send(t,"Input.dispatchMouseEvent",{{"type","mouseWheel"},{"x",vp.value("clientWidth",0.0)/2},{"y",vp.value("clientHeight",0.0)/2},
         {"deltaX",dir=="right"?amount:dir=="left"?-amount:0},{"deltaY",dir=="down"?amount:dir=="up"?-amount:0}},
         [reply](Json r){reply(cdp_ok(r)?success({{"status","dispatched"}}):failure("input_failed","Scroll could not be dispatched."));});});return;
@@ -2404,7 +2412,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
       move_pointer(t,x,y,reply,[this,t,x,y,toX,toY,reply,verify]{verify([this,t,x,y,toX,toY,reply]{
         send(t,"Input.dispatchMouseEvent",{{"type","mousePressed"},{"x",x},{"y",y},{"button","left"},{"buttons",1},{"clickCount",1}},[this,t,toX,toY,reply](Json down){
           if(down.value("error",Json::object()).value("notDispatched",false)){reply(failure("human_interrupted","Human input interrupted this drag before mouse-down."));return;}
-          auto release=[this,t,reply](bool ok){const auto position=t->pointer;send(t,"Input.dispatchMouseEvent",{{"type","mouseReleased"},{"x",position.x},{"y",position.y},{"button","left"},{"buttons",0},{"clickCount",1}},[reply,ok](Json up){reply(ok&&cdp_ok(up)?success({{"status","dispatched"}}):failure("input_interrupted","The drag was interrupted and its button balanced. Observe before retrying."));});};
+          auto release=[this,t,reply](bool ok){const PointerPoint position{t->pointer.x/t->pointer_scale,t->pointer.y/t->pointer_scale};send(t,"Input.dispatchMouseEvent",{{"type","mouseReleased"},{"x",position.x},{"y",position.y},{"button","left"},{"buttons",0},{"clickCount",1}},[reply,ok](Json up){reply(ok&&cdp_ok(up)?success({{"status","dispatched"}}):failure("input_interrupted","The drag was interrupted and its button balanced. Observe before retrying."));});};
           if(!cdp_ok(down)){release(false);return;}
           move_pointer(t,toX,toY,[release](Json){release(false);},[release]{release(true);},true);
         });
@@ -2751,6 +2759,18 @@ void CefEngine::fixture_page_scale(const std::string& id,double scale,Reply repl
     });
   });
 }
+void CefEngine::fixture_human_pointer(const std::string& id,int client_x,int client_y,Reply reply){
+  on_ui([this,owner=impl_,id,client_x,client_y,reply=std::move(reply)]{
+    if(owner->root_.parent_path().filename()!=L".cache"||!owner->root_.filename().wstring().starts_with(L"pinch-zoom-integration-")){reply(failure("FIXTURE_FAILED","Synthetic profile required"));return;}
+    const auto found=owner->tabs_.find(id);
+    if(found==owner->tabs_.end()||found->second->closed){reply(failure("FIXTURE_FAILED","Missing synthetic tab"));return;}
+    // The position a mouse message hook would report; no input is sent.
+    POINT screen{client_x,client_y};
+    if(!ClientToScreen(found->second->browser->GetHost()->GetWindowHandle(),&screen)){reply(failure("FIXTURE_FAILED","Page window unavailable"));return;}
+    native_pointer(found->second->native_host,screen,false);
+    on_ui([reply]{reply(success());});
+  });
+}
 #endif
 size_t CefEngine::saved_account_count(const std::string& id){
   const auto found=impl_->tabs_.find(id);if(found==impl_->tabs_.end()||found->second->closed||!impl_->vault_||impl_->vault_->locked())return 0;
@@ -2773,6 +2793,8 @@ void CefEngine::dismiss_page_popups(HWND page){on_ui([owner=impl_,page]{
 });}
 void CefEngine::native_pointer(HWND page,POINT screen,bool substantive){on_ui([owner=impl_,page,screen,substantive]{
   for(const auto& [id,tab]:owner->tabs_)if(tab->native_host==page){
+    // Window coordinates: a later pinch or pan does not move this position,
+    // and the next agent motion converts it through the current pinch scale.
     auto window=tab->browser->GetHost()->GetWindowHandle();POINT point=screen;if(!ScreenToClient(window,&point))return;
     const double scale=GetDpiForWindow(window)/96.0*std::pow(1.2,tab->browser->GetHost()->GetZoomLevel());
     tab->pointer={point.x/scale,point.y/scale};tab->pointer_known=true;++tab->pointer_revision;if(substantive)++tab->human_pointer_revision;return;
@@ -2815,9 +2837,15 @@ void CefEngine::developer_highlight(const std::string& id,const std::string& dia
       double left=q[0].get<double>(),right=left,top=q[1].get<double>(),bottom=top;
       for(size_t i=2;i<8;i+=2){left=std::min(left,q[i].get<double>());right=std::max(right,q[i].get<double>());top=std::min(top,q[i+1].get<double>());bottom=std::max(bottom,q[i+1].get<double>());}
       owner->translate(t,e.session,left,top,done,[owner,t,e,diagnostic,revision,done,right,bottom,valid](double x,double y){
-        owner->translate(t,e.session,right,bottom,done,[t,e,diagnostic,revision,done,x,y,valid](double xx,double yy){
+        owner->translate(t,e.session,right,bottom,done,[owner,t,e,diagnostic,revision,done,x,y,valid](double xx,double yy){
           if(!valid()||!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(xx)||!std::isfinite(yy)||xx<=x||yy<=y||std::abs(x)>1e8||std::abs(y)>1e8||std::abs(xx)>1e8||std::abs(yy)>1e8){done(failure("stale_element","The highlight target changed."));return;}
-          t->developer_highlighted=diagnostic;done(success({{"x",x},{"y",y},{"width",xx-x},{"height",yy-y},{"approximate",e.diagnostic_uncertain}}));
+          // The bounds are input coordinates; the shell draws in window
+          // coordinates, which a pinch magnifies by its scale.
+          owner->send(t,"Page.getLayoutMetrics",Json::object(),[t,e,diagnostic,done,x,y,xx,yy,valid](Json metrics){
+            const auto viewport=input_viewport(metrics);
+            if(!valid()||!cdp_ok(metrics)||viewport.empty()){done(failure("stale_element","The highlight viewport is unavailable."));return;}
+            t->developer_highlighted=diagnostic;done(success({{"x",x},{"y",y},{"width",xx-x},{"height",yy-y},{"approximate",e.diagnostic_uncertain},{"pageScale",input_viewport_scale(viewport)}}));
+          });
         });
       });
     },e.session);
@@ -2869,13 +2897,15 @@ void CefEngine::Impl::developer_hit(const std::shared_ptr<Tab>& t,double x,doubl
     },session);
   };
   // Unlike box-model geometry, Chromium's DOM hit test takes document
-  // coordinates. Native mouse positions are viewport CSS pixels.
+  // coordinates. Native mouse positions are window coordinates; a pinch
+  // magnifies the visual viewport, which may also be panned into the page.
   send(t,"Page.getLayoutMetrics",Json::object(),[this,t,x,y,valid,reply,located,positional](Json metrics){
-    const auto viewport=metrics.value("cssLayoutViewport",Json::object());
-    if(!valid()||!cdp_ok(metrics)||viewport.empty()||!std::isfinite(x)||!std::isfinite(y)||x<0||y<0||x>=viewport.value("clientWidth",0.0)||y>=viewport.value("clientHeight",0.0)){
+    const auto viewport=input_viewport(metrics);
+    const auto [input_x,input_y]=input_viewport_from_window(viewport,x,y);
+    if(!valid()||!cdp_ok(metrics)||viewport.empty()||!inside_input_viewport(viewport,input_x,input_y)){
       reply(failure("stale_viewport","The hover viewport is unavailable."));return;}
     double smallest=std::numeric_limits<double>::max();
-    const double document_x=x+viewport.value("pageX",0.0),document_y=y+viewport.value("pageY",0.0);
+    const auto [document_x,document_y]=input_viewport_document_point(viewport,input_x,input_y);
     for(const auto& [id,e]:t->developer_targets){
       // Snapshot-only position matching is an approximate human diagnostic.
       // Child frames retain native hit/ancestry matching instead of guessing
@@ -2885,9 +2915,9 @@ void CefEngine::Impl::developer_hit(const std::shared_ptr<Tab>& t,double x,doubl
       const double area=width*height;
       if(width>0&&height>0&&document_x>=left&&document_x<=left+width&&document_y>=top&&document_y<=top+height&&area<smallest){smallest=area;*positional=id;}
     }
-    send(t,"DOM.getNodeForLocation",{{"x",static_cast<int>(std::floor(x+viewport.value("pageX",0.0)))},{"y",static_cast<int>(std::floor(y+viewport.value("pageY",0.0)))},{"includeUserAgentShadowDOM",false}},[this,t,valid,reply,located,viewport](Json hit){
+    send(t,"DOM.getNodeForLocation",{{"x",static_cast<int>(std::floor(document_x))},{"y",static_cast<int>(std::floor(document_y))},{"includeUserAgentShadowDOM",false}},[this,t,valid,reply,located,viewport](Json hit){
       send(t,"Page.getLayoutMetrics",Json::object(),[valid,reply,located,viewport,hit=std::move(hit)](Json after){
-        if(!valid()||!cdp_ok(after)||after.value("cssLayoutViewport",Json::object())!=viewport){reply(failure("stale_viewport","The page scrolled during hover matching."));return;}
+        if(!valid()||!cdp_ok(after)||input_viewport(after)!=viewport){reply(failure("stale_viewport","The page scrolled, zoomed or panned during hover matching."));return;}
         located(hit);
       });
     });

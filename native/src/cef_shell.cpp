@@ -1447,7 +1447,8 @@ struct BrowserShell::Impl {
     if(message==WM_PAINT){PAINTSTRUCT paint{};auto dc=BeginPaint(h,&paint);RECT rect{};GetClientRect(h,&rect);ui::fill(dc,rect,RGB(255,0,255));
       const auto host=self->shell.hosts.find(self->selected);
       if(!self->developer_box.empty()&&host!=self->shell.hosts.end()){
-        const auto scale=GetDpiForWindow(host->second.browser)/96.0*host->second.metadata.value("zoom",1.0);const auto& b=self->developer_box;
+        // Highlight bounds are input coordinates, which a pinch magnifies.
+        const auto& b=self->developer_box;const auto scale=GetDpiForWindow(host->second.browser)/96.0*host->second.metadata.value("zoom",1.0)*b.value("pageScale",1.0);
         RECT box{static_cast<LONG>(std::floor(b.value("x",0.0)*scale)),static_cast<LONG>(std::floor(b.value("y",0.0)*scale)),static_cast<LONG>(std::ceil((b.value("x",0.0)+b.value("width",0.0))*scale)),static_cast<LONG>(std::ceil((b.value("y",0.0)+b.value("height",0.0))*scale))};
         const bool approximate=b.value("approximate",false);
         auto pen=CreatePen(approximate?PS_DASH:PS_SOLID,approximate?1:self->d(2),approximate?RGB(235,160,45):RGB(35,140,255));auto old=SelectObject(dc,pen),brush=SelectObject(dc,GetStockObject(HOLLOW_BRUSH));Rectangle(dc,box.left,box.top,box.right,box.bottom);SelectObject(dc,old);SelectObject(dc,brush);DeleteObject(pen);

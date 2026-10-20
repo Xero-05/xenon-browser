@@ -142,7 +142,8 @@ if($Action -eq 'pick'){[void][DeveloperElementsDriver]::SendMessage([DeveloperEl
 if($Action -in @('page-pick','page-hover')){
  $node=$Name|ConvertFrom-Json
  $page=if($Action -eq 'page-pick'){[DeveloperElementsDriver]::VisibleChild($shell,'XenonElementOverlay')}else{[DeveloperElementsDriver]::VisibleChild($shell,'CefBrowserWindow')};if($page -eq [IntPtr]::Zero){throw 'Native page surface missing'}
- $scale=[DeveloperElementsDriver]::GetDpiForWindow($page)/96.0
+ # Client pixels per viewport CSS pixel; a pinch magnifies them, so the pinch suite passes clientScale.
+ $scale=if($node.clientScale){[double]$node.clientScale}else{[DeveloperElementsDriver]::GetDpiForWindow($page)/96.0}
  $x=[int](($node.bounds.x+$node.bounds.width/2-$node.viewport.pageX)*$scale);$y=[int](($node.bounds.y+$node.bounds.height/2-$node.viewport.pageY)*$scale)
  $position=[IntPtr](($y -shl 16) -bor ($x -band 65535))
  [void][DeveloperElementsDriver]::PostMessage($page,512,[IntPtr]::Zero,$position)

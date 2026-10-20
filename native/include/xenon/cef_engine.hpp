@@ -76,8 +76,11 @@ class CefEngine final : public BrowserEngine {
   // Native diagnostic read using the agent's rendered-evidence filter. Does
   // not publish/replace agent observation tokens or actionable references.
   void developer_elements(const std::string& tab_id, Reply);
+  // Highlight bounds are input coordinates (visual-viewport CSS pixels) with
+  // the pinch `pageScale` that magnifies them in the window.
   void developer_highlight(const std::string& tab_id,const std::string& diagnostic_id,bool discard=false,Reply reply={});
   void developer_pick(const std::string& tab_id,bool enabled,Reply);
+  // Points are window coordinates: client pixels over display scale and zoom.
   void developer_pick_point(const std::string& tab_id,double x,double y);
   void developer_hover_point(const std::string& tab_id,double x,double y,Reply);
   // Session-only native opt-in; never exposed to MCP.
@@ -103,6 +106,8 @@ class CefEngine final : public BrowserEngine {
   void fixture_extension_manager(const std::string& workspace,const std::string& action,Reply reply);
   // Synthetic touchpad pinch by a relative factor (1 only reads the viewports).
   void fixture_page_scale(const std::string& tab_id,double scale,Reply reply);
+  // A person's passive hover at a page-window client pixel, through native_pointer.
+  void fixture_human_pointer(const std::string& tab_id,int client_x,int client_y,Reply reply);
 #endif
   // Count of vault accounts for the tab's exact HTTPS origin; metadata only.
   size_t saved_account_count(const std::string& tab_id);

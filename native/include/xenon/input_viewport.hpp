@@ -46,6 +46,20 @@ inline std::pair<double, double> input_viewport_clamp(const Json& viewport, doub
   const double width = std::max(0.0, visual.value("clientWidth", 0.0) - .01), height = std::max(0.0, visual.value("clientHeight", 0.0) - .01);
   return {std::clamp(std::isfinite(x) ? x : 0.0, 0.0, width), std::clamp(std::isfinite(y) ? y : 0.0, 0.0, height)};
 }
+// Window coordinates are the page window's client pixels divided by display
+// scale and browser zoom: a person's pointer, the inspector's hover and pick
+// points and the agent pointer overlay use them. Both they and input
+// coordinates start at the window's top-left page corner, where the visual
+// viewport is drawn, so only the pinch scale separates them; no pan offset.
+inline double input_viewport_scale(const Json& viewport) {
+  const auto visual = viewport.is_object() ? viewport.value("visual", Json::object()) : Json::object();
+  const auto scale = visual.value("scale", Json());
+  return scale.is_number() && std::isfinite(scale.get<double>()) && scale.get<double>() > 0 ? scale.get<double>() : 1.0;
+}
+inline std::pair<double, double> input_viewport_from_window(const Json& viewport, double x, double y) {
+  const double scale = input_viewport_scale(viewport);
+  return {x / scale, y / scale};
+}
 // DOM.getNodeForLocation takes document coordinates: the frame point plus the
 // layout viewport's scroll offset. The visual viewport's pageX/pageY are that
 // offset plus the pinch pan offset.

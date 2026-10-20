@@ -14,6 +14,8 @@
 
 **Rendered evidence and element actions while pinch-zoomed.** Observations treated the whole unzoomed page area as rendered while a person had pinch-zoomed, so controls outside the magnified view were reported as visible with action references, and a click on one landed out of view. `xenon_inspect` also failed on every attempt while pinched. Observations now cover only the magnified view and report it as their `viewport`, element actions are rechecked against it, and agent pointer movement and scrolling stay inside it. See [MCP](MCP.md#tools).
 
+**Agent pointer and inspector while pinch-zoomed.** While a person had pinch-zoomed a page, the on-screen agent pointer was drawn at the unzoomed position, and an agent movement after a person moved the mouse started from a point scaled by the pinch. The Elements inspector matched hover and page picking at the unzoomed position and drew its highlight there. Each now converts through the current pinch scale and pan. Agent input already stayed inside the magnified view; these were display and diagnostic errors. See [Developer mode](USER_GUIDE.md#developer-mode).
+
 ## 0.1.7
 
 0.1.7 replaces the withdrawn 0.1.6 and includes all of its changes below. The [0.1.7 notes](RELEASE-0.1.7.md) also cover the engine and the release checks.

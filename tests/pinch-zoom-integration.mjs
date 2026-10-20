@@ -4,6 +4,10 @@
 // do not see that gesture. This suite stands in for it with the unshipped
 // XenonAuthTest driver, which asks Chromium for a synthetic touchpad pinch. It
 // uses a generated marked profile and paired client, never a user profile.
+// The last checks map window pixels through the pinch: a person's pointer
+// (recorded by the same driver, without input), the agent pointer overlay and
+// the human inspector's page picking and highlight. Native window messages and
+// window rectangles are read from this disposable process only.
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { spawn, execFile } from 'node:child_process';
@@ -61,9 +65,9 @@ async function tool(name, args = {}) {
   return response.structuredContent;
 }
 // One fixed native gesture per request; the result holds viewport numbers only.
-async function driver(action, scale) {
+async function driver(action, scale, point = {}) {
   const id = ++driverId, path = resolve(profile, 'page-scale-result.json');
-  await writeFile(resolve(profile, 'page-scale-request.json'), JSON.stringify({ id, action, tabId: tab.tabId, ...(scale ? { scale } : {}) }));
+  await writeFile(resolve(profile, 'page-scale-request.json'), JSON.stringify({ id, action, tabId: tab.tabId, ...(scale ? { scale } : {}), ...point }));
   const reply = await until(async () => {
     try { const value = JSON.parse(await readFile(path, 'utf8')); return value.id === id ? value : false; } catch { return false; }
   }, 10_000);
@@ -94,6 +98,15 @@ const colors = {
 };
 const imageCenter = (box, meta) => ({ x: (box.left + box.right + 1) / 2 / meta.scaleX, y: (box.top + box.bottom + 1) / 2 / meta.scaleY });
 const clicks = id => fixture.clicks()[id] ?? 0;
+// Page-window client pixels per input (visual-viewport CSS) pixel: display
+// scale times browser zoom times pinch, the screenshot scale.
+const clientScale = metrics => metrics.visualViewport.clientWidth / metrics.cssVisualViewport.clientWidth * metrics.cssVisualViewport.scale;
+const powershell = (script, ...args) => runFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', resolve(root, 'tests', script), ...args], { windowsHide: true });
+const shell = (script, ...args) => powershell(`fixtures/${script}`, '-ProcessId', String(browser.pid), ...args);
+const windows = async () => JSON.parse((await shell('pointer-overlay-windows.ps1')).stdout);
+const elements = async (action = 'state', name, image) => JSON.parse((await powershell('developer-elements-driver.ps1', '-BrowserPid', String(browser.pid), '-Action', action,
+  ...(name ? ['-Name', name] : []), ...(image ? ['-Image', resolve(profile, image)] : []))).stdout || '{}');
+const selected = async () => JSON.parse((await elements('selection-state')).details || '{}');
 async function clicked(id, count) {
   await until(() => clicks(id) === count, 5000).catch(() => { throw new Error(`${id} click count is ${clicks(id)}, expected ${count}`); });
 }
@@ -292,6 +305,126 @@ try {
     assert(after, `The wheel did not scroll the pinched page: ${JSON.stringify(evidence)}`);
     return evidence;
   });
+
+  // The pointer overlay and inspector follow the selected tab of a window.
+  // The agent's automatic workspace follows the default one.
+  let agentClick;
+  await check('Agent movement starts at a person\'s pointer position while pinched', async () => {
+    const { stdout } = await shell('select-shell-tab.ps1', '-Group', '-1', '-Index', '0');
+    assert.match(stdout, /selected workspace row (\d+) of (\d+)/);
+    await driver('pinch', 1 / 3);
+    await settle(1);
+    await driver('pinch', 2);
+    const metrics = await settle(2);
+    const { png, meta } = await capture();
+    const box = colorBox(png, colors['pinch-center']);
+    assert(box, 'The center target is in the pinched screenshot');
+    // A passive hover at window pixels. At 2x it is half as far into the page
+    // in input coordinates as in window coordinates.
+    const visual = metrics.cssVisualViewport;
+    const client = { x: Math.round(visual.clientWidth * 0.2 * meta.scaleX), y: Math.round(visual.clientHeight * 0.25 * meta.scaleY) };
+    const person = { x: client.x / meta.scaleX, y: client.y / meta.scaleY };
+    await driver('hover', undefined, { clientX: client.x, clientY: client.y });
+    fixture.resetPointerPath(); fixture.resetOutsidePointer();
+    const before = clicks('pinch-center');
+    agentClick = imageCenter(box, meta);
+    await tool('interact', { ...mutation(), observationId: meta.observationId, action: 'click', ...agentClick });
+    await clicked('pinch-center', before + 1);
+    await sleep(400);
+    const path = fixture.pointerPath();
+    const evidence = { selection: stdout.trim(), client, person, first: path[0], last: path.at(-1), moves: path.length, click: agentClick, outsidePointer: fixture.outsidePointer(), visual, scaleX: meta.scaleX };
+    assert(path.length, `The page saw no agent pointer movement: ${JSON.stringify(evidence)}`);
+    assert(Math.hypot(path[0].x - person.x, path[0].y - person.y) < 6, `Agent movement did not start at the person's pointer: ${JSON.stringify(evidence)}`);
+    assert.deepEqual(evidence.outsidePointer, {}, `Pointer events reached the page outside the magnified view: ${JSON.stringify(evidence)}`);
+    return evidence;
+  });
+
+  await check('The agent pointer overlay is drawn where the pinched page receives input', async () => {
+    assert(agentClick, 'The previous check made no agent click');
+    const metrics = await settle(2), scale = clientScale(metrics);
+    let shown, drawn, expected;
+    const deadline = Date.now() + 4000;
+    do {
+      shown = await windows();
+      if (shown.cursor?.visible && shown.page) {
+        // The pointer image's hotspot sits 12 DIPs inside its window.
+        const hotspot = Math.round(12 * shown.dpi / 96);
+        drawn = { x: shown.cursor.left + hotspot, y: shown.cursor.top + hotspot };
+        expected = { x: shown.page.left + agentClick.x * scale, y: shown.page.top + agentClick.y * scale };
+        if (Math.hypot(drawn.x - expected.x, drawn.y - expected.y) <= 3) break;
+      }
+      await sleep(150);
+    } while (Date.now() < deadline);
+    const evidence = { click: agentClick, scale, drawn, expected, windows: shown };
+    assert(drawn, `The agent pointer overlay is not shown: ${JSON.stringify(evidence)}`);
+    assert(Math.hypot(drawn.x - expected.x, drawn.y - expected.y) <= 3, `The agent pointer overlay is not at the pinched input point: ${JSON.stringify(evidence)}`);
+    return evidence;
+  });
+
+  await check('The inspector picks the element under a pinched window point', async () => {
+    // The panel narrows the page, so it opens unpinched and the pinch follows.
+    await driver('pinch', 0.5);
+    await settle(1);
+    await elements('open');
+    await until(async () => { const state = await elements(); return state.visible && state.labels.includes('Pinch shown action') && state; }, 20_000);
+    await driver('pinch', 2);
+    const metrics = await settle(2), visual = metrics.cssVisualViewport;
+    const listed = await until(async () => {
+      const state = await elements(), node = name => state.nodes.find(item => item.name === name);
+      return node('Pinch shown action') && node('Pinch second action') && Math.abs(node('Pinch shown action').viewport.width - visual.clientWidth) < 0.01 && state;
+    }, 20_000);
+    const node = listed.nodes.find(item => item.name === 'Pinch shown action');
+    // Start from another row, so only a correct pick selects the target.
+    await elements('select-element', 'Pinch second action');
+    await until(async () => (await selected()).name === 'Pinch second action', 10_000);
+    await elements('pick');
+    await sleep(500);
+    const scale = clientScale(metrics);
+    await elements('page-pick', JSON.stringify({ bounds: node.bounds, viewport: node.viewport, clientScale: scale }));
+    const details = await until(async () => { const value = await selected(); return value.name === 'Pinch shown action' && value.highlighted && value.highlightBounds && value; }, 10_000).catch(() => null);
+    const evidence = { node: { bounds: node.bounds, viewport: node.viewport }, visual, scale, selected: details ? { name: details.name, highlightBounds: details.highlightBounds } : await selected() };
+    assert(details, `Picking the pinched point did not select the element under it: ${JSON.stringify(evidence)}`);
+    const bounds = details.highlightBounds;
+    assert(Math.abs(bounds.pageScale - visual.scale) < 0.01, `The highlight must carry the pinch scale: ${JSON.stringify(evidence)}`);
+    assert(Math.abs(bounds.x - (node.bounds.x - node.viewport.pageX)) < 2 && Math.abs(bounds.y - (node.bounds.y - node.viewport.pageY)) < 2,
+      `Highlight bounds must be input coordinates: ${JSON.stringify(evidence)}`);
+    return evidence;
+  });
+
+  // Selected from the list, so the outline is checked even if picking failed.
+  await check('The inspector highlight is drawn around the pinched element', async () => {
+    const metrics = await settle(2), scale = clientScale(metrics);
+    await elements('select-element', 'Pinch shown action');
+    const details = await until(async () => { const value = await selected(); return value.name === 'Pinch shown action' && value.highlighted && value.highlightBounds && value; }, 10_000);
+    const bounds = details.highlightBounds;
+    const isHighlight = (r, g, b) => Math.abs(r - 35) < 24 && Math.abs(g - 140) < 24 && b > 225;
+    let shown, found, expected;
+    const deadline = Date.now() + 5000;
+    do {
+      await elements('selection-state', undefined, 'pinch-highlight.png');
+      shown = await windows();
+      const area = shown.highlight;
+      if (area?.visible) {
+        const png = decodePng(await readFile(resolve(profile, 'pinch-highlight.png')));
+        // Only the page area: the shell's own controls may use similar blues.
+        found = undefined;
+        for (let y = Math.max(0, area.top - shown.shell.top); y < area.bottom - shown.shell.top && y < png.height; y++)
+          for (let x = Math.max(0, area.left - shown.shell.left); x < area.right - shown.shell.left && x < png.width; x++) {
+            const i = (y * png.width + x) * png.channels;
+            if (!isHighlight(png.pixels[i], png.pixels[i + 1], png.pixels[i + 2])) continue;
+            found = found ? { left: Math.min(found.left, x), top: Math.min(found.top, y), right: Math.max(found.right, x), bottom: Math.max(found.bottom, y) } : { left: x, top: y, right: x, bottom: y };
+          }
+        const left = area.left - shown.shell.left, top = area.top - shown.shell.top;
+        expected = { left: left + bounds.x * scale, top: top + bounds.y * scale, right: left + (bounds.x + bounds.width) * scale, bottom: top + (bounds.y + bounds.height) * scale };
+        if (found && ['left', 'top', 'right', 'bottom'].every(edge => Math.abs(found[edge] - expected[edge]) <= 4)) break;
+      }
+      await sleep(300);
+    } while (Date.now() < deadline);
+    const evidence = { highlightBounds: bounds, scale, found, expected, windows: shown };
+    assert(found, `No highlight rectangle was drawn on the page: ${JSON.stringify(evidence)}`);
+    assert(['left', 'top', 'right', 'bottom'].every(edge => Math.abs(found[edge] - expected[edge]) <= 4), `The highlight is not drawn around the pinched element: ${JSON.stringify(evidence)}`);
+    return evidence;
+  });
 } catch (error) {
   results.push({ name: 'Pinch-zoom harness', passed: false, error: error.message });
   console.log(`FAIL pinch-zoom harness: ${error.message}`);
@@ -310,7 +443,7 @@ try {
     assert.equal(applicationDllSha256AtEnd, applicationDllSha256, 'Browser DLL changed during pinch-zoom validation');
   } catch (error) { results.push({ name: 'Tested binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary: 'build/auth-fixture/Release/XenonAuthTest.exe', driver: 'XenonAuthTest synthetic touchpad pinch',
-    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 9 && results.every(result => result.passed), results };
+    applicationDllSha256, applicationDllSha256AtEnd, profile, passed: results.length >= 13 && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true });
   const reportPath = resolve(root, 'out/pinch-zoom-integration-results.json');
   await writeFile(reportPath, JSON.stringify(report, null, 2));
