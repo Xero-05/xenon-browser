@@ -177,8 +177,9 @@ try {
     const png=Buffer.from(img.data, 'base64'), meta=result.structuredContent;
     assert.equal(meta.imageWidth,png.readUInt32BE(16));assert.equal(meta.imageHeight,png.readUInt32BE(20));
     assert.equal(meta.tabId,tab.tabId);assert.equal(meta.workspaceId,tab.workspaceId);
-    assert(Math.abs(meta.scaleX*meta.viewport.width-meta.imageWidth)<0.01);
-    assert(Math.abs(meta.scaleY*meta.viewport.height-meta.imageHeight)<0.01);
+    // Scale is image pixels per CSS pixel; the image also covers any scrollbars beyond the CSS viewport.
+    assert(meta.scaleX>0&&Math.abs(meta.scaleX-meta.scaleY)<1e-6);
+    assert(meta.imageWidth+1>=meta.scaleX*meta.viewport.width&&meta.imageHeight+1>=meta.scaleY*meta.viewport.height);
     await writeFile(resolve(profile, 'fixture-page.png'), png);
   });
   const caseWorker = await tool(separate[3], 'worker_create', { name: 'Dynamic controls' });

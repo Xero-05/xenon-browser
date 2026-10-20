@@ -8,6 +8,8 @@
 
 **Chromium extension manager and direct Store installation.** **Extensions → Manage extensions…** opens Chromium's actual manager for the current workspace, with extension cards, search, details, permission controls and Chromium's lifecycle. **Extensions → Chrome Web Store** opens the real Store and native install confirmation in that workspace's Extensions tab. These tabs are human-only and cannot enter MCP tab inventories. Existing copied extensions remain under **Legacy copied extensions…** with their original restart-based behavior and optional verified link importer. Xenon's ordinary pages still use Alloy hosts, so this does not establish full extension popup/tab-API compatibility. See the [user guide](USER_GUIDE.md#extensions) and [security boundary](SECURITY.md#extensions).
 
+**Screenshot coordinates beside scrollbars.** A page screenshot includes its scrollbars, but its `scaleX`/`scaleY` treated the whole image as page content, so coordinates computed from the image drifted by up to the scrollbar width toward the right and bottom edges. The scale is now image pixels per CSS pixel at any display scale or browser zoom, and points over a scrollbar are rejected. See [MCP](MCP.md#tools).
+
 ## 0.1.7
 
 0.1.7 replaces the withdrawn 0.1.6 and includes all of its changes below. The [0.1.7 notes](RELEASE-0.1.7.md) also cover the engine and the release checks.
