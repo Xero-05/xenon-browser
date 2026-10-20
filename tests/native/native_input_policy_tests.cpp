@@ -142,12 +142,83 @@ void tab_switch_keeps_sources_and_current_provenance(){
   require(modifier.size()==2&&modifier[0].window==801&&modifier[1].window==802&&!modifier[0].busy&&!modifier[1].busy,"One shared modifier release balances every original window");
   require(!modifier[0].credential_input&&!modifier[1].credential_input&&!modifier[0].substantive&&!modifier[1].substantive,"Cross-window balancing releases carry no credential provenance");
 }
+void touch_and_pen_contacts_hold_their_page(){
+  xenon::NativeInputPolicy policy;policy.seed_pointer(0,0);
+  require(!policy.contact(0,7,10,10,true,0,true)&&!policy.tracking(),"A contact on Controls or the toolbar cannot pause a page");
+  const auto down=policy.contact(901,7,10,10,true,0,true);
+  require(down&&down->window==901&&down->busy&&down->credential_input&&down->substantive,"A touch or pen contact on a page begins a held, qualified gesture");
+  require(policy.busy(901)&&policy.tracking()&&policy.contacting(7),"The page stays paused while the contact is down");
+  require(policy.contact_move(7,10,10).empty(),"A stationary contact update does not repeat activity");
+  const auto moved=one(policy.contact_move(7,14,10));
+  require(moved&&moved->window==901&&moved->busy&&!moved->credential_input&&!moved->substantive,"Contact movement extends only its original page without new credential provenance");
+  require(policy.move(50,50).empty(),"Mouse hover does not extend a touch contact");
+  const auto up=one(policy.contact_end(7));
+  require(up&&up->window==901&&!up->busy&&!up->substantive&&!policy.tracking(),"Lifting the contact starts the cooldown");
+  require(policy.contact_end(7).empty()&&policy.contact_move(7,20,20).empty(),"A repeated or untracked lift and update create no activity");
+}
+void pinch_holds_until_last_finger_lifts(){
+  xenon::NativeInputPolicy policy;
+  policy.contact(902,1,100,100,true,0,true);policy.contact(902,2,140,100,true,0,true);
+  require(policy.contact_move(1,90,100).size()==1&&policy.contact_move(2,150,100).size()==1,"Each pinch finger keeps its page paused");
+  const auto first=one(policy.contact_end(1));
+  require(first&&first->busy&&policy.busy(902),"Lifting one pinch finger keeps the page held");
+  const auto last=one(policy.contact_end(2));
+  require(last&&!last->busy&&!policy.tracking(),"Lifting the last finger ends the hold");
+}
+void contacts_use_their_own_key_space(){
+  xenon::NativeInputPolicy policy;
+  // Pointer ID 1 and VK_LBUTTON share a value; neither release may end the other.
+  policy.press(903,1,true,true);policy.contact(903,1,5,5,true,0,true);
+  require(one(policy.contact_end(1))->busy,"A lifted contact does not release a held mouse button");
+  policy.contact(903,1,5,5,true,0,true);
+  require(one(policy.release(1))->busy,"A mouse release does not end a touch contact");
+  require(!one(policy.contact_end(1))->busy&&!policy.tracking(),"Both inputs released reach a clean boundary");
+  policy.contact(904,3,5,5,true,0,true);policy.press(905,65,false,true);
+  require(one(policy.contact_end(3))->window==904&&policy.busy(905)&&!policy.busy(904),"A lift on one page does not release another page's key");
+  policy.release(65);
+}
+void reused_pointer_keeps_both_pages(){
+  xenon::NativeInputPolicy policy;
+  policy.contact(906,4,5,5,true,0,true);
+  // The lift on page A was missed and Windows reused the ID on page B.
+  policy.contact(907,4,6,6,true,10,true);
+  const auto lifted=policy.contact_end(4);
+  require(lifted.size()==2&&!lifted[0].busy&&!lifted[1].busy&&!policy.tracking(),"A reused pointer ID releases every page it held");
+}
+void contact_reconciliation_and_touchpad_bound(){
+  using Policy=xenon::NativeInputPolicy;
+  Policy policy;
+  policy.contact(908,5,1,1,true,0,true);policy.contact(909,6,1,1,true,0,true);
+  auto reconciled=policy.reconcile_contacts([](std::uint32_t pointer){return pointer==5;},[](auto){return true;},100);
+  require(reconciled.size()==1&&reconciled[0].window==909&&!reconciled[0].busy&&policy.busy(908),"Windows reporting a missed lift releases only that contact");
+  reconciled=policy.reconcile_contacts([](std::uint32_t){return true;},[](auto){return true;},Policy::unreported_contact_limit_ms+100);
+  require(reconciled.empty()&&policy.busy(908),"A finger resting on a touchscreen stays held past the touchpad bound");
+  reconciled=policy.reconcile_contacts([](std::uint32_t){return true;},[](auto page){return page!=908;},Policy::unreported_contact_limit_ms+150);
+  require(reconciled.empty()&&!policy.tracking(),"A destroyed page window is forgotten without notifying a reused destination");
+  // A precision-touchpad hit test: DirectManipulation then takes the contact.
+  const auto hit=policy.contact(910,8,0,0,false,1000);
+  require(hit&&hit->busy&&!hit->credential_input&&hit->substantive,"A touchpad gesture pauses its page without credential provenance");
+  reconciled=policy.reconcile_contacts([](std::uint32_t){return true;},[](auto){return true;},1000+Policy::unreported_contact_limit_ms-1);
+  require(reconciled.empty()&&policy.busy(910),"A touchpad gesture stays held while Windows reports contact");
+  reconciled=policy.reconcile_contacts([](std::uint32_t){return true;},[](auto){return true;},1000+Policy::unreported_contact_limit_ms);
+  require(reconciled.size()==1&&!reconciled[0].busy&&!policy.tracking(),"A touchpad hold with no messages of its own ends at the bound");
+  policy.contact(911,9,0,0,false,0);
+  reconciled=policy.reconcile_contacts([](std::uint32_t){return false;},[](auto){return true;},50);
+  require(reconciled.size()==1&&reconciled[0].window==911&&!reconciled[0].busy,"A touchpad hold ends when Windows reports the fingers lifted");
+  policy.contact(912,10,0,0,false,0);
+  policy.contact_move(10,3,3);
+  reconciled=policy.reconcile_contacts([](std::uint32_t){return true;},[](auto){return true;},Policy::unreported_contact_limit_ms*2);
+  require(reconciled.empty()&&policy.busy(912),"A touchpad contact that posts its own messages is not bounded");
+  policy.contact_end(10);
+  require(!policy.tracking(),"Touchpad contacts reach a clean boundary");
+}
 }
 int main() {
   try {
     controls_then_stationary_browser();queued_position_is_evidence();drag_retains_original_page();
     keyboard_is_renderer_qualified();passive_modifiers_and_browser_focus();wheel_and_independent_pages();mixed_keyboard_pointer_boundary();outside_thread_release_and_ime();tab_switch_keeps_sources_and_current_provenance();
-    std::cout<<"Native page input policy tests passed: passive hover/Controls, held drag, renderer keys, independent pages, release reconciliation, and IME\n";
+    touch_and_pen_contacts_hold_their_page();pinch_holds_until_last_finger_lifts();contacts_use_their_own_key_space();reused_pointer_keeps_both_pages();contact_reconciliation_and_touchpad_bound();
+    std::cout<<"Native page input policy tests passed: passive hover/Controls, held drag, renderer keys, independent pages, release reconciliation, IME, and touch/pen/touchpad contacts\n";
     return 0;
   }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

@@ -86,7 +86,7 @@ try{
     response.setHeader('Cache-Control','no-store');
     if(url.pathname==='/ready'){ready.add(url.searchParams.get('key'));response.end('ok');return;}
     response.setHeader('Content-Type','text/html; charset=utf-8');
-    const mode=url.searchParams.get('mode')??'safe',key=url.searchParams.get('key');
+    const mode=url.searchParams.get('mode')??'safe';
     if(url.pathname==='/frame'){
       const depth=Number(url.searchParams.get('depth')??0);
       const next=request.headers.host.startsWith('localhost')?base:cross;
@@ -106,16 +106,26 @@ try{
           document.querySelector("#state").textContent="Replacing frame";
           const old=document.querySelector("#child"),fresh=document.createElement("iframe");
           fresh.id="child";fresh.src="${cross}/frame?depth=${depth}&mode=safe";
-          fresh.onload=()=>{document.querySelector("#state").textContent="Safe replacement loaded "+(++replacements);fetch("/ready?key=${key}-replaced")};
+          fresh.onload=()=>{document.querySelector("#state").textContent="Safe replacement loaded "+(++replacements)};
           old.replaceWith(fresh);
         };</script>`;
     }
     response.end(`<!doctype html><style>body{background:white;color:black;font:18px sans-serif}iframe{width:400px;height:100px}</style>
       <h1>Screenshot fixture ready</h1><p id="state">Synthetic page</p>${content}
-      <script>addEventListener("load",()=>fetch("/ready?key=${key}"))</script>`);
+      <script>addEventListener("load",()=>fetch("/ready?key="+encodeURIComponent(new URL(location.href).searchParams.get("key"))))</script>`);
   });
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
   base=`http://127.0.0.1:${server.address().port}`;cross=`http://localhost:${server.address().port}`;
+  await check('Readiness keys are never reflected into fixture HTML',async()=>{
+    const key='</script><script>globalThis.fixtureInjection=true</script>';
+    for(const mode of ['safe','cross-safe','nested']){
+      const reply=await fetch(base+'/page?mode='+mode+'&key='+encodeURIComponent(key));
+      assert.equal(reply.status,200);
+      const html=await reply.text();
+      assert(!html.includes(key),'Request keys must not become executable fixture HTML');
+      assert(!html.includes('fixtureInjection'),'No part of the supplied script may be reflected');
+    }
+  });
   initialHash=await hash();
   browser=spawn(resolve(build,'app/Release/Xenon.exe'),[`--user-data-dir=${profile}`,`--broker-pipe=${pipeName}`],{windowsHide:true,stdio:'ignore'});
   let launchError;browser.once('error',error=>{launchError=error;});
@@ -164,7 +174,7 @@ try{
   if(browser?.pid&&browser.exitCode===null)await runFile('taskkill.exe',['/PID',String(browser.pid),'/T','/F'],{windowsHide:true}).catch(()=>{});
   server?.closeAllConnections();server?.close();
   const finalHash=await hash().catch(()=>undefined);
-  const passed=results.length===9&&results.every(r=>r.passed)&&initialHash===finalHash;
+  const passed=results.length===10&&results.every(r=>r.passed)&&initialHash===finalHash;
   const report={run,binary:resolve(build,'app/Release/Xenon.exe'),applicationDllSha256:initialHash,applicationDllSha256AtEnd:finalHash,
     coverage:'Production CEF/MCP synthetic fixtures. Safe and credential pages, same-origin/cross-origin frames, shadow root, frame replacement. Protocol timeout injection is unit coverage, not live browser coverage. No personal profiles or physical input.',results,passed};
   await mkdir(resolve(root,'out'),{recursive:true});
