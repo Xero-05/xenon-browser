@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-20",
+  "scope": "Local working-tree candidate; direct relative-path file discovery within existing native folder grants",
+  "build": {
+    "directory": ".cache/upload-path-build",
+    "target": "Xenon",
+    "applicationDllSha256": "04a0acacacb70855d65938c56d6f248af24fd794520d7d4adccc8fcfee486036",
+    "binaryStableDuringLiveSuite": true,
+    "includesPreexistingUncommittedChanges": true
+  },
+  "checks": {
+    "nativeFilePolicy": "passed",
+    "adapterTypecheck": "passed",
+    "adapterAndFixedScriptTests": { "passed": 146, "failed": 0 },
+    "productionBrowserBuild": "passed",
+    "uploadEntryIntegration": {
+      "passed": 17,
+      "failed": 0,
+      "localReport": "out/upload-entry-1792481505046-ed6ac868.json",
+      "directLookupBeyondDepthVerified": true,
+      "directlyResolvedContentsReceivedByFixtureServer": true,
+      "nativeFixtureDriverUsed": false,
+      "syntheticGrantSeedHelperUsed": true
+    },
+    "diffWhitespace": "passed"
+  },
+  "nativeCoverage": [
+    "Known file after 5000 directory entries: substring scan incomplete, direct lookup succeeds",
+    "Known file beyond recursive scan depth",
+    "Unicode case-insensitive Windows lookup and both slash forms",
+    "Folder grants and individually selected derived file grants",
+    "Cross-scope denial and prevention of selected-file widening",
+    "Traversal, rooted, UNC, device, stream, malformed UTF-8 and ambiguous path rejection",
+    "Protected roots, credential exports, pairing files, hardlinks and junctions excluded",
+    "Missing files and directories do not produce upload handles",
+    "File replacement creates a new handle; prior identity cannot resolve",
+    "Revocation invalidates direct lookup and derived handles"
+  ],
+  "retainedFailures": [
+    "Pre-fix native regression failed: Direct relative-path lookup must find the approved file beyond the traversal limit",
+    "Pre-fix legacy and modern SDK tests rejected the new relativePath parameter",
+    "Sandboxed MSBuild stalled before compilation and was interrupted; the unrestricted isolated build succeeded",
+    "Sandboxed full adapter suite hit private-fixture cleanup permission errors; unrestricted rerun passed",
+    "First native green run exposed fixture interference with an older broad-folder test; moving the new regression after existing tests resolved the test-only conflict"
+  ],
+  "limitations": [
+    "Synthetic local pages and disposable profiles only; no real job application was uploaded",
+    "No physical UI or installed-package validation",
+    "Running user browser was not restarted or replaced; updated browser and adapter reconnect are required"
+  ]
+}

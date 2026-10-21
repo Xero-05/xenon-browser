@@ -4,6 +4,26 @@
 
 **MCP SDK 2.3.1.** The adapter and test clients use MCP TypeScript SDK 2.3.1, which fixes GHSA-jm63-cq47-j5jp, GHSA-46jr-4wx8-v453, GHSA-rvq5-wwqv-78pq and GHSA-6prh-2h8m-c8cw. Those advisories cover the SDK's HTTP transports, bearer authentication and HTTP clients; Xenon's adapter serves only stdio and was not exposed to them.
 
+## 0.1.8
+
+Includes all changes merged since 0.1.7. See the [0.1.8 notes](RELEASE-0.1.8.md) for downloads, engine details and validation limits.
+
+The [0.1.8 release](https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.8) publishes the unsigned installer, portable ZIP and both checksums as the latest regular release. The [publication record](test-results/release-0.1.8-publication.json) binds their verified digests to the release source and [validation](test-results/release-0.1.8-validation.json).
+
+**Extension panel and extension surfaces.** The Extensions button opens a compact panel with icons, current-site access, a site switch, pin controls and individual menus for options, details, permissions and removal. Pinned extensions appear on the workspace's toolbar. Xenon's engine hosts genuine Chromium action popups, extension-requested `chrome.action.openPopup()` and docked side panels for ordinary Alloy tabs. Programmatic popups do not grant click permissions; `sidePanel.open()` retains its user-gesture check. Global and tab-specific panels support closing, options and opened/closed events. Stale pages and protected/private contexts refuse action dispatch. Broader Chrome window/tab APIs remain limited.
+
+**Store installation crash.** Chromium can create a temporary browser for its installation-completion UI. Xenon now keeps that hidden browser alive through the queued completion callback before closing it, preventing a crash after download while retaining native permission confirmation and package verification.
+
+**Chromium extension manager and direct Store installation.** **Extensions → Manage extensions…** opens Chromium's actual manager for the current workspace, with extension cards, search, details, permission controls and Chromium's lifecycle. **Extensions → Chrome Web Store** opens the real Store and native install confirmation in that workspace's Extensions tab. These tabs are human-only and cannot enter MCP tab inventories. Existing copied extensions remain under **Legacy copied extensions…** with their original restart-based behavior and optional verified link importer. Xenon's ordinary pages still use Alloy hosts, so this does not establish full extension popup/tab-API compatibility. See the [user guide](USER_GUIDE.md#extensions) and [security boundary](SECURITY.md#extensions).
+
+**Screenshot coordinates beside scrollbars.** A page screenshot includes its scrollbars, but its `scaleX`/`scaleY` treated the whole image as page content, so coordinates computed from the image drifted by up to the scrollbar width toward the right and bottom edges. The scale is now image pixels per CSS pixel at any display scale or browser zoom, and points over a scrollbar are rejected. See [MCP](MCP.md#tools).
+
+**Screenshot coordinates while pinch-zoomed.** A person can pinch-zoom a page with a touchscreen or precision touchpad. Coordinate checks used the unzoomed page area, so a click or drag could reach page content outside the magnified view the screenshot showed, and a pinch after a screenshot left its coordinates current. Coordinates must now fall inside the screenshot's visible area, and a pinch or pan invalidates them. See [MCP](MCP.md#tools).
+
+**Rendered evidence and element actions while pinch-zoomed.** Observations treated the whole unzoomed page area as rendered while a person had pinch-zoomed, so controls outside the magnified view were reported as visible with action references, and a click on one landed out of view. `xenon_inspect` also failed on every attempt while pinched. Observations now cover only the magnified view and report it as their `viewport`, element actions are rechecked against it, and agent pointer movement and scrolling stay inside it. See [MCP](MCP.md#tools).
+
+**Agent pointer and inspector while pinch-zoomed.** While a person had pinch-zoomed a page, the on-screen agent pointer was drawn at the unzoomed position, and an agent movement after a person moved the mouse started from a point scaled by the pinch. The Elements inspector matched hover and page picking at the unzoomed position and drew its highlight there. Each now converts through the current pinch scale and pan. Agent input already stayed inside the magnified view; these were display and diagnostic errors. See [Developer mode](USER_GUIDE.md#developer-mode).
+
 ## 0.1.7
 
 0.1.7 replaces the withdrawn 0.1.6 and includes all of its changes below. The [0.1.7 notes](RELEASE-0.1.7.md) also cover the engine and the release checks.

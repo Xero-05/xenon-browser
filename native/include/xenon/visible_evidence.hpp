@@ -8,7 +8,18 @@ namespace xenon {
 // includeTextColorOpacities. No page script or accessibility strings are used.
 Json visible_snapshot_styles();
 
-// viewports maps frame IDs to {x,y,width,height}, in frame-document CSS pixels.
+// Converts a Page.getLayoutMetrics result into the session root's viewport
+// entry for visible_snapshot: {x,y,width,height,scale}. The rectangle is the
+// rendered part of the layout viewport, which a pinch zoom shrinks to the
+// visual viewport. Returns an empty object when the CSS and layout-unit
+// metrics are missing or inconsistent.
+Json visible_snapshot_viewport(const Json& layout_metrics);
+
+// viewports maps frame IDs to {x,y,width,height,scale?}. The rectangle uses the
+// snapshot's layout units; scale is layout units per CSS pixel (display scale
+// times browser zoom, 1 when omitted) and must match across entries. Snapshot
+// geometry is converted with it, so bounds and viewports are returned in
+// frame-document CSS pixels, the units of computed styles and coordinate input.
 // Supply at least each CDP session's root viewport. Same-process child viewports
 // are derived only from a proven, untransformed iframe's content rectangle.
 // Returns {frames:{frameId:{nodes:{backendId:{bounds,tag,inputType?,name,

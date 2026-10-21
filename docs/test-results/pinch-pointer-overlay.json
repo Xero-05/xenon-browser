@@ -1,0 +1,485 @@
+{
+  "date": "2026-10-20",
+  "scope": "Local branch candidate on stock CEF 154.0.34; no release or package",
+  "sourceBase": "Built and tested from 2c34601 (rendered evidence and element actions under pinch zoom) merged with main 8b73594. The commit now sits on main 9c5cca8, where that change landed through PR #53; native, adapter and build sources are identical to the tested tree, and only documentation and a test comment differ.",
+  "display": "One 100% monitor; classic 15 CSS px scrollbars; 932x689 page view without the Elements panel, 509 px wide with it",
+  "engineSha256": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7",
+  "coordinateModel": "Window coordinates are page-window client pixels divided by display scale and browser zoom. CDP input coordinates are visual-viewport CSS pixels: window coordinates divided by the pinch scale (cssVisualViewport.scale). Both start at the window's page corner, where the visual viewport is drawn, so no pan offset separates them. Document points for DOM.getNodeForLocation add cssVisualViewport.pageX/pageY (layout scroll plus pinch pan).",
+  "humanInput": "The pinch came from the AuthTest-only driver (Chromium SyntheticTouchpadPinchGesture). The person's hover was recorded by the same driver calling native_pointer with a client point, as the mouse hook would; no input was sent. The inspector was driven with posted window messages and read with PrintWindow. No physical mouse, touch or touchpad input was used, and the real cursor was not moved.",
+  "findings": {
+    "humanPointer": "Confirmed (source, then live): native_pointer stored a person's pointer in window coordinates in the same field as agent input coordinates. Under a 2x pinch the next agent motion began at twice the person's position: the page's first pointer event was at 183.69,171.86 for a person at 91.5,86.",
+    "agentPointerOverlay": "Confirmed (source, then live): the overlay drew agent input coordinates times display scale and browser zoom, without the pinch. After a click at input 230,173 its hotspot was at screen 766,544 instead of 996,717.",
+    "inspectorHover": "Confirmed (source, then live): developer_hit bounds-checked window coordinates against the layout viewport and added the layout scroll offset, so page picking at the window point of a listed control left another row selected.",
+    "inspectorHighlight": "Confirmed (found while testing): the highlight outline was drawn at input coordinates times display scale and browser zoom, at half size and position under a 2x pinch (pixels 296-428 x 304-326 instead of 345-607 x 526-568)."
+  },
+  "fix": "The tab's last pointer stays in window coordinates. Each agent gesture records the pinch scale from its Page.getLayoutMetrics read; dispatched input positions are stored multiplied by it, the next motion starts from the stored position divided by the current scale, and an interrupted drag releases at the stored position divided by the gesture's scale. The overlay therefore needs no change. Inspector hover and picking convert window points through the current visual viewport (scale, bounds, document offset) and reject a viewport that scrolls, zooms or pans during matching. Highlights report their pinch pageScale, and the shell draws the outline at it.",
+  "beforeFix": {
+    "note": "Same source and suite with cef_engine.cpp and cef_shell.cpp at the base revision, plus only the AuthTest hover driver",
+    "pinch": {
+      "run": "pinch-zoom-integration-1792524675376-4afc16ad",
+      "applicationDllSha256": "44498a04d48a5e06de0d0b3e34863eb962b978d99c491bdbaaa938e50446f8ef",
+      "unchangedDuringRun": true,
+      "passed": false,
+      "checks": 13,
+      "passedChecks": 9,
+      "results": [
+        {
+          "name": "A pinch after the screenshot invalidates its coordinates",
+          "passed": true
+        },
+        {
+          "name": "Pinched screenshot pixels land on their targets",
+          "passed": true
+        },
+        {
+          "name": "Coordinates outside the pinched view are rejected before input",
+          "passed": true
+        },
+        {
+          "name": "Pinched observation reports only the magnified view",
+          "passed": true
+        },
+        {
+          "name": "Inspection works while pinched and its bounds address the magnified view",
+          "passed": true
+        },
+        {
+          "name": "Unpinching restores the unpinched coordinate space",
+          "passed": true
+        },
+        {
+          "name": "An element reference that a pinch moves out of view is rejected before input",
+          "passed": true
+        },
+        {
+          "name": "Agent pointer movement stays inside the pinched view",
+          "passed": true
+        },
+        {
+          "name": "Scrolling while pinched sends the wheel inside the magnified view",
+          "passed": true
+        },
+        {
+          "name": "Agent movement starts at a person's pointer position while pinched",
+          "passed": false,
+          "error": "Agent movement did not start at the person's pointer: {\"selection\":\"selected workspace row 2 of 2\",\"client\":{\"x\":183,\"y\":172},\"person\":{\"x\":91.50000545382532,\"y\":86.00000512599976},\"first\":{\"sequence\":72,\"x\":183.69,\"y\":171.86},\"last\":{\"sequence\":79,\"x\":230,\"y\":173},\"moves\":8,\"click\":{\"x\":230.00001370906912,\"y\":173.00001031160417},\"outsidePointer\":{},\"visual\":{\"clientHeight\":344.5000305175781,\"clientWidth\":458.50006103515625,\"offsetX\":229,\"offsetY\":172,\"pageX\":229,\"pageY\":172,\"scale\":1.9999998807907104,\"zoom\":1},\"scaleX\":1.9999998807907104}"
+        },
+        {
+          "name": "The agent pointer overlay is drawn where the pinched page receives input",
+          "passed": false,
+          "error": "The agent pointer overlay is not at the pinched input point: {\"click\":{\"x\":230.00001370906912,\"y\":173.00001031160417},\"scale\":1.9999998807907104,\"drawn\":{\"x\":766,\"y\":544},\"expected\":{\"x\":996,\"y\":717},\"windows\":{\"dpi\":96,\"cursor\":{\"left\":754,\"right\":800,\"bottom\":582,\"top\":532,\"visible\":true},\"highlight\":null,\"page\":{\"left\":536,\"right\":1468,\"bottom\":1060,\"top\":371,\"visible\":true},\"shell\":{\"left\":286,\"right\":1486,\"bottom\":1086,\"top\":286,\"visible\":true}}}"
+        },
+        {
+          "name": "The inspector picks the element under a pinched window point",
+          "passed": false,
+          "error": "\"Picking the pinched point did not select the element under it: {\\\"node\\\":{\\\"bounds\\\":{\\\"coordinateSpace\\\":\\\"frame-document-css\\\",\\\"height\\\":21,\\\"width\\\":130.859375,\\\"x\\\":174.5,\\\"y\\\":392.5},\\\"viewport\\\":{\\\"height\\\":344.4997253417969,\\\"pageX\\\":127,\\\"pageY\\\":172,\\\"width\\\":254.49978637695312}},\\\"visual\\\":{\\\"clientHeight\\\":344.4997253417969,\\\"clientWidth\\\":254.49978637695312,\\\"offsetX\\\":127,\\\"offsetY\\\":172,\\\"pageX\\\":127,\\\"pageY\\\":172,\\\"scale\\\":2.0000016689300537,\\\"zoom\\\":1},\\\"scale\\\":2.0000016689300537,\\\"selected\\\":{\\\"bounds\\\":{\\\"coordinateSpace\\\":\\\"frame-document-css\\\",\\\"height\\\":21,\\\"width\\\":135.3125,\\\"x\\\":174.5,\\\"y\\\":432.5},\\\"boundsProvenance\\\":\\\"chromium-dom-snapshot\\\",\\\"diagnosticId\\\":\\\"0beecc8e2eaf18242c9bc91b532f7c38\\\",\\\"frameId\\\":\\\"7169C1A19FCB9A01250EFF6C8F2B4884\\\",\\\"geometryEvidence\\\":\\\"unoccluded_center_patch\\\",\\\"highlightBounds\\\":{\\\"approximate\\\":false,\\\"height\\\":21,\\\"width\\\":135.3125,\\\"x\\\":47.5,\\\"y\\\":260.5},\\\"highlightVerification\\\":\\\"verified_geometry\\\",\\\"highlighted\\\":true,\\\"name\\\":\\\"Pinch second action\\\",\\\"nameProvenance\\\":\\\"filtered_rendered_text\\\",\\\"pageVisibility\\\":{\\\"criteria\\\":{\\\"minimumFontSizeCssPx\\\":6,\\\"minimumOpacity\\\":0.5,\\\"minimumTextContrast\\\":1.5,\\\"nameSource\\\":\\\"rendered-text-boxes\\\",\\\"untrustedUnsupportedPaint\\\":[],\\\"untrustedUnsupportedTransforms\\\":[]},\\\"limitations\\\":[\\\"Only conservatively verified text in the current rendered viewport is included. Scroll and observe to read more.\\\",\\\"Machine-only accessibility names, descriptions, titles, alt text, raw option values and hidden DOM text are withheld. Unnamed controls require visual evidence.\\\",\\…"
+        },
+        {
+          "name": "The inspector highlight is drawn around the pinched element",
+          "passed": false,
+          "error": "The highlight is not drawn around the pinched element: {\"highlightBounds\":{\"approximate\":false,\"height\":21,\"width\":130.859375,\"x\":47.5,\"y\":220.5},\"scale\":2.0000016689300537,\"found\":{\"left\":296,\"top\":304,\"right\":428,\"bottom\":326},\"expected\":{\"left\":345.00007927417755,\"top\":526.0003679990768,\"right\":606.7190476693213,\"bottom\":568.000403046608},\"windows\":{\"dpi\":96,\"cursor\":{\"left\":754,\"right\":800,\"bottom\":582,\"top\":532,\"visible\":true},\"highlight\":{\"left\":536,\"right\":1060,\"bottom\":1060,\"top\":371,\"visible\":true},\"page\":{\"left\":536,\"right\":1060,\"bottom\":1060,\"top\":371,\"visible\":true},\"shell\":{\"left\":286,\"right\":1486,\"bottom\":1086,\"top\":286,\"visible\":true}}}"
+        }
+      ],
+      "binary": "XenonAuthTest.dll (unfixed build)"
+    }
+  },
+  "afterFix": {
+    "pinch": {
+      "run": "pinch-zoom-integration-1792524867689-0ac21da0",
+      "applicationDllSha256": "b90c10c47e123e81bcfa4200bcab93da1d8e18a8574e8002251cd78a2227bd40",
+      "unchangedDuringRun": true,
+      "passed": true,
+      "checks": 13,
+      "passedChecks": 13,
+      "results": [
+        {
+          "name": "A pinch after the screenshot invalidates its coordinates",
+          "passed": true
+        },
+        {
+          "name": "Pinched screenshot pixels land on their targets",
+          "passed": true
+        },
+        {
+          "name": "Coordinates outside the pinched view are rejected before input",
+          "passed": true
+        },
+        {
+          "name": "Pinched observation reports only the magnified view",
+          "passed": true
+        },
+        {
+          "name": "Inspection works while pinched and its bounds address the magnified view",
+          "passed": true
+        },
+        {
+          "name": "Unpinching restores the unpinched coordinate space",
+          "passed": true
+        },
+        {
+          "name": "An element reference that a pinch moves out of view is rejected before input",
+          "passed": true
+        },
+        {
+          "name": "Agent pointer movement stays inside the pinched view",
+          "passed": true
+        },
+        {
+          "name": "Scrolling while pinched sends the wheel inside the magnified view",
+          "passed": true
+        },
+        {
+          "name": "Agent movement starts at a person's pointer position while pinched",
+          "passed": true,
+          "details": {
+            "selection": "selected workspace row 2 of 2",
+            "client": {
+              "x": 183,
+              "y": 172
+            },
+            "person": {
+              "x": 91.50002726913311,
+              "y": 86.0000256300049
+            },
+            "first": {
+              "sequence": 65,
+              "x": 92.42,
+              "y": 86.92
+            },
+            "last": {
+              "sequence": 74,
+              "x": 230,
+              "y": 173
+            },
+            "moves": 10,
+            "click": {
+              "x": 230.00006854536193,
+              "y": 173.0000515580331
+            },
+            "outsidePointer": {},
+            "visual": {
+              "clientHeight": 344.5001220703125,
+              "clientWidth": 458.5001525878906,
+              "offsetX": 229,
+              "offsetY": 172,
+              "pageX": 229,
+              "pageY": 172,
+              "scale": 1.9999994039535522,
+              "zoom": 1
+            },
+            "scaleX": 1.9999994039535522
+          }
+        },
+        {
+          "name": "The agent pointer overlay is drawn where the pinched page receives input",
+          "passed": true,
+          "details": {
+            "click": {
+              "x": 230.00006854536193,
+              "y": 173.0000515580331
+            },
+            "scale": 1.9999994039535522,
+            "drawn": {
+              "x": 762,
+              "y": 483
+            },
+            "expected": {
+              "x": 762,
+              "y": 483
+            },
+            "windows": {
+              "dpi": 96,
+              "cursor": {
+                "left": 750,
+                "right": 796,
+                "bottom": 521,
+                "top": 471,
+                "visible": true
+              },
+              "highlight": null,
+              "page": {
+                "left": 302,
+                "right": 1234,
+                "bottom": 826,
+                "top": 137,
+                "visible": true
+              },
+              "shell": {
+                "left": 52,
+                "right": 1252,
+                "bottom": 852,
+                "top": 52,
+                "visible": true
+              }
+            }
+          }
+        },
+        {
+          "name": "The inspector picks the element under a pinched window point",
+          "passed": true,
+          "details": {
+            "node": {
+              "bounds": {
+                "coordinateSpace": "frame-document-css",
+                "height": 21,
+                "width": 130.859375,
+                "x": 174.5,
+                "y": 392.5
+              },
+              "viewport": {
+                "height": 344.5002136230469,
+                "pageX": 127,
+                "pageY": 172,
+                "width": 254.50015258789062
+              }
+            },
+            "visual": {
+              "clientHeight": 344.5002136230469,
+              "clientWidth": 254.50015258789062,
+              "offsetX": 127,
+              "offsetY": 172,
+              "pageX": 127,
+              "pageY": 172,
+              "scale": 1.9999988079071045,
+              "zoom": 1
+            },
+            "scale": 1.9999988079071045,
+            "selected": {
+              "name": "Pinch shown action",
+              "highlightBounds": {
+                "approximate": false,
+                "height": 21,
+                "pageScale": 1.9999988079071045,
+                "width": 130.859375,
+                "x": 47.5,
+                "y": 220.5
+              }
+            }
+          }
+        },
+        {
+          "name": "The inspector highlight is drawn around the pinched element",
+          "passed": true,
+          "details": {
+            "highlightBounds": {
+              "approximate": false,
+              "height": 21,
+              "pageScale": 1.9999988079071045,
+              "width": 130.859375,
+              "x": 47.5,
+              "y": 220.5
+            },
+            "scale": 1.9999988079071045,
+            "found": {
+              "left": 343,
+              "top": 524,
+              "right": 606,
+              "bottom": 567
+            },
+            "expected": {
+              "left": 344.99994337558746,
+              "top": 525.9997371435165,
+              "right": 606.7185373790562,
+              "bottom": 567.9997121095657
+            },
+            "windows": {
+              "dpi": 96,
+              "cursor": {
+                "left": 750,
+                "right": 796,
+                "bottom": 521,
+                "top": 471,
+                "visible": true
+              },
+              "highlight": {
+                "left": 302,
+                "right": 826,
+                "bottom": 826,
+                "top": 137,
+                "visible": true
+              },
+              "page": {
+                "left": 302,
+                "right": 826,
+                "bottom": 826,
+                "top": 137,
+                "visible": true
+              },
+              "shell": {
+                "left": 52,
+                "right": 1252,
+                "bottom": 852,
+                "top": 52,
+                "visible": true
+              }
+            }
+          }
+        }
+      ],
+      "binary": "XenonAuthTest.dll"
+    },
+    "otherChecks": "Full build: 24 CTest groups including new input_viewport window-conversion cases, adapter 22, login capture 42, human autofill 31, protected login 10, form fill 6, passkey guard 8 and the branding check passed.",
+    "visibility": {
+      "run": "visibility-integration-1792524917930-ad1eaf2c",
+      "applicationDllSha256": "cbb04a7efb08d51f1daf6a9ee5b8afb8f1c322b21e73e3cd3c03a3f98933e863",
+      "unchangedDuringRun": true,
+      "passed": true,
+      "checks": 16,
+      "passedChecks": 16,
+      "results": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "A control near the far viewport corner stays verified and clickable by reference and coordinates",
+          "passed": true
+        },
+        {
+          "name": "At 120% browser zoom the far-corner control keeps CSS bounds and stays clickable by reference and coordinates",
+          "passed": true
+        },
+        {
+          "name": "Browser zoom resets before the remaining checks",
+          "passed": true
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "Screenshot pixel coordinates land on narrow controls beside both scrollbars",
+          "passed": true
+        },
+        {
+          "name": "Right-to-left screenshot coordinates keep the main-frame scrollbar on the right",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ],
+      "binary": "Xenon.dll"
+    },
+    "integration": {
+      "run": "integration-1792524946813-718ed607",
+      "applicationDllSha256": "cbb04a7efb08d51f1daf6a9ee5b8afb8f1c322b21e73e3cd3c03a3f98933e863",
+      "passed": true,
+      "checks": 17,
+      "passedChecks": 17,
+      "results": [
+        {
+          "name": "Four separate adapters, three live tabs each",
+          "passed": true
+        },
+        {
+          "name": "Workspace and result isolation",
+          "passed": true
+        },
+        {
+          "name": "A pending wait does not block other adapters",
+          "passed": true
+        },
+        {
+          "name": "Page-only screenshots through real MCP image output",
+          "passed": true
+        },
+        {
+          "name": "Replaced nodes reject stale references",
+          "passed": true
+        },
+        {
+          "name": "Overlay hit testing rejects obscured input",
+          "passed": true
+        },
+        {
+          "name": "Same-origin and cross-origin frames expose usable references",
+          "passed": true
+        },
+        {
+          "name": "Shadow DOM actionability and semantics",
+          "passed": true
+        },
+        {
+          "name": "Visual coordinates require a current screenshot",
+          "passed": true
+        },
+        {
+          "name": "JavaScript dialogs are handled without blocking other tabs",
+          "passed": true
+        },
+        {
+          "name": "Website JavaScript links and logout confirmations remain usable",
+          "passed": true
+        },
+        {
+          "name": "Download namespace reports opaque scoped metadata",
+          "passed": true
+        },
+        {
+          "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+          "passed": true
+        },
+        {
+          "name": "Related popups transfer as one ownership group",
+          "passed": true
+        },
+        {
+          "name": "Mid-drag handoff waits for release before changing ownership",
+          "passed": true
+        },
+        {
+          "name": "Four workers behind one adapter, three tabs each",
+          "passed": true
+        },
+        {
+          "name": "Disconnect/reconnect preserves page and never replays mutations",
+          "passed": true
+        }
+      ],
+      "note": "This suite records the DLL hash only at start.",
+      "binary": "Xenon.dll"
+    }
+  },
+  "notCovered": [
+    "Physical touchscreen, pen or precision-touchpad pinch, and a physical mouse hover; both came from the AuthTest driver.",
+    "Display scaling or browser zoom combined with pinch; one 100% monitor was used.",
+    "Inspector hover by the real cursor (the suite picks through posted messages); hover and picking share developer_hit.",
+    "The full developer-elements live suite, whose preparation moves the real cursor, was not run.",
+    "An interrupted drag's release position while pinched (source only).",
+    "Out-of-process frames while pinched."
+  ]
+}

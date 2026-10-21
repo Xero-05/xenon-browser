@@ -1,0 +1,53 @@
+{
+  "version": "0.1.8",
+  "sourceCommit": "73dde9b69d45217941c96d72be4c7c4283116adb",
+  "sourceTree": "82a48902158034fcbc9ef9bc77ccb39c0c95dd1e",
+  "url": "https://github.com/Xero-05/xenon-browser/releases/tag/v0.1.8",
+  "releaseId": 418884715,
+  "publishedAt": "2026-10-20T21:15:16Z",
+  "latest": true,
+  "draft": false,
+  "prerelease": false,
+  "tag": "refs/tags/v0.1.8",
+  "assets": [
+    {
+      "name": "Xenon-0.1.8-windows-x64-setup-unsigned.exe",
+      "size": 206434673,
+      "digest": "sha256:6c16fcb6c15d1deb3ecdfbf798663d4c288d6201cd99f3081c97c5cd87de51d3",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.8-windows-x64-setup-unsigned.exe.sha256",
+      "size": 109,
+      "digest": "sha256:bbe68f7938bc1cb1a481b157a61d0d3d9a22cbffc374b55d8ba4ad45e3112892",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.8-windows-x64-unsigned.zip",
+      "size": 239272886,
+      "digest": "sha256:af65869e1385e28697e92f73e8fe715a07b31ac7bdec2c9d78fe690560f1fb39",
+      "state": "uploaded"
+    },
+    {
+      "name": "Xenon-0.1.8-windows-x64-unsigned.zip.sha256",
+      "size": 103,
+      "digest": "sha256:137fb9b92a90b5c957e7922f432f80f7384fee1a38ba1776af9abff9603a1ae7",
+      "state": "uploaded"
+    }
+  ],
+  "schemaVersion": 1,
+  "passed": true,
+  "sourceCi": {
+    "url": "https://github.com/Xero-05/xenon-browser/actions/runs/39496695674",
+    "headSha": "19c9b972b27a5345c9bee42a9007ed7cb73f84c2",
+    "conclusion": "success",
+    "engine": "stock CEF; CI artifacts not published"
+  },
+  "localBuild": "Windows-decoder CEF with the pinned extension-action patch; no bundled H.264/AAC decoders.",
+  "downloadedZipVerification": {
+    "passed": true,
+    "runtimeHashes": 1351,
+    "checksumMatchesUploadedAsset": true
+  },
+  "validationRecord": "release-0.1.8-validation.json"
+}

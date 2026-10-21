@@ -32,7 +32,8 @@ class FilePolicy {
   // Human-selected regular file only. Returns {fileId,name,size}, never a path.
   Json grant_upload(const std::string& scope, const std::filesystem::path& native_path);
   // Folder grants are native-only, persistent and recursively list regular
-  // files without following links. Agent callers supply only folderId tokens.
+  // files without following links. Agent callers supply folderId tokens and
+  // may resolve an exact relative path inside that existing grant.
   Json grant_folder(const std::string& scope, const std::filesystem::path& native_path);
   Json list_folders(const std::string& scope) const;
   Json list_files(const std::string& scope, const std::string& folder_id = {}, size_t limit = 100);
@@ -40,7 +41,7 @@ class FilePolicy {
   Json discover_files(const std::vector<std::string>& scopes, const std::string& folder_id,
                       size_t limit, const std::string& cursor = {}, const std::string& query = {},
                       const std::optional<std::set<std::string>>& selected = std::nullopt,
-                      const std::string& principal = {});
+                      const std::string& principal = {}, const std::optional<std::string>& relative_path = std::nullopt);
   Json revoke_grant(const std::string& scope, const std::string& grant_id);
   std::optional<UploadFile> resolve_upload(const std::string& scope, const std::string& file_id) const;
   bool selected_grant(const std::string& scope, const std::string& file_id, const std::set<std::string>& selected) const;

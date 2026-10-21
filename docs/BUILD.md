@@ -273,6 +273,14 @@ engine description in the same change. CI cannot reproduce locally built engine
 bytes. Like other unsigned assets, the archive digest establishes integrity, not
 who built it.
 
+## Extension action engine patch
+
+Both source recipes pin `extensionActionPatch` to `scripts/patches/cef-extension-actions.patch` and its SHA-256. The patch supplies the native-only versioned action/guard bridges, registered Alloy tab metadata/activation, real Chromium popup hosts and docked side-panel hosts. Chromium's `action.openPopup` and side-panel APIs route through these hosts with native source guards and existing permission/gesture checks. It preserves the CEF ABI, sandbox bootstrap and recipe-specific codec policy. A stock engine can display extension metadata but cannot run these native toolbar actions or docked panels.
+
+`-AddPatches -BuildOnly` also accepts the exact preceding Media recipe lacking only this patch; all source and existing patch pins must match. To iterate this patch in an already prepared directory, retain the old pinned patch, verify `git apply --reverse --check` against that source, then reverse it before changing its pin. Use `-UpdateExtensionActions -BuildOnly` to apply the new pinned patch and rebuild. This opt-in accepts only an action-patch hash change with the same path and every other recipe field unchanged. It preserves the previous distribution and marker; unrelated recipe changes still need a new directory. Never hand-edit downloaded engine sources or mix rebuilt DLLs with an older distribution.
+
+Run the recipe tests and isolated extension-action integration suite described in [TESTING](TESTING.md#native-chromium-extension-manager), retain the audited provenance manifest, and verify production browsing/media against the complete new build. Publishing a release engine still follows the archive procedure above.
+
 ## CEF security maintenance
 
 CEF dependency updates remain manual maintainer work. Before each public release, inspect the current stable [CEF build index](https://cef-builds.spotifycdn.com/index.html) and [Chromium security releases](https://chromereleases.googleblog.com/search/label/Stable%20updates). Pick the complete matching Windows x64 CEF distribution, verify the publisher checksum, record a locally verified SHA-256, update the lockfile, and rebuild from a clean dependency directory. Review CEF API changes, bootstrap/sandbox requirements and Chromium licensing notices. Run native, SDK and live acceptance tests on the new runtime before distributing it. Once releases use a pinned [Xenon engine build](#xenon-engine-releases), rebuild and re-pin that archive for the same CEF version. Never update just `libcef.dll` inside an older ZIP.

@@ -288,6 +288,19 @@ for (const era of ['legacy', 'modern'] as const) {
       const fileArgs = { agentSessionId: scope.agentSessionId, workspaceId: scope.workspaceId, folderId: 'folder', limit: 1, query: 'nested/report', cursor: 'continuation' };
       const filesPage = await client.callTool({ name: 'xenon_files', arguments: fileArgs });
       assert.deepEqual((filesPage.structuredContent as Record<string, unknown>).params, fileArgs);
+      const directFileArgs = { agentSessionId: scope.agentSessionId, workspaceId: scope.workspaceId, folderId: 'folder', relativePath: 'Cover_Letters/résumé.pdf' };
+      const directFile = await client.callTool({ name: 'xenon_files', arguments: directFileArgs });
+      assert.equal(directFile.isError, undefined);
+      assert.deepEqual((directFile.structuredContent as Record<string, unknown>).params, directFileArgs);
+      for (const args of [
+        { ...directFileArgs, folderId: undefined },
+        { ...directFileArgs, query: 'résumé' },
+        { ...directFileArgs, cursor: 'continuation' },
+        ...['', '../secret.pdf', 'C:\\secret.pdf', '\\\\server\\share\\secret.pdf', 'file.pdf:stream', 'nested//file.pdf', 'nested/./file.pdf', 'file.pdf.', 'file.pdf ', '界'.repeat(170)].map(relativePath => ({ ...directFileArgs, relativePath })),
+      ]) {
+        const invalidPath = await client.callTool({ name: 'xenon_files', arguments: args });
+        assert.equal(invalidPath.isError, true);
+      }
       for (const args of [{ ...scope, tabId: 'copied tab label' }, { ...scope, agentSessionId: 123 }, { ...scope, workspaceId: '界'.repeat(100) }]) {
         const invalidHandle = await client.callTool({ name: 'xenon_inspect', arguments: args });
         assert.equal(invalidHandle.isError, true);

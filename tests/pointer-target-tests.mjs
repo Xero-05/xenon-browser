@@ -7,20 +7,28 @@ import vm from 'node:vm';
 const header = await readFile(new URL('../native/include/xenon/pointer_target.hpp', import.meta.url), 'utf8');
 const source = header.match(/R"JS\(([\s\S]*?)\)JS"/u)?.[1];
 assert(source, 'Use the production native script');
-function fixture({ rect = { x: 10, y: 20, width: 100, height: 40 }, hit, changed, detached = false, timeout = false, shadow = false, opacity = 1, ancestorOpacity = 1 } = {}) {
+function fixture({ rect = { x: 10, y: 20, width: 100, height: 40 }, hit, changed, detached = false, timeout = false, shadow = false, opacity = 1, ancestorOpacity = 1, text = false, fragmented = false, childOverlay = false } = {}) {
   let frames = 0;
   const bounds = value => ({ ...value, left: value.x, top: value.y, right: value.x + value.width, bottom: value.y + value.height });
   const blocker = {};
   const element = {
     isConnected: !detached,
     getBoundingClientRect: () => bounds(frames >= 2 && changed ? changed : rect),
-    contains: candidate => candidate === element,
+    contains: candidate => candidate === element || childOverlay && candidate === blocker,
     focus: () => { throw new Error('Target inspection must not focus the page'); },
   };
-  const document = { elementFromPoint: (x, y) => hit?.(x, y) === false ? blocker : element };
+  const document = { elementFromPoint: (x, y) => childOverlay || hit?.(x, y) === false ? blocker : element };
   element.ownerDocument = document;
   element.getRootNode = () => document;
   const ancestor = { getRootNode: () => document };element.parentElement=ancestor;
+  const target = text ? { nodeType: 3, isConnected: !detached, parentElement: element, ownerDocument: document } : element;
+  document.createRange = () => ({
+    selectNodeContents: node => assert.equal(node, target),
+    getClientRects: () => {
+      const box = bounds(frames >= 2 && changed ? changed : rect);
+      return fragmented ? [box, box] : [box];
+    },
+  });
   if (shadow) {
     const host = { getRootNode: () => document, contains: candidate => candidate === host };
     document.elementFromPoint = () => host;
@@ -32,7 +40,7 @@ function fixture({ rect = { x: 10, y: 20, width: 100, height: 40 }, hit, changed
     requestAnimationFrame: callback => { if (!timeout) { ++frames; callback(); } },
     setTimeout: callback => { if (timeout) callback(); },
   });
-  return (fx = .3, fy = .3, fallback = true) => fn.call(element, fx, fy, fallback);
+  return (fx = .3, fy = .3, fallback = true) => fn.call(target, fx, fy, fallback);
 }
 
 test('randomized targets stay inside verified visible interiors', async () => {
@@ -86,4 +94,22 @@ test('opacity changes reject an invisible target before press', async () => {
 });
 test('ancestor opacity cannot be overridden by the target', async () => {
   assert.equal((await fixture({ ancestorOpacity: 0 })()).error, 'not_visible');
+});
+
+test('DOM text uses its exact rendered range and retains the same point on revalidation', async () => {
+  const pick = fixture({ text: true, rect: { x: -20, y: 20, width: 40, height: 15 } });
+  const first = await pick(), second = await pick(first.sampleFx, first.sampleFy, false);
+  assert.equal(first.error, undefined); assert(first.x > 0 && first.x < 20);
+  assert.equal(first.x, second.x); assert.equal(first.y, second.y);
+});
+test('text hidden by a descendant overlay cannot use the parent container hit area', async () => {
+  assert.equal((await fixture({ text: true, childOverlay: true })()).error, 'occluded');
+});
+test('text with ambiguous fragmented geometry is refused', async () => {
+  assert.equal((await fixture({ text: true, fragmented: true })()).error, 'fragmented_text');
+});
+test('moving or invisible text is refused before press', async () => {
+  assert.equal((await fixture({ text: true, changed: { x: 11, y: 20, width: 100, height: 40 } })()).error, 'layout_moving');
+  assert.equal((await fixture({ text: true, opacity: 0 })()).error, 'not_visible');
+  assert.equal((await fixture({ text: true, detached: true })()).error, 'detached');
 });

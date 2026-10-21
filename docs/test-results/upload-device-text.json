@@ -1,0 +1,259 @@
+{
+  "date": "2026-10-19",
+  "scope": "Local working-tree candidate; no release or live-account upload",
+  "sourceBase": "eb5faa36a70d7a3fb77325f0f28f64fd5b4737ac",
+  "sourceState": "Includes pre-existing uncommitted extension-manager work",
+  "binary": "build/app/Release/Xenon.dll",
+  "applicationDllSha256": "1fc92faf7f022d62eb1d011bf35256ad1f1a6073f4e299b0c73e9924844ba84d",
+  "engineSha256": "44ef0602b2e1851ae32653407995926d92b18fe4c9df5b6817f5198d42831601",
+  "beforeFix": {
+    "run": "upload-entry-1792387766158-8392dda1",
+    "passed": false,
+    "applicationDllSha256": "5322f423482d0d2f5ee00a938c5502fe24529a4e2e24d941d9bc9860981000b4",
+    "result": "unsupported_upload_entry",
+    "activation": "not_attempted",
+    "fileSelection": "not_selected"
+  },
+  "checks": {
+    "fullBuildAndNativeTests": {
+      "passed": true,
+      "nativeGroups": 22,
+      "command": "./scripts/build.ps1 -Test -Jobs 6"
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npm.cmd run typecheck"
+    },
+    "adapterAndScriptTests": {
+      "passed": true,
+      "count": 146,
+      "command": "npm.cmd test"
+    },
+    "upload": {
+      "run": "upload-entry-1792388085139-9fe41813",
+      "passed": true,
+      "count": 17,
+      "applicationDllSha256AtEnd": "1fc92faf7f022d62eb1d011bf35256ad1f1a6073f4e299b0c73e9924844ba84d",
+      "results": [
+        {
+          "name": "File discovery retains truncation, later pages and scoped relative-path filters",
+          "passed": true,
+          "elapsedMs": 33,
+          "details": {
+            "pages": 4,
+            "uniqueFiles": 8,
+            "laterPageFilterVerified": true
+          }
+        },
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true,
+          "elapsedMs": 601,
+          "details": {
+            "uploadVerified": true,
+            "uploads": 1
+          }
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true,
+          "elapsedMs": 558,
+          "details": {
+            "reproducedUnsupportedEntry": false,
+            "uploaded": true,
+            "crossOriginFrame": false
+          }
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true,
+          "elapsedMs": 907,
+          "details": {
+            "reproducedUnsupportedEntry": false,
+            "uploaded": true,
+            "crossOriginFrame": true
+          }
+        },
+        {
+          "name": "A brightness-styled hover preserves the approved upload entry",
+          "passed": true,
+          "elapsedMs": 975,
+          "details": {
+            "hoverSucceeded": true,
+            "freshReferenceUsable": true,
+            "uploads": 1
+          }
+        },
+        {
+          "name": "Observed Device text opens its exact chooser: custom-text",
+          "passed": true,
+          "elapsedMs": 587,
+          "details": {
+            "observedRole": "StaticText",
+            "exactApprovedContentsReceived": true,
+            "trustedClicks": 1,
+            "crossOriginFrame": false
+          }
+        },
+        {
+          "name": "Observed Device text opens its exact chooser: frame-text",
+          "passed": true,
+          "elapsedMs": 676,
+          "details": {
+            "observedRole": "StaticText",
+            "exactApprovedContentsReceived": true,
+            "trustedClicks": 1,
+            "crossOriginFrame": true
+          }
+        },
+        {
+          "name": "Changed Device text rejects its stale reference before activation",
+          "passed": true,
+          "elapsedMs": 327,
+          "details": {
+            "rejectedStaleText": true,
+            "clicks": 0,
+            "uploads": 0
+          }
+        },
+        {
+          "name": "Device text in a disabled container is denied before activation",
+          "passed": true,
+          "elapsedMs": 225,
+          "details": {
+            "disabledAncestorRejected": true,
+            "clicks": 0,
+            "uploads": 0
+          }
+        },
+        {
+          "name": "Ordinary observed text without a chooser never receives a file",
+          "passed": true,
+          "elapsedMs": 3609,
+          "details": {
+            "activatedOnce": true,
+            "uploads": 0,
+            "changes": 0
+          }
+        },
+        {
+          "name": "Device text cannot delegate its approved file to another frame",
+          "passed": true,
+          "elapsedMs": 732,
+          "details": {
+            "rejected": true,
+            "code": "unsupported_file_chooser",
+            "childReceivedFiles": false
+          }
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true,
+          "elapsedMs": 3722,
+          "details": {
+            "denied": true,
+            "code": "file_chooser_not_opened",
+            "activatedOnce": true,
+            "uploads": 0
+          }
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true,
+          "elapsedMs": 2557,
+          "details": {
+            "denials": 4,
+            "activations": 0,
+            "uploads": 0
+          }
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true,
+          "elapsedMs": 677,
+          "details": {
+            "deniedAsStale": true,
+            "clicks": 0,
+            "uploads": 0
+          }
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true,
+          "elapsedMs": 863,
+          "details": {
+            "selectedFileCount": 1,
+            "uploadVerified": true
+          }
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true,
+          "elapsedMs": 3166,
+          "details": {
+            "cases": [
+              {
+                "mode": "direct-disabled",
+                "denied": true,
+                "code": "unsupported_upload_entry"
+              },
+              {
+                "mode": "button-disabled",
+                "denied": true,
+                "code": "unsupported_upload_entry"
+              },
+              {
+                "mode": "direct-directory",
+                "denied": true,
+                "code": "unsupported_upload_entry"
+              },
+              {
+                "mode": "button-directory",
+                "denied": true,
+                "code": "unsupported_file_chooser"
+              }
+            ],
+            "transfers": 0
+          }
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true,
+          "elapsedMs": 961,
+          "details": {
+            "denied": true,
+            "code": "unsupported_file_chooser",
+            "parentActivatedOnce": true,
+            "childReceivedFiles": false
+          }
+        }
+      ]
+    },
+    "visibility": {
+      "run": "visibility-integration-1792388131583-f90d3aa9",
+      "passed": true,
+      "count": 11,
+      "applicationDllSha256": "1fc92faf7f022d62eb1d011bf35256ad1f1a6073f4e299b0c73e9924844ba84d",
+      "applicationDllSha256AtEnd": "1fc92faf7f022d62eb1d011bf35256ad1f1a6073f4e299b0c73e9924844ba84d"
+    },
+    "batch": {
+      "run": "batch-1792388169173-6b76a04f",
+      "passed": true,
+      "count": 7,
+      "applicationDllSha256": "1fc92faf7f022d62eb1d011bf35256ad1f1a6073f4e299b0c73e9924844ba84d",
+      "binaryUnchangedCheckPassed": true
+    }
+  },
+  "retainedRunnerLimitations": [
+    "Initial restricted upload run could not start its owned browser.",
+    "Restricted build stalled at Checking File Globs and was interrupted before an unrestricted build.",
+    "Restricted npm test had EPERM failures in temporary ACL-file cleanup; the unrestricted suite passed."
+  ],
+  "limitations": [
+    "Production browser and real MCP with synthetic loopback pages, files and disposable grants only.",
+    "No AuthTest native input driver, physical picker automation or hidden-input search.",
+    "Original live application was inspected during diagnosis but no real files were uploaded and no website form was submitted.",
+    "Restart with the rebuilt browser and reconnect the adapter to use the fix.",
+    "Installed packages, publication and real SAP upload success were not tested."
+  ]
+}

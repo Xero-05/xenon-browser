@@ -20,6 +20,7 @@ constexpr size_t kMaxDocuments = 64, kMaxNodes = 30000, kMaxLayouts = 30000;
 constexpr size_t kMaxTextBoxes = 60000, kMaxStringBytes = 1024 * 1024;
 constexpr size_t kMaxNameBytes = 2048, kMaxWork = 3000000;
 constexpr double kMinOpacity = 0.5, kMinContrast = 1.5, kMinFontSize = 6;
+constexpr double kMinLayoutScale = 0.05, kMaxLayoutScale = 32;
 const std::vector<std::string> kStyles = {
   "display", "visibility", "opacity", "color", "background-color", "font-size",
   "-webkit-text-fill-color", "overflow-x", "overflow-y", "clip", "clip-path",
@@ -67,7 +68,8 @@ std::optional<double> css_number(const std::string& value, bool pixels = false) 
   return parsed;
 }
 struct Rect { double x{}, y{}, w{}, h{}; };
-std::optional<Rect> rect(const Json& value) {
+// scale converts snapshot layout units to CSS pixels.
+std::optional<Rect> rect(const Json& value, double scale = 1) {
   std::array<std::optional<double>, 4> v;
   if (value.is_array() && value.size() == 4)
     for (size_t i = 0; i < 4; ++i) v[i] = number(value[i]);
@@ -75,7 +77,7 @@ std::optional<Rect> rect(const Json& value) {
   else return {};
   for (auto n : v) if (!n || std::abs(*n) > 1e8) return {};
   if (*v[2] <= 0 || *v[3] <= 0) return {};
-  return Rect{*v[0], *v[1], *v[2], *v[3]};
+  return Rect{*v[0] / scale, *v[1] / scale, *v[2] / scale, *v[3] / scale};
 }
 bool contains(const Rect& outer, const Rect& inner) {
   return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
@@ -455,19 +457,49 @@ std::optional<Rgba> text_background(const Document& d,const Layout& text,const R
   }
   return {};
 }
-std::optional<Rect> child_viewport(const Document& parent, int owner, const Json& child) {
+std::optional<Rect> child_viewport(const Document& parent, int owner, const Json& child, double scale) {
   if (owner < 0 || static_cast<size_t>(owner)>=parent.node_layout.size()) return {};
   const int li=parent.node_layout[owner]; if (li<0) return {};
   const auto& l=parent.layouts[li]; if (!l.box) return {};
   std::array<double,8> edges{};
   for(size_t i=0;i<edges.size();++i) { const auto v=css_number(l.styles[BorderTop+i],true); if(!v || *v<0)return {}; edges[i]=*v; }
-  const auto x=number(at(child,"scrollOffsetX")),y=number(at(child,"scrollOffsetY")); if(!x || !y)return {};
+  // Scroll offsets share the snapshot's layout units; computed edges are CSS.
+  const auto x=number(at(child,"scrollOffsetX")),y=number(at(child,"scrollOffsetY")); if(!x || !y || std::abs(*x)>1e8 || std::abs(*y)>1e8)return {};
   const double w=l.box->w-edges[1]-edges[3]-edges[5]-edges[7],h=l.box->h-edges[0]-edges[2]-edges[4]-edges[6];
-  if(w<=0 || h<=0)return {}; return Rect{*x,*y,w,h};
+  if(w<=0 || h<=0)return {}; return Rect{*x/scale,*y/scale,w,h};
 }
 }
 
 Json visible_snapshot_styles() { return kStyles; }
+
+Json visible_snapshot_viewport(const Json& metrics) {
+  // Chromium's DOMSnapshot bounds, text boxes and scroll offsets use layout
+  // units: CSS pixels times display scale and browser zoom. The deprecated
+  // layoutViewport shares those units; cssLayoutViewport is the same rectangle
+  // rounded to integer CSS pixels, so it is only a consistency check. The
+  // fractional visual viewport pair supplies the ratio without that rounding.
+  const auto& layout=at(metrics,"layoutViewport");const auto& css=at(metrics,"cssLayoutViewport");
+  const auto& visual=at(metrics,"visualViewport");const auto& css_visual=at(metrics,"cssVisualViewport");
+  const auto x=number(at(layout,"pageX")),y=number(at(layout,"pageY")),w=number(at(layout,"clientWidth")),h=number(at(layout,"clientHeight"));
+  const auto css_w=number(at(css,"clientWidth")),css_h=number(at(css,"clientHeight"));
+  const auto visual_w=number(at(visual,"clientWidth")),visual_h=number(at(visual,"clientHeight"));
+  const auto css_visual_w=number(at(css_visual,"clientWidth")),css_visual_h=number(at(css_visual,"clientHeight"));
+  if(!x || !y || !w || !h || !css_w || !css_h || !visual_w || !visual_h || !css_visual_w || !css_visual_h ||
+     *w<=0 || *h<=0 || *visual_w<=0 || *visual_h<=0 || *css_visual_w<=0 || *css_visual_h<=0)return Json::object();
+  const double scale=*visual_w / *css_visual_w;
+  if(!std::isfinite(scale) || scale<kMinLayoutScale || scale>kMaxLayoutScale || std::abs(*visual_h / *css_visual_h-scale)>scale*1e-4)return Json::object();
+  if(std::abs(*w/scale-*css_w)>2 || std::abs(*h/scale-*css_h)>2)return Json::object();
+  // A person's pinch zoom magnifies only part of the layout viewport: the
+  // visual viewport, whose CSS page offset includes the layout scroll. Nothing
+  // outside it is on screen. Unpinched, and in an out-of-process child frame,
+  // the visual viewport covers the layout viewport, so this keeps the latter.
+  const auto visual_x=number(at(css_visual,"pageX")),visual_y=number(at(css_visual,"pageY"));
+  if(!visual_x || !visual_y)return Json::object();
+  const double left=std::max(*x,*visual_x*scale),top=std::max(*y,*visual_y*scale);
+  const double right=std::min(*x+*w,*visual_x*scale+*visual_w),bottom=std::min(*y+*h,*visual_y*scale+*visual_h);
+  if(!(right>left) || !(bottom>top))return Json::object();
+  return {{"x",left},{"y",top},{"width",right-left},{"height",bottom-top},{"scale",scale}};
+}
 
 Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_diagnostics, bool include_uncertain) {
   FilterState state{at(snapshot,"strings")};
@@ -475,9 +507,18 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
   const auto& raw_docs=at(snapshot,"documents");
   if(!raw_docs.is_array() || !state.strings.is_array()) { state.omit("malformedSnapshot"); return state.result; }
   if(raw_docs.size()>kMaxDocuments) { state.omit("documentLimit",raw_docs.size());return state.result; }
+  // One renderer snapshot shares one layout scale. Child frames whose owners
+  // add CSS zoom are withheld by the zoom checks below, never rescaled.
+  std::optional<double> layout_scale;
+  if(viewports.is_object())for(const auto& [frame,viewport]:viewports.items()) {
+    const auto& value=at(viewport,"scale");const auto scale=value.is_null()?std::optional(1.0):number(value);
+    if(!scale || *scale<kMinLayoutScale || *scale>kMaxLayoutScale || (layout_scale && *layout_scale!=*scale)) {state.omit("unprovenLayoutScale");return state.result;}
+    layout_scale=scale;
+  }
+  const double scale=layout_scale.value_or(1);
   std::vector<Document> docs; docs.reserve(raw_docs.size()); size_t total_nodes=0,total_layouts=0,total_boxes=0;
   for(const auto& raw:raw_docs) {
-    Document d;d.source=&raw;d.frame=state.str(at(raw,"frameId"));d.viewport=rect(at(viewports,d.frame));
+    Document d;d.source=&raw;d.frame=state.str(at(raw,"frameId"));d.viewport=rect(at(viewports,d.frame),scale);
     const auto& nodes=at(raw,"nodes");const auto& types=at(nodes,"nodeType");const auto& layout=at(raw,"layout");
     const auto& indexes=at(layout,"nodeIndex");const auto& boxes=at(at(raw,"textBoxes"),"layoutIndex");
     if(!types.is_array() || !indexes.is_array()) {state.omit("malformedDocument");docs.push_back(std::move(d));continue;}
@@ -501,7 +542,7 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
       }
     }
     for(size_t i=0;i<indexes.size();++i) {
-      Layout l;l.node=integer(indexes[i]);l.paint=integer(item(at(layout,"paintOrders"),i));l.box=rect(item(at(layout,"bounds"),i));
+      Layout l;l.node=integer(indexes[i]);l.paint=integer(item(at(layout,"paintOrders"),i));l.box=rect(item(at(layout,"bounds"),i),scale);
       const auto& styles=item(at(layout,"styles"),i);l.styles_complete=styles.is_array() && styles.size()==kStyles.size();
       if(l.styles_complete)for(size_t s=0;s<kStyles.size();++s)l.styles[s]=state.str(styles[s]);
       l.text=state.str(item(at(layout,"text"),i));l.blended=state.str(item(at(layout,"blendedBackgroundColors"),i));l.text_opacity=number(item(at(layout,"textColorOpacities"),i));
@@ -628,7 +669,7 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
     if(d.viewport || d.parent_doc<0)continue;const auto& parent=docs[d.parent_doc];const int owner=d.owner_node;
     if(!parent.viewport || owner<0 || static_cast<size_t>(owner)>=parent.node_layout.size())continue;
     const int li=parent.node_layout[owner];if(li<0)continue;const auto& l=parent.layouts[li];
-    if(l.box && shown(state,parent,l,*l.box))d.viewport=child_viewport(parent,owner,*d.source);
+    if(l.box && shown(state,parent,l,*l.box))d.viewport=child_viewport(parent,owner,*d.source,scale);
   }
   std::set<std::string> seen_frames;
   for(auto& d:docs) {
@@ -641,7 +682,7 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
     const auto& boxes=at(*d.source,"textBoxes");const auto& indexes=at(boxes,"layoutIndex");
     std::vector<std::optional<TextUnits>> units(d.layouts.size());
     if(indexes.is_array())for(size_t b=0;b<indexes.size();++b) {
-      const int li=integer(indexes[b]);const auto bounds=rect(item(at(boxes,"bounds"),b));
+      const int li=integer(indexes[b]);const auto bounds=rect(item(at(boxes,"bounds"),b),scale);
       const int start=integer(item(at(boxes,"start"),b)),length=integer(item(at(boxes,"length"),b));
       if(li<0 || static_cast<size_t>(li)>=d.layouts.size() || !bounds || start<0 || length<=0) {state.omit("malformedTextBox");continue;}
       auto& l=d.layouts[li];

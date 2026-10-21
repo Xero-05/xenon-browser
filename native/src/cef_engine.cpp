@@ -1,8 +1,15 @@
 #include "xenon/cef_engine.hpp"
 #include "xenon/form_fill.hpp"
 #include "xenon/cef_branding.hpp"
+#include "xenon/cef_extension_manager.hpp"
+#include "xenon/extension_action_engine.hpp"
+#include "xenon/cef_default_client.hpp"
+#include "xenon/extension_manager_policy.hpp"
+#include "xenon/extension_install_fixture.hpp"
 #include "xenon/pointer_motion.hpp"
 #include "xenon/pointer_target.hpp"
+#include "xenon/input_viewport.hpp"
+#include "xenon/upload_entry.hpp"
 #include "xenon/ui_theme.hpp"
 #include "xenon/native_input_policy.hpp"
 #include "xenon/vault.hpp"
@@ -14,6 +21,7 @@
 #include "xenon/human_autofill.hpp"
 #include "xenon/protected_login.hpp"
 #include "xenon/passkey_guard.hpp"
+#include "xenon/screenshot_guard.hpp"
 #include "xenon/site_info.hpp"
 #include "xenon/external_protocol.hpp"
 #include "xenon/tab_render_pacing.hpp"
@@ -46,6 +54,7 @@
 #include <algorithm>
 #include <limits>
 #include <chrono>
+#include <charconv>
 #include <condition_variable>
 #include <cmath>
 #include <map>
@@ -260,6 +269,7 @@ struct Tab {
   Reply developer_picker;
   uint64_t developer_revision=0;
   std::map<std::string, FrameSession> sessions;
+  uint64_t screenshot_frame_revision=0;
   std::map<int, CdpReply> pending;
   int next_message = 1;
   CefRefPtr<CefRegistration> registration;
@@ -268,7 +278,12 @@ struct Tab {
   Json downloads = Json::array();
   std::map<uint32_t,CefRefPtr<CefDownloadItemCallback>> active_downloads;
   HWND native_host{};
+  // The last agent or human pointer position, in window coordinates (see
+  // input_viewport_from_window), so a person's pointer needs no CDP read and
+  // the overlay draws it directly. Agent input is in input coordinates; the
+  // current gesture's pinch scale converts it.
   PointerPoint pointer;
+  double pointer_scale=1;
   bool pointer_known{};
   uint64_t pointer_revision{};
   uint64_t agent_pointer_revision{},pointer_sync_revision{},human_pointer_revision{};
@@ -298,6 +313,8 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   void prepare_uncertain_click(const std::shared_ptr<Tab>&,double,double,std::function<void(Json)>);
   std::map<std::string, std::shared_ptr<Tab>> tabs_;
   std::map<std::string, CefRefPtr<CefRequestContext>> contexts_;
+  std::unique_ptr<CefExtensionManager> extension_manager_;
+  std::function<std::string(const std::string&)> workspace_label_;
   enum class ContextState { initializing, ready, failed };
   struct PendingCreate { std::string workspace,id,url; bool human{};std::function<bool()> permit; };
   std::map<std::string,ContextState> context_states_;
@@ -601,7 +618,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     if(missing&&remembered.empty()){const auto saved=vault_->list_accounts(*origin);if(!saved.value("ok",false)||!saved["result"]["accounts"].empty())return;}
     const auto& username=missing?remembered:data.value["username"].get_ref<const std::string&>();
     discard_login(t);
-    developer_clear(t);t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
+    developer_clear(t);extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
     event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
     const auto candidate=vault_->propose_login(*origin,username,data.value["password"].get_ref<const std::string&>());
     if(!candidate)return;
@@ -674,7 +691,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     const double pointer_x=pointer_message?message["params"].value("x",0.0):0,pointer_y=pointer_message?message["params"].value("y",0.0):0;
     t->pending[id] = [weak=weak_from_this(),t,action,pointer_message,pointer_x,pointer_y,callback=std::move(callback)](Json result){if(auto self=weak.lock()){
       ActionScope scope(*self,action);
-      if(pointer_message&&cdp_ok(result)&&(!action||action->human==t->human_input)){t->pointer={pointer_x,pointer_y};t->pointer_known=true;++t->pointer_revision;++t->agent_pointer_revision;}
+      if(pointer_message&&cdp_ok(result)&&(!action||action->human==t->human_input)){t->pointer={pointer_x*t->pointer_scale,pointer_y*t->pointer_scale};t->pointer_known=true;++t->pointer_revision;++t->agent_pointer_revision;}
       callback(std::move(result));}};
     auto bytes = message.dump();
     if (!t->browser->GetHost()->SendDevToolsMessage(bytes.data(), bytes.size())) {
@@ -686,7 +703,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       auto i = t->pending.find(id);
       if (i != t->pending.end()) {
         auto cb = std::move(i->second); t->pending.erase(i);
-        cb({{"error",{{"message","Browser operation timed out; outcome may be unknown"}}}});
+        cb({{"error",{{"message","Browser operation timed out; outcome may be unknown"},{"xenonTimeout",true}}}});
       }
     });
   }
@@ -749,7 +766,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       t->login.contexts_cleared(session);
     } else if(method=="Runtime.bindingCalled"&&field(p,"name")=="__xenon_mark_sensitive"&&field(p,"payload")=="protected") {
       if(t->guard_contexts.contains({session,p.value("executionContextId",0)})&&!t->protected_auth){
-        t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
+        extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
         developer_clear(t);
         event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
       }
@@ -761,19 +778,24 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       const auto sid=field(p,"sessionId");
       const auto info=p.value("targetInfo",Json::object());
       if (field(info,"type")=="iframe") {
+        ++t->screenshot_frame_revision;
         t->sessions[sid]={sid,field(info,"targetId"),session}; enable_session(t,sid);
       } else send(t,"Runtime.runIfWaitingForDebugger",Json::object(),[](Json){},sid);
     } else if (method=="Target.detachedFromTarget") {
       developer_clear(t);
+      ++t->screenshot_frame_revision;
       const auto sid=field(p,"sessionId"); t->sessions.erase(sid);t->guards.erase(sid);
       for(auto i=t->main_contexts.begin();i!=t->main_contexts.end();)if(i->first==sid)i=t->main_contexts.erase(i);else ++i;
       passkey_released(t,t->passkey.drop_prefix(sid+"|"));
       for(auto i=t->elements.begin(); i!=t->elements.end();) {
         if(i->second.session==sid)i=t->elements.erase(i);else ++i;
       }
-    } else if (method=="Page.frameNavigated" && session.empty()) {
+    } else if (method=="Page.frameAttached" || method=="Page.frameDetached") {
+      ++t->screenshot_frame_revision;
+    } else if (method=="Page.frameNavigated") {
+      ++t->screenshot_frame_revision;
       const auto f=p.value("frame",Json::object());
-      if (!f.contains("parentId")){t->main_frame=field(f,"id");t->last_url=field(f,"url");invalidate(t);persist_session();}
+      if (session.empty()&&!f.contains("parentId")){t->main_frame=field(f,"id");t->last_url=field(f,"url");invalidate(t);persist_session();}
     } else if (method=="Page.navigatedWithinDocument" && session.empty()) {
       // A single-page sign-in that moves on after a script-driven attempt.
       if(field(p,"frameId")==t->main_frame&&t->login.navigated_within_document())notify_login(t,t->login.candidate());
@@ -795,6 +817,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   void finish_shutdown();
   void created(CefRefPtr<CefBrowser>, const std::string&, const std::string&, const std::string&);
   void closed(CefRefPtr<CefBrowser> browser) {
+    extension_action::call(extension_action::unregister_tab,browser->GetIdentifier());
     auto t=find(browser); if(!t){
       auto removed=removed_closing_browsers_.extract(browser->GetIdentifier());
       if(!removed.empty())finish_workspace_removal(removed.mapped());
@@ -856,9 +879,9 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
         if(!valid()||!cdp_ok(owner)||!owner.contains("backendNodeId")||!owner["backendNodeId"].is_number_integer()){fail();return;}
         const auto backend=owner["backendNodeId"].get<int>();if(backend<=0){fail();return;}
         send(t,"Page.getLayoutMetrics",Json::object(),[this,t,e,frame,session,root_frame,parent,tree_frames,backend,visited,reply,next,valid,fail](Json metrics){
-          if(!valid()||!cdp_ok(metrics)||!metrics.contains("cssLayoutViewport")){fail();return;}
-          const auto v=metrics["cssLayoutViewport"];
-          Json viewports=Json::object();viewports[root_frame]={{"x",v.value("pageX",0.0)},{"y",v.value("pageY",0.0)},{"width",v.value("clientWidth",0.0)},{"height",v.value("clientHeight",0.0)}};
+          const auto viewport=visible_snapshot_viewport(metrics);
+          if(!valid()||!cdp_ok(metrics)||viewport.empty()){fail();return;}
+          Json viewports=Json::object();viewports[root_frame]=viewport;
           send(t,"DOMSnapshot.captureSnapshot",{{"computedStyles",visible_snapshot_styles()},{"includeDOMRects",true},{"includePaintOrder",true},{"includeBlendedBackgroundColors",true},{"includeTextColorOpacities",true}},
             [this,t,e,frame,session,parent,tree_frames,backend,visited,reply,next,valid,fail,viewports](Json snapshot){
               std::string verified_parent;
@@ -885,9 +908,9 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   void rendered_element(const std::shared_ptr<Tab>& t,const Element& e,Reply reply,std::function<void()> next) {
     if(t->closed||t->protected_auth||t->epoch!=e.epoch||!action_valid(t)){reply(failure("stale_element","The element or its document changed. Observe again."));return;}
     send(t,"Page.getLayoutMetrics",Json::object(),[this,t,e,reply,next](Json metrics){
-      if(!cdp_ok(metrics)||!metrics.contains("cssLayoutViewport")){reply(failure("stale_element","Rendered evidence is unavailable. Observe again."));return;}
-      const auto v=metrics["cssLayoutViewport"];
-      Json viewports=Json::object();viewports[e.root_frame]={{"x",v.value("pageX",0.0)},{"y",v.value("pageY",0.0)},{"width",v.value("clientWidth",0.0)},{"height",v.value("clientHeight",0.0)}};
+      const auto viewport=visible_snapshot_viewport(metrics);
+      if(!cdp_ok(metrics)||viewport.empty()){reply(failure("stale_element","Rendered evidence is unavailable. Observe again."));return;}
+      Json viewports=Json::object();viewports[e.root_frame]=viewport;
       send(t,"DOMSnapshot.captureSnapshot",{{"computedStyles",visible_snapshot_styles()},{"includeDOMRects",true},{"includePaintOrder",true},{"includeBlendedBackgroundColors",true},{"includeTextColorOpacities",true}},
         [this,t,e,reply,next,viewports](Json snapshot){
           try {
@@ -1124,6 +1147,15 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
   void OnGotFocus(CefRefPtr<CefBrowser> b)override{if(auto o=owner_.lock())if(auto t=o->find(b))if(o->active_tab_==t->id)o->active_windows_[GetAncestor(b->GetHost()->GetWindowHandle(),GA_ROOT)]=t->id;}
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> b,CefRefPtr<CefFrame> frame,CefRefPtr<CefRequest> request,bool gesture,bool)override {
     const auto url=request->GetURL().ToString();
+    // A native human Store navigation enters the real Chrome-style extension
+    // surface. Agent-owned tabs never acquire this human-only UI capability.
+    if(frame&&frame->IsMain()&&extension_manager::store_url(url)){
+      if(auto owner=owner_.lock())if(auto tab=owner->find(b))
+        if(owner->passkey_human_controls_&&owner->passkey_human_controls_(tab->id)&&!tab->private_mode&&!tab->protected_auth&&!owner->shutting_down_&&!owner->removed_workspaces_.contains(tab->workspace)){
+          const auto context=owner->contexts_.find(tab->workspace);
+          if(context!=owner->contexts_.end()&&owner->extension_manager_->open(tab->workspace,context->second,url,owner->workspace_label_?owner->workspace_label_(tab->workspace):std::string{}))return true;
+        }
+    }
     // Chromium password management is replaced by the Xenon vault.
     if(url.rfind("chrome://password-manager",0)==0||url.rfind("chrome://settings/passwords",0)==0) {
       if(auto o=owner_.lock())if(o->controls_)o->controls_();return true;
@@ -1375,6 +1407,10 @@ void CefEngine::Impl::create_ready(const PendingCreate& request) {
 }
 void CefEngine::Impl::finish_shutdown() {
   shutting_down_=true;
+  extension_action::call(extension_action::close_surfaces);
+  extension_action::set_guard({});
+  extension_manager_->close();
+  if(extension_manager_->has_browsers())return;
   CefQuitMessageLoop();
 }
 void CefEngine::Impl::remove_workspace(const std::string& workspace,Reply reply) {
@@ -1404,12 +1440,14 @@ void CefEngine::Impl::close_workspace_tabs(const std::string& workspace){
   for(int key=1;!busy&&key<256;++key)busy=(GetAsyncKeyState(key)&0x8000)!=0;
   if(busy){later(50,[self=shared_from_this(),workspace]{self->close_workspace_tabs(workspace);});return;}
   std::vector<CefRefPtr<CefBrowser>> closing;
+  extension_manager_->close(workspace);
   for(const auto& [id,t]:tabs_)if(t->workspace==workspace)closing.push_back(t->browser);
   for(const auto& browser:closing)browser->GetHost()->CloseBrowser(true);
   finish_workspace_removal(workspace);
 }
 void CefEngine::Impl::finish_workspace_removal(const std::string& workspace) {
   const auto pending=removal_waiters_.find(workspace);if(pending==removal_waiters_.end())return;
+  if(extension_manager_->has_browsers(workspace))return;
   for(const auto& [id,t]:tabs_)if(t->workspace==workspace)return;
   for(const auto& [id,closing]:removed_closing_browsers_)if(closing==workspace)return;
   bool file_cleanup_pending=false;
@@ -1444,6 +1482,7 @@ void CefEngine::Impl::created(CefRefPtr<CefBrowser> b,const std::string& workspa
   t->native_host=GetParent(b->GetHost()->GetWindowHandle());
   tabs_[id]=t;browser_ids_[b->GetIdentifier()]=id;pace(id);
   if(active_tab_.empty())active_tab_=id;
+  if(!t->private_mode){extension_action::call(extension_action::register_tab,b->GetIdentifier());if(active_tab_==id)extension_action::call(extension_action::select_tab,b->GetIdentifier());}
   t->registration=b->GetHost()->AddDevToolsMessageObserver(new Observer(weak_from_this(),t));
   enable_session(t,"");
   Json e={{"tabId",id},{"workspaceId",t->workspace}};if(!opener.empty())e["openerTabId"]=opener;
@@ -1615,9 +1654,12 @@ void CefEngine::Impl::observe(const std::shared_ptr<Tab>& t,const Json& p,Reply 
         for(const auto& child:entry.value("childFrames",Json::array()))visit(child,frame);
       };visit(tree["frameTree"],"");
       send(t,"Page.getLayoutMetrics",Json::object(),[this,t,c,session,root_frame,captured](Json metrics){
-        Json viewports=Json::object();const auto viewport=metrics.value("cssLayoutViewport",Json::object());
+        // The reported viewport is the rendered visual viewport, the same rectangle
+        // and coordinate space as a screenshot's. A pinch zoom shrinks and offsets it.
+        Json viewports=Json::object();const auto viewport=metrics.value("cssVisualViewport",Json::object());
         if(cdp_ok(metrics)&&!viewport.empty()){
-          viewports[root_frame]={{"x",viewport.value("pageX",0.0)},{"y",viewport.value("pageY",0.0)},{"width",viewport.value("clientWidth",0.0)},{"height",viewport.value("clientHeight",0.0)}};
+          // Without a consistent layout scale the root frame is reported as unproven.
+          if(const auto snapshot_viewport=visible_snapshot_viewport(metrics);!snapshot_viewport.empty())viewports[root_frame]=snapshot_viewport;
           if(session.empty())c->viewport={{"pageX",viewport.value("pageX",0.0)},{"pageY",viewport.value("pageY",0.0)},{"width",viewport.value("clientWidth",0.0)},{"height",viewport.value("clientHeight",0.0)}};
         }
         send(t,"DOMSnapshot.captureSnapshot",{{"computedStyles",visible_snapshot_styles()},{"includeDOMRects",true},{"includePaintOrder",true},{"includeBlendedBackgroundColors",true},{"includeTextColorOpacities",true}},
@@ -1658,7 +1700,15 @@ void CefEngine::Impl::point(const std::shared_ptr<Tab>& t,const Element& e,const
         if(!cdp_ok(box)||q.size()!=8||t->epoch!=e.epoch){reply(failure("geometry_unavailable","The current element geometry is unavailable."));return;}
         double fx=v["fx"].get<double>(),fy=v["fy"].get<double>();
         const auto [x,y]=pointer_box_point(q.get<std::array<double,8>>(),fx,fy);
-        translate(t,e.session,x,y,reply,fn);
+        translate(t,e.session,x,y,reply,[this,t,e,reply,fn](double root_x,double root_y){
+          // The page check proves visibility in its frame's layout viewport. A
+          // pinch zoom shows only the visual viewport, the space of these points.
+          send(t,"Page.getLayoutMetrics",Json::object(),[t,e,root_x,root_y,reply,fn](Json metrics){
+            if(!cdp_ok(metrics)||t->epoch!=e.epoch){reply(failure("geometry_unavailable","The current element geometry is unavailable."));return;}
+            if(!inside_input_viewport(input_viewport(metrics),root_x,root_y)){reply(failure("not_actionable","The element is outside the viewport, obscured or changed. Scroll or observe again."));return;}
+            fn(root_x,root_y);
+          });
+        });
       },e.session);
     },e.session);
 }
@@ -1689,25 +1739,37 @@ void CefEngine::Impl::translate(const std::shared_ptr<Tab>& t,const std::string&
 }
 void CefEngine::Impl::move_pointer(const std::shared_ptr<Tab>& t,double x,double y,Reply reply,std::function<void()> done,bool dragging) {
   if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was canceled before dispatch."));return;}
-  const PointerMotion motion(t->pointer,{x,y},static_cast<uint32_t>(std::stoul(local_security::random_hex(4),nullptr,16)));
+  const auto seed=static_cast<uint32_t>(std::stoul(local_security::random_hex(4),nullptr,16));
   if(!dragging)++t->pointer_sync_revision;
-  defer(dragging?0:90,[this,t,motion,reply,done,dragging]{
+  defer(dragging?0:90,[this,t,x,y,seed,reply,done,dragging]{
     if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was canceled before dispatch."));return;}
-    auto step=std::make_shared<std::function<void(int)>>();const int count=(motion.duration_ms()+15)/16;
-    const std::weak_ptr<std::function<void(int)>> weak_step=step;
-    // Scheduled callbacks own the next step. The function holds only a weak
-    // reference, so cancellation never destroys its currently executing captures.
-    *step=[this,t,motion,reply,done,dragging,weak_step,count](int n){
-      if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was interrupted."));return;}
-      auto position=motion.at(static_cast<double>(n)/count);RECT bounds{};auto window=t->browser->GetHost()->GetWindowHandle();GetClientRect(window,&bounds);const auto scale=GetDpiForWindow(window)/96.0*std::pow(1.2,t->browser->GetHost()->GetZoomLevel());position.x=std::clamp(position.x,0.0,std::max(0.0,bounds.right/scale-.01));position.y=std::clamp(position.y,0.0,std::max(0.0,bounds.bottom/scale-.01));
-      Json params={{"type","mouseMoved"},{"x",position.x},{"y",position.y}};
-      if(dragging){params["button"]="left";params["buttons"]=1;}
-      send(t,"Input.dispatchMouseEvent",params,[this,step=weak_step.lock(),reply,done,n,count](Json result){
-        if(!cdp_ok(result)){reply(failure("input_interrupted","Pointer movement was interrupted. Observe before retrying."));return;}
-        if(n==count){done();return;}
-        defer(16,[step,n]{if(step&&*step)(*step)(n+1);});
-      });
-    };(*step)(1);
+    // Moves stay inside the rendered view, in input coordinates. A pinch zoom
+    // shrinks that view inside the window, and the last pointer position can
+    // predate the pinch. The motion starts where the last pointer is now.
+    send(t,"Page.getLayoutMetrics",Json::object(),[this,t,x,y,seed,reply,done,dragging](Json metrics){
+      if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was canceled before dispatch."));return;}
+      const auto view=input_viewport(metrics);
+      if(!cdp_ok(metrics)||view.empty()){reply(failure("viewport_unavailable","The viewport is unavailable. No pointer movement was dispatched."));return;}
+      const auto inside=[view](PointerPoint point){const auto [clamped_x,clamped_y]=input_viewport_clamp(view,point.x,point.y);return PointerPoint{clamped_x,clamped_y};};
+      const auto [start_x,start_y]=input_viewport_from_window(view,t->pointer.x,t->pointer.y);
+      t->pointer_scale=input_viewport_scale(view);
+      const PointerMotion motion(inside({start_x,start_y}),{x,y},seed);
+      auto step=std::make_shared<std::function<void(int)>>();const int count=(motion.duration_ms()+15)/16;
+      const std::weak_ptr<std::function<void(int)>> weak_step=step;
+      // Scheduled callbacks own the next step. The function holds only a weak
+      // reference, so cancellation never destroys its currently executing captures.
+      *step=[this,t,motion,inside,reply,done,dragging,weak_step,count](int n){
+        if(!action_valid(t)||t->closed){reply(failure("human_interrupted","Pointer movement was interrupted."));return;}
+        const auto position=inside(motion.at(static_cast<double>(n)/count));
+        Json params={{"type","mouseMoved"},{"x",position.x},{"y",position.y}};
+        if(dragging){params["button"]="left";params["buttons"]=1;}
+        send(t,"Input.dispatchMouseEvent",params,[this,step=weak_step.lock(),reply,done,n,count](Json result){
+          if(!cdp_ok(result)){reply(failure("input_interrupted","Pointer movement was interrupted. Observe before retrying."));return;}
+          if(n==count){done();return;}
+          defer(16,[step,n]{if(step&&*step)(*step)(n+1);});
+        });
+      };(*step)(1);
+    });
   });
 }
 void CefEngine::Impl::click(const std::shared_ptr<Tab>& t,const Json& p,Reply reply,bool hover) {
@@ -1736,11 +1798,12 @@ void CefEngine::Impl::click(const std::shared_ptr<Tab>& t,const Json& p,Reply re
   if(p.contains("x")&&p.contains("y")){
     if(field(p,"observationId")!=t->screenshot||t->screenshot.empty()){reply(failure("stale_observation","Coordinates require the current screenshot observationId."));return;}
     send(t,"Page.getLayoutMetrics",Json::object(),[this,t,p,reply,inject](Json r){
+      // A pinch or pan moves only the visual viewport, so both viewports must match.
       const auto viewport=t->screenshot_viewport;
-      if(!cdp_ok(r)||r.value("cssLayoutViewport",Json::object())!=viewport){reply(failure("stale_viewport","The viewport moved or resized since the screenshot."));return;}
+      if(!cdp_ok(r)||input_viewport(r)!=viewport){reply(failure("stale_viewport","The viewport moved, resized or zoomed since the screenshot."));return;}
       const double x=p.value("x",-1.0),y=p.value("y",-1.0);
-      if(!std::isfinite(x)||!std::isfinite(y)||x<0||y<0||x>=viewport.value("clientWidth",0.0)||y>=viewport.value("clientHeight",0.0)){reply(failure("invalid_coordinates","Coordinates must be inside the observed viewport."));return;}
-      inject(x,y,[this,t,viewport,reply](double,double,std::function<void()> ready){send(t,"Page.getLayoutMetrics",Json::object(),[viewport,reply,ready](Json result){if(!cdp_ok(result)||result.value("cssLayoutViewport",Json::object())!=viewport){reply(failure("stale_viewport","The viewport changed during pointer movement. No mouse-down was dispatched."));return;}ready();});});
+      if(!inside_input_viewport(viewport,x,y)){reply(failure("invalid_coordinates","Coordinates must be inside the observed viewport."));return;}
+      inject(x,y,[this,t,viewport,reply](double,double,std::function<void()> ready){send(t,"Page.getLayoutMetrics",Json::object(),[viewport,reply,ready](Json result){if(!cdp_ok(result)||input_viewport(result)!=viewport){reply(failure("stale_viewport","The viewport changed during pointer movement. No mouse-down was dispatched."));return;}ready();});});
     });return;
   }
   element(t,p,reply,[this,t,p,reply,inject](Element e,std::string object){point(t,e,object,reply,[this,t,e,object,p,reply,inject](double x,double y){
@@ -1865,7 +1928,7 @@ void CefEngine::Impl::autofill_use(const std::string& id,const std::string& acco
   const auto request=++t->autofill_requested;
   t->native_fill=true;t->autofill_human_qualified=false;discard_login(t);clear_login_edit(t);
   human_activity(t,t->human_gesture,false); // Pause/cancel agents without changing their owner.
-  developer_clear(t);t->protected_auth=true;event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
+  developer_clear(t);extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
   const auto human=t->human_input;
   auto guard=std::make_shared<ActionGuard>();guard->epoch=offer->epoch;guard->human=human;guard->native_auth=true;
   guard->permit=[self=shared_from_this(),t,request,origin=offer->origin]{return t->native_fill&&t->autofill_requested==request&&!t->closed&&self->vault_&&!self->vault_->locked()&&
@@ -2028,11 +2091,10 @@ void CefEngine::Impl::upload(const std::shared_ptr<Tab>& t,const Json& p,Reply o
   if(!grant){reply(failure("file_denied","This file grant is missing, changed or belongs to another workspace."));return;}
   auto held=std::make_shared<UploadFile>(std::move(*grant));
   element(t,p,reply,[this,t,p,held,reply,original_reply](Element e,std::string obj){
-    constexpr const char* kind=R"JS(function(){if(!this.isConnected||this.disabled||this.getAttribute('aria-disabled')==='true')return 'unsupported';if(this.tagName==='INPUT'&&this.type==='file')return this.webkitdirectory?'directory':'input';return this.tagName==='BUTTON'||this.tagName==='LABEL'||this.tagName==='A'||this.getAttribute('role')==='button'||(this.tagName==='INPUT'&&['button','submit'].includes(this.type))?'entry':'unsupported'})JS";
-    send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration",kind},{"returnByValue",true}},[this,t,p,e,obj,held,reply,original_reply](Json checked){
+    send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration",kUploadEntryKind},{"arguments",Json::array({{{"value",e.role=="StaticText"}}})},{"returnByValue",true}},[this,t,p,e,obj,held,reply,original_reply](Json checked){
       const auto kind=field(checked.value("result",Json::object()),"value");
       if(!cdp_ok(checked)||(kind!="input"&&kind!="entry")){
-        reply(failure("unsupported_upload_entry","Use an enabled observed file input or its visible upload button. Directory selection is not supported."));return;
+        reply(failure("unsupported_upload_entry","Use an enabled observed file input or visible upload entry, including its rendered text. Directory selection is not supported."));return;
       }
       if(kind=="input"){
         point(t,e,obj,reply,[this,t,p,e,held,reply,original_reply](double,double){
@@ -2120,10 +2182,14 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     const bool folders=command=="files.folders";const char* key=folders?"folders":"files";Json all=Json::array();
     std::set<std::string> selected;for(const auto& id:p.value("allowedFileIds",Json::array()))if(id.is_string())selected.insert(id.get<std::string>());
     if(!folders){
+      if(p.contains("relativePath")&&(!p["relativePath"].is_string()||p.contains("query")||p.contains("cursor"))){
+        reply(failure("invalid_filter","Direct lookup requires a string relativePath and no query or cursor."));return;
+      }
       std::vector<std::string> scopes;for(const auto& scope:p.value("fileScopes",Json::array({field(p,"workspaceId")})))if(scope.is_string())scopes.push_back(scope.get<std::string>());
       reply(files_->discover_files(scopes,field(p,"folderId"),static_cast<size_t>(std::clamp(p.value("limit",100),1,1000)),
         field(p,"cursor"),field(p,"query"),p.value("restrictFileIds",false)?std::optional<std::set<std::string>>(selected):std::nullopt,
-        field(p,"clientId")+"/"+field(p,"agentSessionId")+"/"+field(p,"workspaceId")));
+        field(p,"clientId")+"/"+field(p,"agentSessionId")+"/"+field(p,"workspaceId"),
+        p.contains("relativePath")?std::optional<std::string>(p["relativePath"].get<std::string>()):std::nullopt));
       return;
     }
     bool found=field(p,"folderId").empty();const auto limit=static_cast<size_t>(std::clamp(p.value("limit",100),1,1000));
@@ -2176,9 +2242,16 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
               {"truncated",evidence["truncated"]}};
           };
           auto& observation=after["result"];auto& screenshot=capture["result"];
-          auto viewport=screenshot["viewport"];viewport.erase("coordinates");
+          // Both report Chromium's rendered visual viewport, so any difference means
+          // the page scrolled, resized, zoomed, pinched or panned during capture.
+          const auto viewport=screenshot.value("viewport",Json::object()),observed=observation.value("viewport",Json::object());
+          bool same_viewport=true;
+          for(const auto* key:{"pageX","pageY","width","height"}){
+            const auto a=viewport.find(key),b=observed.find(key);
+            same_viewport=same_viewport&&a!=viewport.end()&&b!=observed.end()&&a->is_number()&&b->is_number()&&a->get<double>()==b->get<double>();
+          }
           if(t->closed||t->epoch!=epoch||t->human_input!=human_input||t->protected_auth||
-             comparable(before["result"])!=comparable(observation)||viewport!=observation.value("viewport",Json::object())||
+             comparable(before["result"])!=comparable(observation)||!same_viewport||
              screenshot["documentId"]!=observation["documentId"]){
             t->screenshot.clear();reply(failure("inspection_changed","Document, viewport or rendered evidence changed during capture. Inspect again."));return;
           }
@@ -2216,8 +2289,10 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   if(command=="page.scroll"){
     auto dir=field(p,"direction","down");double amount=std::clamp(p.value("amount",500.0),1.0,3000.0);
     if(dir!="down"&&dir!="up"&&dir!="left"&&dir!="right"){reply(failure("invalid_direction","Use up, down, left or right."));return;}
-    send(t,"Page.getLayoutMetrics",Json::object(),[this,t,dir,amount,reply](Json m){auto vp=m.value("cssLayoutViewport",Json::object());
+    // The wheel goes to the center of the rendered view, which a pinch zoom shrinks.
+    send(t,"Page.getLayoutMetrics",Json::object(),[this,t,dir,amount,reply](Json m){auto vp=m.value("cssVisualViewport",Json::object());
       if(!cdp_ok(m)||vp.empty()){reply(failure("viewport_unavailable","The viewport is unavailable."));return;}
+      t->pointer_scale=input_viewport_scale(input_viewport(m));
       send(t,"Input.dispatchMouseEvent",{{"type","mouseWheel"},{"x",vp.value("clientWidth",0.0)/2},{"y",vp.value("clientHeight",0.0)/2},
         {"deltaX",dir=="right"?amount:dir=="left"?-amount:0},{"deltaY",dir=="down"?amount:dir=="up"?-amount:0}},
         [reply](Json r){reply(cdp_ok(r)?success({{"status","dispatched"}}):failure("input_failed","Scroll could not be dispatched."));});});return;
@@ -2248,43 +2323,53 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     callback->Continue(action=="accept",field(p,"text"));reply(success({{"status","handled"}}));return;
   }
   if(command=="page.screenshot"){
-    if(t->guards.size()<t->sessions.size()+1){reply(failure("privacy_guard_initializing","The credential guard is not ready to capture this page."));return;}
-    if(t->screen_capture){reply(failure("screen_sharing","This tab is sharing the person's screen. Screenshots are withheld until sharing stops."));return;}
-    struct Scan {size_t pending;bool secret=false,failed=false;};auto scan=std::make_shared<Scan>();
-    std::vector<std::string> sessions={""};for(auto& [id,f]:t->sessions)sessions.push_back(id);scan->pending=sessions.size();
-    for(const auto& session:sessions)send(t,"DOM.getDocument",{{"depth",-1},{"pierce",true}},[this,t,scan,reply](Json dom){
-      if(!cdp_ok(dom)||!dom.contains("root"))scan->failed=true;
-      else {
-        std::function<void(const Json&)> visit=[&](const Json& n){
-          if(n.contains("attributes")){const auto& a=n["attributes"];for(size_t i=0;i+1<a.size();i+=2){auto k=a[i].get<std::string>(),v=a[i+1].get<std::string>();
-            std::transform(v.begin(),v.end(),v.begin(),[](unsigned char ch){return static_cast<char>(std::tolower(ch));});
-            if((k=="type"&&v=="password")||(k=="autocomplete"&&(v.find("password")!=std::string::npos||v.find("one-time-code")!=std::string::npos)))scan->secret=true;}}
-          for(const char* key:{"children","shadowRoots"})if(n.contains(key))for(const auto& child:n[key])visit(child);
-          if(n.contains("contentDocument"))visit(n["contentDocument"]);
-        };visit(dom["root"]);
+    auto state=[this,t]{
+      screenshot::State value;value.epoch=t->epoch;value.human=t->human_input;
+      value.frames=t->screenshot_frame_revision;value.valid=!t->closed&&action_valid(t);
+      value.protected_auth=t->protected_auth;value.screen_sharing=t->screen_capture;
+      value.guards_ready=t->guards.contains("");
+      value.sessions={""};for(const auto& [id,frame]:t->sessions){
+        value.sessions.push_back(id);value.guards_ready=value.guards_ready&&t->guards.contains(id);
       }
-      if(--scan->pending)return;
-      if(scan->secret||scan->failed||t->protected_auth){reply(failure("screenshot_protected","A credential form or unverified frame prevents a safe screenshot."));return;}
+      return value;
+    };
+    screenshot::check(state,[this,t](const std::string& session,Reply done){
+      send(t,"DOM.getDocument",{{"depth",-1},{"pierce",true}},std::move(done),session);
+    },[this,t,reply,state](Json checked,screenshot::State scanned){
+      if(!checked.value("ok",false)){reply(std::move(checked));return;}
       const auto epoch=t->epoch;
-      send(t,"Page.getLayoutMetrics",Json::object(),[this,t,epoch,reply](Json metrics){
+      send(t,"Page.getLayoutMetrics",Json::object(),[this,t,epoch,reply,state,scanned](Json metrics){
+        auto valid=screenshot::validate(scanned,state());
+        if(!valid.value("ok",false)){reply(std::move(valid));return;}
         if(!cdp_ok(metrics)){reply(failure("viewport_unavailable","The viewport is unavailable."));return;}
-        auto vp=metrics.value("cssVisualViewport",Json::object());auto layout=metrics.value("cssLayoutViewport",Json::object());
+        auto vp=metrics.value("cssVisualViewport",Json::object());const auto viewport=input_viewport(metrics);
+        // An unclipped surface capture is the whole page view, scrollbars included, in physical pixels.
+        // Image pixels per CSS pixel are Blink's CSS-to-physical zoom (display scale times browser zoom,
+        // the ratio of the two visual viewport sizes) times pinch scale, the factors CDP input applies.
+        // Dividing the image by the CSS viewport instead counted scrollbars as page content.
+        const auto physical=metrics.value("visualViewport",Json::object());
+        const double css_width=vp.value("clientWidth",0.0),css_height=vp.value("clientHeight",0.0),pinch=physical.value("scale",0.0);
+        const double scale=css_width>0&&css_height>0?physical.value("clientWidth",0.0)/css_width*pinch:0.0;
+        if(!std::isfinite(scale)||scale<=0||std::abs(physical.value("clientHeight",0.0)/css_height*pinch-scale)>scale*1e-4){reply(failure("viewport_unavailable","The viewport scale is unavailable."));return;}
+        if(viewport.empty()){reply(failure("viewport_unavailable","The viewport is unavailable."));return;}
         const auto captured_at=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        send(t,"Page.captureScreenshot",{{"format","png"},{"fromSurface",true},{"captureBeyondViewport",false}},[t,epoch,vp,layout,captured_at,reply](Json r){
+        send(t,"Page.captureScreenshot",{{"format","png"},{"fromSurface",true},{"captureBeyondViewport",false}},[t,epoch,vp,viewport,css_width,css_height,scale,captured_at,reply,state,scanned](Json r){
+          auto valid=screenshot::validate(scanned,state());
+          if(!valid.value("ok",false)){reply(std::move(valid));return;}
           if(!cdp_ok(r)||!r.contains("data")||t->epoch!=epoch||t->protected_auth||t->screen_capture){reply(failure("screenshot_failed","The screenshot could not be safely captured."));return;}
           const auto png=CefBase64Decode(r["data"].get<std::string>());unsigned char header[24]{};
           if(!png||png->GetSize()<24||png->GetData(header,sizeof(header),0)!=sizeof(header)||header[0]!=137||header[1]!=80||header[2]!=78||header[3]!=71){reply(failure("screenshot_failed","The image dimensions could not be verified."));return;}
           auto dimension=[&](int at){return (static_cast<uint32_t>(header[at])<<24)|(static_cast<uint32_t>(header[at+1])<<16)|(static_cast<uint32_t>(header[at+2])<<8)|header[at+3];};
           const auto image_width=dimension(16),image_height=dimension(20);
-          const double css_width=vp.value("clientWidth",0.0),css_height=vp.value("clientHeight",0.0);
-          if(!image_width||!image_height||css_width<=0||css_height<=0){reply(failure("screenshot_failed","The image or CSS viewport is empty."));return;}
-          t->screenshot=nonce();t->observation=t->screenshot;t->screenshot_viewport=layout;reply(success({{"mimeType","image/png"},{"data",r["data"]},{"observationId",t->screenshot},{"documentId",t->document},
+          // The image must cover the measured viewport; a smaller one means the view shrank during capture.
+          if(!image_width||!image_height||image_width+1.0<css_width*scale||image_height+1.0<css_height*scale){reply(failure("screenshot_failed","The image does not cover the measured CSS viewport."));return;}
+          t->screenshot=nonce();t->observation=t->screenshot;t->screenshot_viewport=viewport;reply(success({{"mimeType","image/png"},{"data",r["data"]},{"observationId",t->screenshot},{"documentId",t->document},
             {"tabId",t->id},{"workspaceId",t->workspace},{"capturedAtUnixMs",captured_at},
-            {"imageWidth",image_width},{"imageHeight",image_height},{"scaleX",image_width/css_width},{"scaleY",image_height/css_height},{"coordinateMapping","CSS x = image x / scaleX; CSS y = image y / scaleY"},
+            {"imageWidth",image_width},{"imageHeight",image_height},{"scaleX",scale},{"scaleY",scale},{"coordinateMapping","CSS x = image x / scaleX; CSS y = image y / scaleY"},
             {"viewport",{{"width",vp.value("clientWidth",0.0)},{"height",vp.value("clientHeight",0.0)},{"pageX",vp.value("pageX",0.0)},{"pageY",vp.value("pageY",0.0)},{"coordinates","CSS pixels"}}}}));
         });
       });
-    },session);return;
+    });return;
   }
   if(command=="page.wait"){
     const auto wanted=field(p,"text");const int timeout=std::clamp(p.value("timeoutMs",3000),100,15000);
@@ -2316,7 +2401,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     if(field(p,"grantedOrigin")!=*origin){reply(failure("origin_denied","The active page origin does not match the credential grant."));return;}
     auto secret=vault_->get_secret(field(p,"accountId"),*origin);
     if(!secret){reply(failure("account_unavailable","The selected account is unavailable for this origin."));return;}
-    developer_clear(t);t->protected_auth=true;t->auth_inflight=true;event("auth.protected",{{"tabId",t->id},{"protected",true}});
+    developer_clear(t);extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;t->auth_inflight=true;event("auth.protected",{{"tabId",t->id},{"protected",true}});
     persist_session();
     auto held=std::make_shared<Secret>(std::move(*secret));
     login(t,p,held,*origin,reply,false,std::chrono::steady_clock::now()+std::chrono::seconds(15));return;
@@ -2327,7 +2412,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
       move_pointer(t,x,y,reply,[this,t,x,y,toX,toY,reply,verify]{verify([this,t,x,y,toX,toY,reply]{
         send(t,"Input.dispatchMouseEvent",{{"type","mousePressed"},{"x",x},{"y",y},{"button","left"},{"buttons",1},{"clickCount",1}},[this,t,toX,toY,reply](Json down){
           if(down.value("error",Json::object()).value("notDispatched",false)){reply(failure("human_interrupted","Human input interrupted this drag before mouse-down."));return;}
-          auto release=[this,t,reply](bool ok){const auto position=t->pointer;send(t,"Input.dispatchMouseEvent",{{"type","mouseReleased"},{"x",position.x},{"y",position.y},{"button","left"},{"buttons",0},{"clickCount",1}},[reply,ok](Json up){reply(ok&&cdp_ok(up)?success({{"status","dispatched"}}):failure("input_interrupted","The drag was interrupted and its button balanced. Observe before retrying."));});};
+          auto release=[this,t,reply](bool ok){const PointerPoint position{t->pointer.x/t->pointer_scale,t->pointer.y/t->pointer_scale};send(t,"Input.dispatchMouseEvent",{{"type","mouseReleased"},{"x",position.x},{"y",position.y},{"button","left"},{"buttons",0},{"clickCount",1}},[reply,ok](Json up){reply(ok&&cdp_ok(up)?success({{"status","dispatched"}}):failure("input_interrupted","The drag was interrupted and its button balanced. Observe before retrying."));});};
           if(!cdp_ok(down)){release(false);return;}
           move_pointer(t,toX,toY,[release](Json){release(false);},[release]{release(true);},true);
         });
@@ -2347,11 +2432,12 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     }
     if(field(p,"observationId")!=t->screenshot||t->screenshot.empty()){reply(failure("stale_observation","Coordinate drag requires a current screenshot."));return;}
     send(t,"Page.getLayoutMetrics",Json::object(),[this,t,p,reply,gesture](Json m){
-      if(m.value("cssLayoutViewport",Json::object())!=t->screenshot_viewport){reply(failure("stale_viewport","The viewport changed since the screenshot."));return;}
-      const auto v=m.value("cssLayoutViewport",Json::object());double x=p.value("fromX",-1.0),y=p.value("fromY",-1.0),xx=p.value("toX",-1.0),yy=p.value("toY",-1.0);
-      for(const auto& point:std::vector<std::pair<double,double>>{{x,y},{xx,yy}})if(!std::isfinite(point.first)||!std::isfinite(point.second)||point.first<0||point.second<0||point.first>=v.value("clientWidth",0.0)||point.second>=v.value("clientHeight",0.0)){
+      const auto v=t->screenshot_viewport;
+      if(!cdp_ok(m)||input_viewport(m)!=v){reply(failure("stale_viewport","The viewport changed since the screenshot."));return;}
+      double x=p.value("fromX",-1.0),y=p.value("fromY",-1.0),xx=p.value("toX",-1.0),yy=p.value("toY",-1.0);
+      for(const auto& point:std::vector<std::pair<double,double>>{{x,y},{xx,yy}})if(!inside_input_viewport(v,point.first,point.second)){
         reply(failure("invalid_coordinates","Both drag endpoints must be within the observed viewport."));return;
-      }gesture(x,y,xx,yy,[this,t,v,reply](std::function<void()> ready){send(t,"Page.getLayoutMetrics",Json::object(),[v,reply,ready](Json result){if(!cdp_ok(result)||result.value("cssLayoutViewport",Json::object())!=v){reply(failure("stale_viewport","Drag viewport changed before press."));return;}ready();});});
+      }gesture(x,y,xx,yy,[this,t,v,reply](std::function<void()> ready){send(t,"Page.getLayoutMetrics",Json::object(),[v,reply,ready](Json result){if(!cdp_ok(result)||input_viewport(result)!=v){reply(failure("stale_viewport","Drag viewport changed before press."));return;}ready();});});
     });return;
   }
   if(command=="files.upload"){
@@ -2360,7 +2446,22 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   reply(failure("unsupported_command","This browser operation is not supported."));
 }
 
-CefEngine::CefEngine(std::filesystem::path root):impl_(std::make_shared<Impl>(std::move(root))){}
+CefEngine::CefEngine(std::filesystem::path root):impl_(std::make_shared<Impl>(std::move(root))){
+  extension_action::set_guard([weak=std::weak_ptr<Impl>(impl_)](int browser){
+    auto owner=weak.lock();if(!owner||owner->shutting_down_)return 0;
+    const auto cef_browser=CefBrowserHost::GetBrowserByIdentifier(browser);if(!cef_browser)return 0;
+    const auto tab=owner->find(cef_browser);
+    if(!tab||tab->closed||tab->private_mode||tab->id!=owner->active_tab_||tab->protected_auth||tab->auth_inflight||tab->native_fill||tab->dialog||tab->human_dialog||tab->passkey.pending()||owner->removed_workspaces_.contains(tab->workspace))return 0;
+    const auto context=owner->contexts_.find(tab->workspace);
+    return context!=owner->contexts_.end()&&context->second&&context->second->IsSame(tab->browser->GetHost()->GetRequestContext())?1:0;
+  });
+  impl_->extension_manager_=std::make_unique<CefExtensionManager>([weak=std::weak_ptr<Impl>(impl_)](const std::string& workspace){
+    if(auto owner=weak.lock()){
+      owner->finish_workspace_removal(workspace);
+      if(owner->shutting_down_&&owner->tabs_.empty()&&owner->creating_.empty())owner->finish_shutdown();
+    }
+  });
+}
 CefEngine::~CefEngine()=default;
 void CefEngine::initialize(){execute("tabs.create",{{"workspaceId","human-default"},{"url","about:blank"}},[](Json){});}
 void CefEngine::shutdown(){on_ui([p=impl_]{p->persist_session();p->shutting_down_=true;for(auto& [id,t]:p->tabs_)t->browser->GetHost()->CloseBrowser(true);if(p->tabs_.empty()&&p->creating_.empty())p->finish_shutdown();});}
@@ -2389,9 +2490,288 @@ void CefEngine::set_native_key_callback(std::function<void(CefWindowHandle,UINT,
 void CefEngine::set_dialog_callback(std::function<void(const std::string&)> f){impl_->dialog_opened_=std::move(f);}
 void CefEngine::set_private_workspace_callback(std::function<void()> f){impl_->private_workspace_=std::move(f);}
 void CefEngine::set_host_callbacks(std::function<HWND(const std::string&,const std::string&,bool,const std::string&)> create,
-  std::function<void(const std::string&,HWND)> created,std::function<void(const std::string&)> closed){impl_->create_host_=std::move(create);impl_->host_created_=std::move(created);impl_->host_closed_=std::move(closed);}
+  std::function<void(const std::string&,HWND)> created,std::function<void(const std::string&)> closed){
+    impl_->create_host_=std::move(create);impl_->host_created_=std::move(created);impl_->host_closed_=std::move(closed);
+    impl_->extension_manager_->set_hosts(impl_->create_host_?[make=impl_->create_host_](const std::string& workspace,const std::string& id){return make(workspace,id,true,{});}:std::function<HWND(const std::string&,const std::string&)>{},impl_->host_created_,impl_->host_closed_);
+  }
 void CefEngine::set_open_link_callback(std::function<void(const std::string&,const std::string&,bool)> f){impl_->open_link_=std::move(f);}
 void CefEngine::set_extension_ids(std::set<std::string> ids){on_ui([p=impl_,ids=std::move(ids)]{p->extension_ids_=ids;});}
+void CefEngine::open_extensions_manager(const std::string& workspace,const std::string& url,Reply reply){
+  on_ui([owner=impl_,workspace,url,reply=std::move(reply)]{
+    auto done=[&](Json result){if(reply)reply(std::move(result));};
+    if(owner->shutting_down_||owner->removed_workspaces_.contains(workspace)||owner->private_workspaces_.contains(workspace)){
+      done(failure("workspace_unavailable","Open Extensions in a non-private workspace."));return;
+    }
+    const auto context=owner->contexts_.find(workspace);const auto state=owner->context_states_.find(workspace);
+    if(context==owner->contexts_.end()||state==owner->context_states_.end()||state->second!=Impl::ContextState::ready){done(failure("workspace_unavailable","Open a tab in this workspace, then try Extensions again."));return;}
+    const auto expected=(owner->root_/("workspace-"+local_security::sha256(workspace))).lexically_normal();
+    if(!context->second||context->second->IsGlobal()||std::filesystem::path(context->second->GetCachePath().ToWString()).lexically_normal()!=expected){done(failure("workspace_unavailable","The workspace profile could not be verified."));return;}
+    done(owner->extension_manager_->open(workspace,context->second,url,owner->workspace_label_?owner->workspace_label_(workspace):std::string{})?success():failure("extension_manager_unavailable","The extension manager could not be opened."));
+  });
+}
+void CefEngine::set_workspace_label_callback(std::function<std::string(const std::string&)> callback){impl_->workspace_label_=std::move(callback);}
+void CefEngine::extension_quick_list(const std::string& tab_id,const std::string& workspace,Reply reply){
+  on_ui([owner=impl_,tab_id,workspace,reply=std::move(reply)]{
+    if(owner->shutting_down_||owner->removed_workspaces_.contains(workspace)){reply(failure("workspace_unavailable","This workspace is unavailable."));return;}
+    if(owner->private_workspaces_.contains(workspace)){reply(success({{"extensions",Json::array()},{"private",true},{"origin",""}}));return;}
+    const auto context=owner->contexts_.find(workspace);const auto state=owner->context_states_.find(workspace);
+    const auto expected=(owner->root_/("workspace-"+local_security::sha256(workspace))).lexically_normal();
+    if(context==owner->contexts_.end()||state==owner->context_states_.end()||state->second!=Impl::ContextState::ready||!context->second||context->second->IsGlobal()||std::filesystem::path(context->second->GetCachePath().ToWString()).lexically_normal()!=expected){reply(failure("workspace_unavailable","Open a tab in this workspace, then try Extensions again."));return;}
+    std::string url,origin;uint64_t epoch=0;const auto tab=owner->tabs_.find(tab_id);const bool source_page=tab!=owner->tabs_.end();
+    if(tab!=owner->tabs_.end()){
+      if(tab->second->workspace!=workspace||tab->second->closed){reply(failure("stale_target","The selected tab changed."));return;}
+      epoch=tab->second->epoch;url=tab->second->browser->GetMainFrame()->GetURL().ToString();CefURLParts parts;
+      if(CefParseURL(url,parts)){const auto scheme=CefString(&parts.scheme).ToString();if(scheme=="http"||scheme=="https"){origin=CefString(&parts.origin).ToString();if(origin.ends_with('/'))origin.pop_back();}}
+    }else if(tab_id!="xenon-extensions:"+workspace||!owner->extension_manager_->has_browsers(workspace)){reply(failure("stale_target","The selected tab changed."));return;}
+    owner->extension_manager_->quick_list(workspace,context->second,origin,[owner,tab_id,workspace,url,epoch,source_page,reply=std::move(reply)](Json result){
+      if(owner->shutting_down_||owner->removed_workspaces_.contains(workspace)||!owner->contexts_.contains(workspace)){reply(failure("workspace_unavailable","The extension list was canceled."));return;}
+      if(source_page){const auto current=owner->tabs_.find(tab_id);if(current==owner->tabs_.end()||current->second->closed||current->second->epoch!=epoch||current->second->workspace!=workspace||current->second->browser->GetMainFrame()->GetURL().ToString()!=url){reply(failure("stale_target","The page changed. Open Extensions again."));return;}}
+      if(result.value("ok",false)){
+        result["result"]["documentEpoch"]=epoch;
+        const int capabilities=extension_action::call(extension_action::capabilities);
+        result["result"]["siteToggleAvailable"]=capabilities>=0&&(capabilities&2)!=0;
+        if(source_page&&!result["result"].value("origin",std::string{}).empty()&&capabilities>0){
+          const auto current=owner->tabs_.at(tab_id);Json rows=Json::array();
+          for(auto row:result["result"]["extensions"]){
+            const auto id=field(row,"id");const auto flags=extension_action::call(extension_action::info,current->browser->GetIdentifier(),id.c_str());
+            if(flags==-1)continue;
+            if(flags>=0){
+              const auto previous=row.value("access",std::string{});
+              row["access"]=(flags&32)&&((flags&24)||previous!="other")?"blocked":flags&8?"allowed":flags&16?"on_click":"other";
+              row["canOnClick"]=(flags&128)!=0;row["canOnSite"]=(flags&256)!=0;row["canAllSites"]=(flags&512)!=0;
+              row["canChangeSite"]=(flags&(128|256|512))!=0;row["hasAction"]=(flags&1)!=0;
+              row["canPin"]=(flags&1024)!=0;row["hasSidePanel"]=(flags&2048)!=0;
+            }
+            rows.push_back(std::move(row));
+          }
+          result["result"]["extensions"]=std::move(rows);
+        }
+      }
+      reply(std::move(result));
+    });
+  });
+}
+void CefEngine::invoke_extension_action(const std::string& tab_id,const std::string& workspace,
+                                const std::string& extension,const std::string& command,uint64_t epoch,RECT anchor,Reply reply){
+  on_ui([owner=impl_,tab_id,workspace,extension,command,epoch,anchor,reply=std::move(reply)]{
+    if(owner->shutting_down_||owner->removed_workspaces_.contains(workspace)||owner->private_workspaces_.contains(workspace)||owner->active_tab_!=tab_id){reply(failure("stale_target","Select a regular website tab first."));return;}
+    const auto found=owner->tabs_.find(tab_id);
+    if(found==owner->tabs_.end()||found->second->workspace!=workspace||found->second->closed||found->second->epoch!=epoch){reply(failure("stale_target","The selected page changed. Open Extensions again."));return;}
+    const auto tab=found->second;const auto context=owner->contexts_.find(workspace);
+    const auto expected=(owner->root_/("workspace-"+local_security::sha256(workspace))).lexically_normal();
+    if(context==owner->contexts_.end()||!context->second||!context->second->IsSame(tab->browser->GetHost()->GetRequestContext())||std::filesystem::path(context->second->GetCachePath().ToWString()).lexically_normal()!=expected){reply(failure("workspace_unavailable","The extension workspace changed."));return;}
+    if(tab->protected_auth||tab->auth_inflight||tab->native_fill||tab->dialog||tab->human_dialog){reply(failure("extension_action_unavailable","Finish the protected interaction before opening an extension."));return;}
+    const auto root=GetAncestor(tab->browser->GetHost()->GetWindowHandle(),GA_ROOT);
+    if(GetAncestor(GetForegroundWindow(),GA_ROOTOWNER)!=GetAncestor(root,GA_ROOTOWNER)||!IsWindowEnabled(root)){reply(failure("stale_target","The selected window changed."));return;}
+    using namespace extension_action;
+    const std::map<std::string,Command> commands{{"activate",invoke},{"activate-reload",invoke_with_reload},{"side-panel",side_toggle},{"pin",pin},{"unpin",unpin},{"block-site",block_site},{"allow-site",allow_site},{"on-click",on_click},{"on-site",on_site},{"on-all-sites",on_all_sites},{"remove",remove}};
+    const auto op=commands.find(command);if(op==commands.end()){reply(failure("invalid_action","Unknown extension action."));return;}
+    // A human extension action invalidates agent evidence and pauses queued
+    // input without changing the tab's owner or replaying interrupted work.
+    if(command!="pin"&&command!="unpin")owner->human_activity(tab,tab->human_gesture,false);
+    const auto result=call(op->second,tab->browser->GetIdentifier(),extension.c_str(),anchor);
+    if(result==1){reply(success({{"dispatched",true}}));return;}
+    if(result==2){reply(success({{"noAction",true}}));return;}
+    if(result==-4){reply(failure("extension_reload_required","Reload this page to run the extension?"));return;}
+    if(result==-2){reply(failure("extension_site_blocked","Extensions are blocked on this site."));return;}
+    if(result==-100){reply(failure("extension_engine_required","Restart Xenon using the engine build with extension action support."));return;}
+    reply(failure("extension_action_unavailable","The extension action is unavailable for this page."));
+  });
+}
+void CefEngine::dismiss_extension_action(const std::string& tab_id){on_ui([owner=impl_,tab_id]{
+  const auto tab=owner->tabs_.find(tab_id);if(tab!=owner->tabs_.end())extension_action::call(extension_action::close,tab->second->browser->GetIdentifier());
+});}
+bool CefEngine::extension_side_visible(const std::string& tab_id){
+  const auto it=impl_->tabs_.find(tab_id);return it!=impl_->tabs_.end()&&!it->second->closed&&extension_action::call(extension_action::side_visible,it->second->browser->GetIdentifier())==1;
+}
+void CefEngine::layout_extension_surfaces(const std::string& tab_id,RECT dock,RECT toolbar_anchor){
+  const auto it=impl_->tabs_.find(tab_id);if(it==impl_->tabs_.end()||it->second->closed)return;
+  const int browser=it->second->browser->GetIdentifier();
+  extension_action::call(extension_action::anchor,browser,nullptr,toolbar_anchor);
+  extension_action::call(extension_action::side_layout,browser,nullptr,dock);
+}
+#if defined(XENON_TEST_FIXTURE_CERT_SHA256)
+namespace {
+class ExtensionManagerProbe final:public CefDevToolsMessageObserver {
+ public:
+  struct State {CefRefPtr<CefRegistration> registration;Reply reply;bool native_click=false;};
+  explicit ExtensionManagerProbe(std::shared_ptr<State> state):state_(std::move(state)){}
+  static void finish(const std::shared_ptr<State>& state,Json value){auto reply=std::exchange(state->reply,{});state->registration=nullptr;if(reply)reply(std::move(value));}
+  void OnDevToolsMethodResult(CefRefPtr<CefBrowser> browser,int id,bool ok,const void* bytes,size_t size)override{
+    if(id!=991001||!state_->reply)return;
+    auto state=state_;
+    try{
+      const auto data=Json::parse(static_cast<const char*>(bytes),static_cast<const char*>(bytes)+size);
+      if(!ok||data.contains("exceptionDetails"))throw std::runtime_error("Probe evaluation failed");
+      const auto value=data.at("result").at("value");Json result=Json::object();
+      if(state->native_click){
+        if(!value.value("found",false)){finish(state,failure("NOT_READY","Synthetic link is not ready"));return;}
+        const auto root=browser->GetHost()->GetWindowHandle();const auto scale=GetDpiForWindow(root)/96.0*std::pow(1.2,browser->GetHost()->GetZoomLevel());
+        POINT screen{static_cast<LONG>(std::lround(value.at("x").get<double>()*scale)),static_cast<LONG>(std::lround(value.at("y").get<double>()*scale))};ClientToScreen(root,&screen);
+        HWND target=root;for(int depth=0;depth<12;++depth){POINT point=screen;ScreenToClient(target,&point);const auto child=ChildWindowFromPointEx(target,point,CWP_SKIPINVISIBLE|CWP_SKIPDISABLED);if(!child||child==target)break;target=child;}
+        POINT point=screen;ScreenToClient(target,&point);const auto at=MAKELPARAM(point.x,point.y);
+        const bool sent=PostMessageW(target,WM_MOUSEMOVE,0,at)&&PostMessageW(target,WM_LBUTTONDOWN,MK_LBUTTON,at)&&PostMessageW(target,WM_LBUTTONUP,0,at);
+        finish(state,sent?success({{"clicked",true}}):failure("FIXTURE_FAILED","Synthetic native link dispatch failed"));return;
+      }
+      for(const char* key:{"managerPage","managerElement","developerApi","storePage","storeApi","drawerOpen","drawerLogoHidden","storeLogoHidden","clicked","accountPage","installed","installRejected","contentScriptActive","fixturePageReady","popupActiveTab","popupView","popupDynamic","actionClicked"})if(value.contains(key)&&value[key].is_boolean())result[key]=value[key];
+      finish(state,success(std::move(result)));
+    }catch(...){finish(state,failure("FIXTURE_FAILED","Synthetic extension-manager probe failed"));}
+  }
+ private:std::shared_ptr<State> state_;IMPLEMENT_REFCOUNTING(ExtensionManagerProbe);
+};
+}
+void CefEngine::fixture_extension_manager(const std::string& workspace,const std::string& action,Reply reply){
+  on_ui([this,owner=impl_,workspace,action,reply=std::move(reply)]{
+    if(workspace!="native-default"||owner->root_.parent_path().filename()!=L".cache"||!owner->root_.filename().wstring().starts_with(L"extension-manager-integration-")){
+      reply(failure("FIXTURE_FAILED","Synthetic profile required"));return;
+    }
+    if(action=="close"){owner->extension_manager_->close(workspace);reply(success());return;}
+    if(action=="close-pages"){for(const auto& [id,tab]:owner->tabs_)tab->browser->GetHost()->CloseBrowser(true);reply(success());return;}
+    if(action=="inventory"){auto state=owner->extension_manager_->fixture_surface(workspace);state["managerOpen"]=owner->extension_manager_->fixture_browser(workspace)!=nullptr;state["brokerTabs"]=owner->tabs_.size();reply(success(std::move(state)));return;}
+    if(action=="popup-state"){
+      int selected_browser=0;if(auto it=owner->tabs_.find(owner->active_tab_);it!=owner->tabs_.end()&&!it->second->closed)selected_browser=it->second->browser->GetIdentifier();
+      reply(success({{"popups",extension_action::call(extension_action::pending)},{"sidePanels",extension_action::call(extension_action::side_pending)},
+        {"nativeGuardAllowsSource",selected_browser&&extension_action::guard_callback(selected_browser)>0},{"supported",extension_action::call(extension_action::version)==1}}));return;
+    }
+    if(action=="side-close"){extension_action::call(extension_action::close_surfaces);reply(success());return;}
+    if(action=="side-protect"||action=="side-unprotect"){
+      for(const auto& [id,tab]:owner->tabs_)if(tab->workspace==workspace&&!tab->closed&&tab->id==owner->active_tab_){tab->protected_auth=action=="side-protect";if(tab->protected_auth)extension_action::call(extension_action::close_surfaces,tab->browser->GetIdentifier());reply(success());return;}
+      reply(failure("NOT_READY","Synthetic selected page required"));return;
+    }
+    if(action=="popup-close"){extension_action::call(extension_action::close);reply(success());return;}
+    if(action=="popup-marker"||action=="action-side"||action=="side-button"||action=="action-popup"||action=="action-click"||action=="action-allow-site"||action=="action-on-click-matching"||action=="action-on-site-matching"||action=="action-on-site-other"){
+      std::shared_ptr<Tab> source;for(const auto& [id,tab]:owner->tabs_)if(tab->workspace==workspace&&!tab->closed){if(!source)source=tab;if(id==owner->active_tab_){source=tab;break;}}
+      if(!source){reply(failure("NOT_READY","Synthetic website is initializing"));return;}
+      if(action=="popup-marker"){
+        const auto state=std::make_shared<ExtensionManagerProbe::State>();state->reply=std::move(reply);state->registration=source->browser->GetHost()->AddDevToolsMessageObserver(new ExtensionManagerProbe(state));
+        const auto request=Json{{"id",991001},{"method","Runtime.evaluate"},{"params",{{"expression",R"JS((()=>{const d=location.hostname==='127.0.0.1'?document.documentElement.dataset:{};return {popupActiveTab:d.xenonActionPopup==='active',popupView:d.xenonActionView==='true',popupDynamic:d.xenonActionVariant==='actual',actionClicked:d.xenonActionClicked==='active'};})())JS"},{"returnByValue",true}}}}.dump();
+        source->browser->GetHost()->SendDevToolsMessage(request.data(),request.size());later(5000,[state]{if(state->reply)ExtensionManagerProbe::finish(state,failure("FIXTURE_FAILED","Synthetic popup marker timed out"));});return;
+      }
+      const auto root=GetAncestor(source->browser->GetHost()->GetWindowHandle(),GA_ROOT);SetForegroundWindow(root);select_native_tab(source->id);
+      extension_quick_list(source->id,workspace,[this,source,workspace,action,root,reply=std::move(reply)](Json list){
+        if(!list.value("ok",false)){reply(std::move(list));return;}
+        const auto name=action=="action-side"||action=="side-button"?"Synthetic side panel":action=="action-click"?"Synthetic action click":action=="action-on-site-other"?"Synthetic other extension":action=="action-on-click-matching"||action=="action-on-site-matching"?"Synthetic matching extension":"Synthetic action popup";std::string extension;
+        for(const auto& row:list["result"]["extensions"])if(field(row,"name")==name){extension=field(row,"id");break;}
+        if(extension.empty()){reply(failure("NOT_READY","Synthetic action extension is initializing"));return;}
+        RECT rect{};GetWindowRect(root,&rect);rect.left=rect.right-120;rect.top+=40;rect.right=rect.left+32;rect.bottom=rect.top+32;
+        invoke_extension_action(source->id,workspace,extension,action=="side-button"?"side-panel":action=="action-allow-site"?"allow-site":action=="action-on-click-matching"?"on-click":action=="action-on-site-matching"||action=="action-on-site-other"?"on-site":"activate",list["result"].value("documentEpoch",uint64_t{}),rect,std::move(reply));
+      });return;
+    }
+    if(action=="quick-list"||action=="quick-site"||action=="quick-stale"||action=="quick-marker"){
+      std::shared_ptr<Tab> source;for(const auto& [id,tab]:owner->tabs_)if(tab->workspace==workspace&&!tab->closed){if(!source)source=tab;if(id==owner->active_tab_){source=tab;break;}}
+      if(!source){reply(failure("NOT_READY","Synthetic website tab is initializing"));return;}
+      if(action=="quick-site"){
+        const auto path=owner->root_/"extension-quicklist-port.txt";const auto attrs=GetFileAttributesW(path.c_str());
+        if(attrs==INVALID_FILE_ATTRIBUTES||(attrs&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY))||std::filesystem::file_size(path)>5){reply(failure("FIXTURE_FAILED","Synthetic server port required"));return;}
+        std::ifstream input(path);std::string port;input>>port;int number{};const auto parsed=std::from_chars(port.data(),port.data()+port.size(),number);
+        if(parsed.ec!=std::errc{}||parsed.ptr!=port.data()+port.size()||number<1||number>65535){reply(failure("FIXTURE_FAILED","Invalid synthetic server port"));return;}
+        source->browser->GetMainFrame()->LoadURL("http://127.0.0.1:"+port+"/");reply(success());return;
+      }
+      if(action=="quick-marker"){
+        const auto state=std::make_shared<ExtensionManagerProbe::State>();state->reply=std::move(reply);state->registration=source->browser->GetHost()->AddDevToolsMessageObserver(new ExtensionManagerProbe(state));
+        const auto request=Json{{"id",991001},{"method","Runtime.evaluate"},{"params",{{"expression","({fixturePageReady:location.hostname==='127.0.0.1'&&document.readyState==='complete',contentScriptActive:location.hostname==='127.0.0.1'&&document.documentElement.dataset.xenonExtensionFixture==='active'})"},{"returnByValue",true}}}}.dump();
+        source->browser->GetHost()->SendDevToolsMessage(request.data(),request.size());later(5000,[state]{if(state->reply)ExtensionManagerProbe::finish(state,failure("FIXTURE_FAILED","Synthetic marker probe timed out"));});return;
+      }
+      extension_quick_list(source->id,workspace,std::move(reply));
+      if(action=="quick-stale")source->browser->GetMainFrame()->LoadURL("about:blank");return;
+    }
+    const auto context=owner->contexts_.find(workspace);
+    if(context==owner->contexts_.end()){reply(failure("NOT_READY","Synthetic workspace is initializing"));return;}
+    if(action=="manager"||action=="store"){
+      const auto url=action=="store"?extension_manager::store:extension_manager::home;
+      reply(owner->extension_manager_->open(workspace,context->second,url)?success():failure("NOT_READY","Synthetic manager is initializing"));return;
+    }
+    auto browser=owner->extension_manager_->fixture_browser(workspace);
+    if(!browser||!browser->IsValid()||!browser->GetMainFrame()||!browser->GetMainFrame()->IsValid()){reply(failure("NOT_READY","Synthetic manager is loading"));return;}
+    if(browser->GetHost()->GetRuntimeStyle()!=CEF_RUNTIME_STYLE_CHROME||!context->second->IsSame(browser->GetHost()->GetRequestContext())){
+      reply(failure("FIXTURE_FAILED","Synthetic manager context/runtime mismatch"));return;
+    }
+    if(action=="account-redirect"||action=="account-direct"){
+      reply(owner->extension_manager_->fixture_account_navigation(workspace)?success():failure("FIXTURE_FAILED","Synthetic account navigation failed"));return;
+    }
+    if(action=="untracked-window"){
+      reply(owner->extension_manager_->fixture_untracked_window(workspace)?success():failure("FIXTURE_FAILED","Synthetic Chrome window creation failed"));return;
+    }
+    if(action=="install-page"||action=="confirm-install"||action=="install-click"||action=="install-mismatch"){
+      const auto optin_path=owner->root_/"STORE_INSTALL_TEST_ALLOWED";const auto attrs=GetFileAttributesW(optin_path.c_str());
+      if(attrs==INVALID_FILE_ATTRIBUTES||(attrs&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY))||std::filesystem::file_size(optin_path)>128){reply(failure("FIXTURE_FAILED","Explicit Store-install fixture opt-in required"));return;}
+      std::ifstream optin(optin_path,std::ios::binary);const std::string optin_text{std::istreambuf_iterator<char>(optin),{}};
+      if(optin_text!="XENON_SIGNED_STORE_INSTALL_FIXTURE:ddkjiahejlhfcafbddmgiahcphecmpfh\n"){reply(failure("FIXTURE_FAILED","Explicit Store-install fixture opt-in required"));return;}
+      if(action=="install-page"){browser->GetMainFrame()->LoadURL("https://chromewebstore.google.com/detail/ddkjiahejlhfcafbddmgiahcphecmpfh");reply(success());return;}
+      const auto url=browser->GetMainFrame()->GetURL().ToString();
+      if(!extension_manager::store_url(url)||url.find("ddkjiahejlhfcafbddmgiahcphecmpfh")==std::string::npos){reply(failure("FIXTURE_FAILED","Fixed Store package page required"));return;}
+      if(action=="confirm-install"){
+        CefPostTask(TID_FILE_BACKGROUND,new Task([reply=std::move(reply)]{const auto invoked=extension_install_fixture::confirm_signed_fixture();on_ui([reply,invoked]{reply(success({{"clicked",invoked}}));});}));return;
+      }
+    }
+    const auto state=std::make_shared<ExtensionManagerProbe::State>();state->reply=std::move(reply);state->native_click=action=="native-sidebar-link";
+    state->registration=browser->GetHost()->AddDevToolsMessageObserver(new ExtensionManagerProbe(state));
+    // Fixed synthetic-driver inspection of the browser's own native manager
+    // or public Store API. No arbitrary script/data is accepted from the file.
+    std::string expression=R"JS((()=>{
+      const manager=document.querySelector('extensions-manager')?.shadowRoot;
+      const drawer=manager?.querySelector('cr-drawer')?.shadowRoot;
+      const slot=drawer?.querySelector('slot[name="header-icon"]');
+      const sidebar=manager?.querySelector('cr-drawer extensions-sidebar')?.shadowRoot;
+      const icon=sidebar?.querySelector('#web-store-icon');
+      return {managerPage:location.href.startsWith('chrome://extensions/'),managerElement:!!manager,
+        developerApi:typeof chrome.developerPrivate?.getExtensionsInfo==='function',
+        storePage:location.origin==='https://chromewebstore.google.com',
+        accountPage:location.origin==='https://accounts.google.com',
+        storeApi:typeof chrome.webstorePrivate?.beginInstallWithManifest3==='function',
+        drawerOpen:!!drawer?.querySelector('dialog')?.open,
+        drawerLogoHidden:!!slot&&getComputedStyle(slot).display==='none',
+        storeLogoHidden:!!icon&&getComputedStyle(icon).display==='none'};
+    })())JS";
+    if(action=="drawer")expression=R"JS((()=>{const button=document.querySelector('extensions-manager')?.shadowRoot?.querySelector('extensions-toolbar')?.shadowRoot?.querySelector('cr-toolbar')?.shadowRoot?.querySelector('#menuButton');if(!button)return {clicked:false};button.click();return {clicked:true};})())JS";
+    else if(action=="sidebar-link")expression=R"JS((()=>{const link=document.querySelector('extensions-manager')?.shadowRoot?.querySelector('cr-drawer extensions-sidebar')?.shadowRoot?.querySelector('#discover-more-text a');if(!link)return {clicked:false};link.click();return {clicked:true};})())JS";
+    else if(action=="native-sidebar-link")expression=R"JS((()=>{const link=document.querySelector('extensions-manager')?.shadowRoot?.querySelector('cr-drawer extensions-sidebar')?.shadowRoot?.querySelector('#discover-more-text a');const rect=link?.getClientRects()[0];return rect?{found:true,x:rect.x+rect.width/2,y:rect.y+rect.height/2}:{found:false};})())JS";
+    else if(action=="empty-store-link")expression=R"JS((()=>{const link=document.querySelector('extensions-manager')?.shadowRoot?.querySelector('extensions-item-list')?.shadowRoot?.querySelector('#no-items a');if(!link)return {clicked:false};link.click();return {clicked:true};})())JS";
+    else if(action=="install-prompt")expression=R"JS((()=>{if(location.origin!=='https://chromewebstore.google.com'||typeof chrome.webstorePrivate?.beginInstallWithManifest3!=='function')return {clicked:false};chrome.webstorePrivate.beginInstallWithManifest3({id:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',manifest:JSON.stringify({manifest_version:3,name:'Xenon synthetic install prompt',version:'1.0',permissions:['tabs']})},()=>{void chrome.runtime.lastError;});return {clicked:true};})())JS";
+    else if(action=="install-click")expression=R"JS((()=>{if(location.origin!=='https://chromewebstore.google.com'||!location.pathname.includes('ddkjiahejlhfcafbddmgiahcphecmpfh'))return {clicked:false};const button=[...document.querySelectorAll('button')].find(b=>b.innerText.includes('Add to Chrome')&&!b.disabled&&b.getBoundingClientRect().width>0);if(!button)return {clicked:false};button.click();return {clicked:true};})())JS";
+    else if(action=="install-rejected")expression=R"JS(({installRejected:globalThis.__xenonFixtureInstallRejected===true}))JS";
+    else if(action=="install-mismatch")expression=R"JS((()=>{if(location.origin!=='https://chromewebstore.google.com')return {clicked:false};globalThis.__xenonFixtureInstallRejected=false;chrome.webstorePrivate.beginInstallWithManifest3({id:'ddkjiahejlhfcafbddmgiahcphecmpfh',localizedName:'uBlock Origin Lite',manifest:JSON.stringify({manifest_version:3,name:'Xenon mismatched manifest fixture',version:'1.0',permissions:['tabs']})},result=>{if(result){void chrome.runtime.lastError;return;}chrome.webstorePrivate.completeInstall('ddkjiahejlhfcafbddmgiahcphecmpfh',()=>{globalThis.__xenonFixtureInstallRejected=!!chrome.runtime.lastError;});});return {clicked:true};})())JS";
+    else if(action=="installed")expression=R"JS(new Promise(resolve=>{if(location.origin!=='https://chromewebstore.google.com'||typeof chrome.webstorePrivate?.getExtensionStatus!=='function'){resolve({installed:false});return;}chrome.webstorePrivate.getExtensionStatus('ddkjiahejlhfcafbddmgiahcphecmpfh',status=>{void chrome.runtime.lastError;resolve({installed:status==='enabled'||status==='disabled'});});}))JS";
+    const auto request=Json{{"id",991001},{"method","Runtime.evaluate"},{"params",{{"expression",expression},{"returnByValue",true},{"awaitPromise",true},{"userGesture",action=="drawer"||action=="sidebar-link"||action=="empty-store-link"||action=="install-prompt"||action=="install-click"||action=="install-mismatch"}}}}.dump();
+    if(!browser->GetHost()->SendDevToolsMessage(request.data(),request.size()))ExtensionManagerProbe::finish(state,failure("FIXTURE_FAILED","Synthetic manager probe dispatch failed"));
+    else later(5000,[state]{if(state->reply)ExtensionManagerProbe::finish(state,failure("FIXTURE_FAILED","Synthetic manager probe timed out"));});
+  });
+}
+void CefEngine::fixture_page_scale(const std::string& id,double scale,Reply reply){
+  on_ui([owner=impl_,id,scale,reply=std::move(reply)]{
+    if(owner->root_.parent_path().filename()!=L".cache"||!owner->root_.filename().wstring().starts_with(L"pinch-zoom-integration-")){reply(failure("FIXTURE_FAILED","Synthetic profile required"));return;}
+    const auto found=owner->tabs_.find(id);
+    if(found==owner->tabs_.end()||found->second->closed){reply(failure("FIXTURE_FAILED","Missing synthetic tab"));return;}
+    const auto t=found->second;
+    owner->send(t,"Page.getLayoutMetrics",Json::object(),[owner,t,scale,reply](Json before){
+      if(!cdp_ok(before)){reply(failure("FIXTURE_FAILED","Viewport unavailable"));return;}
+      if(scale==1){reply(success({{"before",before}}));return;}
+      // Chromium's synthetic touchpad pinch enters below Windows messages, as a
+      // DirectManipulation pinch does, so Xenon's input hooks do not see it.
+      const auto visual=before.value("cssVisualViewport",Json::object());
+      owner->send(t,"Input.synthesizePinchGesture",{{"x",visual.value("clientWidth",0.0)/2},{"y",visual.value("clientHeight",0.0)/2},{"scaleFactor",scale},{"gestureSourceType","mouse"}},
+        [owner,t,reply,before](Json pinched){
+          if(!cdp_ok(pinched)){reply(failure("FIXTURE_FAILED","Synthetic pinch was not dispatched"));return;}
+          owner->send(t,"Page.getLayoutMetrics",Json::object(),[reply,before](Json after){
+            reply(cdp_ok(after)?success({{"before",before},{"after",after}}):failure("FIXTURE_FAILED","Viewport unavailable"));
+          });
+        });
+    });
+  });
+}
+void CefEngine::fixture_human_pointer(const std::string& id,int client_x,int client_y,Reply reply){
+  on_ui([this,owner=impl_,id,client_x,client_y,reply=std::move(reply)]{
+    if(owner->root_.parent_path().filename()!=L".cache"||!owner->root_.filename().wstring().starts_with(L"pinch-zoom-integration-")){reply(failure("FIXTURE_FAILED","Synthetic profile required"));return;}
+    const auto found=owner->tabs_.find(id);
+    if(found==owner->tabs_.end()||found->second->closed){reply(failure("FIXTURE_FAILED","Missing synthetic tab"));return;}
+    // The position a mouse message hook would report; no input is sent.
+    POINT screen{client_x,client_y};
+    if(!ClientToScreen(found->second->browser->GetHost()->GetWindowHandle(),&screen)){reply(failure("FIXTURE_FAILED","Page window unavailable"));return;}
+    native_pointer(found->second->native_host,screen,false);
+    on_ui([reply]{reply(success());});
+  });
+}
+#endif
 size_t CefEngine::saved_account_count(const std::string& id){
   const auto found=impl_->tabs_.find(id);if(found==impl_->tabs_.end()||found->second->closed||!impl_->vault_||impl_->vault_->locked())return 0;
   const auto origin=Vault::normalize_https_origin(found->second->browser->GetMainFrame()->GetURL().ToString());if(!origin)return 0;
@@ -2402,11 +2782,19 @@ void CefEngine::set_passkey_control_callback(std::function<bool(const std::strin
 void CefEngine::set_permission_callback(std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> callback){impl_->permission_=std::move(callback);}
 void CefEngine::set_tab_covered(const std::string& id,bool covered){on_ui([owner=impl_,id,covered]{
   if(!owner->tabs_.contains(id)&&!owner->creating_.contains(id))return;owner->pacing_.set_covered(id,covered);owner->pace(id);});}
-void CefEngine::select_native_tab(const std::string& id){
+void CefEngine::select_native_tab(const std::string& id,bool awaiting_browser){
+  if(auto tab=impl_->tabs_.find(id);tab!=impl_->tabs_.end()&&!tab->second->private_mode&&!tab->second->closed)extension_action::call(extension_action::select_tab,tab->second->browser->GetIdentifier());
+  else if(awaiting_browser)extension_action::call(extension_action::close);
+  else extension_action::call(extension_action::clear_selection);
   impl_->active_tab_=id;if(auto found=impl_->tabs_.find(id);found!=impl_->tabs_.end())impl_->active_windows_[GetAncestor(found->second->browser->GetHost()->GetWindowHandle(),GA_ROOT)]=id;
 }
+void CefEngine::dismiss_page_popups(HWND page){on_ui([owner=impl_,page]{
+  for(const auto& [id,tab]:owner->tabs_)if(tab->native_host==page&&!tab->closed){auto browser=tab->browser;browser->GetHost()->NotifyMoveOrResizeStarted();return;}
+});}
 void CefEngine::native_pointer(HWND page,POINT screen,bool substantive){on_ui([owner=impl_,page,screen,substantive]{
   for(const auto& [id,tab]:owner->tabs_)if(tab->native_host==page){
+    // Window coordinates: a later pinch or pan does not move this position,
+    // and the next agent motion converts it through the current pinch scale.
     auto window=tab->browser->GetHost()->GetWindowHandle();POINT point=screen;if(!ScreenToClient(window,&point))return;
     const double scale=GetDpiForWindow(window)/96.0*std::pow(1.2,tab->browser->GetHost()->GetZoomLevel());
     tab->pointer={point.x/scale,point.y/scale};tab->pointer_known=true;++tab->pointer_revision;if(substantive)++tab->human_pointer_revision;return;
@@ -2449,9 +2837,15 @@ void CefEngine::developer_highlight(const std::string& id,const std::string& dia
       double left=q[0].get<double>(),right=left,top=q[1].get<double>(),bottom=top;
       for(size_t i=2;i<8;i+=2){left=std::min(left,q[i].get<double>());right=std::max(right,q[i].get<double>());top=std::min(top,q[i+1].get<double>());bottom=std::max(bottom,q[i+1].get<double>());}
       owner->translate(t,e.session,left,top,done,[owner,t,e,diagnostic,revision,done,right,bottom,valid](double x,double y){
-        owner->translate(t,e.session,right,bottom,done,[t,e,diagnostic,revision,done,x,y,valid](double xx,double yy){
+        owner->translate(t,e.session,right,bottom,done,[owner,t,e,diagnostic,revision,done,x,y,valid](double xx,double yy){
           if(!valid()||!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(xx)||!std::isfinite(yy)||xx<=x||yy<=y||std::abs(x)>1e8||std::abs(y)>1e8||std::abs(xx)>1e8||std::abs(yy)>1e8){done(failure("stale_element","The highlight target changed."));return;}
-          t->developer_highlighted=diagnostic;done(success({{"x",x},{"y",y},{"width",xx-x},{"height",yy-y},{"approximate",e.diagnostic_uncertain}}));
+          // The bounds are input coordinates; the shell draws in window
+          // coordinates, which a pinch magnifies by its scale.
+          owner->send(t,"Page.getLayoutMetrics",Json::object(),[t,e,diagnostic,done,x,y,xx,yy,valid](Json metrics){
+            const auto viewport=input_viewport(metrics);
+            if(!valid()||!cdp_ok(metrics)||viewport.empty()){done(failure("stale_element","The highlight viewport is unavailable."));return;}
+            t->developer_highlighted=diagnostic;done(success({{"x",x},{"y",y},{"width",xx-x},{"height",yy-y},{"approximate",e.diagnostic_uncertain},{"pageScale",input_viewport_scale(viewport)}}));
+          });
         });
       });
     },e.session);
@@ -2503,13 +2897,15 @@ void CefEngine::Impl::developer_hit(const std::shared_ptr<Tab>& t,double x,doubl
     },session);
   };
   // Unlike box-model geometry, Chromium's DOM hit test takes document
-  // coordinates. Native mouse positions are viewport CSS pixels.
+  // coordinates. Native mouse positions are window coordinates; a pinch
+  // magnifies the visual viewport, which may also be panned into the page.
   send(t,"Page.getLayoutMetrics",Json::object(),[this,t,x,y,valid,reply,located,positional](Json metrics){
-    const auto viewport=metrics.value("cssLayoutViewport",Json::object());
-    if(!valid()||!cdp_ok(metrics)||viewport.empty()||!std::isfinite(x)||!std::isfinite(y)||x<0||y<0||x>=viewport.value("clientWidth",0.0)||y>=viewport.value("clientHeight",0.0)){
+    const auto viewport=input_viewport(metrics);
+    const auto [input_x,input_y]=input_viewport_from_window(viewport,x,y);
+    if(!valid()||!cdp_ok(metrics)||viewport.empty()||!inside_input_viewport(viewport,input_x,input_y)){
       reply(failure("stale_viewport","The hover viewport is unavailable."));return;}
     double smallest=std::numeric_limits<double>::max();
-    const double document_x=x+viewport.value("pageX",0.0),document_y=y+viewport.value("pageY",0.0);
+    const auto [document_x,document_y]=input_viewport_document_point(viewport,input_x,input_y);
     for(const auto& [id,e]:t->developer_targets){
       // Snapshot-only position matching is an approximate human diagnostic.
       // Child frames retain native hit/ancestry matching instead of guessing
@@ -2519,9 +2915,9 @@ void CefEngine::Impl::developer_hit(const std::shared_ptr<Tab>& t,double x,doubl
       const double area=width*height;
       if(width>0&&height>0&&document_x>=left&&document_x<=left+width&&document_y>=top&&document_y<=top+height&&area<smallest){smallest=area;*positional=id;}
     }
-    send(t,"DOM.getNodeForLocation",{{"x",static_cast<int>(std::floor(x+viewport.value("pageX",0.0)))},{"y",static_cast<int>(std::floor(y+viewport.value("pageY",0.0)))},{"includeUserAgentShadowDOM",false}},[this,t,valid,reply,located,viewport](Json hit){
+    send(t,"DOM.getNodeForLocation",{{"x",static_cast<int>(std::floor(document_x))},{"y",static_cast<int>(std::floor(document_y))},{"includeUserAgentShadowDOM",false}},[this,t,valid,reply,located,viewport](Json hit){
       send(t,"Page.getLayoutMetrics",Json::object(),[valid,reply,located,viewport,hit=std::move(hit)](Json after){
-        if(!valid()||!cdp_ok(after)||after.value("cssLayoutViewport",Json::object())!=viewport){reply(failure("stale_viewport","The page scrolled during hover matching."));return;}
+        if(!valid()||!cdp_ok(after)||input_viewport(after)!=viewport){reply(failure("stale_viewport","The page scrolled, zoomed or panned during hover matching."));return;}
         located(hit);
       });
     });
@@ -2529,13 +2925,14 @@ void CefEngine::Impl::developer_hit(const std::shared_ptr<Tab>& t,double x,doubl
 }
 void CefEngine::Impl::prepare_uncertain_click(const std::shared_ptr<Tab>& t,double x,double y,std::function<void(Json)> done){
   if(t->private_mode||t->protected_auth||t->auth_inflight||t->native_fill||t->uncertain_click_candidates.empty()){done(Json::object());return;}
-  const auto viewport=t->screenshot_viewport;
-  const Json expected={{"pageX",viewport.value("pageX",0.0)},{"pageY",viewport.value("pageY",0.0)},{"width",viewport.value("clientWidth",0.0)},{"height",viewport.value("clientHeight",0.0)}};
+  const auto viewport=t->screenshot_viewport;const auto visual=viewport.is_object()?viewport.value("visual",Json::object()):Json::object();
+  const Json expected={{"pageX",visual.value("pageX",0.0)},{"pageY",visual.value("pageY",0.0)},{"width",visual.value("clientWidth",0.0)},{"height",visual.value("clientHeight",0.0)}};
   if(t->uncertain_click_viewport!=expected){done(Json::object());return;}
   const auto epoch=t->epoch,human=t->human_input,generation=uncertain_click_log_.generation();
   const auto candidates=t->uncertain_click_candidates;
   auto valid=[this,t,epoch,human,generation]{return action_valid(t)&&t->epoch==epoch&&t->human_input==human&&!t->closed&&!t->private_mode&&!t->protected_auth&&!t->auth_inflight&&!t->native_fill&&uncertain_click_log_.enabled()&&uncertain_click_log_.generation()==generation;};
-  send(t,"DOM.getNodeForLocation",{{"x",static_cast<int>(std::floor(x+viewport.value("pageX",0.0)))},{"y",static_cast<int>(std::floor(y+viewport.value("pageY",0.0)))},{"includeUserAgentShadowDOM",false}},[this,t,x,y,expected,viewport,candidates,valid,done](Json hit){
+  const auto [document_x,document_y]=input_viewport_document_point(viewport,x,y);
+  send(t,"DOM.getNodeForLocation",{{"x",static_cast<int>(std::floor(document_x))},{"y",static_cast<int>(std::floor(document_y))},{"includeUserAgentShadowDOM",false}},[this,t,x,y,expected,viewport,candidates,valid,done](Json hit){
     if(!valid()||!cdp_ok(hit)){done(Json::object());return;}
     const auto backend=hit.value("backendNodeId",0);const auto frame=field(hit,"frameId");std::string session;
     for(const auto& [id,entry]:t->sessions)if(entry.frame==frame)session=id;
@@ -2554,7 +2951,7 @@ void CefEngine::Impl::prepare_uncertain_click(const std::shared_ptr<Tab>& t,doub
         if(!diagnostic.empty()){diagnostic["hitMatch"]="native_ax_ancestry";diagnostic["viewport"]=expected;diagnostic["click"]={{"x",x},{"y",y}};}
       }
       // Diagnostics never bypass the normal dispatch guard or moving-viewport check.
-      send(t,"Page.getLayoutMetrics",Json::object(),[valid,viewport,done,diagnostic](Json metrics){done(valid()&&cdp_ok(metrics)&&metrics.value("cssLayoutViewport",Json::object())==viewport?diagnostic:Json::object());});
+      send(t,"Page.getLayoutMetrics",Json::object(),[valid,viewport,done,diagnostic](Json metrics){done(valid()&&cdp_ok(metrics)&&input_viewport(metrics)==viewport?diagnostic:Json::object());});
     },session);
   });
 }
@@ -2606,6 +3003,7 @@ void CefEngine::developer_pick_point(const std::string& id,double x,double y){on
 });}
 void CefEngine::native_command(const std::string& id,const std::string& command,const std::string& value,Reply reply){on_ui([owner=impl_,id,command,value,reply]{
   try {
+    if(owner->extension_manager_->native_command(id,command,value,reply))return;
     if(command=="theme") {for(const auto& [workspace,context]:owner->contexts_)context->SetChromeColorScheme(ui::theme_mode==ui::ThemeMode::dark?CEF_COLOR_VARIANT_DARK:ui::theme_mode==ui::ThemeMode::light?CEF_COLOR_VARIANT_LIGHT:CEF_COLOR_VARIANT_SYSTEM,0);if(reply)reply(success());return;}
     auto found=owner->tabs_.find(id);if(found==owner->tabs_.end()){if(reply)reply(failure("tab_closed","Select an open tab."));return;}auto tab=found->second;auto browser=tab->browser;auto host=browser->GetHost();
     if(command=="focus"){if(owner->active_tab_==id)host->SetFocus(true);return;}
@@ -2803,7 +3201,7 @@ void CefEngine::exclude_workspaces(const std::vector<std::string>& workspaces){
 }
 void CefEngine::restore_session(const std::vector<std::string>& workspaces,Reply reply){on_ui([p=impl_,workspaces,reply]{p->restore(workspaces,reply);});}
 Json CefEngine::native_dialogs(){Json result=Json::array();for(const auto& [id,t]:impl_->tabs_)if(t->dialog)result.push_back({{"tabId",id},{"type",t->dialog_type},{"message",t->dialog_message},{"origin",t->dialog_origin}});return result;}
-Json CefEngine::native_tabs(){Json result=Json::array();for(const auto& [id,t]:impl_->tabs_)result.push_back({{"tabId",id},{"workspaceId",t->workspace},
+Json CefEngine::native_tabs(){Json result=impl_->extension_manager_->native_tabs();for(const auto& [id,t]:impl_->tabs_)result.push_back({{"tabId",id},{"workspaceId",t->workspace},
   {"title",t->title.empty()?(t->last_url.empty()||t->last_url=="about:blank"?"New tab":t->last_url):t->title},
   {"url",t->protected_auth?"[Protected authentication]":t->browser->GetMainFrame()->GetURL().ToString()},{"loading",t->browser->IsLoading()},
   {"canGoBack",t->browser->CanGoBack()},{"canGoForward",t->browser->CanGoForward()},{"private",t->private_mode},{"protected",t->protected_auth},
@@ -2821,7 +3219,15 @@ void CefEngine::set_fullscreen_callback(std::function<void(const std::string&,bo
 void CefEngine::set_external_link_callback(std::function<void(const std::string&,const std::string&,const std::string&,const std::string&,bool,std::function<void(bool)>)> f){impl_->external_link_=std::move(f);}
 void CefEngine::set_screen_share_callback(std::function<void(const std::string&,const std::string&,bool,std::function<void(bool)>)> f){impl_->screen_share_=std::move(f);}
 void CefEngine::answer_native_dialog(const std::string& id,bool accept,const std::string& text){on_ui([p=impl_,id,accept,text]{auto i=p->tabs_.find(id);if(i==p->tabs_.end()||!i->second->dialog)return;auto t=i->second;auto callback=t->dialog;t->dialog=nullptr;t->dialog_type.clear();t->dialog_message.clear();t->dialog_origin.clear();t->human_dialog=false;p->human_activity(t,t->human_gesture,false);callback->Continue(accept,text);});}
-CefRefPtr<CefClient> CefEngine::default_client(){return new Impl::Client(impl_,"human-default");}
+CefRefPtr<CefClient> CefEngine::default_client(){
+  return new CefDefaultClient([weak=std::weak_ptr<Impl>(impl_)](CefRefPtr<CefBrowser> browser)->CefRefPtr<CefClient>{
+    if(auto owner=weak.lock()){
+      if(owner->extension_manager_->handles(browser))return owner->extension_manager_->default_client();
+      return new Impl::Client(owner,"human-default");
+    }
+    return nullptr;
+  });
+}
 CefRefPtr<CefRequestContextHandler> CefEngine::default_context_handler(){return new Impl::ContextHandler;}
 void CefEngine::native_input(CefWindowHandle window,bool busy,bool credential_input,bool substantive,bool primary_click){
   on_ui([p=impl_,window,busy,credential_input,substantive,primary_click]{

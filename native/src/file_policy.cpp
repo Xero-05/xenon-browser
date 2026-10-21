@@ -350,8 +350,26 @@ Json FilePolicy::list_files(const std::string& scope, const std::string& folder_
 }
 Json FilePolicy::discover_files(const std::vector<std::string>& scopes, const std::string& folder_id,
                                size_t limit, const std::string& cursor, const std::string& query,
-                               const std::optional<std::set<std::string>>& selected, const std::string& principal) {
+                               const std::optional<std::set<std::string>>& selected, const std::string& principal,
+                               const std::optional<std::string>& relative_path) {
   if (query.size() > 500 || cursor.size() > 256) return failure("invalid_filter", "File query or cursor exceeds its supported bound.");
+  std::optional<std::filesystem::path> exact;
+  if (relative_path) {
+    if (folder_id.empty() || !query.empty() || !cursor.empty())
+      return failure("invalid_filter", "Direct lookup requires a folder handle and no query or cursor.");
+    if (relative_path->empty() || relative_path->size() > 500)
+      return failure("invalid_relative_path", "Relative file path must contain 1 to 500 UTF-8 bytes.");
+    auto name = widen(*relative_path);
+    if (utf8(name) != *relative_path)
+      return failure("invalid_relative_path", "Relative file path must be valid UTF-8.");
+    std::replace(name.begin(), name.end(), L'/', L'\\');
+    exact.emplace(name);
+    // Validate before joining to the grant, including drive-relative/UNC paths,
+    // traversal, repeated separators, streams and Windows normalization aliases.
+    if (exact->has_root_path() || name.find(L"\\\\") != std::wstring::npos ||
+        !native_path_allowed(std::filesystem::path(L"C:\\") / *exact))
+      return failure("invalid_relative_path", "Use an unambiguous relative file path inside the approved folder.");
+  }
   limit = std::clamp<size_t>(limit, 1, 1000);
   std::lock_guard lock(impl_->mutex);
   const auto now = std::chrono::steady_clock::now();
@@ -396,29 +414,38 @@ Json FilePolicy::discover_files(const std::vector<std::string>& scopes, const st
         auto root = open_path(folder->second.path, true);
         if (!(root.identity == folder->second.identity) || impl_->denied(root.canonical, root.identity))
           return failure("folder_changed", "The granted folder is unavailable or changed.");
-        size_t inspected = 0;
-        std::error_code ec;
-        auto iter = std::filesystem::recursive_directory_iterator(root.canonical, std::filesystem::directory_options::skip_permission_denied, ec);
-        const auto end = std::filesystem::recursive_directory_iterator{};
-        if (ec) discovery.incomplete = true;
-        for (; iter != end; iter.increment(ec)) {
-          if (ec) { discovery.incomplete = true; ec.clear(); continue; }
-          if (++inspected > 5000) { discovery.incomplete = true; break; }
-          const auto path = iter->path();
-          const auto attributes = GetFileAttributesW(path.c_str());
-          if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) { iter.disable_recursion_pending(); continue; }
-          if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
-            if (iter.depth() >= 7) { iter.disable_recursion_pending(); discovery.incomplete = true; continue; }
-            for (const auto& protected_root : impl_->protected_roots) if (within(path, protected_root)) { iter.disable_recursion_pending(); break; }
-            continue;
-          }
+        if (exact) {
           try {
-            auto opened = open_regular(path);
-            if (!within(opened.canonical, root.canonical) || impl_->denied(opened.canonical, opened.identity)) continue;
-            include({folder->second.scope, opened.canonical, opened.identity, folder_id}, {}, path.lexically_relative(root.canonical));
-          } catch (...) { /* Busy, protected or changing files remain unavailable. */ }
+            auto opened = open_regular(root.canonical / *exact);
+            if (within(opened.canonical, root.canonical) && !impl_->denied(opened.canonical, opened.identity))
+              include({folder->second.scope, opened.canonical, opened.identity, folder_id}, {},
+                      opened.canonical.lexically_relative(root.canonical));
+          } catch (...) { /* Missing, busy, protected or changing files remain unavailable. */ }
+        } else {
+          size_t inspected = 0;
+          std::error_code ec;
+          auto iter = std::filesystem::recursive_directory_iterator(root.canonical, std::filesystem::directory_options::skip_permission_denied, ec);
+          const auto end = std::filesystem::recursive_directory_iterator{};
+          if (ec) discovery.incomplete = true;
+          for (; iter != end; iter.increment(ec)) {
+            if (ec) { discovery.incomplete = true; ec.clear(); continue; }
+            if (++inspected > 5000) { discovery.incomplete = true; break; }
+            const auto path = iter->path();
+            const auto attributes = GetFileAttributesW(path.c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) { iter.disable_recursion_pending(); continue; }
+            if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
+              if (iter.depth() >= 7) { iter.disable_recursion_pending(); discovery.incomplete = true; continue; }
+              for (const auto& protected_root : impl_->protected_roots) if (within(path, protected_root)) { iter.disable_recursion_pending(); break; }
+              continue;
+            }
+            try {
+              auto opened = open_regular(path);
+              if (!within(opened.canonical, root.canonical) || impl_->denied(opened.canonical, opened.identity)) continue;
+              include({folder->second.scope, opened.canonical, opened.identity, folder_id}, {}, path.lexically_relative(root.canonical));
+            } catch (...) { /* Busy, protected or changing files remain unavailable. */ }
+          }
+          if (ec) discovery.incomplete = true;
         }
-        if (ec) discovery.incomplete = true;
       } catch (...) { return failure("folder_unavailable", "The approved folder could not be safely listed."); }
     }
     std::sort(discovery.entries->begin(), discovery.entries->end(), [](const auto& a, const auto& b) { return a.path.native() < b.path.native(); });

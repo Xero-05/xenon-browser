@@ -21,6 +21,10 @@
         "path": "scripts/patches/cef-video-frame-release-priority.patch",
         "sha256": "d24d1bc8c664f090f048d60ccde6d207309969a698c6df7a11adde802bc0b5ff"
       },
+      "extensionActionPatch": {
+        "path": "scripts/patches/cef-extension-actions.patch",
+        "sha256": "6dab6747cc8332b093d79779e971ac46b875387da6cb4122fd0625a99c4d8e7b"
+      },
       "backgroundFrameRatePatch": {
         "path": "scripts/patches/cef-background-frame-rate.patch",
         "sha256": "d6ee2049fa49955de35bf84ab7937dd6ed93d1d25d4ae8696769490fa6015c5d"
@@ -38,6 +42,10 @@
       "videoSchedulingPatch": {
         "path": "scripts/patches/cef-video-frame-release-priority.patch",
         "sha256": "d24d1bc8c664f090f048d60ccde6d207309969a698c6df7a11adde802bc0b5ff"
+      },
+      "extensionActionPatch": {
+        "path": "scripts/patches/cef-extension-actions.patch",
+        "sha256": "6dab6747cc8332b093d79779e971ac46b875387da6cb4122fd0625a99c4d8e7b"
       },
       "backgroundFrameRatePatch": {
         "path": "scripts/patches/cef-background-frame-rate.patch",

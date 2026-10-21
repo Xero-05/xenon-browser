@@ -1,6 +1,7 @@
 #include "xenon/ui_theme.hpp"
 #include "xenon/agent_overlay.hpp"
 #include "xenon/introduction.hpp"
+#include "xenon/page_popup_guard.hpp"
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -8,6 +9,43 @@
 using namespace xenon;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
+void page_popup_containment(){
+  WNDCLASSW type{};type.lpfnWndProc=DefWindowProcW;type.hInstance=GetModuleHandleW(nullptr);type.lpszClassName=L"XenonTabHost";
+  RegisterClassW(&type);
+  auto root=CreateWindowExW(0,L"STATIC",L"Synthetic popup root",WS_OVERLAPPED,0,0,200,100,nullptr,nullptr,type.hInstance,nullptr);
+  auto source=CreateWindowExW(0,L"XenonTabHost",L"",WS_CHILD,0,0,200,100,root,nullptr,type.hInstance,nullptr);
+  bool allowed=false,destroy_on_dismiss=false;int dismissals=0;HWND popup{};PagePopupGuard guard;
+  guard.start([&](HWND h){require(h==source,"Popup retains exact source child");return allowed;},[&](HWND h){require(h==source,"Dismissal retains exact source child");++dismissals;if(destroy_on_dismiss)DestroyWindow(popup);});
+  popup=CreateWindowExW(WS_EX_NOACTIVATE,L"STATIC",L"Synthetic popup",WS_POPUP,0,0,60,60,source,nullptr,type.hInstance,nullptr);
+  require(root&&source&&popup,"Create popup ownership fixture");
+  require(GetWindow(popup,GW_OWNER)==root,"Windows promotes popup owner to top-level root");
+  ShowWindow(popup,SW_SHOWNOACTIVATE);
+  require(!IsWindowVisible(popup),"Covered source cannot show popup");require(dismissals==0,"Renderer dismissal waits until the show callback returns");
+  MSG message{};while(PeekMessageW(&message,popup,0,0,PM_REMOVE))DispatchMessageW(&message);
+  require(!IsWindow(popup)&&dismissals==1,"Suppressed popup retires renderer and HWND after its show callback returns");
+  popup=CreateWindowExW(WS_EX_NOACTIVATE,L"STATIC",L"Synthetic popup",WS_POPUP,0,0,60,60,source,nullptr,type.hInstance,nullptr);
+  allowed=true;ShowWindow(popup,SW_SHOWNOACTIVATE);
+  require(IsWindowVisible(popup),"Eligible source can show popup");
+  allowed=false;guard.refresh();
+  require(!IsWindowVisible(popup),"Foreground or selection loss hides an existing popup");
+  allowed=true;ShowWindow(popup,SW_SHOWNOACTIVATE);
+  while(PeekMessageW(&message,popup,0,0,PM_REMOVE))DispatchMessageW(&message);
+  require(IsWindowVisible(popup)&&dismissals==1,"A stale close cannot dismiss an eligible reopened popup");
+  DestroyWindow(source);
+  require(!IsWindowVisible(popup),"Source destruction hides its popup");
+  ShowWindow(popup,SW_SHOWNOACTIVATE);
+  require(!IsWindowVisible(popup),"Destroyed source cannot authorize a later show");
+  while(PeekMessageW(&message,popup,0,0,PM_REMOVE))DispatchMessageW(&message);
+  require(!IsWindow(popup)&&dismissals==1,"Destroyed source cannot receive renderer dismissal");
+  source=CreateWindowExW(0,L"XenonTabHost",L"",WS_CHILD,0,0,200,100,root,nullptr,type.hInstance,nullptr);
+  popup=CreateWindowExW(WS_EX_NOACTIVATE,L"STATIC",L"Synthetic popup",WS_POPUP,0,0,60,60,source,nullptr,type.hInstance,nullptr);
+  allowed=false;destroy_on_dismiss=true;ShowWindow(popup,SW_SHOWNOACTIVATE);
+  while(PeekMessageW(&message,popup,0,0,PM_REMOVE))DispatchMessageW(&message);
+  require(!IsWindow(popup)&&dismissals==2,"Renderer dismissal may synchronously destroy the popup");
+  auto unrelated=CreateWindowExW(WS_EX_NOACTIVATE,L"STATIC",L"Synthetic unrelated popup",WS_POPUP,0,0,60,60,root,nullptr,type.hInstance,nullptr);
+  ShowWindow(unrelated,SW_SHOWNOACTIVATE);require(IsWindowVisible(unrelated),"Unrelated shell popup remains available");
+  DestroyWindow(unrelated);DestroyWindow(popup);DestroyWindow(root);
+}
 void agent_overlay_pixels(){
   for(const int scale:{1,2}){
     Gdiplus::Bitmap pointer(ui::agent_pointer_width*scale,ui::agent_pointer_height*scale,PixelFormat32bppPARGB);
@@ -51,7 +89,7 @@ LRESULT CALLBACK edit_fixture(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_
 int main(){try{
   // Hidden real Win32 controls exercise class-name normalization and subclass
   // attachment. These messages simulate native UI events, not physical input.
-  INITCOMMONCONTROLSEX common{sizeof(common),ICC_STANDARD_CLASSES};InitCommonControlsEx(&common);ui::VectorRenderer vectors;agent_overlay_pixels();
+  INITCOMMONCONTROLSEX common{sizeof(common),ICC_STANDARD_CLASSES};InitCommonControlsEx(&common);ui::VectorRenderer vectors;agent_overlay_pixels();page_popup_containment();
   auto parent=CreateWindowExW(0,L"STATIC",L"Synthetic native UI test",WS_OVERLAPPED,0,0,200,100,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
   require(parent!=nullptr,"Create hidden fixture parent");
   auto address=CreateWindowExW(0,L"EDIT",L"http://127.0.0.1/fixture",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,0,0,180,24,parent,nullptr,GetModuleHandleW(nullptr),nullptr);

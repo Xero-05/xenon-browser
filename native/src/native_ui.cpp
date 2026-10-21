@@ -3,6 +3,7 @@
 #include "xenon/cef_engine.hpp"
 #include "xenon/vault.hpp"
 #include "xenon/extension_store.hpp"
+#include "xenon/web_store.hpp"
 #include "xenon/file_policy.hpp"
 #include "xenon/dialog_notices.hpp"
 #include "xenon/branding.hpp"
@@ -41,7 +42,7 @@ enum Id { Pairings=101,Approve,Deny,Clients,Workspaces,Share,Tabs,Take,Workers,G
           PageExtensions,ExtensionList,ExtensionLoad,ExtensionToggle,ExtensionRemove,ExtensionOptions,ExtensionPopup,CloseWorkspaceTabs,
           PageDeveloper,DeveloperToggle,DeveloperClear,DeveloperCommands,DeveloperDetails,DeveloperImage,
           UncertainClickToggle,UncertainClickFolder,UncertainClickClear,UncertainClickStatus,
-          AccountGroupToggle,SaveSensitive };
+          AccountGroupToggle,SaveSensitive,ExtensionWebStore };
 constexpr UINT LoginNotice=WM_APP+41;
 constexpr UINT DialogNotice=WM_APP+42;
 constexpr UINT RemovalNotice=WM_APP+43;
@@ -64,6 +65,14 @@ struct NativeUi::Impl {
   struct StatusQueue {std::mutex mutex;std::deque<std::wstring> values;};
   std::shared_ptr<StatusQueue> status_queue=std::make_shared<StatusQueue>();
   std::vector<Json> extension_rows;
+  struct ExtensionDownload {
+    std::mutex mutex;std::atomic_bool cancel=false;bool done=false;
+    std::optional<web_store::Package> package;std::string error;
+  };
+  std::shared_ptr<ExtensionDownload> extension_download;
+  std::thread extension_worker;
+  HWND extension_window{},extension_link{},extension_review{},extension_action{},extension_confirm{},extension_message{};
+  std::optional<web_store::Package> extension_package;
   HWND window{};HFONT font{},heading_font{},brand_font{},small_font{};
   HBRUSH canvas_brush=CreateSolidBrush(Canvas),surface_brush=CreateSolidBrush(Surface),navy_brush=CreateSolidBrush(Navy);
   std::map<int,HWND> controls;std::map<int,std::vector<Json>> rows;
@@ -1037,6 +1046,86 @@ struct NativeUi::Impl {
   }
   void poll_status(){std::deque<std::wstring> values;{std::lock_guard lock(status_queue->mutex);values.swap(status_queue->values);}if(!values.empty()){status(values.back());refresh();}}
   Json selected_extension(){const int n=ListView_GetNextItem(controls.at(ExtensionList),-1,LVNI_SELECTED);return n>=0&&static_cast<size_t>(n)<extension_rows.size()?extension_rows[static_cast<size_t>(n)]:Json::object();}
+  void close_extension_install(){
+    if(extension_download)extension_download->cancel=true;
+    extension_package.reset();if(extension_window)DestroyWindow(extension_window);
+    extension_window=nullptr;extension_link=nullptr;extension_review=nullptr;extension_action=nullptr;extension_confirm=nullptr;extension_message=nullptr;
+  }
+  void poll_extension_install(){
+    if(!extension_download)return;
+    std::optional<web_store::Package> package;std::string error;
+    {std::lock_guard lock(extension_download->mutex);if(!extension_download->done)return;
+      if(!extension_download->cancel){package=std::move(extension_download->package);error=std::move(extension_download->error);}}
+    if(extension_worker.joinable())extension_worker.join();extension_download.reset();
+    if(!extension_window)return;
+    EnableWindow(extension_action,TRUE);
+    if(!package){EnableWindow(extension_link,TRUE);SetWindowTextW(extension_message,wide(error).c_str());return;}
+    extension_package=std::move(package);
+    auto review=wide(extension_package->permission_review());
+    // EDIT scrolls the complete review; neither scopes nor the manifest are truncated.
+    for(size_t at=0;(at=review.find(L'\n',at))!=std::wstring::npos;++at)if(!at||review[at-1]!=L'\r'){review.insert(at,L"\r");++at;}
+    SetWindowTextW(extension_review,review.c_str());ShowWindow(extension_review,SW_SHOW);
+    ShowWindow(extension_action,SW_HIDE);ShowWindow(extension_confirm,SW_SHOW);
+    SetWindowTextW(extension_message,ui::tr(L"Package verified. Review the permissions and site access below before installing."));
+    SetFocus(GetDlgItem(extension_window,IDCANCEL)); // Installation is never the default keyboard action.
+  }
+  void extension_install_action(bool confirm=false){
+    if(vault.locked()){close_extension_install();return;}
+    if(extension_package&&confirm){
+      try{const auto record=extensions.install_web_store(*extension_package);close_extension_install();refresh_extensions();status(ui::format(ui::tr(L"{0} added. Restart Xenon to load it."),{wide(record.name)}));}
+      catch(const std::exception& error){SetWindowTextW(extension_message,ui::error_text(error.what()).c_str());}
+      return;
+    }
+    if(extension_package||confirm)return;
+    if(extension_download)return;
+    try{
+      auto link=ui::text(extension_link);const auto begin=link.find_first_not_of(" \t\r\n"),end=link.find_last_not_of(" \t\r\n");link=begin==std::string::npos?"":link.substr(begin,end-begin+1);
+      const auto id=web_store::extension_id(link);if(extensions.find(id))throw std::runtime_error("This extension is already installed. Remove it before adding it again.");
+      if(extensions.list().size()>=ExtensionStore::max_extensions)throw std::runtime_error("Remove an extension before adding another.");
+      auto state=std::make_shared<ExtensionDownload>();extension_download=state;
+      try{extension_worker=std::thread([state,id]{
+        try{auto package=web_store::unpack(web_store::download(id,state->cancel),state->cancel);std::lock_guard lock(state->mutex);if(!state->cancel)state->package=std::move(package);}
+        catch(const std::runtime_error& error){std::lock_guard lock(state->mutex);state->error=error.what();}
+        catch(...){std::lock_guard lock(state->mutex);state->error="The extension package could not be processed.";}
+        std::lock_guard lock(state->mutex);state->done=true;
+      });}catch(...){extension_download.reset();throw;}
+      EnableWindow(extension_link,FALSE);EnableWindow(extension_action,FALSE);
+      SetWindowTextW(extension_message,ui::tr(L"Downloading and verifying the extension… Cancel to discard it."));
+    }catch(const std::exception& error){SetWindowTextW(extension_message,ui::error_text(error.what()).c_str());}
+  }
+  static LRESULT CALLBACK extension_install_proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){
+    try{
+      auto self=reinterpret_cast<Impl*>(GetWindowLongPtrW(h,GWLP_USERDATA));
+      if(msg==WM_NCCREATE){self=static_cast<Impl*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}
+      if(!self)return DefWindowProcW(h,msg,wp,lp);
+      LRESULT painted{};if(self->theme_message(h,msg,wp,lp,painted))return painted;
+      if(msg==WM_COMMAND&&HIWORD(wp)==BN_CLICKED){if(LOWORD(wp)==IDCANCEL)self->close_extension_install();else if(LOWORD(wp)==10||LOWORD(wp)==13)self->extension_install_action(LOWORD(wp)==13);return 0;}
+      if(msg==WM_CLOSE){self->close_extension_install();return 0;}
+      if(msg==WM_DESTROY){self->extension_window=nullptr;self->extension_package.reset();if(self->extension_download)self->extension_download->cancel=true;return 0;}
+      return DefWindowProcW(h,msg,wp,lp);
+    }catch(...){return msg==WM_NCCREATE?FALSE:0;}
+  }
+  void show_extension_install(){
+    if(vault.locked())return;
+    if(extension_window){ShowWindow(extension_window,SW_SHOWNORMAL);SetForegroundWindow(extension_window);return;}
+    poll_extension_install();if(extension_download){status(ui::tr(L"Canceling the previous extension download. Try again shortly."));return;}
+    WNDCLASSW wc{};wc.lpfnWndProc=extension_install_proc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"XenonWebStoreInstall";wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);RegisterClassW(&wc);
+    const auto d=[&](int value){return ui::dip(window,value);};RECT owner{};GetWindowRect(window,&owner);
+    extension_window=CreateWindowExW(WS_EX_CONTROLPARENT,wc.lpszClassName,ui::tr(L"Install from Chrome Web Store link"),WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_CLIPCHILDREN,owner.left+d(80),owner.top+d(30),d(850),d(700),window,nullptr,wc.hInstance,this);
+    if(!extension_window)return;window_icon(extension_window);
+    auto add=[&](int id,const wchar_t* type,const wchar_t* title,int x,int y,int w,int height,DWORD extra=0){auto control=CreateWindowExW(0,type,title,WS_CHILD|WS_VISIBLE|ui::styles(type,extra),d(x),d(y),d(w),d(height),extension_window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),wc.hInstance,nullptr);if(std::wstring(type)==L"BUTTON")button_style(control);return control;};
+    add(0,L"STATIC",ui::tr(L"Paste the extension's HTTPS link from chromewebstore.google.com."),20,18,790,32);
+    extension_link=add(11,L"EDIT",L"",20,54,790,30,WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL);SendMessageW(extension_link,EM_SETLIMITTEXT,4096,0);
+    extension_message=add(0,L"STATIC",ui::tr(L"Xenon will download and verify the package, then ask you to review its permissions."),20,96,790,48);
+    extension_review=add(12,L"EDIT",L"",20,156,790,410,WS_BORDER|WS_TABSTOP|WS_VSCROLL|ES_READONLY|ES_MULTILINE|ES_AUTOVSCROLL);
+    SendMessageW(extension_review,EM_SETLIMITTEXT,16*1024*1024,0);ShowWindow(extension_review,SW_HIDE);
+    extension_action=add(10,L"BUTTON",ui::tr(L"Download and review"),20,588,250,34,WS_TABSTOP);
+    // A separate command and position prevent a queued second download click
+    // from becoming an installation after the asynchronous review completes.
+    extension_confirm=add(13,L"BUTTON",ui::tr(L"Install extension"),354,588,250,34,WS_TABSTOP);ShowWindow(extension_confirm,SW_HIDE);
+    add(IDCANCEL,L"BUTTON",ui::tr(L"Cancel"),650,588,160,34,WS_TABSTOP);
+    remember_prompt(extension_window);ShowWindow(extension_window,SW_SHOWNORMAL);SetForegroundWindow(extension_window);SetFocus(extension_link);
+  }
   void refresh_extensions(){
     std::vector<Json> next;for(const auto& record:extensions.list()){auto row=record.json();row["active"]=extensions.active(record.id);next.push_back(std::move(row));}
     if(next==extension_rows){extension_buttons();return;}
@@ -1084,6 +1173,7 @@ struct NativeUi::Impl {
     }catch(const std::runtime_error& error){status(ui::error_text(error.what()));}
   }
   void show_section(int target,const std::string& select){
+    if(target==3&&select!="legacy"){engine.open_extensions_manager("native-default","chrome://extensions/",status_reply(ui::tr(L"Extension manager opened.")));return;}
     page=std::clamp(target,0,4);layout_main();refresh();
     if(page==1&&!select.empty())for(size_t n=0;n<rows[Workspaces].size();++n)if(str(rows[Workspaces][n],"workspaceId")==select){SendMessageW(controls.at(Workspaces),LB_SETCURSEL,n,0);refresh();break;}
     if(page==2&&!select.empty())for(size_t n=0;n<rows[Accounts].size();++n)if(str(rows[Accounts][n],"origin")==select){SendMessageW(controls.at(Accounts),LB_SETCURSEL,n,0);refresh();break;}
@@ -1091,7 +1181,7 @@ struct NativeUi::Impl {
   }
   void command(int id){
     try {
-      if(button_page(id)>=0){page=button_page(id);layout_main();}
+      if(button_page(id)>=0){if(button_page(id)==3){show_section(3,{});return;}page=button_page(id);layout_main();}
       else if(id==DeveloperToggle){broker.set_developer_mode(!broker.developer_trace().value("enabled",false));refresh_developer();}
       else if(id==DeveloperClear){broker.clear_developer_trace();refresh_developer();}
       else if(id==UncertainClickToggle){engine.set_uncertain_click_collection(!engine.uncertain_click_log_status().value("enabled",false));refresh_developer();const auto log=engine.uncertain_click_log_status();status(log.value("error",std::string{}).empty()?ui::tr(L"Local agent-click diagnostics only. No URLs, text, values or images. Collection is off after restart."):wide(log.value("error",std::string{})));}
@@ -1170,6 +1260,7 @@ struct NativeUi::Impl {
       else if(id==CloseWorkspaceTabs){const auto chosen=selected(Workspaces);const auto workspace=str(chosen,"workspaceId");
         if(!workspace.empty()&&ui::confirm_close_tabs(window,rows[Tabs].size(),ui::workspace_label(workspace,str(chosen,"displayName"),chosen.value("private",false)))){
           status(ui::tr(L"Closing the workspace's tabs after active agent input finishes…"));broker.close_workspace_tabs(workspace,status_reply(ui::tr(L"Workspace tabs closed. The workspace and its data were kept.")));}}
+      else if(id==ExtensionWebStore)show_extension_install();
       else if(id>=ExtensionLoad&&id<=ExtensionPopup)extension_command(id);
       else if(id==PrivateWorkspace){broker.open_human_workspace("about:blank",[this](Json r){result(r);},true);}
       else if(id==RestoreSession){
@@ -1229,13 +1320,14 @@ struct NativeUi::Impl {
     SendMessageW(controls.at(DeveloperDetails),EM_SETLIMITTEXT,4*1024*1024,0);
     add(DeveloperImage,L"STATIC",L"",550,385,386,225,WS_BORDER|SS_OWNERDRAW);
     building_page=3;
-    label(ui::tr(L"Extensions"),24,116,870,TextTone::heading);
+    label(ui::tr(L"Legacy copied extensions"),24,116,870,TextTone::heading);
     text_style(add(0,L"STATIC",ui::tr(L"Extensions run in every non-private workspace. They can read and change websites, including pages agents use, and can see what you type there. Add only extensions you trust."),24,144,912,40),TextTone::muted,small_font);
     add(ExtensionList,WC_LISTVIEWW,L"",24,192,912,250,WS_BORDER|LVS_REPORT|LVS_SINGLESEL|LVS_SHOWSELALWAYS|WS_TABSTOP);{auto list=controls.at(ExtensionList);ListView_SetExtendedListViewStyle(list,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER);int column=0;
       for(const auto& [title,width]:std::vector<std::pair<const wchar_t*,int>>{{ui::tr(L"Name"),330},{ui::tr(L"Version"),110},{ui::tr(L"Status"),240},{ui::tr(L"Extension ID"),230}}){LVCOLUMNW value{};value.mask=LVCF_TEXT|LVCF_WIDTH;value.cx=ui::dip(window,width);value.pszText=const_cast<LPWSTR>(title);ListView_InsertColumn(list,column++,&value);}}
     button(ExtensionLoad,ui::tr(L"Load unpacked…"),24,456,170,ButtonTone::primary);button(ExtensionToggle,ui::tr(L"Disable"),206,456,130);button(ExtensionRemove,ui::tr(L"Remove"),348,456,110,ButtonTone::caution);
     button(ExtensionOptions,ui::tr(L"Open options"),470,456,160);button(ExtensionPopup,ui::tr(L"Open popup page"),642,456,180);
-    text_style(add(0,L"STATIC",ui::tr(L"Choose an unpacked Manifest V3 folder; Xenon keeps its own copy. Chrome Web Store installs and toolbar popups are not available. Changes apply after Xenon restarts."),24,504,912,40),TextTone::muted,small_font);
+    button(ExtensionWebStore,ui::tr(L"Install from Chrome Web Store link…"),24,504,380,ButtonTone::primary);
+    text_style(add(0,L"STATIC",ui::tr(L"Manifest V3 only. Review permissions before installing. Changes apply after restart; automatic extension updates and toolbar popups are not available."),24,550,912,48),TextTone::muted,small_font);
     building_page=-1;text_style(add(Status,L"STATIC",ui::tr(L"Choose a section to manage clients, workspaces or saved passwords."),24,635,912,34),TextTone::status,small_font);SetTimer(window,1,750,nullptr);WTSRegisterSessionNotification(window,NOTIFY_FOR_THIS_SESSION);refresh();apply_theme();layout_main();
   }
   static LRESULT CALLBACK proc(HWND h,UINT msg,WPARAM wp,LPARAM lp){try{return dispatch_proc(h,msg,wp,lp);}catch(...){return msg==WM_NCCREATE?FALSE:msg==WM_CREATE?-1:0;}}
@@ -1256,15 +1348,15 @@ struct NativeUi::Impl {
         for(const auto& placement:self->placements){const auto face=reinterpret_cast<HFONT>(SendMessageW(placement.control,WM_GETFONT,0,0));for(int n=0;n<4;++n)if(face==previous[n]){SendMessageW(placement.control,WM_SETFONT,reinterpret_cast<WPARAM>(current[n]),TRUE);break;}}
         for(auto face:previous)DeleteObject(face);for(const auto& placement:self->placements)ui::control_theme(placement.control);SetWindowPos(h,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOACTIVATE|SWP_NOZORDER);self->layout_main();return 0;}
       case WM_GETMINMAXINFO:{auto value=reinterpret_cast<MINMAXINFO*>(lp);value->ptMinTrackSize={ui::dip(h,1160),ui::dip(h,750)};return 0;}
-      case WM_TIMER:if(!self->applied_palette||*self->applied_palette!=ui::palette())self->apply_theme();self->poll_login_prompts();self->poll_autofill();self->poll_dialog_notices();self->poll_removal_results();self->poll_updates();self->automatic_update_check();self->sync_update_button();self->refresh();return 0;
+      case WM_TIMER:if(!self->applied_palette||*self->applied_palette!=ui::palette())self->apply_theme();self->poll_extension_install();self->poll_login_prompts();self->poll_autofill();self->poll_dialog_notices();self->poll_removal_results();self->poll_updates();self->automatic_update_check();self->sync_update_button();self->refresh();return 0;
       case LoginNotice:self->poll_login_prompts();return 0;
       case DialogNotice:self->poll_dialog_notices();return 0;
       case RemovalNotice:self->poll_removal_results();return 0;
       case AutofillNotice:self->poll_autofill();return 0;
       case StatusNotice:self->poll_status();return 0;
       case WM_NOTIFY:{const auto notice=reinterpret_cast<NMHDR*>(lp);const auto list=self->controls.find(ExtensionList);if(notice&&notice->code==LVN_ITEMCHANGED&&list!=self->controls.end()&&notice->hwndFrom==list->second)self->extension_buttons();return 0;}
-      case WM_CLOSE:ShowWindow(h,SW_HIDE);return 0;
-      case WM_WTSSESSION_CHANGE:if(wp==WTS_SESSION_LOCK){self->clear_login_prompts();self->clear_autofill();self->vault.set_locked(true);self->engine.cancel_login_prompts();self->broker.stop_all();self->status(ui::tr(L"Windows session locked. Agent control stopped."));}else if(wp==WTS_SESSION_UNLOCK)self->vault.set_locked(false);return 0;
+      case WM_CLOSE:self->close_extension_install();ShowWindow(h,SW_HIDE);return 0;
+      case WM_WTSSESSION_CHANGE:if(wp==WTS_SESSION_LOCK){self->close_extension_install();self->clear_login_prompts();self->clear_autofill();self->vault.set_locked(true);self->engine.cancel_login_prompts();self->broker.stop_all();self->status(ui::tr(L"Windows session locked. Agent control stopped."));}else if(wp==WTS_SESSION_UNLOCK)self->vault.set_locked(false);return 0;
       case WM_DESTROY:KillTimer(h,1);WTSUnRegisterSessionNotification(h);return 0;
       default:return DefWindowProcW(h,msg,wp,lp);
     }
@@ -1279,6 +1371,7 @@ NativeUi::NativeUi(Broker& b,CefEngine& e,Vault& v,FilePolicy& f,ExtensionStore&
   e.set_dialog_callback([self=impl_.get()](const std::string& tab_id){self->notify_dialog(tab_id);});
 }
 NativeUi::~NativeUi(){
+  impl_->close_extension_install();if(impl_->extension_worker.joinable())impl_->extension_worker.join();
   impl_->broker.set_developer_mode(false);impl_->clear_developer_image();
   impl_->engine.set_save_prompt_callback({});impl_->engine.set_autofill_prompt_callback({});impl_->engine.set_dialog_callback({});
   {std::lock_guard lock(impl_->autofill_results->mutex);impl_->autofill_results->alive=false;impl_->autofill_results->values.clear();}
@@ -1302,7 +1395,7 @@ bool NativeUi::pretranslate(MSG& message){
   if(message.message<WM_KEYFIRST||message.message>WM_KEYLAST)return false;
   if(impl_->autofill_key(message))return true;
   const auto root=GetAncestor(message.hwnd,GA_ROOT);
-  bool belongs=root==impl_->window||root==impl_->file_window||root==impl_->login_window||root==impl_->autofill_window||root==impl_->update_window;
+  bool belongs=root==impl_->window||root==impl_->file_window||root==impl_->login_window||root==impl_->autofill_window||root==impl_->update_window||root==impl_->extension_window;
   for(const auto& config:impl_->configurations)belongs=belongs||root==config->window;
   return belongs&&IsDialogMessageW(root,&message)!=FALSE;
 }

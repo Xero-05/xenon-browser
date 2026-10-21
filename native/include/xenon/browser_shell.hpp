@@ -37,6 +37,8 @@ class BrowserShell {
   void open_external_url(const std::string& url);
 #if defined(XENON_TEST_FIXTURE_CERT_SHA256)
   void fixture_snapshot(const std::filesystem::path& destination);
+  bool fixture_store_menu();
+  Json fixture_extension_panel(const std::string& action,const std::filesystem::path& root);
 #endif
  private:
   struct Impl;std::unique_ptr<Impl> impl_;

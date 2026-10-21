@@ -1,5 +1,227 @@
 # Validation
 
+## 0.1.8 release
+
+0.1.8 was published as the latest regular release on October 20, 2026. The
+[publication record](test-results/release-0.1.8-publication.json) binds the four
+asset sizes and GitHub SHA-256 digests to the source commit. A fresh public ZIP
+download passed all 1,351 file hashes again. The release source Windows CI
+passed; its stock-engine artifacts were not published.
+
+The local Windows-decoder package passed six extracted-package smoke checks
+and all 13 production live suites: integration, batch, visibility, worker
+lifecycle, upload entry, persistence, theme, passkey, screenshot, background
+popup containment, Windows H.264/AAC, WebM and covered-tab pacing. The
+[validation record](test-results/release-0.1.8-validation.json) binds every
+production report to the packaged DLL. The native-driver extension manager
+and quick-list suite passed 14 checks. The separate foreground extension
+popup/side-panel attempt timed out because Windows refused activation and no
+operator was available; it remains unverified for this release. No full Store
+installation or physical touch/pen/touchpad acceptance is claimed.
+
+The release source includes every commit merged through `b2c810d`. Its local
+Windows-decoder build passed all 24 native test groups, 146 adapter/fixed-script
+checks, typechecking and five bootstrap branding checks. The codec audit (10),
+engine audit (17) and recipe migration (25) checks passed. All 51 isolated
+installer checks and all 13 synthetic pinch-zoom checks passed. The pinch suite
+uses the unshipped `XenonAuthTest` driver, including native-message inspector and
+pointer checks; it does not exercise physical touch or touchpad input.
+
+The engine matches the pinned Windows-decoder recipe with the extension-action
+patch. CEF and Chromium revisions remain unchanged. Hosted CI uses the stock
+engine; its artifacts are not the locally built release assets. Package,
+production live-suite and publication evidence is recorded separately after
+packaging, bound to the actual uploaded binaries. Earlier feature-specific
+records below retain their original scope and failures.
+
+## Pointer overlay and inspector under pinch zoom (local candidate, 2026-10-20)
+
+The [validation record](test-results/pinch-pointer-overlay.json) covers the
+remaining window-pixel paths under pinch zoom. A person's pointer is kept in
+window coordinates (client pixels over display scale and browser zoom), but
+agent input is in visual-viewport CSS pixels, which a pinch divides by its
+scale. On the unfixed `XenonAuthTest` DLL with a 2x synthetic pinch, the
+next agent movement after a person's hover began at twice the person's
+position, and the agent pointer overlay was drawn at half the agent's
+distance from the page corner. Elements inspector page picking matched against the unpinched
+layout viewport and left another row selected, and the highlight outline was
+drawn at half size and position. The 9 earlier pinch checks passed and the 4
+new ones failed.
+
+The last pointer stays in window coordinates, and each agent gesture converts
+through the pinch scale from its own layout-metrics read. Inspector hover and
+picking convert through the current visual viewport, and highlights carry
+their `pageScale`. The fixed DLL passed all 13 pinch checks. The rebuilt
+production DLL passed 16 visibility and 17 integration checks, and the full
+build passed 24 native groups and the script suites. The person's hover was
+recorded by the test-only driver without input, and the inspector was driven
+with posted messages. Physical pointer, touch and touchpad input, pinch with
+display scaling or browser zoom, a real-cursor inspector hover and the full
+developer-elements suite (which moves the real cursor) were not tested.
+
+## Rendered evidence and element actions under pinch zoom (local candidate, 2026-10-20)
+
+The [validation record](test-results/pinch-evidence-actions.json) covers what
+the pinch-zoom coordinate fix left out. Observation, element revalidation, the
+in-page pointer check and agent pointer movement still used the unpinched layout
+viewport. Under the same 2x synthetic touchpad pinch, on the unfixed
+`XenonAuthTest` DLL, a control outside the 458.5 x 344.5 view was reported
+verified with an action reference, and the observation viewport stayed 917 x
+689. A reference observed before the pinch clicked that control, and the page
+saw mouse events outside the view. `xenon_inspect` returned
+`inspection_changed` on all five attempts. A pointer move starting from a
+pre-pinch position sent seven mousemove events outside the view. A 3x pinch
+also showed that scrolling put the wheel at the layout viewport center, outside
+the view.
+
+The rendered viewport is now the visual viewport. Observations report it as
+`viewport`, the same rectangle as screenshots. Element points must fall inside
+it, and pointer movement and the scroll wheel stay inside it. The fixed DLL
+passed all nine pinch checks. Rebased onto main, the production DLL passed 16
+visibility checks (including the 120% browser-zoom pass), 17 integration, 17
+upload-entry and 10 screenshot checks, and the full build passed 24 native
+groups. A person's pinch now also pauses the tab; the test driver's pinch does
+not, so it still reaches these native checks. The stale reference was rejected
+by the rendered-evidence recheck, so the new final-point guard was not
+exercised by a rejection. The pinch came from the test-only driver on one 100%
+monitor; physical touch input, display scaling or browser zoom combined with
+pinch, and out-of-process frames while pinched were not live-tested.
+
+## Background native popups (isolated PR validation, 2026-10-20)
+
+`node tests/background-popup-integration.mjs --foreground` uses a disposable
+production browser and a loopback page. The final isolated PR build passed the
+complete sequence twice on the same binaries: covered select/suggestion actions
+cannot display extra windows or capture the pointer; background selections and
+button clicks reach the website; foreground dropdowns and datalist suggestions
+open and reopen; tab switching, minimization and another synthetic window taking
+foreground dismiss native popups. The foreground mode needs an uninterrupted
+interactive desktop and focuses the selected CEF page through a native driver
+before checking datalist suggestions.
+
+Validation caught and fixed a renderer lifecycle regression: closing the HWND
+alone hid a dropdown but prevented reopening it after a tab switch. The guard
+now notifies CEF before closing any remaining native widget. Native tests cover
+deferred dismissal, stale queued closes, source destruction, synchronous widget
+destruction during CEF dismissal, original child ownership and unrelated shell
+popups.
+
+The first isolated full build passed all 24 native suites, 119 adapter/script
+tests and five branding checks. On the final build, the native UI regressions
+passed; an unrelated storage-cleanup test returned Windows error 145 (directory
+not empty), then passed on a focused rerun of the unchanged binary. Final
+branding checks passed. The [binary-bound record](test-results/background-popups.json)
+retains the original shared-checkout reproduction, isolated reopening failure,
+fixture-focus failures, storage failure and final passing runs. These are MCP
+and native-message fixture checks, not physical-input or real PD Portal
+acceptance. Installed browser files and personal profiles were not modified.
+
+## Direct file lookup (local candidate, 2026-10-20)
+
+The [validation record](test-results/upload-direct-path.json) covers
+`xenon_files` with an approved `folderId` and exact `relativePath`. The native
+regression first reproduced a known file missing beyond 5,000 entries with no
+continuation, then passed direct lookup plus path, scope, selected-resource,
+protected-file, link, replacement and revocation checks. Both MCP SDK versions
+accept and forward the new parameter and reject invalid combinations.
+
+The isolated production browser build passed all 17 upload-entry checks. The
+live suite resolved a file beyond the recursive depth limit and verified its
+contents at the synthetic upload server. Typechecking and all 146 adapter and
+fixed-script tests passed. Initial reproduction, sandbox build/cleanup failures
+and a corrected test-fixture interference failure remain recorded. This covers
+the current working tree, including pre-existing changes, with synthetic grants
+and disposable profiles; it does not establish real portal, physical UI or
+installed-package behavior. The running user browser was preserved. Restart
+with the updated browser and reconnect the adapter before using direct lookup.
+
+## Touch, pen and touchpad human input (local candidate, 2026-10-20)
+
+A source review of Chromium 154 found that touchscreen, pen and
+precision-touchpad input did not pause agents or invalidate their evidence.
+Touch and pen arrive as posted `WM_POINTER` messages to the page window, and
+Xenon's message hook classified only mouse buttons, wheel, keys and IME.
+Chromium hands a precision-touchpad scroll or pinch to DirectManipulation after
+a sent `DM_POINTERHITTEST`, so no queued message follows. Touch and pen
+contacts now hold the pause until they lift. A thread `WH_CALLWNDPROC` hook
+detects the touchpad hit test and holds that gesture while Windows reports the
+contact, for at most five seconds.
+
+The full browser build passed 23 native groups, including new
+`native_input_policy_tests` cases for contacts, pinch, separate pointer and key
+IDs, reused pointer IDs, reconciliation and the touchpad bound. Adapter (22),
+login capture (42), human autofill (31), protected login (10), form fill (6)
+and passkey guard (8) tests and the branding check passed. No live suite ran,
+and no touchscreen, pen or precision touchpad was used. Message classification
+on real hardware is unverified. So is whether `GetPointerInfo` keeps reporting
+a DirectManipulation-owned touchpad contact until it lifts; the five-second
+bound covers that case.
+
+## Screenshot coordinates under pinch zoom and right-to-left pages (local candidate, 2026-10-20)
+
+The [validation record](test-results/screenshot-pinch-rtl.json) covers two
+suspected gaps in screenshot-coordinate checks. Chromium enables pinch zoom
+from a touchscreen or precision touchpad. Xenon's human-input hooks handle mouse
+buttons, wheel, keys and IME, not that gesture. The checks used the unpinched layout viewport. A 2x pinch kept
+that viewport at 917 x 689 CSS px while the visible part shrank to 458.5 x
+344.5 at offset 229, 172. On the unfixed `XenonAuthTest` DLL, coordinates from
+a screenshot taken before the pinch were accepted, and a coordinate at 644, 473
+outside the pinched view clicked a target the screenshot did not show. Checks
+now use the visual viewport for bounds and both viewports for staleness. The
+fixed DLL passed all four pinch checks. The pinch came from a compile-time-gated
+`XenonAuthTest` driver requesting Chromium's synthetic touchpad pinch, not from
+physical touch input.
+
+A right-to-left page did not need a fix. Chromium 154 keeps the main frame's
+vertical scrollbar on the right (a left-side setting exists only for web
+tests), and both the unfixed and fixed production DLLs passed the new
+right-to-left check. The fixed production DLL also passed all 13 visibility
+checks and all 17 production integration checks. The full build passed 23
+native groups. Only one 100% monitor was used. Pinch combined with display
+scaling or browser zoom, overlay scrollbars, rendered evidence and element
+references while pinched, and `xenon_inspect` while pinched were not
+live-tested.
+
+## Screenshot scale beside scrollbars (local candidate, 2026-10-20)
+
+The [validation record](test-results/screenshot-scale.json) covers screenshot
+coordinates near the right and bottom edges. Chromium's unclipped surface
+capture includes the scrollbars, so dividing the image by the CSS viewport gave
+`scaleX` 1.0164 and `scaleY` 1.0223 at 100% with 15 CSS px scrollbars. The
+pre-fix production DLL clicked at x 896.3 for a 12 px target at 905–917, and
+the page recorded no click. The rebuilt DLL reports a scale of exactly 1. It
+passed all 12 visibility checks, which include hits on targets beside both
+scrollbars and rejection of a scrollbar pixel without input, and all 17
+production integration checks. The full build passed 22 native groups.
+
+The first run of the new check on the fixed DLL failed. Its fixed-position
+readout overlapped the heading block and was withheld from rendered evidence,
+so no click could be confirmed. That failure is retained in the record; the
+readout now sits in an in-flow row. Only one 100% monitor was available, so
+display scaling, browser zoom, pinch zoom, right-to-left scrollbars and overlay
+scrollbars were not live-tested.
+
+## Device upload text entries (local candidate, 2026-10-19)
+
+The [validation record](test-results/upload-device-text.json) covers a verified
+StaticText **Upload from Device** entry with a non-semantic wrapper and hidden
+file input. The pre-fix production DLL reproduced `unsupported_upload_entry`
+without activation or selection. The rebuilt production DLL passed all 17
+upload checks, including exact approved contents, a trusted click on the text
+inside a larger container, cross-origin frame uploads, stale text, disabled
+ancestors, invalid/cross-workspace grants, absent choosers and different-frame
+delegation denial. No OS picker automation or hidden-input search was used.
+
+The same DLL passed 11 visibility checks and seven batch checks. The full build
+passed 22 native groups and branding checks; typechecking and all 146 adapter
+and fixed-script tests passed. Initial restricted-runner startup, build and ACL
+cleanup failures remain recorded separately from successful unrestricted runs.
+These results cover the local working tree, including pre-existing extension
+manager changes, with synthetic loopback pages/files and disposable profiles.
+They do not establish real SAP upload success, physical UI coverage, installed
+package validation or publication. The browser and adapter must restart with
+the rebuilt files before an existing agent session can use this fix.
+
 ## 0.1.7 release
 
 0.1.7 was published on October 18 as a regular GitHub release, marked latest. The [publication record](test-results/release-0.1.7-publication.json) binds the `v0.1.7` tag and all four uploaded asset digests to the local build described below. The files were built from `bf38be4`, whose tree equals the merged source commit `6b61e80`. Every live, video and pacing report records the published `Xenon.dll`, and the video and pacing reports also record its libcef.dll. The downloaded ZIP passed `verify-package.ps1` again after publication.
@@ -278,6 +500,55 @@ Inspection of the anonymous Google homepage found that its search textarea has A
 
 The rebuilt production/fixture targets, focused `developer_elements_tests`, `visible_evidence_tests` and `native_ui_tests`, and five branding checks passed. All eleven inspector live checks passed in English/dark and Chinese/light on the same production DLL, including native submit controls, editable comboboxes, hidden-label/value omission and existing selection/input lifecycle behavior. An attempted submit-caption filter change failed its live label assertion and was reverted; that failed local report is retained. See the [binary-bound follow-up record](test-results/google-controls.json).
 
+## Native Chromium extension manager
+
+Set `$env:XENON_TEST_EXTENSION_QUICKLIST='1'` before the manager integration suite to seed three generated extensions in its disposable profile and serve a local synthetic website. The suite verifies enabled/disabled filtering, current-site versus unrelated permissions, an actual content-script change to that website, absence of extra visible/broker tabs, and withholding results after source navigation. Combined with `$env:XENON_TEST_STORE_INSTALL='1'`, it also checks that a newly installed signed Store extension appears immediately. These are compile-time native-driver checks, not physical toolbar-menu acceptance. See [quick-list evidence](test-results/extension-quicklist.json).
+
+`extension_manager_policy_tests` is part of native CTest. It checks exact Chrome Web Store, manager WebUI and extension origins and refuses lookalike hosts, unrelated privileged pages, file/JavaScript URLs, credentials, explicit ports, malformed extension IDs and control characters. It also checks the native `xenon://extensions/` address alias, path/query round trips, unchanged website addresses, and rejection of that alias by page-navigation policy.
+
+`node tests/extension-manager-integration.mjs` requires the separate `XenonAuthTest` target (configure CMake with `-DXENON_BUILD_AUTH_FIXTURE=ON`, then perform the full build). Its compile-time-gated driver accepts only fixed actions in a marked disposable `.cache/extension-manager-integration-*` profile. It checks that the actual `chrome://extensions/` WebUI loads with `chrome.developerPrivate`, that repeated opens reuse the workspace tab without entering the broker inventory, that its native parent is a Xenon content host inside a Xenon shell, that the view fills that host without a Chromium toolbar or window caption, that the real HTTPS Store receives Chromium's `webstorePrivate.beginInstallWithManifest3` binding, that closing preserves workspace tabs and permits reopening, and that browser shutdown drains management views before CEF exits. The default run cancels a generated install preflight by closing its manager and checks rejection of an untracked Chrome window. It does not install an extension, approve installation, add a Store-origin certificate exception or expose a production fixture/MCP endpoint. The optional full-install run below adds fixed native confirmation within its own disposable test process.
+
+The fixture now checks Views/compositor visibility and requires varied painted pixels from its own management HWND, saving a synthetic PNG under its disposable profile and `out/`. The PNG is visually inspected: DOM/API and geometry checks alone previously passed while the manager appeared blank. It does not capture the user's browser or desktop. Set `$env:XENON_TEST_BUILD_DIR='build/extensions-fix'` before running the manager or production browsing suite to validate a separate build; the default remains `build`.
+
+The manager fixture also opens the compact drawer, checks computed visibility of its product/Store artwork, and captures the drawer. Its fixed `sidebar-link` and `empty-store-link` actions click the actual rendered manager anchors, then verify navigation to the real HTTPS Store with native install API bindings and unchanged broker tab count. These actions are compiled only into `XenonAuthTest`, accept no caller-supplied script or URL, and exercise WebUI clicks with a synthetic user gesture rather than physical OS input. Fixture result publication retains and retries a completed result if Windows briefly locks the previous result file; shutdown waits for that publication.
+
+On 2026-10-19, the full build/check script passed, followed by the final presentation/fixture rebuild, all eight manager checks and bootstrap branding integrity verification. The compact drawer and loaded Store captures were visually inspected. The [logo/link validation record](test-results/extension-manager-links.json) binds these results to their DLL hashes. The first live run reached the Store from both page links but timed out because the fixture's completed result could not replace a temporarily locked file; that failed report is preserved separately from the passing rerun. No extension was installed and no permission confirmation was approved in these checks.
+
+Subsequent user acceptance still reported Store navigation staying on Extensions. Brief inspection of the running window reproduced a loading attempt that returned to the manager; the earlier passing fixtures did not establish success in that user session. The fixture now exercises the native shell menu command via `WM_COMMAND`, sends fixed native mouse messages to the rendered sidebar link, uses the public workspace/context validation path, and checks navigation after the last ordinary tab closes. Optional `XENON_TEST_LEGACY_EXTENSION=1` seeds a harmless generated MV3 package only in the disposable profile. These stronger checks passed, including the loaded-extension variant, but did not reproduce the user's cancellation. The separate diagnostic build adds native browser-error/blocked-redirect status without weakening navigation or TLS rules. Its 22 native suites and nine manager checks passed; the user subsequently reported **Extensions blocked a redirect**, confirming a native policy rejection. A follow-up diagnostic displays only the rejected hostname/port (or a generic unsupported-address category), with unit checks for credential/path/query redaction; it also distinguishes workspace-context failure. The user then reported **Blocked: accounts.google.com**, identifying a Google account-service route omitted from the navigation policy. The fix admits the exact HTTPS account host only during an active Store visit and revokes that allowance on return to Extensions or an extension page. Native unit regressions cover the route sequence, revocation and malformed/lookalike origins. The extended live fixture uses a disposable profile to reject direct account navigation, load the real signed-out account page during a Store visit, verify that it has neither Store nor developer APIs, return to the Store, and reject account navigation again after returning to Extensions. These ten manager checks passed, alongside 22 native suites. No credentials were entered; this is a fixed native navigation sequence, not an automated Google sign-in or proof of the original authenticated-session redirect completing. Earlier attempts using a synthetic resource responder failed and are retained in the diagnostic evidence. That responder was removed; the final fixture loads the actual Google account page. Final acceptance in the user's original session remains pending. See [diagnostic evidence](test-results/extension-manager-navigation-diagnostic.json). No personal profile was copied, inspected on disk, or changed to make a test pass; computer control was released after the brief UI inspection.
+
+Latest local validation on 2026-10-18 built the address/visibility fix separately in `build/extensions-fix` to preserve the running browser. All 22 native suites, six manager checks (including painted content), and 17 production browsing checks passed. The [sanitized validation record](test-results/extension-manager.json) binds those results to the new DLL hashes and retains prior validation: the earlier full script's adapter/SDK, credential-script and branding checks, persistence checks, and user-rejected standalone-window implementation. Earlier geometry/API passes did not prove visual rendering; the user reported a blank manager, fixed by showing the Views window through its own API. Failed logs/reports remain local with unique run names, including premature native-parent destruction during close, a file-lock race in fixture requests and an admission check before CEF associated its BrowserView. These are native-driver and protocol checks, not physical UI acceptance. At that validation stage, a complete direct Store install and its native confirmation had not been automated. The installation regression below now covers one fixed signed-package install. Physical permission-dialog placement, keyboard/focus behavior during everyday use, later automatic updates, extension debugging and full popup/tab-API behavior with Alloy pages remain manual acceptance work.
+
+### Store installation crash regression
+
+On 2026-10-19 the user reported a crash after downloading a Store extension. A debugger reproduction reached `ExtensionInstalledWatcher::RunCallback` and `TriggerPostInstallDialog`: Chromium had queued a completion callback for an auxiliary browser whose tab Xenon had already closed. The fix holds auxiliary browsers outside visible/broker inventories, suppresses their native show requests and adds one UI queue turn before Chromium schedules its own close. The queued completion callback runs first. Auxiliary windows cannot navigate or change manager state, and workspace removal/shutdown wait for their close callbacks. Experimental toolbar and infobar-feature workarounds were removed.
+
+Set `$env:XENON_TEST_STORE_INSTALL='1'` before running `node tests/extension-manager-integration.mjs` to opt into a full installation of the fixed public package `ddkjiahejlhfcafbddmgiahcphecmpfh` (uBlock Origin Lite) inside the generated profile. The driver requires a separate exact opt-in marker, the marked disposable profile, the fixed package page, a native **Add extension** button and the package name in the same native window. UI Automation inspects only the fixture process and invokes that fixed button from a background worker; it does not send global mouse/keyboard input. Once invocation is dispatched, an uncertain outcome is not retried. This driver and its Windows UI Automation link dependencies are compiled only into `XenonAuthTest`, with no production or MCP endpoint.
+
+For toolbar action coverage, set `XENON_TEST_EXTENSION_QUICKLIST=1` and `XENON_TEST_EXTENSION_ACTIONS=1`, and select a complete isolated build with `XENON_TEST_BUILD_DIR=build/extension-actions`. Generated extensions and a loopback website verify compact panel rendering, pinning, a genuine dynamic popup view, current-window active-tab lookup, an `activeTab`-only script effect, no-popup `onClicked`, navigation/dismissal cleanup, and actual site/per-extension content-script blocking after reload. Unrequested origins must reject permission expansion. Only read-only metadata may retry stale results; mutation outcomes are never replayed. The report hashes both native and engine DLLs before and after the run. These fixed native-driver checks do not establish physical keyboard, screen-reader or everyday third-party extension acceptance. That toolbar-only mode does not cover side panels or programmatic popup opening; use the extended mode below.
+
+The [2026-10-19 action-popup validation record](test-results/extension-action-popups.json) binds the isolated build and SHA-pinned engine patch to 27 combined action/manager/signed-install checks, 22 native suites, 17 production browsing checks, actual media playback and recipe/provenance checks. It retains the earlier failed lifecycle attempts and distinguishes native fixture checks from physical UI acceptance. The compact panel screenshot contains only generated extension names and a loopback site.
+
+Select `XENON_TEST_BUILD_DIR=build/extension-surfaces` and set `XENON_TEST_EXTENSION_SURFACES=1` with both toolbar flags to add two generated extensions and a CORS-enabled loopback command/report fixture. The API-popup extension has `activeTab` and `scripting` but no website permissions: a real popup must load, its API promise must resolve, its active-tab URL must remain scrubbed and script injection must fail. Existing-popup conflicts and unknown window IDs must reject without replacing the current popup. Side-panel checks require a genuine side-panel context, reserved/resizable website geometry, profile-scoped tab activation, global/contextual selection behavior, extension close/options/events, Chromium's user-gesture enforcement and protected/private rejection. The native driver accepts fixed actions only in the marked disposable profile. Loopback polling is generated extension code, never a production remote-control endpoint. Screenshots contain only the synthetic fixture window. The run waits for its test window to be active and preserves the production foreground checks; keep that window active during popup and panel checks.
+
+The full run first confirms a deliberately mismatched manifest and requires Chromium to reject the signed package without installing it or crashing. It then uses the real Store page and native confirmation for a genuine installation, requires the Store API to report the package installed, and verifies auxiliary-browser drainage and clean shutdown. Short marked profile names and profile-local `TEMP`/`TMP` avoid unrelated cross-volume copies and legacy Windows path-length failures. The fixture applies Chromium's `disable-background-networking` and `disable-default-apps` switches to reduce unrelated background activity. `XENON_TEST_DEBUGGER` optionally selects a debugger executable; `XENON_TEST_SYMBOL_PATH` adds a local symbol directory. Debugger logs remain local under ignored `out/`.
+
+The final full native build, all 22 native suites and all 14 manager checks passed. The real signed-package installation and mismatch rejection both completed under the debugger. This is native test-driver coverage with UI Automation, not physical UI acceptance in the user's profile or compatibility evidence for arbitrary extensions. Historical failures and the final DLL hashes are recorded in [installation crash evidence](test-results/extension-manager-install-crash.json). No personal profile was inspected or changed, and no personal screenshots or raw browsing logs are published.
+
+On 2026-10-19 the extended `build/extension-surfaces` run passed all 36 checks, including nine new programmatic-popup and side-panel checks and a real signed Store installation. The production binary passed all 17 browsing checks and synthetic H.264/AAC MP4 and Media Source playback with decoded pictures and measured audio. All 22 native suites and the source recipe/release checks passed. The [extension surfaces record](test-results/extension-surfaces.json) binds these results to the native/engine hashes and retains the earlier compilation, focus, guard-registration and new-tab lifecycle failures. These are fixed native-driver checks in disposable profiles, not physical keyboard/accessibility acceptance or compatibility evidence for arbitrary extensions. Global panels follow selected live tabs; destroying the currently bound source tab retires the panel.
+
+## Legacy Web Store link installation
+
+`web_store_tests` (part of native CTest) use generated, memory-only RSA and P-256 keys to check signature integrity, algorithm mismatch, malformed keys, required Web Store proof, extension-ID binding and malformed CRX rejection. Synthetic ZIPs cover unsafe Windows names, traversal, links, duplicate case-insensitive paths, file/directory conflicts, oversized entries, truncation and deflated empty directories. They also check exact-link parsing, allowed transport destinations and complete permission disclosure. No fixture key or publisher exception is added to production verification.
+
+The opt-in `cef_web_store_tests` target downloads a real, publicly available store-signed package. It verifies signatures, safe decompression/CRC, cancellation, localized permission review, managed installation, stable key-derived ID, duplicate refusal, restart selection and deferred removal in a generated `.cache/web-store-package-tests/` directory. It never loads or executes the extension. After a full browser build, run in PowerShell (the example uses uBlock Origin Lite only as a package fixture):
+
+```powershell
+$env:PATH = (Join-Path (Get-Location) 'build/app/Release') + ';' + $env:PATH
+./build/Release/cef_web_store_tests.exe --download ddkjiahejlhfcafbddmgiahcphecmpfh
+```
+
+Local validation on 2026-10-18 passed the full `./scripts/build.ps1 -Test` checks (21 native suites plus adapter/SDK and credential-script checks), the focused package tests, the opt-in real-package lifecycle check and all 17 production `tests/integration.mjs` checks. The production suite's local `out/integration-results.json` binds that run to `Xenon.dll` SHA-256 `5e4db421bee961ae38550db08cca1789ff979b4df683b16afd400e7b520f515e` and confirms the binary stayed unchanged throughout the run. An earlier real-package attempt exposed rejection of deflated empty directories, now covered by a regression. The standalone harness initially lacked CEF API initialization, then held its own manifest file open during cleanup; both harness issues were corrected and their failed logs retained locally. Native UI inspection of an earlier local build in a disposable production-browser profile verified the Extensions entry, link dialog, signature-verified permission preview, focus on Cancel and close-without-install behavior. The final wrapping/separate-button UI polish, native Install click, physical session-lock cancellation and execution/compatibility of installed extensions remain manual acceptance work; the final build and package lifecycle tests include that polish.
+
 ## Desktop shell, tabs, credentials and extensions candidate
 
 This candidate replaces the shell layout with a Chromium-style toolbar and multiple windows, adds tab drag and drop, tab and workspace menus, workspace cleanup, cross-workspace moves, a field-anchored saved-account list, a toolbar-anchored save bubble and unpacked extension loading.
@@ -523,7 +794,8 @@ actual website outcome check.
 | Native login policy | `ctest --test-dir build -C Release -R '^login_capture_tests$' --output-on-failure` | Production secret-free capture state: physical-input freshness, form/context/document binding, one-shot provenance, SSO origin retention, MFA input, cancellation, plus real DPAPI vault confirmation and destination-origin denial. |
 | Production browser | `node tests/integration.mjs` | Actual CEF pages controlled through separate adapters and multiplexed workers, isolation, interactions, visual evidence, dialogs, downloads, live handoff and reconnect. |
 | Simple-action batches | `node tests/batch-integration.mjs` | Production CEF with modern/legacy MCP clients, eight-action form/button sequences, deduplication, stopped suffixes for replaced/covered targets and navigation, and a separate-call timing comparison. Verifies synthetic website state; excludes model inference and physical input. Native broker tests cover handoff, human epochs, read-only policy, permission/client/workspace revocation, unknown outcomes and metadata-only restart without replay. |
-| Hidden-content defense | `node tests/visibility-integration.mjs` | Adversarial invisible text and accessibility labels are withheld; visible controls remain usable, searches use the same filter, and page instructions remain untrusted data. |
+| Hidden-content defense | `node tests/visibility-integration.mjs` | Adversarial invisible text and accessibility labels are withheld; visible controls remain usable, searches use the same filter, and page instructions remain untrusted data. Coordinates computed from screenshot pixels (`image pixel / scale`) must hit 12 px controls beside both native scrollbars, and a scrollbar pixel must be rejected without input. A right-to-left page must keep its main-frame scrollbar on the right: targets at both page edges are hit and a right scrollbar pixel is rejected. A far-corner control must stay verified and clickable by reference and by coordinates from inspection bounds, first at browser zoom 1 and again at 1.2, where its bounds must remain CSS pixels inside the smaller CSS viewport. Browser zoom scales Chromium's layout units the way Windows display scale does. The suite selects its agent tab in its own window, posts the native **Zoom in** command, waits for the resulting human pause to end, and resets the zoom before the remaining checks. Chromium switches such as `--force-device-scale-factor` are ignored, so on a 100% monitor the zoom pass is the only coverage of scaled layout units; it does not change the window's display scale or native UI scaling. |
+| Pinch zoom | `node tests/pinch-zoom-integration.mjs` | Unshipped `XenonAuthTest` (configure CMake with `-DXENON_BUILD_AUTH_FIXTURE=ON`) with a compile-time-gated driver that asks Chromium for a synthetic 2x touchpad pinch on a marked disposable `.cache/pinch-zoom-integration-*` profile. Coordinates from a screenshot taken before the pinch are rejected as stale, pinched screenshot pixels hit their targets, a click, drag or scrollbar pixel outside the magnified view is rejected without input, and unpinching restores the full page area. While pinched, observation reports only the magnified view as its `viewport` and gives no reference to content outside it; `xenon_inspect` succeeds and its node bounds address the view; a reference observed before a pinch that moved its control out of view is rejected without input; and agent pointer movement and a 3x-pinched scroll send no page pointer events outside the view, which a page listener would report. The same driver records a person's passive hover position, as the mouse hook would, without sending input; the next agent movement must start there. With the agent tab selected, the agent pointer overlay window must sit at the pinched input point, and the Elements inspector, driven by posted window messages, must pick the element under a pinched window point and draw its highlight around that element in a `PrintWindow` capture. The driver stands in for a person's touchscreen or precision-touchpad gesture; physical touch input is not exercised. |
 | Worker lifecycle | `node tests/worker-lifecycle-integration.mjs` | More than 16 sequential workers reuse one live tab; retirement preserves page state, reconnect honors concurrent capacity, and queued work is not replayed. |
 | Workspace removal | `node tests/workspace-removal-integration.mjs` | Actual CEF and MCP with the unshipped `XenonAuthTest` native driver: workspace/popup closure, access and pending-read revocation, preservation of another live workspace and shared files, then tombstoned-profile cleanup and survivor cookie/storage checks after restart. This mode does not exercise the human confirmation dialog. |
 | Human workspace removal | `node tests/workspace-removal-integration.mjs --manual` | Same generated-profile checks using production `Xenon.exe`. At READY, select only the named fixture workspace in that test instance's Controls, click **Remove workspace**, and approve the confirmation. No other profile or workspace is authorized by this harness. |
@@ -535,13 +807,14 @@ actual website outcome check.
 | Address suggestions | `ctest --test-dir build -C Release -R '^(omnibox\|browser_data)_tests$' --output-on-failure`; `./tests/omnibox-integration.ps1` | `omnibox_tests` ranks synthetic metadata: unchanged typed-address and Ctrl+Enter interpretation, host-root and path completion (implied scheme and `www.`, a visited port and HTTP scheme, none for partial schemes or trailing spaces), every-term matching with case-folded titles, word-start single characters, frequency/recency/bookmark order, deduplication, row limits, bidi/control stripping and bold ranges. `browser_data_tests` adds workspace and private-workspace isolation, index refresh after a new bookmark, and encrypted history removal that survives restart while keeping bookmarks. The live suite launches production `Xenon.exe` in Light and Dark with disposable profiles and loopback pages, shown off-screen without activation. A native message driver checks that externally set addresses still open as typed, inline completion and its selection, the list, Up/Down row text, Escape, Backspace without re-completion, and clicking a history row. It relies on Xenon's own thread focus rather than physical input or the desktop foreground; that background focus was once not acquired within its retry window, and the suite now reports which window held focus. It does not cover Shift+Delete (which needs a held Shift key), high contrast, other DPI or assistive technology. |
 | Site information | `ctest --test-dir build -C Release -R '^site_info_tests$' --output-on-failure`; `./tests/site-info-integration.ps1` | `site_info_tests` covers origins (user information dropped, IPv6 hosts), every toolbar connection state including minor certificate notices, high-bit errors, mixed and insecure content, loopback HTTP and protected sign-in, cookie scope against look-alike and sibling domains, the setting and value tables, storage sizes, certificate hex encoding, the load errors that show Chromium's certificate warning and the Chrome Help Center addresses its **Learn more** link is redirected from. The live suite uses a loopback page that sets two synthetic cookies in production `Xenon.exe`, shown off-screen without activation, then the unshipped `XenonAuthTest` build with its pinned test certificate. The HTTP part runs in Dark. A native message driver checks the bubble's rows and connection view, that a Site settings combo box renders dark (mean luminance of its rendered pixels), a Pop-ups change in Site settings appearing in the bubble and resetting, deleting one selected cookie and then all site data (confirmed in the dialog), verified by the cookies the website receives next, the certificate-error warning and summary, and the Windows certificate viewer opening. It does not cover physical input, the certificate warning page itself, its **Learn more** redirect or its hidden enhanced-protection suggestion in a running browser, a valid public certificate (checked once by hand against `https://example.com`), camera, location or notification behavior after a change, storage clearing beyond cookies, high contrast, other DPI or assistive technology. |
 | Browser essentials | `ctest --test-dir build -C Release -R '^browser_import_tests$' --output-on-failure`; `./tests/browser-essentials-integration.ps1` | `browser_import_tests` covers the app-link scheme denial list and escaping, launch-link filtering and `--single-argument` parsing, bookmark HTML and Chromium `Bookmarks` parsing, name cleaning, folders, per-visit history deletion, import deduplication and persistence, and reading a synthetic profile's `History` while another handle holds it open. The live script drives one disposable production instance through a native message driver with every window parked beyond the monitors: startup and running-browser link hand-off, a site icon in the tab list, the bookmark manager, history search and deletion, an app-link prompt reaching a temporary HKCU test scheme's recorder as one escaped argument, a refused `ms-msdt:` link, the screen-share prompt and its denial, Clear browsing data and Settings. It never enters full screen or allows screen sharing. |
+| Screenshot safety and recovery | `ctest --test-dir build -C Release -R '^(screenshot_guard_tests\|broker_tests)$' --output-on-failure`; `node tests/screenshot-integration.mjs` | The production scan component has deterministic callback tests for transient/persistent timeouts, full rescans, credential precedence, malformed documents, frame replacement/churn, navigation, human input, authority loss and capture continuation checks. Production CEF/MCP fixtures verify safe top-level/same-origin/cross-origin pages, empty credential fields in top-level/shadow/frame content, and capture after a credential frame is replaced with safe content. Timeout injection is unit coverage, not a reproduced live website timeout. Uses generated profiles and local synthetic pages; does not inspect personal applications or claim physical UI coverage. |
 | Agent gates | `node tests/agent-gates-integration.mjs` | Production CEF and MCP: an agent's own clicks on an app link and a screen-share button in its tab open no native prompt, and the page receives `NotAllowedError`. |
 | Passkey gate in the browser | `node tests/passkey-integration.mjs` | Production CEF and MCP with loopback fixtures. Every probe calls `navigator.credentials.get` with an already-aborted signal, so Chromium answers `AbortError` when the gate forwards the request and the gate's `NotAllowedError` when it refuses; no authenticator or Windows prompt is used. An agent-created tab's page, same-origin frame, out-of-process frame and new blank frame are wrapped before their own script runs and refused, with no placeholder history entry and `passkeyNeedsHuman` set; an agent click is refused without an ownership change; navigation clears the notice; and the human tab, loaded through the address bar by a native message driver, forwards every probe. A physical click inside an agent tab is not covered. |
 | Web content theme | `node tests/theme-integration.mjs` | Four normal launches of production CEF and MCP with one generated profile. Light and Dark set a loopback fixture's `prefers-color-scheme` report, its rendered canvas and a blank page regardless of Windows; System follows Windows. A native-message **Theme** command is saved, leaves this run's pages unchanged and applies after restart. The suite reads but never changes the Windows app mode, so run it once in each mode. This is native driver coverage, not physical menu input. |
 | First-run introduction | `./tests/introduction-integration.ps1` | Disposable production profiles: language selection before CEF, duplicate startup, cancel/retry, translated tour with Previous/Next, immediate first-launch CEF locale, durable completion/skip, normal blank restart, Menu replay and documentation URL navigation. Captures target only the synthetic introduction window. Native message driver coverage does not establish physical input or multi-monitor/DPI acceptance. `native_ui_tests` also checks legacy profiles, interrupted preference writes and completion-save rollback. |
 | Windows input | `node tests/native-input-smoke.mjs` | Append the requested public text to the draft in the named fixture window. Verifies automatic creator ownership, Windows input pause without an ownership change, dispatch/read denial while paused, and fresh-evidence recovery with the human edit preserved. |
 | Human script dialog | `node tests/native-input-smoke.mjs --dialog` | After editing, click **Confirm synthetic logout**, verify Controls reappears with that tab selected, wait at least three seconds and click **Dismiss**. Checks the pause lasts while the dialog awaits an answer, then ends without changing document or owner. Controls surfacing is a manual observation. |
-| Upload entries | `node tests/upload-entry-integration.mjs` | Direct inputs, visible custom buttons opening hidden inputs, cross-origin frame uploads, invalid grants, stale labels, missing choosers, multiple inputs, disabled/directory controls and cross-frame delegation denial. Add `--benchmark <path-to-browser-benchmark.cjs>` to copy and exercise the external synthetic health fixture without modifying its source or original evidence. |
+| Upload entries | `node tests/upload-entry-integration.mjs` | Direct inputs, visible custom buttons and StaticText Device entries opening hidden inputs, cross-origin frame uploads, invalid grants, stale labels/text, missing choosers, multiple inputs, disabled/directory controls and cross-frame delegation denial. `node --test tests/upload-entry-tests.mjs tests/pointer-target-tests.mjs` also checks the fixed entry classifier and exact text hit areas. Add `--benchmark <path-to-browser-benchmark.cjs>` to copy and exercise the external synthetic health fixture without modifying its source or original evidence. |
 | External benchmark workflows | `node tests/upload-entry-integration.mjs --benchmark <path-to-browser-benchmark.cjs> --benchmark-matrix` | Unchanged external health, comparison, calibration and four concurrent workflows through real MCP. Verifies actual date/form state, exact approved upload, delayed review, distinct concurrent identities, trusted activation and untouched final submission. Deterministic adapter input tests browser compatibility; it does not compare model speed, cost or task success. The external fixture is supplied separately and is never committed. |
 | Release archive | `./scripts/verify-package.ps1 -Zip <release.zip>` | ZIP checksum, per-file SHA-256 manifest, required runtime files, exclusion of test binaries and private state. |
 | Bootstrap branding | `node tests/branding-resources.mjs` | Reads PE files without loading them, compares code and non-branding resource payloads with the pinned bootstrap, and checks exact Xenon icon/version resources. See the narrowly permitted resource-layout effects in [branding](BRANDING.md). |
