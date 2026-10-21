@@ -43,6 +43,8 @@ cookies or profile data. Let the human handle MFA. An upload discloses its file.
 When a tab needs the human (MFA, CAPTCHA, passkey, approval), ask with
 xenon_attention on that tab with a short factual reason, then clear it once the
 help is no longer needed. Never put secrets or website text in the reason.
+When you finish with a result the human should review, mark only that tab with
+xenon_attention and persist: true before you retire, and leave it open.
 
 Give each distinct journaled mutation a new operationId. After any uncertain
 reply, inspect xenon_operation with that ID and the page before further input.
@@ -51,8 +53,6 @@ inspect current lists/status. Keep exact requests/results in host state; an
 explicit private evidence export can save them. Website success needs evidence.
 Use advertised tools only; no raw scripts, CDP, pipe or OS-control bypasses.
 Report verified outcomes, uncertainty and required human actions.
-When you finish with a result the human should review, mark only that tab with
-xenon_attention and persist: true before you retire, and leave it open.
 ```
 
 ## Start and act
