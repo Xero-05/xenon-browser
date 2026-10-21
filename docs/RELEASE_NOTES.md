@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased
+
+**MCP SDK 2.3.1.** The adapter and test clients use MCP TypeScript SDK 2.3.1, which fixes GHSA-jm63-cq47-j5jp, GHSA-46jr-4wx8-v453, GHSA-rvq5-wwqv-78pq and GHSA-6prh-2h8m-c8cw. Those advisories cover the SDK's HTTP transports, bearer authentication and HTTP clients; Xenon's adapter serves only stdio and was not exposed to them.
+
 ## 0.1.8
 
 Includes all changes merged since 0.1.7. See the [0.1.8 notes](RELEASE-0.1.8.md) for downloads, engine details and validation limits.
