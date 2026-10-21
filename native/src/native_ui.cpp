@@ -193,12 +193,13 @@ struct NativeUi::Impl {
   }
   void save_configuration(Configuration& config){
     try{
+      check(config,35,workspace.value("agentsCanCloseTabs",true));
       const auto name=ui::text(config_control(config,10));
       if(config.creating){if(!valid_workspace_name(name))throw std::runtime_error("Enter a workspace name with at most 80 characters and no control characters.");
         broker.open_human_workspace("about:blank",[this](Json value){result(value);refresh();},false,name);DestroyWindow(config.window);return;}
       Capabilities capabilities{checked(config,20),checked(config,21),checked(config,22),checked(config,23)};
       bool saved=false;
-      if(config.workspace){saved=broker.rename_workspace(config.id,name);if(!config.client.empty()){
+      if(config.workspace){saved=broker.rename_workspace(config.id,name);saved=broker.set_agents_close_tabs(config.id,checked(config,35))&&saved;if(!config.client.empty()){
           if(!checked(config,24))saved=broker.configure_workspace_client(config.id,config.client,std::nullopt)&&saved;
           else {WorkspaceAccess access;access.capabilities=capabilities;access.inherit_files=checked(config,25);access.inherit_accounts=checked(config,26);access.restrict_files=checked(config,27);access.restrict_accounts=checked(config,28);access.default_accounts=checked(config,29);
             for(size_t n=0;n<config.resource_rows.size();++n)if(ListView_GetCheckState(config.resources,n)){auto item=config.resource_rows[n];(str(item,"kind")=="Account"?access.account_ids:access.file_ids).insert(str(item,"resourceId"));}
@@ -231,7 +232,8 @@ struct NativeUi::Impl {
       return 0;
     }
     if(message==WM_SIZE){RECT rect{};GetClientRect(window,&rect);const int d=GetDpiForWindow(window),width=MulDiv(rect.right,96,d),height=MulDiv(rect.bottom,96,d);auto move=[&](int id,int x,int y,int w,int h){MoveWindow(config_control(*config,id),ui::dip(window,x),ui::dip(window,y),ui::dip(window,w),ui::dip(window,h),TRUE);};
-      move(10,20,44,width-40,30);if(config->creating){move(40,20,100,width-40,height-170);move(1,20,height-52,160,32);move(2,width-140,height-52,120,32);return 0;}
+      if(config->workspace&&!config->creating){const int half=(width-60)/2;move(10,20,44,half,30);move(35,40+half,46,half,26);}else move(10,20,44,width-40,30);
+      if(config->creating){move(40,20,100,width-40,height-170);move(1,20,height-52,160,32);move(2,width-140,height-52,120,32);return 0;}
       move(11,20,112,220,height-190);move(12,20,86,220,22);
       const int x=config->workspace?260:20,w=width-x-20;
       if(!config->workspace){ShowWindow(config_control(*config,11),SW_HIDE);ShowWindow(config_control(*config,12),SW_HIDE);}
@@ -270,6 +272,7 @@ struct NativeUi::Impl {
       make(3,L"BUTTON",ui::tr(L"Grant file"),BS_OWNERDRAW|WS_TABSTOP);make(4,L"BUTTON",ui::tr(L"Grant folder"),BS_OWNERDRAW|WS_TABSTOP);make(5,L"BUTTON",ui::tr(L"Revoke selected"),BS_OWNERDRAW|WS_TABSTOP);
       config->client_rows=broker.state()["clients"];int match=0,index=0;for(const auto& client:config->client_rows){auto name=wide(str(client,"name"));SendMessageW(config->clients,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));if(str(client,"clientId")==config->client)match=index;++index;}SendMessageW(config->clients,LB_SETCURSEL,match,0);if(config->client.empty()&&!config->client_rows.empty())config->client=str(config->client_rows[match],"clientId");load_configuration(*config);
     }
+      if(workspace)make(35,L"BUTTON",ui::tr(L"Agents can close tabs in this workspace"),BS_AUTOCHECKBOX|WS_TABSTOP);
     SendMessageW(handle,WM_SIZE,0,0);ShowWindow(handle,SW_SHOWNORMAL);SetForegroundWindow(handle);configurations.push_back(std::move(config));
   }
   HWND update_window{},update_latest{},update_message{},update_progress{};

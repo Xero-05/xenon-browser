@@ -127,6 +127,9 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     std::vector<Reply> removal_waiters;
     std::string display_name, creator;
     std::map<std::string,WorkspaceAccess> access;
+    // Native setting for every client here. Off keeps agents from closing tabs,
+    // so results meant for the person stay open after the agent finishes.
+    bool agents_close_tabs{true};
   };
   struct Worker {
     std::string client, connection, workspace, name;
@@ -137,9 +140,12 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   struct Observation { std::string id; uint64_t generation{}, human_epoch{}; };
   struct Command { std::string operation, session, method; uint64_t generation{}, attachment{}, human_epoch{}; Json params; std::string document; };
   // An owner's request for the person to look at its tab. It lapses when that
-  // ownership, the worker's attachment or its interaction permission ends.
+  // ownership, the worker's attachment or its interaction permission ends. A
+  // persisting request instead outlives its worker retiring, disconnecting or
+  // releasing the tab, and ends when anyone else takes control, the client
+  // loses interaction permission or the person dismisses it.
   // `seen` is set natively once the person was present with the tab in front.
-  struct Attention { std::string session, reason; uint64_t generation{}, attachment{}, sequence{}; bool seen{}; };
+  struct Attention { std::string session, client, reason; uint64_t generation{}, attachment{}, sequence{}; bool seen{}, persist{}; };
   struct Tab {
     std::string workspace, owner, document, group;
     uint64_t generation{1}, state_epoch{}, human_epoch{}; bool frozen{}, human_busy{}, protected_auth{}, closing{}, passkey_refused{};
@@ -228,6 +234,8 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         Workspace workspace;
         workspace.display_name=field(entry,"displayName");workspace.creator=field(entry,"createdByClientId");
         if(workspace.display_name.empty())workspace.display_name=id=="native-default"?"Personal":"Workspace";
+        // Workspaces saved before this setting existed keep allowing closes.
+        workspace.agents_close_tabs=entry.value("agentsCanCloseTabs",true);
         for (auto& client : entry.value("clients", Json::array())) if (client.is_string() && clients.contains(client.get<std::string>())) workspace.clients.insert(client.get<std::string>());
         for(const auto& client:workspace.clients)workspace.access[client]=state_version==1?WorkspaceAccess::legacy():WorkspaceAccess::read(entry.value("access",Json::object()).value(client,Json::object()));
         workspaces.emplace(id, std::move(workspace));
@@ -278,7 +286,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     for (auto& [id, value] : clients) saved["clients"].push_back({{"id", id}, {"name", value.name}, {"tokenHash", value.token_hash},{"policy",value.policy.json()}});
     for (auto& [id, value] : workspaces) if (!value.private_mode && !removed_workspaces.contains(id)) {
       Json access=Json::object();for(const auto& [client,grant]:value.access)access[client]=grant.json();
-      saved["workspaces"].push_back({{"id", id}, {"clients", value.clients},{"displayName",value.display_name},{"createdByClientId",value.creator},{"access",access}});
+      saved["workspaces"].push_back({{"id", id}, {"clients", value.clients},{"displayName",value.display_name},{"createdByClientId",value.creator},{"access",access},{"agentsCanCloseTabs",value.agents_close_tabs}});
     }
     for (auto& grant : account_grants) if (grant.workspace.empty()||(workspaces.contains(grant.workspace) && !removed_workspaces.contains(grant.workspace) && !workspaces.at(grant.workspace).private_mode)) saved["accountGrants"].push_back({{"clientId", grant.client}, {"workspaceId", grant.workspace}, {"accountId", grant.account}, {"origin", grant.origin}});
     // Deliberately persist no arguments, signatures, observations or page output.
@@ -360,6 +368,9 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     std::set<std::string> groups;
     for(auto& [id,tab]:tabs)if(auto worker=workers.find(tab.owner);worker!=workers.end()&&worker->second.client==client&&!effective(client,tab.workspace).interaction&&groups.insert(tab.group).second)
       begin_transfer_locked(tab,"",output,"PERMISSION_CHANGED");
+    // Losing interaction permission ends this client's requests, including
+    // persisting ones its workers left behind; restoring it does not revive them.
+    for(auto& [id,tab]:tabs)if(tab.attention&&tab.attention->client==client&&!effective(client,tab.workspace).interaction)tab.attention.reset();
   }
   size_t connected_workers_locked() const {
     return static_cast<size_t>(std::count_if(workers.begin(),workers.end(),[](const auto& entry){return entry.second.connected && !entry.second.retiring;}));
@@ -537,15 +548,25 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     if (code == "CAPACITY_EXCEEDED") return "Tab limit reached";
     return "This tab is no longer open";
   }
+  bool agents_close_tabs_locked(const std::string& workspace) const {
+    const auto found = workspaces.find(workspace); return found != workspaces.end() && found->second.agents_close_tabs;
+  }
   bool fresh_after_human_locked(const Tab& tab, const std::string& session) const {
     const auto observed = tab.observations.find(session);
     return !tab.human_busy && observed != tab.observations.end() && observed->second.generation == tab.generation && observed->second.human_epoch == tab.human_epoch;
   }
   bool attention_active_locked(const Tab& tab) const {
-    if (!tab.attention || stopping || tab.closing || tab.pending_owner || tab.owner != tab.attention->session || tab.generation != tab.attention->generation) return false;
-    const auto worker = workers.find(tab.owner);
-    return worker != workers.end() && worker->second.connected && !worker->second.retiring && worker->second.attachment == tab.attention->attachment &&
-      effective(worker->second.client, tab.workspace).interaction;
+    if (!tab.attention || stopping || tab.closing || removed_workspaces.contains(tab.workspace)) return false;
+    if (!tab.pending_owner && tab.owner == tab.attention->session && tab.generation == tab.attention->generation) {
+      const auto worker = workers.find(tab.owner);
+      if (worker != workers.end() && worker->second.connected && !worker->second.retiring && worker->second.attachment == tab.attention->attachment &&
+          effective(worker->second.client, tab.workspace).interaction) return true;
+    }
+    // A persisting request survives its worker leaving or releasing the tab.
+    // Control passing to anyone else resets it in transfer_if_ready_locked.
+    if (!tab.attention->persist) return false;
+    const bool released = (tab.owner.empty() || tab.owner == tab.attention->session) && (!tab.pending_owner || tab.pending_owner->empty());
+    return released && clients.contains(tab.attention->client) && effective(tab.attention->client, tab.workspace).interaction;
   }
   Json tab_json(const std::string& id, const Tab& tab, const std::string& session = {}) const {
     const auto& observing_session = session.empty() ? tab.owner : session;
@@ -562,8 +583,10 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     // Only the requesting worker and native UI read the agent's note.
     const bool attention = attention_active_locked(tab);
     result["attentionRequested"] = attention; result["attentionSeen"] = attention && tab.attention->seen;
+    result["attentionPersists"] = attention && tab.attention->persist;
     if (attention && (session.empty() || session == tab.attention->session) && !tab.attention->reason.empty()) result["attentionReason"] = tab.attention->reason;
-    if (attention && session.empty()) result["attentionSequence"] = tab.attention->sequence;
+    // Native UI names the requesting agent even after it has left the tab.
+    if (attention && session.empty()) { result["attentionSequence"] = tab.attention->sequence; result["attentionSessionId"] = tab.attention->session; }
     return result;
   }
   void finish_locked(const std::string& id, Json value, std::vector<Delivery>& output, const std::string& final_state = {}) {
@@ -603,6 +626,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     const auto group = tab.group, recipient = *tab.pending_owner;
     for (auto& [id, member] : tabs) if (member.group == group && (!member.active.empty() || !member.dialog_active.empty() || member.human_busy)) return;
     for (auto& [id, member] : tabs) if (member.group == group) {
+      if (member.attention && !recipient.empty() && recipient != member.attention->session) member.attention.reset();
       member.owner = recipient; member.pending_owner.reset(); ++member.generation;
       member.frozen = removed_workspaces.contains(member.workspace); member.observations.clear();
     }
@@ -678,6 +702,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     if (stopping || !operation->second.result.is_null() || !clients.contains(worker->second.client) || !granted(worker->second.client, tab->second.workspace) || !worker->second.connected || worker->second.attachment != command.attachment || (tab->second.frozen && !operation->second.dispatched) || tab->second.human_busy || tab->second.human_epoch != command.human_epoch || tab->second.owner != command.session || tab->second.generation != command.generation) return false;
     if (tab->second.active != command.operation && tab->second.dialog_active != command.operation) return false;
     if (clients.at(worker->second.client).policy_epoch != command.params.value("trustedPolicyEpoch", uint64_t{}) || !allowed(worker->second.client, tab->second.workspace, command.method)) return false;
+    if (command.method == "tabs.close" && !agents_close_tabs_locked(tab->second.workspace)) return false;
     if (command.method == "auth.login" && account_origin(worker->second.client, tab->second.workspace, field(command.params, "accountId")) != field(command.params, "grantedOrigin")) return false;
     if (command.method == "page.batch") {
       const auto observed = tab->second.observations.find(command.session);
@@ -914,7 +939,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   }
   if (method == "workspaces.list") {
     Json result = Json::array(); for (auto& [id, workspace] : self->workspaces) if (self->granted(client, id)) result.push_back({{"workspaceId", id}, {"ready", workspace.ready},
-      {"displayName",workspace.display_name},{"effectivePermissions",self->effective(client,id).json()}});
+      {"displayName",workspace.display_name},{"effectivePermissions",self->effective(client,id).json()},{"agentsCanCloseTabs",workspace.agents_close_tabs}});
     respond(success({{"workspaces", result}})); return;
   }
   if (method == "workspaces.share" || method == "workspaces.remove" || method == "workspace.remove") { respond(failure("HUMAN_REQUIRED", "Manage workspaces in the native browser")); return; }
@@ -1076,14 +1101,19 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     if (tab.closing) { respond(failure("TAB_CLOSING", "The person using Xenon is closing this tab")); return; }
     if (method == "attention.clear") tab.attention.reset();
     else {
-      std::string reason;
+      std::string reason; bool persist{};
       if (const auto value = params.find("reason"); value != params.end()) {
         if (!value->is_string() || !valid_attention_reason(value->get_ref<const std::string&>())) { respond(failure("INVALID_REASON", "Reason must be one line of 1 to 200 visible characters without control or invisible formatting characters")); return; }
         reason = value->get<std::string>();
       }
-      // Repeating an active request updates its note without notifying again.
-      if (self->attention_active_locked(tab)) tab.attention->reason = std::move(reason);
-      else tab.attention = Impl::Attention{session_id, std::move(reason), tab.generation, worker->second.attachment, ++self->attention_sequence};
+      if (const auto value = params.find("persist"); value != params.end()) {
+        if (!value->is_boolean()) { respond(failure("INVALID_REQUEST", "persist must be true or false")); return; }
+        persist = value->get<bool>();
+      }
+      // Repeating an active request updates its note and persistence without
+      // notifying again.
+      if (self->attention_active_locked(tab) && tab.attention->session == session_id && tab.attention->generation == tab.generation) { tab.attention->reason = std::move(reason); tab.attention->persist = persist; }
+      else tab.attention = Impl::Attention{session_id, client, std::move(reason), tab.generation, worker->second.attachment, ++self->attention_sequence, false, persist};
     }
     respond(success(self->tab_json(tab_id, tab, session_id))); return;
   }
@@ -1130,6 +1160,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     if (!existing->second.result.is_null()) { respond(existing->second.result); return; }
     existing->second.waiters.push_back(std::move(reply)); return;
   }
+  if (method == "tabs.close" && !self->agents_close_tabs_locked(workspace_id)) { respond(failure("TAB_CLOSE_DISABLED", "This workspace keeps agent tabs open for the person. Leave the tab open and tell the person about it, for example with xenon_attention")); return; }
   if (tab.owner != session_id || tab.frozen) { respond(failure("NOT_OWNER", "Acquire this tab before acting")); return; }
   if (tab.closing) { respond(failure("TAB_CLOSING", "The person using Xenon is closing this tab")); return; }
   if (tab.human_busy) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input temporarily paused this tab; ownership is unchanged. Wait for idle, then observe again")); return; }
@@ -1193,7 +1224,7 @@ Json Broker::state() const {
   result["limits"]=self->worker_limits_locked();result["connectedWorkerCount"]=self->connected_workers_locked();
   for (auto& [id, workspace] : self->workspaces) {
     Json row{{"workspaceId", id}, {"clientIds", workspace.clients}, {"ready", workspace.ready}, {"private", workspace.private_mode}, {"removing", workspace.removing}};
-    row["displayName"]=workspace.display_name;row["createdByClientId"]=workspace.creator;row["access"]=Json::object();
+    row["displayName"]=workspace.display_name;row["createdByClientId"]=workspace.creator;row["agentsCanCloseTabs"]=workspace.agents_close_tabs;row["access"]=Json::object();
     for(const auto& [client,access]:workspace.access){row["access"][client]=access.json();row["access"][client]["effectivePermissions"]=self->effective(client,id).json();}
     if (workspace.removing) row["removalStatus"] = workspace.removal_retry ? "retry" : workspace.removal_active ? "closing" : "draining";
     if (!workspace.removal_error.empty()) row["removalError"] = workspace.removal_error;
@@ -1253,6 +1284,12 @@ bool Broker::rename_workspace(const std::string& workspace,const std::string& na
   if(found==impl_->workspaces.end()||impl_->removed_workspaces.contains(workspace))return false;
   auto old=found->second.display_name;found->second.display_name=name;
   try{impl_->persist_locked();}catch(...){found->second.display_name=old;return false;}return true;
+}
+bool Broker::set_agents_close_tabs(const std::string& workspace,bool allowed) {
+  Impl::UiChange notification{impl_.get()};std::lock_guard lock(impl_->mutex);auto found=impl_->workspaces.find(workspace);
+  if(found==impl_->workspaces.end()||found->second.removing||impl_->removed_workspaces.contains(workspace))return false;
+  const auto old=found->second.agents_close_tabs;found->second.agents_close_tabs=allowed;
+  try{impl_->persist_locked();}catch(...){found->second.agents_close_tabs=old;return false;}return true;
 }
 bool Broker::grant_client_account(const std::string& client,const std::string& account,const std::string& origin) {
   if(account.empty()||account.size()>160||!exact_https_origin(origin))return false;
@@ -1514,6 +1551,8 @@ void Broker::open_human_workspace_impl(const std::string& url, Reply reply, bool
     if (self->stopping || self->removed_workspaces.contains(workspace)) rejected = failure("WORKSPACE_UNAVAILABLE", "Workspace cannot be opened");
     else {
       const auto [entry, inserted] = self->workspaces.try_emplace(workspace, Impl::Workspace{{}, false, private_mode});
+      // Workspaces the person creates keep agent tabs open by default.
+      if (inserted) entry->second.agents_close_tabs = false;
       if(entry->second.display_name.empty())entry->second.display_name=initial?"Personal":private_mode?"Private workspace":"Workspace "+std::to_string(self->workspaces.size());
       if(!name.empty())entry->second.display_name=name;
       Impl::Tab tab; tab.workspace = workspace; tab.owner = "human"; tab.group = id; self->tabs.emplace(id, std::move(tab));

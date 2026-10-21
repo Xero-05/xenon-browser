@@ -215,6 +215,12 @@ Turn on **Settings → Agents → Show a Windows notification when an agent need
 
 The note is the agent's own words, not Xenon's or the website's, and an agent can be wrong or misled by a page. Never type a password or code somewhere just because a note asks for it; use the site as you normally would. Asking for help does not pause the agent or change ownership; your page input pauses it as usual. **Dismiss help request** in the tab's right-click menu or the ownership chip withdraws a request; the agent can ask again. Taking ownership, closing the tab or the agent disconnecting also ends it.
 
+An agent can also mark a tab for you when it finishes, such as a filled form ready for your review. That mark stays after the agent has disconnected or finished, so the result is waiting for you; only the tabs the agent marked light up. It stays, even after you have looked at it, until you choose **Dismiss help request**, close the tab, take ownership, another agent takes the tab, or you remove the agent's permission to interact. Marks do not survive restarting Xenon.
+
+### Keeping agent tabs open
+
+Each workspace has an **Agents can close tabs in this workspace** setting in **Controls → Workspaces → Configure**. Turn it off where agents prepare work for you to review, so an agent cannot close a result before you see it; leave it on for fully automated workspaces where nobody needs the tabs afterwards. With it off, agents' scratch tabs also stay open; **Close all tabs…** clears them in one step. Your own closes are never affected. Workspaces you create start with the setting off, workspaces an agent creates automatically start with it on, and workspaces from earlier versions keep allowing closes until you change them.
+
 ## Saved accounts
 
 Saved accounts live in one native vault per Xenon data directory, shared across workspaces. Website cookies live separately inside each workspace. Removing or updating a vault account affects future fills but does not sign out existing website sessions.

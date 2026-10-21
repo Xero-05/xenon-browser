@@ -1164,7 +1164,7 @@ struct BrowserShell::Impl {
   // ---- Agent help requests ----------------------------------------------------
   // The requesting agent's name and note are its own words, never Xenon's or
   // the website's; both are made printable and attributed to the agent.
-  std::wstring help_agent(const std::string& tab) const {const auto state=states.find(tab);const auto owner=state==states.end()?std::string{}:str(state->second,"ownerSessionId");
+  std::wstring help_agent(const std::string& tab) const {const auto state=states.find(tab);auto owner=state==states.end()?std::string{}:str(state->second,"attentionSessionId");if(owner.empty()&&state!=states.end())owner=str(state->second,"ownerSessionId");
     auto name=omnibox::printable(ui::wide(names.contains(owner)&&!names.at(owner).empty()?names.at(owner):ui::tr8("Agent")));if(name.size()>60)name=name.substr(0,59)+L"…";return name;}
   std::wstring help_text(const std::string& tab) const {const auto state=states.find(tab);const auto note=state==states.end()?std::string{}:str(state->second,"attentionReason");
     return note.empty()?ui::format(ui::tr(L"{0} needs your help in this tab."),{help_agent(tab)}):ui::format(ui::tr(L"{0} needs your help: “{1}”"),{help_agent(tab),omnibox::printable(ui::wide(note))});}

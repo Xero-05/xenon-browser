@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+**Agents can leave finished work marked for you.** `xenon_attention` accepts `persist: true`. A tab marked that way keeps its orange mark after the agent finishes, disconnects or releases it, until you dismiss it, close it, take it or another agent takes it. Only the tabs an agent marks light up.
+
+**Keep agent tabs open per workspace.** A new **Agents can close tabs in this workspace** setting in Controls lets you stop agents closing tabs where they prepare work for you. Agents get `TAB_CLOSE_DISABLED` and can read the setting from `xenon_workspaces`. New workspaces you create start with it off; automatic agent workspaces and existing workspaces keep allowing closes.
+
 **MCP SDK 2.3.1.** The adapter and test clients use MCP TypeScript SDK 2.3.1, which fixes GHSA-jm63-cq47-j5jp, GHSA-46jr-4wx8-v453, GHSA-rvq5-wwqv-78pq and GHSA-6prh-2h8m-c8cw. Those advisories cover the SDK's HTTP transports, bearer authentication and HTTP clients; Xenon's adapter serves only stdio and was not exposed to them.
 
 ## 0.1.8
