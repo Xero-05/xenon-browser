@@ -66,8 +66,8 @@ export class ScopedXenonTab {
   observe(args: { maxNodes?: number; query?: string } = {}) { return this.call('xenon_observe', args); }
   status() { return this.call('xenon_control_status'); }
   // Ask the person to come to this tab, or withdraw that request.
-  attention(action: 'request' | 'clear', ownershipGeneration: number, reason?: string) {
-    return this.call('xenon_attention', { action, ownershipGeneration, ...(reason === undefined ? {} : { reason }) });
+  attention(action: 'request' | 'clear', ownershipGeneration: number, reason?: string, persist?: boolean) {
+    return this.call('xenon_attention', { action, ownershipGeneration, ...(reason === undefined ? {} : { reason }), ...(persist === undefined ? {} : { persist }) });
   }
   files(args: { folderId?: string; cursor?: string; query?: string; limit?: number } = {}) { return this.call('xenon_files', args); }
   operation(operationId: string) { return invoke(this.client, 'xenon_operation', { operationId: handle(operationId) }); }

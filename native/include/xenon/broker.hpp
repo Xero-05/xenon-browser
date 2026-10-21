@@ -36,6 +36,9 @@ class Broker {
   bool configure_workspace_client(const std::string& workspace_id, const std::string& client_id,
                                   std::optional<WorkspaceAccess> access);
   bool rename_workspace(const std::string& workspace_id, const std::string& display_name);
+  // Native human setting only. When off, the broker refuses agent tab closes
+  // in this workspace; the person's own closes are unaffected.
+  bool set_agents_close_tabs(const std::string& workspace_id, bool allowed);
   bool grant_client_account(const std::string& client_id, const std::string& account_id, const std::string& origin);
   bool revoke_account(const std::string& client_id, const std::string& workspace_id, const std::string& account_id);
   void resource_changed(const std::string& client_id);

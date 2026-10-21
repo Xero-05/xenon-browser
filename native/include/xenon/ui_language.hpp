@@ -85,7 +85,7 @@ inline constexpr Translation translations[]{
   {L"Name / HTTPS origin",L"名称 / HTTPS 来源"},{L"Type",L"类型"},
   {L"Grant file",L"授权文件"},{L"Grant folder",L"授权文件夹"},{L"Revoke selected",L"撤销所选授权"},
   {L"Folder",L"文件夹"},{L"File",L"文件"},{L"Account",L"账号"},
-  {L"Allow all Default passwords",L"允许所有默认密码"},{L"Default account",L"默认账号"},{L"Sensitive account",L"敏感账号"},
+  {L"Allow all Default passwords",L"允许所有默认密码"},{L"Agents can close tabs in this workspace",L"允许代理关闭此工作区中的标签页"},{L"Default account",L"默认账号"},{L"Sensitive account",L"敏感账号"},
   {L"Select an item to configure.",L"请先选择要配置的项目。"},
   {L"Saved. Effective permissions also depend on the client's overall policy.",L"已保存。实际权限还取决于客户端的总体策略。"},
   {L"Could not save all changes. Review permissions and retry.",L"无法保存全部更改。请检查权限后重试。"},

@@ -764,6 +764,121 @@ void attention_requests(const std::filesystem::path& directory) {
   require(!native_tab(broker, peer.tab["tabId"])["attentionRequested"].get<bool>(), "Disconnecting the worker ends its request");
   require(engine.call_count() == calls, "Requests, dismissals and their lapses never send browser commands");
 }
+void persistent_attention(const std::filesystem::path& directory) {
+  FakeEngine engine; Broker broker(engine, directory);
+  const auto credentials = pair(broker, "review", "Review host");
+  auto owner = worker(broker, "review", "Reviewer");
+  const auto marked = owner.tab["tabId"];
+  auto scratch = owner; scratch.tab = call(broker, "review", "tabs.create", {{"agentSessionId", owner.session}, {"workspaceId", owner.workspace}})["result"];
+  auto revoked = owner; revoked.tab = call(broker, "review", "tabs.create", {{"agentSessionId", owner.session}, {"workspaceId", owner.workspace}})["result"];
+  auto dismissed = owner; dismissed.tab = call(broker, "review", "tabs.create", {{"agentSessionId", owner.session}, {"workspaceId", owner.workspace}})["result"];
+  auto request = owner.base(); request["ownershipGeneration"] = call(broker, "review", "control.status", owner.base())["result"]["ownershipGeneration"];
+  request["reason"] = "Application form filled; ready for your review"; request["persist"] = "yes";
+  require(code(call(broker, "review", "attention.request", request)) == "INVALID_REQUEST" && !native_tab(broker, marked)["attentionRequested"].get<bool>(), "persist must be a boolean and a refused request leaves no mark");
+  request["persist"] = true;
+  const auto calls = engine.call_count();
+  const auto requested = call(broker, "review", "attention.request", request);
+  require(requested.value("ok", false) && requested["result"]["attentionPersists"].get<bool>(), "The owner can mark a tab for review after it finishes");
+  require(!requested["result"].contains("attentionSessionId"), "Native bookkeeping about the requester is not returned to agents");
+  auto help = scratch.base(); help["ownershipGeneration"] = scratch.tab["ownershipGeneration"]; help["reason"] = "Solve the CAPTCHA";
+  require(call(broker, "review", "attention.request", help).value("ok", false) && !native_tab(broker, scratch.tab["tabId"])["attentionPersists"].get<bool>(), "Ordinary help requests do not persist by default");
+  auto lapsing = revoked.base(); lapsing["ownershipGeneration"] = revoked.tab["ownershipGeneration"]; lapsing["persist"] = true;
+  require(call(broker, "review", "attention.request", lapsing).value("ok", false), "A second tab can be marked");
+  auto dismissal = dismissed.base(); dismissal["ownershipGeneration"] = dismissed.tab["ownershipGeneration"]; dismissal["persist"] = true;
+  require(call(broker, "review", "attention.request", dismissal).value("ok", false), "A third tab can be marked");
+
+  broker.disconnect("review");
+  auto row = native_tab(broker, marked);
+  require(row["attentionRequested"].get<bool>() && row["attentionPersists"].get<bool>() && row["ownerSessionId"] == "" && row["attentionReason"] == request["reason"] && row["attentionSessionId"] == owner.session,
+    "A marked request outlives its worker disconnecting and releasing the tab, and native UI still names the requester and note");
+  require(!native_tab(broker, scratch.tab["tabId"])["attentionRequested"].get<bool>(), "Unmarked tabs stop asking for help when the worker leaves, so they do not all flash");
+  broker.attention_seen(marked);
+  require(native_tab(broker, marked)["attentionSeen"].get<bool>() && native_tab(broker, marked)["attentionRequested"].get<bool>(), "Seeing a marked tab keeps the mark until the person dismisses it");
+
+  require(call(broker, "review-2", "hello", {{"clientId", credentials["clientId"]}, {"token", credentials["token"]}}).value("ok", false), "The host reconnects");
+  require(call(broker, "review-2", "workers.resume", {{"agentSessionId", owner.session}}).value("ok", false), "The worker resumes");
+  owner.connection = "review-2";
+  auto status = call(broker, "review-2", "control.status", owner.base())["result"];
+  require(call(broker, "review-2", "control.acquire", {{"agentSessionId", owner.session}, {"workspaceId", owner.workspace}, {"tabId", marked}, {"expectedGeneration", status["ownershipGeneration"]}}).value("ok", false), "The returning worker reacquires its tab");
+  status = call(broker, "review-2", "control.status", owner.base())["result"];
+  require(status["attentionRequested"].get<bool>() && status["attentionReason"] == request["reason"], "The mark stays when its own worker comes back to the tab");
+  request["ownershipGeneration"] = status["ownershipGeneration"];
+  require(call(broker, "review-2", "attention.clear", request).value("ok", false) && !native_tab(broker, marked)["attentionRequested"].get<bool>(), "The returning owner can withdraw its own mark");
+
+  require(call(broker, "review-2", "attention.request", request).value("ok", false), "The owner marks the tab again");
+  require(call(broker, "review-2", "workers.retire", {{"agentSessionId", owner.session}}).value("ok", false), "The worker retires");
+  require(native_tab(broker, marked)["attentionRequested"].get<bool>(), "A marked request outlives its worker retiring");
+  auto other = call(broker, "review-2", "workers.create", {{"name", "Next"}, {"workspaceId", owner.workspace}})["result"];
+  auto taken = native_tab(broker, marked);
+  require(call(broker, "review-2", "control.acquire", {{"agentSessionId", other["agentSessionId"]}, {"workspaceId", owner.workspace}, {"tabId", marked}, {"expectedGeneration", taken["ownershipGeneration"]}}).value("ok", false), "Another worker may take the released tab");
+  require(!native_tab(broker, marked)["attentionRequested"].get<bool>(), "Another worker taking control ends the mark");
+  taken = native_tab(broker, marked);
+  require(call(broker, "review-2", "control.release", {{"agentSessionId", other["agentSessionId"]}, {"workspaceId", owner.workspace}, {"tabId", marked}, {"expectedGeneration", taken["ownershipGeneration"]}}).value("ok", false) &&
+    !native_tab(broker, marked)["attentionRequested"].get<bool>(), "An ended mark does not return when the tab is released again");
+
+  require(native_tab(broker, dismissed.tab["tabId"])["attentionRequested"].get<bool>(), "Other marked tabs are still waiting");
+  broker.dismiss_attention(dismissed.tab["tabId"]);
+  require(!native_tab(broker, dismissed.tab["tabId"])["attentionRequested"].get<bool>(), "The person dismisses a mark left behind");
+  require(native_tab(broker, revoked.tab["tabId"])["attentionRequested"].get<bool>(), "Dismissing one mark leaves the others");
+  ClientPolicy read_only; read_only.capabilities = {};
+  require(broker.configure_client(credentials["clientId"], read_only) && !native_tab(broker, revoked.tab["tabId"])["attentionRequested"].get<bool>(), "Removing the client's interaction permission ends a mark left behind");
+  require(broker.configure_client(credentials["clientId"], ClientPolicy::legacy(256)) && !native_tab(broker, revoked.tab["tabId"])["attentionRequested"].get<bool>(), "Restoring permission does not revive an ended mark");
+  require(engine.call_count() == calls + 1, "Marks, their persistence and their ending send no browser command; only the new worker's workspace check did");
+}
+void agent_tab_close_setting(const std::filesystem::path& directory) {
+  const auto setting = [](Broker& broker, const std::string& workspace) {
+    const auto state = broker.state();
+    for (const auto& row : state["workspaces"]) if (row["workspaceId"] == workspace) return row["agentsCanCloseTabs"].get<bool>();
+    throw std::runtime_error("Expected the workspace in native state");
+  };
+  std::string automatic, human;
+  {
+    FakeEngine engine; Broker broker(engine, directory); pair(broker, "closer", "Closing host");
+    auto agent = worker(broker, "closer", "Closer");
+    automatic = agent.workspace;
+    require(setting(broker, automatic), "Workspaces created automatically for agents allow agent closes by default");
+    const auto listed = call(broker, "closer", "workspaces.list")["result"]["workspaces"];
+    require(listed.size() == 1 && listed[0]["agentsCanCloseTabs"].get<bool>(), "Agents can read the setting before trying to close");
+    Json opened; broker.open_human_workspace("about:blank", [&](Json value) { opened = std::move(value); }, false, "Handoff");
+    require(opened.value("ok", false), "The person creates a workspace");
+    const auto state = broker.state();
+    for (const auto& row : state["workspaces"]) if (row["displayName"] == "Handoff") human = row["workspaceId"];
+    require(!human.empty() && !setting(broker, human), "Workspaces the person creates keep agent tabs open by default");
+    require(!broker.set_agents_close_tabs("missing-workspace", false), "Unknown workspaces cannot be configured");
+
+    require(broker.set_agents_close_tabs(automatic, false) && !setting(broker, automatic), "The person turns agent closes off");
+    auto close = agent.base(); close["ownershipGeneration"] = agent.tab["ownershipGeneration"]; close["operationId"] = "close-refused";
+    const auto before = engine.call_count();
+    require(code(call(broker, "closer", "tabs.close", close)) == "TAB_CLOSE_DISABLED", "The broker refuses an agent close when the workspace keeps tabs open");
+    require(engine.call_count() == before && native_tab(broker, agent.tab["tabId"])["ownerSessionId"] == agent.session, "A refused close sends no browser command and leaves the tab and its owner unchanged");
+
+    require(broker.set_agents_close_tabs(automatic, true), "The person allows agent closes again");
+    engine.delay_guard = true; Json queued;
+    close["operationId"] = "close-raced";
+    broker.dispatch("closer", {{"method", "tabs.close"}, {"params", close}}, [&](Json value) { queued = std::move(value); });
+    engine.wait_guard("close-raced");
+    require(broker.set_agents_close_tabs(automatic, false), "The person turns agent closes off while one is queued");
+    engine.dispatch_guard("close-raced");
+    require(code(queued) == "DISPATCH_CANCELLED" && queued["dispatchStatus"] == "not_dispatched" && engine.command_count("tabs.close") == 0, "The setting is rechecked before dispatch, so a queued close never reaches the browser");
+    engine.delay_guard = false;
+
+    Json closed; broker.close_tabs({agent.tab["tabId"].get<std::string>()}, [&](Json value) { closed = std::move(value); });
+    engine.wait_close(); engine.complete_close(success({{"closed", 1}}));
+    require(closed.value("ok", false), "The person's own close is unaffected by the setting");
+  }
+  {
+    FakeEngine engine; Broker broker(engine, directory);
+    require(!setting(broker, automatic) && !setting(broker, human), "The setting survives a browser restart");
+  }
+  const auto path = directory / "broker-state.json";
+  Json saved; { std::ifstream file(path); file >> saved; }
+  for (auto& row : saved["workspaces"]) row.erase("agentsCanCloseTabs");
+  { std::ofstream file(path, std::ios::binary | std::ios::trunc); file << saved.dump(2); }
+  {
+    FakeEngine engine; Broker broker(engine, directory);
+    require(setting(broker, automatic) && setting(broker, human), "Workspaces saved before the setting existed keep allowing agent closes");
+  }
+}
 void observation_races(const std::filesystem::path& directory) {
   FakeEngine engine; Broker broker(engine, directory); pair(broker, "observer", "Observation host"); auto agent = worker(broker, "observer", "reader");
   auto params = action_params(broker, agent, "while-observing"); engine.delay_observe = true; Json read;
@@ -1408,6 +1523,8 @@ int main() {
     worker_late_callbacks(root / "worker-callbacks");
     security_and_handoff(root / "handoff");
     attention_requests(root / "attention");
+    persistent_attention(root / "persistent-attention");
+    agent_tab_close_setting(root / "agent-tab-close");
     concurrent_workers_and_disconnect(root / "concurrency");
     persistence_and_deny(root / "persistence");
     observation_races(root / "observation-races");

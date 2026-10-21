@@ -184,6 +184,7 @@ struct NativeUi::Impl {
     for(int id=20;id<=29;++id)EnableWindow(config_control(config,id),!config.workspace||!config.client.empty());
     if(config.workspace){for(const auto& workspace:state["workspaces"])if(str(workspace,"workspaceId")==config.id){
       if(GetFocus()!=config_control(config,10))SetWindowTextW(config_control(config,10),wide(str(workspace,"displayName")).c_str());
+      check(config,35,workspace.value("agentsCanCloseTabs",true));
       if(workspace["access"].contains(config.client)){policy=workspace["access"][config.client];allowed=true;}
     }}else for(const auto& client:state["clients"])if(str(client,"clientId")==config.client)policy=client["policy"];
     check(config,20,policy.value("interaction",false));check(config,21,policy.value("uploads",false));check(config,22,policy.value("downloads",false));check(config,23,policy.value("savedAccounts",false));
@@ -198,7 +199,7 @@ struct NativeUi::Impl {
         broker.open_human_workspace("about:blank",[this](Json value){result(value);refresh();},false,name);DestroyWindow(config.window);return;}
       Capabilities capabilities{checked(config,20),checked(config,21),checked(config,22),checked(config,23)};
       bool saved=false;
-      if(config.workspace){saved=broker.rename_workspace(config.id,name);if(!config.client.empty()){
+      if(config.workspace){saved=broker.rename_workspace(config.id,name);saved=broker.set_agents_close_tabs(config.id,checked(config,35))&&saved;if(!config.client.empty()){
           if(!checked(config,24))saved=broker.configure_workspace_client(config.id,config.client,std::nullopt)&&saved;
           else {WorkspaceAccess access;access.capabilities=capabilities;access.inherit_files=checked(config,25);access.inherit_accounts=checked(config,26);access.restrict_files=checked(config,27);access.restrict_accounts=checked(config,28);access.default_accounts=checked(config,29);
             for(size_t n=0;n<config.resource_rows.size();++n)if(ListView_GetCheckState(config.resources,n)){auto item=config.resource_rows[n];(str(item,"kind")=="Account"?access.account_ids:access.file_ids).insert(str(item,"resourceId"));}
@@ -231,7 +232,8 @@ struct NativeUi::Impl {
       return 0;
     }
     if(message==WM_SIZE){RECT rect{};GetClientRect(window,&rect);const int d=GetDpiForWindow(window),width=MulDiv(rect.right,96,d),height=MulDiv(rect.bottom,96,d);auto move=[&](int id,int x,int y,int w,int h){MoveWindow(config_control(*config,id),ui::dip(window,x),ui::dip(window,y),ui::dip(window,w),ui::dip(window,h),TRUE);};
-      move(10,20,44,width-40,30);if(config->creating){move(40,20,100,width-40,height-170);move(1,20,height-52,160,32);move(2,width-140,height-52,120,32);return 0;}
+      if(config->workspace&&!config->creating){const int half=(width-60)/2;move(10,20,44,half,30);move(35,40+half,46,half,26);}else move(10,20,44,width-40,30);
+      if(config->creating){move(40,20,100,width-40,height-170);move(1,20,height-52,160,32);move(2,width-140,height-52,120,32);return 0;}
       move(11,20,112,220,height-190);move(12,20,86,220,22);
       const int x=config->workspace?260:20,w=width-x-20;
       if(!config->workspace){ShowWindow(config_control(*config,11),SW_HIDE);ShowWindow(config_control(*config,12),SW_HIDE);}
@@ -261,6 +263,7 @@ struct NativeUi::Impl {
     if(!creating){config->clients=make(11,L"LISTBOX",L"",WS_BORDER|WS_VSCROLL|WS_TABSTOP|LBS_NOTIFY);make(12,L"STATIC",ui::tr(L"Paired clients"));
       const wchar_t* caps[]{ui::tr(L"Interact with pages and create tabs"),ui::tr(L"Upload approved files"),ui::tr(L"Download files"),ui::tr(L"Use permitted saved accounts")};for(int n=0;n<4;++n)make(20+n,L"BUTTON",caps[n],BS_AUTOCHECKBOX|WS_TABSTOP);
       make(24,L"BUTTON",workspace?ui::tr(L"Allow this client in this workspace"):ui::tr(L"Allow automatic workspace creation"),BS_AUTOCHECKBOX|WS_TABSTOP);
+      if(workspace)make(35,L"BUTTON",ui::tr(L"Agents can close tabs in this workspace"),BS_AUTOCHECKBOX|WS_TABSTOP);
       make(29,L"BUTTON",ui::tr(L"Allow all Default passwords"),BS_AUTOCHECKBOX|WS_TABSTOP);
       make(25,L"BUTTON",ui::tr(L"Inherit client files"),BS_AUTOCHECKBOX|WS_TABSTOP);make(26,L"BUTTON",ui::tr(L"Inherit client accounts"),BS_AUTOCHECKBOX|WS_TABSTOP);make(27,L"BUTTON",ui::tr(L"Restrict files to checked items"),BS_AUTOCHECKBOX|WS_TABSTOP);make(28,L"BUTTON",ui::tr(L"Restrict accounts to checked items"),BS_AUTOCHECKBOX|WS_TABSTOP);
       make(32,L"STATIC",ui::tr(L"Concurrent workers"));make(30,L"EDIT",L"4",WS_BORDER|WS_TABSTOP|ES_NUMBER);make(33,L"STATIC",ui::tr(L"Automatic workspaces"));make(31,L"EDIT",L"4",WS_BORDER|WS_TABSTOP|ES_NUMBER);
