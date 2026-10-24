@@ -1,0 +1,625 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.9",
+  "capturedUtc": "2026-10-24T01:40:13.819041+00:00",
+  "passed": true,
+  "sourceCommit": "af1f9804d87a0f7570cac2fcf91ee211adfc155c",
+  "sourceTree": "1d74f0cdddc6b406c5575e7ed8a9dcfdcc433858",
+  "nativeBuildStartedFromCommit": "cf65b416e72711c91dc30c59350888f83c52aeec",
+  "nativeSourceUnchangedAfterBuild": true,
+  "binaries": {
+    "Xenon.exe": "2bef9de228bdb88e901ea1db955f290fa5a665f7776ea3bcd17ccb0b418578f6",
+    "Xenon.dll": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+    "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+  },
+  "assets": [
+    {
+      "name": "Xenon-0.1.9-windows-x64-setup-unsigned.exe",
+      "size": 206463541,
+      "digest": "sha256:b3b322f1187837487eab17fe26ad2c44744f61436a37a787265ad5698b4368e0"
+    },
+    {
+      "name": "Xenon-0.1.9-windows-x64-setup-unsigned.exe.sha256",
+      "size": 109,
+      "digest": "sha256:6283ef04dc824e041579a1a21768b18c6bf903d7db76cb11ca8cb019378faf98"
+    },
+    {
+      "name": "Xenon-0.1.9-windows-x64-unsigned.zip",
+      "size": 239305761,
+      "digest": "sha256:801d902001f76ae40a5231e1151ed903da3ac715af8af0670f73628ffbc8ac3c"
+    },
+    {
+      "name": "Xenon-0.1.9-windows-x64-unsigned.zip.sha256",
+      "size": 103,
+      "digest": "sha256:4a7c7e0456be0cbdcce2ca514cde9b2b944eec0ed4586b00633b40454375eb90"
+    }
+  ],
+  "nativeGroups": 24,
+  "fullNpmTestChecks": 172,
+  "brandingChecks": 5,
+  "codecDependencyRegressionChecks": 3,
+  "engineAuditRegressionChecks": 17,
+  "recipeChecks": 25,
+  "isolatedInstallerChecks": 51,
+  "packageRuntimeHashes": 1355,
+  "packageSmokeChecks": 6,
+  "dependencyAuditVulnerabilities": 0,
+  "engine": {
+    "cef": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "recipe": "cef.mediaSourceBuild",
+    "reusedAuditedDistributionFrom": "0.1.8",
+    "provenanceMatchesPinnedRecipe": true,
+    "bundledH264AacDecoders": false,
+    "bundledOpenH264": false
+  },
+  "reports": [
+    {
+      "name": "integration",
+      "report": "integration-results.json",
+      "reportSha256": "941fcf7868dd9af99eefd0eedc0707384f1e451c95a322d35b89bbdbcf98ffc0",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "Four separate adapters, three live tabs each",
+          "passed": true
+        },
+        {
+          "name": "Workspace and result isolation",
+          "passed": true
+        },
+        {
+          "name": "A pending wait does not block other adapters",
+          "passed": true
+        },
+        {
+          "name": "Page-only screenshots through real MCP image output",
+          "passed": true
+        },
+        {
+          "name": "Replaced nodes reject stale references",
+          "passed": true
+        },
+        {
+          "name": "Overlay hit testing rejects obscured input",
+          "passed": true
+        },
+        {
+          "name": "Same-origin and cross-origin frames expose usable references",
+          "passed": true
+        },
+        {
+          "name": "Shadow DOM actionability and semantics",
+          "passed": true
+        },
+        {
+          "name": "Visual coordinates require a current screenshot",
+          "passed": true
+        },
+        {
+          "name": "JavaScript dialogs are handled without blocking other tabs",
+          "passed": true
+        },
+        {
+          "name": "Website JavaScript links and logout confirmations remain usable",
+          "passed": true
+        },
+        {
+          "name": "Download namespace reports opaque scoped metadata",
+          "passed": true
+        },
+        {
+          "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+          "passed": true
+        },
+        {
+          "name": "Related popups transfer as one ownership group",
+          "passed": true
+        },
+        {
+          "name": "Mid-drag handoff waits for release before changing ownership",
+          "passed": true
+        },
+        {
+          "name": "Four workers behind one adapter, three tabs each",
+          "passed": true
+        },
+        {
+          "name": "Disconnect/reconnect preserves page and never replays mutations",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "batch",
+      "report": "batch-1792805692186-edbdfe81.json",
+      "reportSha256": "f268bdb2a779cd5ee5b6c2c587b0f8a71e079417c9e1864e706bdb3a14aa02e1",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "modern: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Separate calls comparison on the same eight-action plan",
+          "passed": true
+        },
+        {
+          "name": "Replaced target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Covered target stops the suffix without retargeting",
+          "passed": true
+        },
+        {
+          "name": "Navigation cancels original-document targets",
+          "passed": true
+        },
+        {
+          "name": "legacy: eight ordered actions and exact-request deduplication",
+          "passed": true
+        },
+        {
+          "name": "Binary remained unchanged",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "visibility",
+      "report": "visibility-integration-results.json",
+      "reportSha256": "525e3f98720f296e0d10000d161db5101435ae64745fa6980457e0c25704a7e3",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "A control near the far viewport corner stays verified and clickable by reference and coordinates",
+          "passed": true
+        },
+        {
+          "name": "At 120% browser zoom the far-corner control keeps CSS bounds and stays clickable by reference and coordinates",
+          "passed": true
+        },
+        {
+          "name": "Browser zoom resets before the remaining checks",
+          "passed": true
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "Screenshot pixel coordinates land on narrow controls beside both scrollbars",
+          "passed": true
+        },
+        {
+          "name": "Right-to-left screenshot coordinates keep the main-frame scrollbar on the right",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "worker-lifecycle",
+      "report": "worker-lifecycle-integration-results.json",
+      "reportSha256": "07089850ff876da1157708fe844cdaf4bdd65416ec1be88de1bd3bcad3ca0e2a",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "Modern and legacy clients cannot retire each other\u2019s workers",
+          "passed": true
+        },
+        {
+          "name": "Twenty retired workers preserve one live drafted, selected and scrolled session",
+          "passed": true
+        },
+        {
+          "name": "Retirement cancels queued input and releases a started finite gesture honestly",
+          "passed": true
+        },
+        {
+          "name": "Configured global capacity spans clients and retirement frees a slot",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "upload-entry",
+      "report": "upload-entry-1792805737179-59ffeb2e.json",
+      "reportSha256": "84edefd62f125111014b85672cadf0e2592c2a1848b43974a190dcbec397dfb9",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "File discovery retains truncation, later pages and scoped relative-path filters",
+          "passed": true
+        },
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true
+        },
+        {
+          "name": "A brightness-styled hover preserves the approved upload entry",
+          "passed": true
+        },
+        {
+          "name": "Observed Device text opens its exact chooser: custom-text",
+          "passed": true
+        },
+        {
+          "name": "Observed Device text opens its exact chooser: frame-text",
+          "passed": true
+        },
+        {
+          "name": "Changed Device text rejects its stale reference before activation",
+          "passed": true
+        },
+        {
+          "name": "Device text in a disabled container is denied before activation",
+          "passed": true
+        },
+        {
+          "name": "Ordinary observed text without a chooser never receives a file",
+          "passed": true
+        },
+        {
+          "name": "Device text cannot delegate its approved file to another frame",
+          "passed": true
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "persistence",
+      "report": "persistence-crash-results.json",
+      "reportSha256": "c85d432eb35e5b07c0025fc0d4d0e9b5a4706d8e8d0a19222966a9c99c8d81e8",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "Distinct workspaces isolate persistent cookies and local storage before restart",
+          "passed": true
+        },
+        {
+          "name": "Stored state survives a forced process stop and a second launch",
+          "passed": true
+        },
+        {
+          "name": "A new workspace after restart does not inherit either saved session",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "theme",
+      "report": "theme-integration-1792805801615-ae54badb.json",
+      "reportSha256": "71a3292ec927e1aee27393e0751521de576621b31dec4308d2267a208fdbeb9c",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "Theme light forces light web content under Windows dark mode",
+          "passed": true
+        },
+        {
+          "name": "Theme dark forces dark web content under Windows dark mode",
+          "passed": true
+        },
+        {
+          "name": "Theme system follows Windows dark mode; a runtime switch is saved for the next launch",
+          "passed": true
+        },
+        {
+          "name": "Restart applies the runtime light selection to web content",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "passkey",
+      "report": "passkey-integration-1792805813233-1d2cf85b.json",
+      "reportSha256": "4425adda0721eafedb5699b7e1b5d19178a0a29d888e6569f9149c10ae814992",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "A tab created for an agent loads its website only after the passkey gate is installed in the page and every frame",
+          "passed": true
+        },
+        {
+          "name": "An agent click on a passkey control is refused before reaching the authenticator",
+          "passed": true
+        },
+        {
+          "name": "Navigation clears the passkey notice",
+          "passed": true
+        },
+        {
+          "name": "A tab the human controls forwards passkey requests unchanged",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "screenshot",
+      "report": "screenshot-integration-1792805817253-da0d54ee.json",
+      "reportSha256": "05b68292c4df68452152ae0f791170bfcf20560d73f18f0438ce2faf6db93f4e",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "Readiness keys are never reflected into fixture HTML",
+          "passed": true
+        },
+        {
+          "name": "Safe safe page returns PNG",
+          "passed": true
+        },
+        {
+          "name": "Safe same-safe page returns PNG",
+          "passed": true
+        },
+        {
+          "name": "Safe cross-safe page returns PNG",
+          "passed": true
+        },
+        {
+          "name": "password credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "shadow credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "same-password credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "cross-password credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "Replacing a credential frame with a verified safe frame restores capture",
+          "passed": true
+        },
+        {
+          "name": "Repeated nested cross-origin frame replacement stays capturable",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "background-popup",
+      "report": "background-popup-1792805836640-45debd94.json",
+      "reportSha256": "e7e2dbfde77fdc46b5dcd46a34a2dec4b0b97510550657030b5965a82bdc2bcc",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "Choose a number",
+          "passed": true
+        },
+        {
+          "name": "Open suggestions",
+          "passed": true
+        },
+        {
+          "name": "fixture check 3",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "media-windows",
+      "report": "media-integration-1792805844568-459a09cb.json",
+      "reportSha256": "e82a51f792f6e805f2471cba8c734e0cc790750be912e7ee169fdbc855ddab10",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "codecs",
+          "passed": true
+        },
+        {
+          "name": "audio",
+          "passed": true
+        },
+        {
+          "name": "playback",
+          "passed": true
+        },
+        {
+          "name": "pause",
+          "passed": true
+        },
+        {
+          "name": "seek",
+          "passed": true
+        },
+        {
+          "name": "volume",
+          "passed": true
+        },
+        {
+          "name": "resume",
+          "passed": true
+        },
+        {
+          "name": "streaming",
+          "passed": true
+        },
+        {
+          "name": "audioBufferDecode",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "media-webm",
+      "report": "media-integration-1792805850917-1ba012b6.json",
+      "reportSha256": "3c1d5a02ba11a5eddd522007a45f566ea26790aceba82016611b0cffcb5305c2",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "codecs",
+          "passed": true
+        },
+        {
+          "name": "playback",
+          "passed": true
+        },
+        {
+          "name": "pause",
+          "passed": true
+        },
+        {
+          "name": "seek",
+          "passed": true
+        },
+        {
+          "name": "volume",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "frame-pacing",
+      "report": "frame-pacing-integration-1792805858016-e4cd8100.json",
+      "reportSha256": "beaccaf8536245d013a193256e0cf148b2fe090d8da7e521298d7a5c7e89b964",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "Covered tab after its creation lease",
+          "passed": true
+        },
+        {
+          "name": "Covered tab after an agent observation",
+          "passed": true
+        },
+        {
+          "name": "Covered tab after the observation lease",
+          "passed": true
+        },
+        {
+          "name": "Click on an idle covered tab",
+          "passed": true
+        },
+        {
+          "name": "Covered tab after the click lease",
+          "passed": true
+        },
+        {
+          "name": "Selected tab without agent activity",
+          "passed": true
+        },
+        {
+          "name": "Tab covered again after selection",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "workflow",
+      "report": "workflow-viewport-1792805926734-b58857c0.json",
+      "reportSha256": "ffb7e40f0f53b7c2a87f2e8da10311df4c52eb1dd40acd6a52406517f93220e2",
+      "applicationDllSha256": "3d23fdd360987a98cce8ea75036c804f25f3b2d270e83eb61f6a64abc76481d8",
+      "checks": [
+        {
+          "name": "Covered newly created tab has usable viewport, controls and screenshot",
+          "passed": true
+        },
+        {
+          "name": "Background select click and ArrowDown preserve supported input",
+          "passed": true
+        },
+        {
+          "name": "Selected foreground form supports screenshot-bound native dropdown input",
+          "passed": true
+        },
+        {
+          "name": "Minimize is honest and restore recovers existing and newly created tabs",
+          "passed": true
+        },
+        {
+          "name": "Resize and covered-tab creation keep ordinary controls observable",
+          "passed": true
+        },
+        {
+          "name": "Window-open popup receives usable viewport and ordinary controls",
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "retainedFailures": [],
+  "limitations": [
+    "CEF 154 remains pinned; CEF 156 is now stable and Chrome Windows stable history lists 157. Engine security parity is not claimed.",
+    "Focused select outlines can omit a rendered label; fresh screenshot-bound input remains available.",
+    "No physical input, real-account, arbitrary-extension, foreground extension popup/side-panel, high-contrast or multi-DPI acceptance in this release run.",
+    "Hosted CI uses stock CEF; published packages use the unchanged audited Windows-decoder engine.",
+    "The existing audited engine distribution was verified by recipe and binary hashes; its modified source build tree was not re-audited or rebuilt."
+  ]
+}
