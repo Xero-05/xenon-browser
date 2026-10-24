@@ -7,6 +7,7 @@
 - **Finished work stays marked.** Agents can persist an attention mark after they finish, disconnect or release a tab, until the person dismisses it or control changes. Only marked tabs remain highlighted.
 - **Keep agent tabs open.** Controls has an **Agents can close tabs in this workspace** setting. New human-created workspaces start with it off; existing and automatic agent workspaces retain their previous close behavior.
 - **Sidebar polish.** Hovered tabs no longer flash their icon under New tab.
+- **Validation dependency security fix.** Zod is pinned to 4.6.7, addressing [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5), a memory-exhaustion issue when validating oversized collections.
 - **MCP SDK 2.3.1.** The adapter and test clients use the updated SDK. Its HTTP transport/authentication advisories did not expose Xenon's stdio-only adapter.
 
 The Windows x64 setup executable and portable ZIP are unsigned, with SHA-256 sidecars. Close Xenon and reconnect the MCP adapter after upgrading. Profiles and pairing configuration remain separate from application files.
