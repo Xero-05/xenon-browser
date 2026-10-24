@@ -1,0 +1,118 @@
+{
+  "date": "2026-10-24",
+  "status": "local_pr_branch_validation",
+  "baseCommit": "d4e3827b3e3b5531ab05c9429755412d352617ed",
+  "sourceHashes": {
+    "native/src/cef_shell.cpp": "a741cac373773460c43667d655be803f96dd7bda2e300bbe927e71d531ec85e5",
+    "adapter/src/server.ts": "a4e2680f09c6840c29e19252b204e0692f859e1662acb82d7a978c782c5e2739",
+    "adapter/test/interact-fixture.ts": "f84e19ada6d8da07eaf9a3486552663ef3dfd333c507a77d5638cf113a735a92",
+    "adapter/test/interact.test.ts": "d1be49dbaa16ab1862158ec3c1299119f701f16914b8c62207cb19529a8e8685",
+    "tests/workflow-viewport-integration.mjs": "6e4ee1778d2d9214773807d57d2a20ee37a9dba8d86456e076535a0184aa0938",
+    "tests/fixtures/workflow-window.ps1": "ab556aabfcebcc3d81f9bd3fc7f68da3baf8f77e6a6f53baba88132cc049a777",
+    ".github/workflows/windows.yml": "a6ff7e9bc3df8ad15cc436cf04682e46e35a2fbd77414c638645c9a5aafc0fe6"
+  },
+  "binary": "build/app/Release/Xenon.exe",
+  "binaryHashes": {
+    "Xenon.exe": "49a9589573f83f4fd72a3fa53915bd956ab66aa47bce2749a7deb17f33a8f4df",
+    "Xenon.dll": "70d20d57d1d5f2ca13230ac74d8d1b340821f76a1e2ce31424545f980798435d",
+    "libcef.dll": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7"
+  },
+  "binaryHashesAtEnd": {
+    "Xenon.exe": "49a9589573f83f4fd72a3fa53915bd956ab66aa47bce2749a7deb17f33a8f4df",
+    "Xenon.dll": "70d20d57d1d5f2ca13230ac74d8d1b340821f76a1e2ce31424545f980798435d",
+    "libcef.dll": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7"
+  },
+  "nativeValidation": {
+    "adapterTests": 48,
+    "nativeTestGroups": 24,
+    "exitCode": 0,
+    "command": "./scripts/build.ps1 -CefRoot <existing-pinned-distribution> -Test",
+    "fixedScriptTests": 97,
+    "brandingChecks": 5
+  },
+  "typecheck": {
+    "exitCode": 0,
+    "command": "npm.cmd run typecheck"
+  },
+  "workflow": {
+    "boundedRestoreRecaptures": 2,
+    "run": "workflow-viewport-1792804079147-c9085fc2",
+    "checks": [
+      {
+        "name": "Covered newly created tab has usable viewport, controls and screenshot",
+        "passed": true
+      },
+      {
+        "name": "Background select click and ArrowDown preserve supported input",
+        "passed": true
+      },
+      {
+        "name": "Selected foreground form supports screenshot-bound native dropdown input",
+        "passed": true
+      },
+      {
+        "name": "Minimize is honest and restore recovers existing and newly created tabs",
+        "passed": true
+      },
+      {
+        "name": "Resize and covered-tab creation keep ordinary controls observable",
+        "passed": true
+      },
+      {
+        "name": "Window-open popup receives usable viewport and ordinary controls",
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  "liveSuites": [
+    {
+      "run": "background-popup-1792803910907-eca7a2e3",
+      "passed": true,
+      "suite": "background-popup-integration"
+    },
+    {
+      "run": "visibility-integration-1792803918226-61282503",
+      "checks": 16,
+      "passed": true,
+      "suite": "visibility-integration"
+    },
+    {
+      "run": "integration-1792803941095-375bc5a2",
+      "checks": 17,
+      "passed": true,
+      "suite": "integration"
+    },
+    {
+      "run": "screenshot-integration-1792803976991-30b5e579",
+      "checks": 10,
+      "passed": true,
+      "suite": "screenshot-integration"
+    }
+  ],
+  "retainedFailure": {
+    "run": "workflow-viewport-1792803892975-c09e3fef",
+    "passed": false,
+    "resolution": "Bounded fresh screenshot reads wait for the compositor after restore. No input mutation is replayed and the viewport/image guard is unchanged.",
+    "applicationDllSha256": "70d20d57d1d5f2ca13230ac74d8d1b340821f76a1e2ce31424545f980798435d",
+    "failedChecks": [
+      {
+        "name": "Minimize is honest and restore recovers existing and newly created tabs",
+        "error": "restored existing: screenshot {\"error\":{\"code\":\"screenshot_failed\",\"message\":\"The image does not cover the measured CSS viewport.\"}}"
+      }
+    ]
+  },
+  "ciAdded": [
+    "workflow-viewport-integration --case=minimize",
+    "workflow-viewport-integration --case=background"
+  ],
+  "limits": [
+    "Synthetic production CEF/MCP and native messages scoped to disposable test processes; no private profile or real portal.",
+    "Local validation uses the existing pinned codec engine. Hosted CI builds its configured stock engine.",
+    "Foreground screenshot-bound select input passed locally. Complete foreground datalist, physical input, full-screen minimization, mixed-DPI and multi-monitor acceptance remain unverified.",
+    "Rendered-label omission can remain conservative around focused outlines; filtering and stale-reference checks were not relaxed.",
+    "Equivalent source-browser popup dismissal was already on main and was retained.",
+    "Original dirty-checkout preparation logs are separate from this exact PR-branch validation."
+  ],
+  "passed": true
+}
