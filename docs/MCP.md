@@ -87,9 +87,24 @@ Simple `inset(... round Npx)` clips can prove geometry inside a conservative ins
 
 Read the advertised tool schemas for exact parameters. Results are available as structured JSON and JSON text. Screenshot results additionally include MCP image content. Errors use `isError`, a machine-readable `error.code` and a brief message. Mutation results include `operationId` and `dispatchStatus` when the broker has an operation record.
 
+`xenon_interact` validates these action requirements in the adapter before sending a request to the browser:
+
+| Action | Required action fields |
+| --- | --- |
+| `fill` | Current `elementRef` and `text` (an empty string clears the field). |
+| `select` | Current `elementRef` and `values` containing 1–100 option values. |
+| `check` | Current `elementRef` and explicit boolean `checked`. |
+| `key` | `key` containing one supported key gesture. |
+
+Coordinates cannot replace `elementRef` for `fill`, `select` or `check`. A missing ref is an invalid request, not evidence that the page or option list is stale. Obtain a current actionable ref, or inspect a permitted screenshot and use supported click/key gestures with resulting-value checks. Adapter validation does not replace native authorization, evidence validation or safe-input enforcement. A well-formed request with an expired ref can still return native `stale_element` with its retained operation outcome.
+
+For `key`, named keys are `Enter`, `Tab`, `Escape`, `Backspace`, `Delete`, `ArrowLeft`, `ArrowUp`, `ArrowRight`, `ArrowDown`, `Home`, `End`, `PageUp`, `PageDown` and `Space`. A single ASCII letter or digit is also supported. Optional modifiers are `Control` (alias `Ctrl`) and `Shift`, separated by `+`. Native policy permits Control/Shift navigation with arrows, Home or End; Control+A/Y/Z and Control+Shift+Z; and Shift+Tab/PageUp/PageDown. Other chords can be refused as `unsafe_key`. `key` is not arbitrary text insertion: do not pass a document title or whole field value. Use `fill` with a current ref for text. After focusing an ordinary visible select, a bounded `ArrowDown` may change its selection even when no popup is visible; inspect its resulting label after each gesture and honor the task's retry limit.
+
 `fill` accepts a native date input's canonical `YYYY-MM-DD` value. Invalid dates are rejected before changing the field. Date inputs use a fixed native setter and input/change events because Chromium's date control does not accept ordinary text insertion; those events are script-generated. Ordinary text fields retain native text insertion. A dispatched result still requires fresh website evidence to establish the final value or website success.
 
 Screenshot metadata includes actual PNG `imageWidth`/`imageHeight`, the CSS viewport and `scaleX`/`scaleY`. The scale values are image pixels per CSS pixel (Windows display scale times browser zoom, times pinch zoom). The image is the whole page view, including any scrollbars, so `imageWidth / scaleX` can exceed `viewport.width` by the scrollbar thickness, and likewise for height. Coordinate actions take viewport CSS pixels: divide image pixel coordinates by those scale values. A coordinate must fall inside the screenshot's `viewport`; points over a scrollbar are rejected. Do not assume one image pixel equals one CSS pixel on a high-DPI display. Use the matching screenshot `observationId`; scrolling, resizing or zooming invalidates its coordinate evidence.
+
+Minimized windows retain their last page dimensions for existing and newly created tabs; ordinary authorized observations and input do not require restoring or focusing the window. Native select popups from covered or inactive pages remain suppressed, with Chromium's popup state dismissed so subsequent safe keys can reach the page. Focus outlines can conservatively withhold an adjacent rendered label even when the control itself retains a ref. Obtain fresh inspection and use supported screenshot-bound input when needed; do not reuse a ref after `stale_element`, infer hidden option values or relax authentication and human-input guards.
 
 Screenshot safety checks inspect every current frame. A failed frame read or changed frame set triggers at most one complete fresh scan; partial scan results never authorize capture. Persistent failure returns `screenshot_unverified`, with `error.retryable: true` and an allowlisted `error.reason` (`frame_scan_timeout`, `frame_scan_failed` or `frame_changed`). No image is returned. After the page settles, a fresh screenshot request is supported; this is not evidence of credentials and does not call for **Resume after login**. Avoid repeated polling if the failure persists. Actual credential detection returns `screenshot_protected`, `retryable: false`, and reason `credential_fields` or `protected_authentication`; do not retry that protection. Navigation, human input and authority changes invalidate an in-flight scan/capture.
 

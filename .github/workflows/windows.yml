@@ -80,6 +80,14 @@ jobs:
       - name: Build and run native and SDK tests
         shell: pwsh
         run: ./scripts/build.ps1 -Test -RequireReleaseEngine
+      - name: Test minimized viewports and background dropdown input
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          node tests/workflow-viewport-integration.mjs --case=minimize
+          if ($LASTEXITCODE -ne 0) { throw 'Minimized viewport regression failed.' }
+          node tests/workflow-viewport-integration.mjs --case=background
+          if ($LASTEXITCODE -ne 0) { throw 'Background dropdown input regression failed.' }
       - name: Package unsigned Windows release
         shell: pwsh
         run: ./scripts/package.ps1 -RequireReleaseEngine

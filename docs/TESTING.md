@@ -1,5 +1,15 @@
 # Validation
 
+## Workflow viewport and interaction validation (2026-10-24)
+
+Minimizing a shell window must preserve the last nonempty page dimensions for existing tabs and tabs created while minimized. The synthetic `tests/workflow-viewport-integration.mjs` fixture covers viewport/control/screenshot availability, background dropdown keyboard selection, foreground screenshot-bound dropdown input, restoration, resize, covered-tab creation and settled page popups. CI runs its isolated `--case=minimize` and `--case=background` cases; the full run also requires foreground activation on an interactive desktop.
+
+The adapter rejects missing refs for `fill`/`select`/`check`, missing action values, empty selections and malformed key strings before native dispatch. `adapter/test/interact.test.ts` exercises real legacy and modern SDK stdio clients with a counting synthetic broker, including valid forwarding and preservation of native stale-ref outcomes. These checks do not replace native authorization or safe-input enforcement.
+
+Current main already contained source-browser dismissal for suppressed native dropdowns; this change preserves it and adds keyboard regression coverage. A focused select can still lose its rendered label when its outline overlaps the whitespace-inclusive label rectangle, although the control retains a ref. Fresh screenshot-bound input is supported; visibility filtering is unchanged. The original portal, physical input, complete foreground datalist behavior, full-screen minimization, mixed DPI and multiple monitors are outside this fixture's coverage.
+
+The full PR-branch build passed 24 native groups, 48 adapter tests, 97 fixed-script tests and five branding checks; typechecking passed. All six workflow cases and the popup-containment, 11 visibility, 17 input/ownership and nine screenshot-protection checks passed on the same DLL. A first workflow run withheld a post-restore image whose measured viewport and surface differed; that failure is retained. The fixture now permits bounded fresh read-only captures for that specific transient mismatch, and two such recaptures recovered in the passing run without changing the safety guard. [Binary-bound results](test-results/workflow-pr-validation.json) record both runs. Earlier results from the original dirty checkout are separate preparation evidence.
+
 ## 0.1.8 release
 
 0.1.8 was published as the latest regular release on October 20, 2026. The

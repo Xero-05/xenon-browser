@@ -142,7 +142,7 @@ struct BrowserShell::Impl {
     Impl& shell;HWND window{},tree{},address{},find_bar{},find_text{},cursor{},agent_glow{},tooltips{};HFONT font{},bold{};std::map<int,HWND> controls;
     COLORREF cursor_tint{},glow_tint{};int cursor_dpi{},glow_dpi{};SIZE glow_size{};RECT glow_panel{},glow_tab{};bool cursor_contrast{},glow_fullscreen{};
     std::string selected;std::vector<std::pair<std::string,bool>> tree_keys;Json tree_signature,tree_titles;bool rebuilding{},find_visible{},closing{};ULONGLONG closing_since{};
-    RECT page{},panel_bounds{},omnibox{},chip{},extension_dock{};int extension_dock_width=320;bool resizing_extension_dock=false;
+    RECT page{},panel_bounds{},omnibox{},chip{},extension_dock{},last_client_bounds{};int extension_dock_width=320;bool resizing_extension_dock=false;
     std::wstring status,chip_text;ULONGLONG status_until{};
     int sidebar{240},drag_origin{},drag_width{};bool resizing_sidebar{},sidebar_hover{};
     bool address_dirty{},setting_address{};HTREEITEM hovered_row{};std::string pressed_close,hovered_close;
@@ -380,8 +380,14 @@ struct BrowserShell::Impl {
       return shell.hosts.contains(selected)&&shell.states.contains(selected)?state_text(selected):std::wstring{};
     }
     int text_width(const std::wstring& text) const {auto dc=GetDC(window);auto old=SelectObject(dc,font);SIZE size{};GetTextExtentPoint32W(dc,text.c_str(),static_cast<int>(text.size()),&size);SelectObject(dc,old);ReleaseDC(window,dc);return MulDiv(size.cx,96,GetDpiForWindow(window));}
+    // Windows reports a zero client area while minimized. Keep the last real
+    // layout for existing tabs and tabs created before the window is restored.
+    RECT layout_bounds(){RECT rect{};GetClientRect(window,&rect);
+      if(!IsIconic(window)&&rect.right>rect.left&&rect.bottom>rect.top)last_client_bounds=rect;
+      return last_client_bounds;
+    }
     // In full screen the page fills the window; Xenon's controls stay hidden.
-    void layout_fullscreen(){RECT rect{};GetClientRect(window,&rect);omnibox=chip=RECT{};panel_bounds=page=rect;
+    void layout_fullscreen(){const auto rect=layout_bounds();omnibox=chip=RECT{};panel_bounds=page=rect;
       extension_dock={};shell.engine.layout_extension_surfaces(selected,{},{});
       RECT inner=rect;if(color(selected)!=ui::palette().gray)InflateRect(&inner,-d(2),-d(2));
       reposition(developer_panel,nullptr,0,0,1,1,SWP_NOACTIVATE|SWP_NOZORDER|SWP_HIDEWINDOW);if(developer_overlay)ShowWindow(developer_overlay,SW_HIDE);
@@ -390,7 +396,7 @@ struct BrowserShell::Impl {
       reposition(find_bar,HWND_TOP,inner.right-d(356),inner.top+d(6),d(344),d(40),SWP_NOACTIVATE|(find_visible?SWP_SHOWWINDOW:SWP_HIDEWINDOW));
       InvalidateRect(window,nullptr,TRUE);}
     void layout(){if(fullscreen()){layout_fullscreen();return;}
-      RECT rect{};GetClientRect(window,&rect);const int scale=GetDpiForWindow(window);const int width=MulDiv(rect.right,96,scale),height=MulDiv(rect.bottom,96,scale);
+      const auto rect=layout_bounds();const int scale=GetDpiForWindow(window);const int width=MulDiv(rect.right,96,scale),height=MulDiv(rect.bottom,96,scale);
       sidebar=std::clamp(ui::sidebar_width,180,std::max(180,std::min(480,width-400)));
       // Chromium-style toolbar: navigation at the left, the omnibox in the
       // middle, the ownership chip and browser buttons at the right.
