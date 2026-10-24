@@ -2,9 +2,17 @@
 
 ## Unreleased
 
+## 0.1.9
+
+See the [0.1.9 notes](RELEASE-0.1.9.md) for the viewport and input fixes, sidebar polish, engine versions and release limits.
+
+**Viewport and input fixes.** Minimized windows retain usable tab dimensions. The adapter rejects incomplete fill/select/check actions, empty selections and malformed keys before dispatch. Background dropdown keyboard selection and screenshot-bound foreground input have regression coverage.
+
 **Agents can leave finished work marked for you.** `xenon_attention` accepts `persist: true`. A tab marked that way keeps its orange mark after the agent finishes, disconnects or releases it, until you dismiss it, close it, take it or another agent takes it. Only the tabs an agent marks light up.
 
 **Keep agent tabs open per workspace.** A new **Agents can close tabs in this workspace** setting in Controls lets you stop agents closing tabs where they prepare work for you. Agents get `TAB_CLOSE_DISABLED` and can read the setting from `xenon_workspaces`. New workspaces you create start with it off; automatic agent workspaces and existing workspaces keep allowing closes.
+
+**Zod 4.6.7.** The validation dependency is patched for [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5), which can exhaust memory while validating oversized collections.
 
 **MCP SDK 2.3.1.** The adapter and test clients use MCP TypeScript SDK 2.3.1, which fixes GHSA-jm63-cq47-j5jp, GHSA-46jr-4wx8-v453, GHSA-rvq5-wwqv-78pq and GHSA-6prh-2h8m-c8cw. Those advisories cover the SDK's HTTP transports, bearer authentication and HTTP clients; Xenon's adapter serves only stdio and was not exposed to them.
 

@@ -1,5 +1,13 @@
 # Validation
 
+## 0.1.9 release candidate
+
+The local 0.1.9 Windows-decoder build passed all 24 native test groups, 172 checks in the full npm suite, typechecking, five bootstrap branding checks and a dependency audit with zero findings after updating Zod to 4.6.7. The MIT license is unchanged. Three codec dependency regressions, 17 engine audit regressions, 25 recipe checks and all 51 isolated installer checks passed.
+
+The ZIP passed all 1,355 runtime hashes, and its extracted bytes passed all six package smoke checks. All 14 serial production suites passed on the packaged DLL: integration, batch, visibility, worker lifecycle, upload entry, persistence, theme, passkey, screenshot, background popups, Windows H.264/AAC, WebM, covered-tab pacing and the full six-case viewport/dropdown workflow. [Binary-bound validation](test-results/release-0.1.9-validation.json) records the source, artifacts and individual checks. Historical failures from earlier workflow investigations remain in their original records.
+
+The complete reused Windows-decoder distribution matches the merged recipe and the 0.1.8 engine hash. The modified local CEF source tree was not rebuilt or re-audited. This patch release retains CEF 154.0.34 / Chromium 154.0.8037.98 although CEF 156 is now stable; see the [release notes](RELEASE-0.1.9.md) for the checked versions and security-update gap. Hosted CI uses stock CEF and its artifacts are not the published packages. Physical input, real accounts, arbitrary extensions, foreground extension surfaces, high contrast and other display scales remain unverified. A focused select outline can still obscure its rendered label; the visibility guard remains conservative.
+
 ## Workflow viewport and interaction validation (2026-10-24)
 
 Minimizing a shell window must preserve the last nonempty page dimensions for existing tabs and tabs created while minimized. The synthetic `tests/workflow-viewport-integration.mjs` fixture covers viewport/control/screenshot availability, background dropdown keyboard selection, foreground screenshot-bound dropdown input, restoration, resize, covered-tab creation and settled page popups. CI runs its isolated `--case=minimize` and `--case=background` cases; the full run also requires foreground activation on an interactive desktop.
