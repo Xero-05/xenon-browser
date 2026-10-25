@@ -410,6 +410,8 @@ inline constexpr Translation translations[]{
   {L"Open side panel",L"打开侧边面板"},
   {L"When you click",L"点击时"},{L"On this site",L"在此网站上"},{L"On all requested sites",L"在所有请求的网站上"},{L"Remove extension…",L"移除扩展…"},
   {L"Reload this page to run the extension?",L"是否重新加载此页面以运行扩展？"},
+  {L"Reload this page? Changes you made may not be saved.",L"是否重新加载此页面？您所做的更改可能不会保存。"},
+  {L"Leave this page? Changes you made may not be saved.",L"是否离开此页面？您所做的更改可能不会保存。"},
   {L"Site access updated. Reload the page to apply changes.",L"已更新网站访问权限，重新加载页面后生效。"},
   {L"No enabled extensions",L"没有已启用的扩展"},
   {L"Extensions are off in private tabs",L"隐私标签页中已关闭扩展"},

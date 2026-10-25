@@ -250,6 +250,8 @@ Upload results report `activation` (`not_attempted`, `attempted`, `dispatched` o
 
 An alert can block completion of an agent click that opened it. The current owner may issue a parallel `xenon_dialog` call to answer it while that click is pending. This bounded exception does not bypass a human pause or a handoff freeze. A dialog opened during human activity keeps the pause active until the human answers it natively, followed by the activity cooldown. Controls surfaces that pending dialog without granting a new owner. Native permissions and security dialogs still require the human.
 
+An unsaved-changes warning raised by reload or navigation is exposed as a `confirm` dialog through the same path. Accept continues that pending navigation; dismiss cancels it. A dispatched navigation may still be waiting for this decision. Human-triggered confirmations remain held for native human input, including when an agent still owns the tab; cancellation and dialog reset clear the retained callback without replaying navigation.
+
 ## Errors and reconnects
 
 | Result | Caller action |

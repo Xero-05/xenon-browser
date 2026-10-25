@@ -205,6 +205,8 @@ Handoff waits for accepted finite input to finish. Its ownership commit sends no
 
 For a website alert/confirm/prompt opened by your interaction, Controls can show the exact tab's dialog. Read the message, enter prompt text if needed, then choose **Accept dialog** or **Dismiss**. Browser security and permission prompts remain human tasks.
 
+If a page warns about unsaved changes when you reload or navigate away, Controls shows a confirmation for that tab and website. **Accept dialog** continues the requested reload/navigation; **Dismiss** keeps the current page. The reload button and **F5** both wait for this choice. Long document dropdowns stay within their source monitor's usable screen area; a menu wider than that area is limited to the available width.
+
 The browser defaults to 16 concurrently connected workers across all clients, plus a separate 64-tab limit. New clients also have a quota of four concurrent workers and four automatically created workspaces, configurable in Controls. Legacy clients retain their existing capabilities and migrated global worker limit until configured. Both global and client limits apply. Retiring or disconnecting workers frees connected capacity; removing an automatic workspace frees its workspace quota. A native startup option can set the global worker limit to 1–256; these are resource limits, not tested performance claims. See [worker lifecycle](MCP.md#worker-capacity-and-retirement).
 
 ### When an agent needs your help

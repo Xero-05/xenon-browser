@@ -46,6 +46,30 @@ void page_popup_containment(){
   ShowWindow(unrelated,SW_SHOWNOACTIVATE);require(IsWindowVisible(unrelated),"Unrelated shell popup remains available");
   DestroyWindow(unrelated);DestroyWindow(popup);DestroyWindow(root);
 }
+void page_popup_work_area(){
+  const auto instance=GetModuleHandleW(nullptr);
+  auto root=CreateWindowExW(0,L"STATIC",L"Synthetic popup geometry",WS_OVERLAPPED,0,0,200,100,nullptr,nullptr,instance,nullptr);
+  auto source=CreateWindowExW(0,L"XenonTabHost",L"",WS_CHILD,0,0,200,100,root,nullptr,instance,nullptr);
+  PagePopupGuard guard;guard.start([&](HWND window){return window==source;});
+  auto popup=CreateWindowExW(WS_EX_NOACTIVATE,L"STATIC",L"Synthetic long menu",WS_POPUP,0,0,60,60,source,nullptr,instance,nullptr);
+  require(root&&source&&popup,"Create page-popup geometry fixture");
+  MONITORINFO monitor{sizeof(monitor)};
+  require(GetMonitorInfoW(MonitorFromWindow(source,MONITOR_DEFAULTTONEAREST),&monitor)!=FALSE,"Read source monitor work area");
+  const auto work=monitor.rcWork;const int width=std::min(500L,(work.right-work.left)/2),height=std::min(120L,(work.bottom-work.top)/2);
+  const auto place=[&](int x,int y,int w,int h,UINT flags=0){
+    require(SetWindowPos(popup,nullptr,x,y,w,h,SWP_NOZORDER|SWP_NOACTIVATE|SWP_SHOWWINDOW|flags)!=FALSE,"Place native popup");
+    RECT result{};require(GetWindowRect(popup,&result)!=FALSE,"Read native popup rectangle");return result;
+  };
+  auto bounds=place(work.left-width/2,work.top+20,width,height);
+  require(bounds.left==work.left&&bounds.top==work.top+20&&bounds.right-bounds.left==width,"Long menu shifts inside the left edge without truncating its width");
+  bounds=place(work.right-10,work.bottom-10,0,0,SWP_NOSIZE);
+  require(bounds.right==work.right&&bounds.bottom==work.bottom&&bounds.right-bounds.left==width,"Move-only menu placement fits right and bottom edges without resizing");
+  bounds=place(work.left-10,work.top-10,work.right-work.left+100,work.bottom-work.top+100);
+  require(EqualRect(&bounds,&work)!=FALSE,"Oversized menu is limited to its source monitor work area");
+  const auto before=bounds;bounds=place(0,0,0,0,SWP_NOMOVE|SWP_NOSIZE);
+  require(EqualRect(&bounds,&before)!=FALSE,"A contained menu preserves geometry on a show-only update");
+  DestroyWindow(popup);DestroyWindow(source);DestroyWindow(root);
+}
 void agent_overlay_pixels(){
   for(const int scale:{1,2}){
     Gdiplus::Bitmap pointer(ui::agent_pointer_width*scale,ui::agent_pointer_height*scale,PixelFormat32bppPARGB);
@@ -89,7 +113,7 @@ LRESULT CALLBACK edit_fixture(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_
 int main(){try{
   // Hidden real Win32 controls exercise class-name normalization and subclass
   // attachment. These messages simulate native UI events, not physical input.
-  INITCOMMONCONTROLSEX common{sizeof(common),ICC_STANDARD_CLASSES};InitCommonControlsEx(&common);ui::VectorRenderer vectors;agent_overlay_pixels();page_popup_containment();
+  INITCOMMONCONTROLSEX common{sizeof(common),ICC_STANDARD_CLASSES};InitCommonControlsEx(&common);ui::VectorRenderer vectors;agent_overlay_pixels();page_popup_containment();page_popup_work_area();
   auto parent=CreateWindowExW(0,L"STATIC",L"Synthetic native UI test",WS_OVERLAPPED,0,0,200,100,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
   require(parent!=nullptr,"Create hidden fixture parent");
   auto address=CreateWindowExW(0,L"EDIT",L"http://127.0.0.1/fixture",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,0,0,180,24,parent,nullptr,GetModuleHandleW(nullptr),nullptr);

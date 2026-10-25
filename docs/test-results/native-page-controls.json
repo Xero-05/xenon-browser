@@ -1,0 +1,176 @@
+{
+  "capturedAt": "2026-10-25T06:07:35.9148321+00:00",
+  "status": "pr_local_validation",
+  "sourceBaseCommit": "5ec8d3b6ee6d457735a4b1bcf1f5bcfaa4838b8c",
+  "binary": "build/app/Release/Xenon.exe",
+  "binaryHashes": {
+    "Xenon.exe": "2aa9df0e22e72c81c7c73255e9bc6d032ae3ec9a70e6a49f51d90bc15c4956eb",
+    "Xenon.dll": "87e7ae2b65d9b65af1ae1e69c064f8a1b8d907b3ad2cb7335228935fabc818cd",
+    "libcef.dll": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7"
+  },
+  "binaryHashesAtEnd": {
+    "Xenon.exe": "2aa9df0e22e72c81c7c73255e9bc6d032ae3ec9a70e6a49f51d90bc15c4956eb",
+    "Xenon.dll": "87e7ae2b65d9b65af1ae1e69c064f8a1b8d907b3ad2cb7335228935fabc818cd",
+    "libcef.dll": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7"
+  },
+  "engine": "Pinned stock release CEF; validated with -RequireReleaseEngine.",
+  "fixes": [
+    "Route CEF before-unload confirmations through the existing nonmodal confirm-dialog path; native human pauses and agent ownership checks still apply.",
+    "Clear retained dialog callback state before cancellation can reenter its handler.",
+    "Fit eligible native page-popup windows to the source monitor work area without moving the page; retain synchronous background-popup suppression.",
+    "Compile cef_engine.cpp with /bigobj for the large production/authentication-fixture integration source."
+  ],
+  "reproduction": {
+    "run": "native-page-controls-1792830343406-9f6b49e2",
+    "binaryHashes": {
+      "Xenon.exe": "d272d23898e216cb532631798c726cf8ffd511da0abbcc9bf7c4e72e631766d8",
+      "Xenon.dll": "0c06338864280dfee2c16e7e4c4a752a581bf8853445792fa4fda0d916ea7568",
+      "libcef.dll": "0a6b233f03c0ca1aa02078c550200d03e1e60b058dbb2bc1587563e769e5da0c"
+    },
+    "failures": [
+      {
+        "name": "Reload confirmation can cancel and F5 can confirm without an automatic retry",
+        "error": "Native reload confirmation timed out"
+      },
+      {
+        "name": "Long dropdown stays inside its monitor work area and remains selectable",
+        "error": "Dropdown is clipped: {\"bounds\":{\"left\":570,\"top\":369,\"right\":2920,\"bottom\":429},\"work\":{\"left\":0,\"top\":0,\"right\":2560,\"bottom\":1392}}"
+      }
+    ],
+    "nativeUnitFailure": "Long menu shifts inside the left edge without truncating its width"
+  },
+  "validation": {
+    "fullBuildCommand": "./scripts/build.ps1 -CefRoot <complete pinned stock distribution> -Test -RequireReleaseEngine",
+    "fullBuildAndTest": "passed",
+    "nativeSuites": 24,
+    "adapterAndFixedScriptTests": 145,
+    "brandingChecks": 5,
+    "typescript": "passed",
+    "diffCheck": "passed",
+    "nativeControls": {
+      "run": "native-page-controls-1792908320401-6e0d76bd",
+      "passed": true,
+      "checks": [
+        {
+          "name": "Reload of an ordinary page reaches the website",
+          "passed": true
+        },
+        {
+          "name": "Reload confirmation can cancel and F5 can confirm without an automatic retry",
+          "passed": true
+        },
+        {
+          "name": "Long dropdown stays inside its monitor work area and remains selectable",
+          "passed": true
+        },
+        {
+          "name": "Ownership and human pause protect pending reload confirmations",
+          "passed": true
+        }
+      ],
+      "dropdownCases": [
+        {
+          "mode": "ltr",
+          "bounds": {
+            "left": 210,
+            "top": 369,
+            "right": 2560,
+            "bottom": 429
+          },
+          "workArea": {
+            "left": 0,
+            "top": 0,
+            "right": 2560,
+            "bottom": 1392
+          },
+          "websiteValue": "second"
+        },
+        {
+          "mode": "rtl",
+          "bounds": {
+            "left": 210,
+            "top": 369,
+            "right": 2560,
+            "bottom": 429
+          },
+          "workArea": {
+            "left": 0,
+            "top": 0,
+            "right": 2560,
+            "bottom": 1392
+          },
+          "websiteValue": "second"
+        },
+        {
+          "mode": "wide",
+          "bounds": {
+            "left": 0,
+            "top": 369,
+            "right": 2560,
+            "bottom": 429
+          },
+          "workArea": {
+            "left": 0,
+            "top": 0,
+            "right": 2560,
+            "bottom": 1392
+          },
+          "websiteValue": "second"
+        }
+      ]
+    },
+    "backgroundPopups": {
+      "run": "background-popup-1792908357589-cdc5ea72",
+      "passed": true
+    }
+  },
+  "priorLocalCandidate": {
+    "capturedAt": "2026-10-24T02:05:26.6653161-07:00",
+    "context": "Initial fix validation in the original checkout, before porting only these changes onto current main. This used a custom local engine and is separate from the PR stock-engine results above.",
+    "binaryHashes": {
+      "Xenon.exe": "d272d23898e216cb532631798c726cf8ffd511da0abbcc9bf7c4e72e631766d8",
+      "Xenon.dll": "9f3f76bf10d5ac13beb9cfd53e463bdcf47bc0b31da3e879d5a85f1b4e5f59ce",
+      "libcef.dll": "0a6b233f03c0ca1aa02078c550200d03e1e60b058dbb2bc1587563e769e5da0c"
+    },
+    "validation": {
+      "fullBuildAndTest": "passed",
+      "nativeSuites": 23,
+      "adapterAndFixedScriptTests": 145,
+      "brandingChecks": 5,
+      "typescript": "passed",
+      "diffCheck": "passed",
+      "backgroundPopups": {
+        "run": "background-popup-1792832528239-eb8222ae",
+        "passed": true
+      },
+      "workflowViewports": {
+        "run": "workflow-viewport-1792832537368-78897f72",
+        "passed": true,
+        "checks": 6
+      },
+      "productionBrowsing": {
+        "run": "integration-1792832555897-720b2f28",
+        "passed": true,
+        "checks": 17,
+        "applicationDllSha256": "9f3f76bf10d5ac13beb9cfd53e463bdcf47bc0b31da3e879d5a85f1b4e5f59ce"
+      },
+      "nativeDialogScopeFollowup": {
+        "run": "native-page-controls-1792832825671-5f794494",
+        "passed": true,
+        "purpose": "Restrict native caption reads to buttons and read only the exact synthetic dialog edit."
+      }
+    },
+    "nativeControlsRun": "native-page-controls-1792832486265-16987be5"
+  },
+  "retainedHistory": [
+    "The initial full build failed with MSVC C1128 in XenonAuthTest; out/native-page-controls-build-test.log is retained. The later full build passed after adding /bigobj.",
+    "Initial fixture failures involving dialog-edit reads, covered-renderer targeting and foreground transitions remain in uniquely named out/native-page-controls-*.json reports and their logs; they have not been relabeled as passes.",
+    "Previous standard integration evidence was copied to a unique out/native-page-controls-prior-integration-*.json before the new run. Raw diagnostic data and disposable profiles remain local and ignored."
+  ],
+  "limits": [
+    "External Win32 messages and supported MCP calls exercise generated loopback pages in the production browser; these are not physical mouse/keyboard acceptance tests.",
+    "No personal profiles or real portal pages were inspected or changed. The screenshot incident binary remains unverified.",
+    "Live dropdown cases used one monitor at a fixed DPI; physical mixed-DPI and multi-monitor placement remain unvalidated.",
+    "Foreground popup tests need an uninterrupted interactive desktop and fail if foreground is lost."
+  ]
+}

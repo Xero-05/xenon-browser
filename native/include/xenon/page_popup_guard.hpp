@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <commctrl.h>
+#include <algorithm>
 #include <functional>
 #include <map>
 #include <cstdint>
@@ -45,6 +46,23 @@ class PagePopupGuard {
     const auto found=sources_.find(source.window);
     return found!=sources_.end()&&found->second==source.token&&allowed_(source.window);
   }
+  static void fit_work_area(HWND window,HWND source,WINDOWPOS& position){
+    MONITORINFO monitor{sizeof(monitor)};RECT current{};
+    if(!GetMonitorInfoW(MonitorFromWindow(source,MONITOR_DEFAULTTONEAREST),&monitor)||!GetWindowRect(window,&current))return;
+    // Both APIs and WINDOWPOS use the native window's coordinate space. Do
+    // not mix Chromium's CSS/DIP menu dimensions with these screen pixels.
+    const auto work=monitor.rcWork;
+    const int available_width=work.right-work.left,available_height=work.bottom-work.top;
+    const int width=(position.flags&SWP_NOSIZE)?current.right-current.left:position.cx;
+    const int height=(position.flags&SWP_NOSIZE)?current.bottom-current.top:position.cy;
+    if(width<=0||height<=0||available_width<=0||available_height<=0)return;
+    const int x=(position.flags&SWP_NOMOVE)?current.left:position.x,y=(position.flags&SWP_NOMOVE)?current.top:position.y;
+    const int fitted_width=std::min(width,available_width),fitted_height=std::min(height,available_height);
+    const int fitted_x=std::clamp(x,static_cast<int>(work.left),static_cast<int>(work.right)-fitted_width);
+    const int fitted_y=std::clamp(y,static_cast<int>(work.top),static_cast<int>(work.bottom)-fitted_height);
+    if(fitted_width!=width||fitted_height!=height){position.cx=fitted_width;position.cy=fitted_height;position.flags&=~SWP_NOSIZE;}
+    if(fitted_x!=x||fitted_y!=y){position.x=fitted_x;position.y=fitted_y;position.flags&=~SWP_NOMOVE;}
+  }
   static LRESULT CALLBACK source_proc(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR data){
     auto self=reinterpret_cast<PagePopupGuard*>(data);
     if(message==WM_NCDESTROY){self->sources_.erase(window);RemoveWindowSubclass(window,source_proc,1);self->refresh();}
@@ -75,12 +93,18 @@ class PagePopupGuard {
     const auto entry=self->windows_.find(window);
     if(entry!=self->windows_.end()&&message==WM_WINDOWPOSCHANGING&&lp){
       auto position=reinterpret_cast<WINDOWPOS*>(lp);
-      if((position->flags&SWP_SHOWWINDOW)&&!self->allowed(entry->second)){
+      const bool eligible=self->allowed(entry->second);
+      if((position->flags&SWP_SHOWWINDOW)&&!eligible){
         position->flags=(position->flags&~SWP_SHOWWINDOW)|SWP_HIDEWINDOW|SWP_NOACTIVATE;
         // Closing during Chromium's show callback could delete its widget
         // underneath that callback. Defer only the close; visibility is
         // suppressed synchronously, before any desktop pixels are displayed.
         PostMessageW(window,close_message(),0,0);
+      }else if(eligible&&!(position->flags&SWP_HIDEWINDOW)&&((position->flags&SWP_SHOWWINDOW)||IsWindowVisible(window))){
+        // Long select/datalist labels can make Chromium request a popup that
+        // extends offscreen. Fit only this tracked transient, never its page,
+        // and keep it on the source monitor rather than a neighboring screen.
+        fit_work_area(window,entry->second.window,*position);
       }
     }
     if(entry!=self->windows_.end()&&message==close_message()){

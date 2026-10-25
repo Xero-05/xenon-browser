@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+**Reload confirmations and dropdown placement.** Pages warning about unsaved changes now show their reload/navigation confirmation in Controls instead of silently leaving reload waiting. Accept continues the pending action; Dismiss keeps the page. Long page dropdowns are shifted into their source monitor's usable screen area and limited to that area when oversized.
+
 ## 0.1.9
 
 See the [0.1.9 notes](RELEASE-0.1.9.md) for the viewport and input fixes, sidebar polish, engine versions and release limits.
