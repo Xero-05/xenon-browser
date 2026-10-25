@@ -98,6 +98,9 @@ if(XENON_BUILD_BROWSER)
   add_subdirectory("${CEF_LIBCEF_DLL_WRAPPER_PATH}" libcef_dll_wrapper)
   ADD_LOGICAL_TARGET(libcef_lib "${CEF_LIB_RELEASE}" "${CEF_LIB_RELEASE}")
   file(GLOB XENON_BROWSER_SOURCES CONFIGURE_DEPENDS native/src/cef_*.cpp native/src/main_win.cpp native/src/native_ui.cpp native/src/introduction.cpp native/resources/*.rc)
+  # The CEF integration exceeds standard COFF's section limit in the fixture
+  # build. Use extended object files for this source in both browser targets.
+  set_source_files_properties(native/src/cef_engine.cpp PROPERTIES COMPILE_OPTIONS /bigobj)
   add_library(Xenon SHARED ${XENON_BROWSER_SOURCES} "${CMAKE_BINARY_DIR}/xenon.rc")
   add_dependencies(Xenon xenon_brand_bootstrap)
   SET_LIBRARY_TARGET_PROPERTIES(Xenon)

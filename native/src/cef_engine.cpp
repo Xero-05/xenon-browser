@@ -1219,7 +1219,23 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
     }
     return true;
   }
-  void OnDialogClosed(CefRefPtr<CefBrowser> b)override{if(auto o=owner_.lock())if(auto t=o->find(b)){t->dialog=nullptr;t->dialog_type.clear();t->dialog_message.clear();t->dialog_origin.clear();if(t->human_dialog){t->human_dialog=false;o->human_activity(t,t->human_gesture,false);}}}
+  bool OnBeforeUnloadDialog(CefRefPtr<CefBrowser> b,const CefString&,bool is_reload,
+                            CefRefPtr<CefJSDialogCallback> cb)override {
+    // CEF delivers unsaved-change confirmations separately from OnJSDialog.
+    // Keep the decision in the same nonmodal, ownership-aware dialog path;
+    // the default embedded Chromium prompt can leave navigation waiting with
+    // no usable native UI. Never accept a pending unload automatically.
+    const auto frame=b->GetMainFrame();bool suppress=false;
+    const auto message=ui::tr8(is_reload?"Reload this page? Changes you made may not be saved.":"Leave this page? Changes you made may not be saved.");
+    return OnJSDialog(b,frame?frame->GetURL():CefString{},JSDIALOGTYPE_CONFIRM,message,{},cb,suppress);
+  }
+  void OnDialogClosed(CefRefPtr<CefBrowser> b)override{if(auto o=owner_.lock())if(auto t=o->find(b)){
+    // Releasing a canceled CEF callback can reenter OnDialogClosed. Clear the
+    // retained state before its last reference is released.
+    auto callback=std::move(t->dialog);t->dialog_type.clear();t->dialog_message.clear();t->dialog_origin.clear();
+    if(t->human_dialog){t->human_dialog=false;o->human_activity(t,t->human_gesture,false);}
+  }}
+  void OnResetDialogState(CefRefPtr<CefBrowser> b)override{OnDialogClosed(b);}
   void OnBeforeContextMenu(CefRefPtr<CefBrowser>,CefRefPtr<CefFrame>,CefRefPtr<CefContextMenuParams> params,CefRefPtr<CefMenuModel> menu)override {
     menu->Remove(MENU_ID_VIEW_SOURCE);
     // Link commands open ordinary web addresses as new human-owned tabs.

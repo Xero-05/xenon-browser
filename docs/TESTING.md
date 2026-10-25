@@ -1,5 +1,17 @@
 # Validation
 
+## Reload confirmations and long dropdowns (local native candidate, 2026-10-25)
+
+`node tests/native-page-controls-integration.mjs` reproduces both failures on generated loopback pages in a disposable production-browser profile. Before the fix, normal reload worked, but an armed unsaved-changes warning left reload waiting without an answerable native confirmation. A long native select menu also extended to screen x=2920 beyond a work area ending at x=2560. A native Win32 regression separately failed when a popup was positioned beyond the left edge.
+
+The rebuilt browser passed all four cases: ordinary reload; cancellation of an unsaved-changes reload followed by one accepted F5 reload; long LTR, RTL and oversized dropdown bounds with website-confirmed selection changes; and human-pause/ownership protection of reload confirmations. An agent cannot answer a human-triggered confirmation, ownership and generation stay unchanged, and a later agent-triggered warning remains available through the existing `confirm`/`xenon_dialog` path. `--case=dropdown`, `--case=ownership` and `--case=reload` select matching cases. The external [fixture helper](../tests/fixtures/native-page-controls.ps1) validates its exact generated profile and process, targets the frontmost page host, reads only the synthetic native dialog message, and measures/selects each popup within one foreground helper call. It does not add a production native-window endpoint or test-driver bypass.
+
+`PagePopupGuard` fits eligible transient windows to the source monitor's native work area during placement, preserving dimensions when they fit and limiting oversized menus. Native tests cover left, right and bottom overflow, oversized bounds, move-only and show-only updates, as well as the existing suppression/dismissal lifecycle. CEF's separate before-unload callback now uses the nonmodal dialog record and clears retained state on closure/reset; accepting continues the pending navigation and dismissing cancels it.
+
+PR revalidation on an isolated checkout of `5ec8d3b` (0.1.9) used the pinned stock release engine with `-RequireReleaseEngine`. The complete build passed all 24 native suites, 145 adapter/fixed-script tests and five branding checks; TypeScript and `git diff --check` also passed. The new four-case suite and background popup containment passed serially on that exact production build. The [sanitized binary-bound record](test-results/native-page-controls.json) separates those PR results from the earlier custom-engine candidate, whose workflow/browser runs and failed intermediate reports are retained. The large CEF integration source uses `/bigobj` in both browser targets. No dependency pins or release version were changed.
+
+Coverage uses external Win32 messages and supported MCP calls, not physical input or real portal pages. Live dropdown checks used one monitor at a fixed DPI; physical mixed-DPI and multi-monitor acceptance remain unvalidated. Foreground popup cases require an uninterrupted interactive desktop. No personal profile was used, and no historical incident report or failed evidence was relabeled.
+
 ## 0.1.9 release candidate
 
 The local 0.1.9 Windows-decoder build passed all 24 native test groups, 172 checks in the full npm suite, typechecking, five bootstrap branding checks and a dependency audit with zero findings after updating Zod to 4.6.7. The MIT license is unchanged. Three codec dependency regressions, 17 engine audit regressions, 25 recipe checks and all 51 isolated installer checks passed.
