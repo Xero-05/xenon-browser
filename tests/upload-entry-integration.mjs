@@ -23,6 +23,8 @@ const profile = resolve(root, '.cache', 'auth-integration-' + run), uploadsRoot 
 const pipeName = 'xenon-test-' + run, slash = String.fromCharCode(92), pipe = slash + slash + '.' + slash + 'pipe' + slash + pipeName;
 const binary = resolve(buildRoot, 'app/Release/Xenon.exe'), dll = resolve(buildRoot, 'app/Release/Xenon.dll');
 const baseline = process.argv.includes('--baseline'), benchmarkIndex = process.argv.indexOf('--benchmark');
+const oracleObservation = process.argv.includes('--oracle-observation');
+if (oracleObservation && (baseline || benchmarkIndex >= 0)) throw new Error('--oracle-observation is an isolated acceptance case');
 if (benchmarkIndex >= 0 && !process.argv[benchmarkIndex + 1]) throw new Error('--benchmark requires the source path');
 const benchmarkSource = benchmarkIndex >= 0 ? resolve(process.argv[benchmarkIndex + 1]) : undefined;
 const benchmarkMatrix = process.argv.includes('--benchmark-matrix');
@@ -153,6 +155,13 @@ async function startFixtures() {
       response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}button{font:inherit;background:white;color:#152235;padding:10px}iframe{display:block;width:650px;height:180px}</style><h1>Upload entry fixture ready</h1>' + (mode === 'delegate-text' ? '<div id="choose"><span>Upload from Device</span></div>' : '<button id="choose">Choose approved fixture</button>') + '<iframe id="child" src="/page?case=' + caseId + '-child&mode=child-hidden"></iframe><script>' +
         'const caseId=' + JSON.stringify(caseId) + ';function event(v){fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(v)})}event({type:"opened"});document.querySelector("#choose").onclick=e=>{event({type:"click",trusted:e.isTrusted});document.querySelector("#child").contentDocument.querySelector("#file").click()};</script>'); return;
     }
+    if (mode === 'oracle-frame') {
+      response.end('<!doctype html><style>body{margin:20px;background:white}iframe{width:600px;height:180px;border:0}</style><iframe src="' + crossOrigin + '/page?case=' + caseId + '&mode=oracle-aria-hidden"></iframe>'); return;
+    }
+    if (mode.startsWith('oracle-')) {
+      response.end('<!doctype html><meta charset="utf-8"><style>body{margin:20px;background:white;color:black;font:18px system-ui}#choose{display:inline-block;padding:10px;border:1px solid black}</style><div' + (mode !== 'oracle-text' ? ' aria-hidden="true"' : '') + (mode === 'oracle-hidden' ? ' hidden' : '') + (mode === 'oracle-disabled' ? ' aria-disabled="true"' : '') + '><span id="choose">UPLOAD RESUME</span><input id="file" type="file" hidden><span hidden>HIDDEN_UPLOAD_SENTINEL</span><input value="HIDDEN_EDITABLE_SENTINEL"></div>' + (mode === 'oracle-covered' ? '<div style="position:absolute;left:0;top:0;width:650px;height:150px;background:black"></div>' : '') + '<script>' +
+        'const caseId=' + JSON.stringify(caseId) + ';function event(value){return fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(value)})}event({type:"opened"});document.querySelector("#choose").onclick=e=>{event({type:"click",trusted:e.isTrusted});document.querySelector("#file").click()};document.querySelector("#file").onchange=()=>{const data=new FormData();data.append("file",document.querySelector("#file").files[0]);fetch("/upload?case="+caseId,{method:"POST",body:data})};let changed=false;setInterval(async()=>{const state=await(await fetch("/state?case="+caseId)).json();if(state.changeLabel&&!changed){changed=true;document.querySelector("#choose").textContent="Changed upload entry";event({type:"label"})}},100);</script>'); return;
+    }
     const direct = ['direct', 'direct-disabled', 'direct-directory'].includes(mode), label = mode === 'none' ? 'No chooser button' : 'Choose approved fixture';
     // Non-semantic wrapper with delegated click and a real DOM Text node: the
     // SAP-style Device entry is observed as StaticText, not a button or label.
@@ -245,6 +254,61 @@ try {
     workspaces: [{ id: workspaceId, clients: [identity.clientId] }], accountGrants: [], operations: [] }));
   await writePrivateConfig(resolve(profile, 'client-config.json'), identity);
   await prepareBenchmark(); await startFixtures(); applicationDllSha256 = await hashDll(); await launch();
+  if (oracleObservation) {
+    const stableRead = async (method, args) => until(async () => {
+      const response = await raw(method, args);
+      // Frame attachment/layout can invalidate a read; retry fresh reads only.
+      // Mutations below are never retried by this fixture.
+      if (response.isError && ['privacy_guard_initializing', 'page_changed', 'inspection_changed'].includes(response.structuredContent?.error?.code)) return false;
+      assert(!response.isError, JSON.stringify(response.structuredContent)); return response;
+    }, 5000, 'Stable synthetic upload observation');
+    const inspectUpload = async mode => {
+      const tab = { ...worker, ...await tool('tab_create', { ...workerScope(worker), url: origin + '/page?case=' + mode + '&mode=' + mode }) };
+      await until(() => fixtureStates.get(mode)?.opened);
+      const inspected = await stableRead('inspect', { ...scope(tab), maxNodes: 1000 });
+      const observation = inspected.structuredContent;
+      const node = observation.nodes.find(node => node.name === 'UPLOAD RESUME' && node.ref);
+      await writeFile(resolve(profile, mode + '-observation.json'), JSON.stringify({ nodes: observation.nodes, coverage: observation.coverage, frames: observation.frames, visibility: observation.visibility }, null, 2));
+      const screenshot = inspected.content.find(item => item.type === 'image');
+      assert(screenshot, 'Synthetic inspection did not return a screenshot');
+      await writeFile(resolve(profile, mode + '.png'), Buffer.from(screenshot.data, 'base64'));
+      assert(!JSON.stringify(observation).includes('HIDDEN_'), 'Hidden text or editable value entered observation');
+      return { tab, observation, node };
+    };
+    for (const mode of ['oracle-text', 'oracle-aria-hidden', 'oracle-frame']) await check('Visible UPLOAD RESUME has an upload ref: ' + mode, async () => {
+      const { tab, observation, node } = await inspectUpload(mode);
+      assert(node, 'Screenshot-visible UPLOAD RESUME has no ref: ' + JSON.stringify({ nodes: observation.nodes.length, coverage: observation.coverage, omitted: observation.visibility?.omitted }));
+      if (mode !== 'oracle-text') { assert.equal(node.provenance, 'chromium-rendered-text-node'); assert.equal(node.roleProvenance, 'native-dom-text-type'); }
+      for (const method of ['observe', 'inspect']) {
+        const queried = (await stableRead(method, { ...scope(tab), query: 'UPLOAD RESUME' })).structuredContent;
+        assert.equal(queried.nodes.filter(item => item.name === 'UPLOAD RESUME' && item.ref).length, 1, 'Targeted query lost or duplicated the rendered upload entry');
+      }
+      const current = await tool('observe', { ...scope(tab), query: 'UPLOAD RESUME' }), currentNode = current.nodes.find(item => item.name === 'UPLOAD RESUME' && item.ref);
+      const response = await raw('upload', { ...mutation(tab), observationId: current.observationId, elementRef: currentNode.ref, fileId });
+      assert(!response.isError, JSON.stringify(response.structuredContent)); selectionFacts(response, 'dispatched', 'selected');
+      await until(() => fixtureStates.get(mode).uploaded);
+      assert.equal(fixtureStates.get(mode).uploads, 1); assert.equal(fixtureStates.get(mode).clicks, 1);
+      assert.deepEqual(fixtureStates.get(mode).trusted, [true]);
+      return { verifiedRef: true, trustedClicks: fixtureStates.get(mode).trusted, exactApprovedContentsReceived: true };
+    });
+    for (const mode of ['oracle-hidden', 'oracle-covered']) await check('Unrendered upload text remains withheld: ' + mode, async () => {
+      const { node, observation } = await inspectUpload(mode); assert.equal(node, undefined); assert(!JSON.stringify(observation).includes('UPLOAD RESUME'));
+      assert.equal(fixtureStates.get(mode).clicks, 0); assert.equal(fixtureStates.get(mode).uploads, 0); return { withheld: true, uploads: 0 };
+    });
+    await check('Rendered-only upload text preserves disabled ancestor checks', async () => {
+      const { tab, observation, node } = await inspectUpload('oracle-disabled'); assert(node);
+      const response = await raw('upload', { ...mutation(tab), observationId: observation.observationId, elementRef: node.ref, fileId });
+      assert(response.isError); assert.equal(response.structuredContent.error.code, 'unsupported_upload_entry'); selectionFacts(response, 'not_attempted', 'not_selected');
+      assert.equal(fixtureStates.get('oracle-disabled').clicks, 0); return { deniedBeforeActivation: true };
+    });
+    await check('Rendered-only upload text revalidates its label before activation', async () => {
+      const { tab, observation, node } = await inspectUpload('oracle-stale'); assert(node);
+      fixtureStates.get('oracle-stale').changeLabel = true; await until(() => fixtureStates.get('oracle-stale').labelChanged);
+      const response = await raw('upload', { ...mutation(tab), observationId: observation.observationId, elementRef: node.ref, fileId });
+      assert(response.isError); assert.equal(response.structuredContent.error.code, 'stale_element'); selectionFacts(response, 'not_attempted', 'not_selected');
+      assert.equal(fixtureStates.get('oracle-stale').clicks, 0); assert.equal(fixtureStates.get('oracle-stale').uploads, 0); return { staleRejectedBeforeActivation: true };
+    });
+  } else {
   await check('File discovery retains truncation, later pages and scoped relative-path filters', async () => {
     const names = [], args = { ...workerScope(worker), folderId, limit: 2 };
     let cursor, pages = 0;
@@ -413,6 +477,7 @@ try {
       return { workers:4, flows, modelPerformanceComparison:false };
     });
   }
+  }
 } catch (error) {
   if (!results.some(result => !result.passed)) results.push({ name: 'Upload entry harness', passed: false, error: error.message });
   console.log('FAIL upload entry harness: ' + error.message);
@@ -432,7 +497,7 @@ try {
   } catch (error) { results.push({ name: 'Source and binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary, profile,
     applicationDllSha256, applicationDllSha256AtEnd, mode: baseline ? 'baseline_failure_reproduction' : 'acceptance', benchmark: benchmarkMetadata ?? null,
-    passed: results.length === 7 + (baseline ? 0 : 10) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0) && results.every(result => result.passed), results };
+    passed: results.length === (oracleObservation ? 7 : 7 + (baseline ? 0 : 10) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0)) && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true }); const reportPath = resolve(root, 'out', `${run}${baseline ? '-baseline' : ''}.json`);
   await writeFile(reportPath, JSON.stringify(report, null, 2)); console.log('Report: ' + reportPath); process.exitCode = report.passed ? 0 : 1;
 }
