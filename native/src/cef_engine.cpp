@@ -194,7 +194,7 @@ struct SensitiveJson {
   Json value;
   ~SensitiveJson(){wipe_json(value);}
 };
-struct Element { int backend = 0; std::string session, name, role; uint64_t epoch = 0; std::string visible_name,frame,root_frame; bool diagnostic_uncertain=false;Json reported_bounds; };
+struct Element { int backend = 0; std::string session, name, role; uint64_t epoch = 0; std::string visible_name,frame,root_frame; bool diagnostic_uncertain=false;Json reported_bounds;bool rendered_text_only=false; };
 struct UncertainClickCandidate {int backend{};std::string frame,session;Json metadata;};
 struct FrameSession { std::string id, frame, parent; };
 struct ActionGuard { uint64_t epoch=0,human=0;std::function<bool()> permit;bool require_unprotected=false,native_auth=false; };
@@ -932,11 +932,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       reply(failure("stale_element","Observe the page again before using this element."));return;
     }
     const auto e=it->second;
-    send(t,"Accessibility.getPartialAXTree",{{"backendNodeId",e.backend},{"fetchRelatives",false}},[this,t,e,reply,fn=std::move(fn)](Json ax){
-      bool matched=false;
-      if(cdp_ok(ax))for(const auto& n:ax.value("nodes",Json::array()))if(n.value("backendDOMNodeId",0)==e.backend&&!n.value("ignored",false)&&
-        field(n.value("role",Json::object()),"value")==e.role&&clip(field(n.value("name",Json::object()),"value"))==e.name)matched=true;
-      if(!matched){reply(failure("stale_element","The element's observed role or name changed. Observe again."));return;}
+    auto verified=[this,t,e,reply,fn=std::move(fn)]{
     rendered_element(t,e,reply,[this,t,e,reply,fn]{
     send(t,"DOM.resolveNode",{{"backendNodeId",e.backend},{"objectGroup","xenon-action"}},
       [this,t,e,reply,fn=std::move(fn)](Json r) {
@@ -953,6 +949,23 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
           },e.session);
       },e.session);
     });
+    };
+    if(e.rendered_text_only){
+      // A visible DOM Text node can be omitted from AX (for example aria-hidden).
+      // Bind this native-created reference to its actual node type, then rerun
+      // the same rendered-label, frame, authority and pointer checks as AX refs.
+      send(t,"DOM.describeNode",{{"backendNodeId",e.backend}},[reply,verified](Json node){
+        if(!cdp_ok(node)||node.value("node",Json::object()).value("nodeType",0)!=3){reply(failure("stale_element","The rendered text node changed. Observe again."));return;}
+        verified();
+      },e.session);
+      return;
+    }
+    send(t,"Accessibility.getPartialAXTree",{{"backendNodeId",e.backend},{"fetchRelatives",false}},[e,reply,verified](Json ax){
+      bool matched=false;
+      if(cdp_ok(ax))for(const auto& n:ax.value("nodes",Json::array()))if(n.value("backendDOMNodeId",0)==e.backend&&!n.value("ignored",false)&&
+        field(n.value("role",Json::object()),"value")==e.role&&clip(field(n.value("name",Json::object()),"value"))==e.name)matched=true;
+      if(!matched){reply(failure("stale_element","The element's observed role or name changed. Observe again."));return;}
+      verified();
     },e.session);
   }
   void point(const std::shared_ptr<Tab>&,const Element&,const std::string&,Reply,
@@ -1593,9 +1606,10 @@ void CefEngine::Impl::observe(const std::shared_ptr<Tab>& t,const Json& p,Reply 
           const auto candidates=c->snapshots.contains(session)?c->snapshots.at(session).value("frames",Json::object()).value(frame,Json::object()).value("uncertainNodes",Json::object()):Json::object();
           c->frames.push_back({{"frameId",frame},{"parentFrameId",field(info,"parentId")},{"origin",field(info,"securityOrigin")},
             {"coverage","rendered_viewport"},{"processBoundary",session.empty()?"root-session":"attached-frame"}});
+          std::set<int> represented;
           for(const auto& n:r["nodes"]){
             if(n.value("ignored",false)||!n.contains("backendDOMNodeId"))continue;
-            const int backend=n["backendDOMNodeId"].get<int>();const auto found=geometry.find(std::to_string(backend));
+            const int backend=n["backendDOMNodeId"].get<int>();represented.insert(backend);const auto found=geometry.find(std::to_string(backend));
             const bool uncertain=found==geometry.end();
             const auto candidate=candidates.find(std::to_string(backend));
             if(uncertain&&candidate==candidates.end())continue;
@@ -1634,6 +1648,24 @@ void CefEngine::Impl::observe(const std::shared_ptr<Tab>& t,const Json& p,Reply 
             if(!publish&&uncertain&&!secret){const auto root_frame=session.empty()?c->main:(t->sessions.contains(session)?t->sessions.at(session).frame:std::string{});
               c->elements[out["diagnosticId"].get<std::string>()]={backend,session,"",role,c->epoch,name,frame,root_frame,true,out["bounds"]};}
             c->nodes.push_back(std::move(out));
+          }
+          // AX visibility is not rendered visibility: aria-hidden can exclude
+          // text that is plainly painted. Use only Text nodes already proved by
+          // the rendered filter, never raw DOM strings, AX names or uncertain
+          // geometry. Existing AX nodes keep their original identity/guards.
+          for(const auto& [key,evidence]:geometry.items()){
+            if(field(evidence,"tag")!="#text"||field(evidence,"name").empty())continue;
+            int backend=0;try{backend=std::stoi(key);}catch(...){continue;}
+            if(backend<=0||represented.contains(backend))continue;
+            const auto name=field(evidence,"name");
+            if(!c->query.empty()){auto searched=name;std::transform(searched.begin(),searched.end(),searched.begin(),[](unsigned char ch){return static_cast<char>(std::tolower(ch));});if(searched.find(c->query)==std::string::npos)continue;}
+            if(c->nodes.size()>=limit){c->truncated=true;break;}
+            const auto ref=nonce();const auto root_frame=session.empty()?c->main:(t->sessions.contains(session)?t->sessions.at(session).frame:std::string{});
+            Element target{backend,session,"","StaticText",c->epoch,name,frame,root_frame};target.rendered_text_only=true;c->elements[ref]=std::move(target);
+            c->nodes.push_back({{"role","StaticText"},{"name",name},{"frameId",frame},{"ref",ref},
+              {"provenance","chromium-rendered-text-node"},{"roleProvenance","native-dom-text-type"},{"nameProvenance","filtered_rendered_text"},
+              {"bounds",evidence.at("bounds")},{"boundsProvenance","chromium-dom-snapshot"},
+              {"geometryEvidence",evidence.value("geometryEvidence","filtered_layout")},{"visibilityStatus","verified"},{"screenshotRequired",false}});
           }
         }
         if(!--c->remaining)finish();

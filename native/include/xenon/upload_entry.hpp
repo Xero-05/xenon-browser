@@ -1,7 +1,8 @@
 #pragma once
 namespace xenon {
-// Fixed internal classifier. allowText comes from the revalidated native AX
-// role, never from caller parameters. No input lookup or page activation here.
+// Fixed internal classifier. allowText comes from a revalidated native AX role
+// or a rendered DOM Text identity, never caller parameters. No input lookup or
+// page activation here.
 inline constexpr const char* kUploadEntryKind=R"JS(function(allowText){
   if(!this.isConnected)return 'unsupported';
   const element=this.nodeType===3?this.parentElement:this;

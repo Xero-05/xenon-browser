@@ -1,5 +1,17 @@
 # Validation
 
+## Rendered upload text excluded from accessibility (local candidate, 2026-10-26)
+
+A synthetic `UPLOAD RESUME` text entry inside an `aria-hidden` wrapper reproduced an empty observation despite a plainly visible screenshot, valid rendered geometry and no visibility omissions. Removing only `aria-hidden` restored the target. Observation had required an unignored AX node even when the rendered filter independently verified the DOM Text node. This reproduces the reported upload-reference symptom; the original Oracle application DOM and incident binary remain unverified.
+
+Observation now admits those verified Text nodes with separate native text-type provenance. Their refs revalidate node type, rendered label/geometry, frame identity and guarded pointer targeting before effects. The rendered filter, opaque file grants, one-activation chooser interception and exact chooser/document checks remain enforced. No coordinate upload, hidden-input search or OS-picker interface was added.
+
+An isolated PR checkout based on `445b3cc` was rebuilt as 0.1.9 against the pinned stock release engine with `-RequireReleaseEngine`. The complete build passed 24 native suites, 145 adapter/fixed-script checks and five branding checks; typechecking and `git diff --check` passed. Serial production-browser validation passed seven new upload-observation cases, all 17 existing upload cases, 16 adversarial visibility cases, ten screenshot/authentication cases and 17 input/ownership cases. The [binary-bound record](test-results/oracle-upload-observation.json) separates the earlier working-tree reproduction from this PR's build and 67 browser checks.
+
+Run `node tests/upload-entry-integration.mjs --oracle-observation` for the focused regression. It covers full and targeted reads, normal/AX-excluded text and a child-frame upload, hidden/covered text withholding, disabled ancestors and stale labels. Uploads transfer only the synthetic approved contents after one trusted activation. Explicit transient read invalidations may be retried while frames settle; mutations are never replayed. Windows CI runs this case against the packaged DLLs alongside its existing serial suites.
+
+No personal profile, applicant screenshot, live application or installed browser was changed. The original portal cause, physical input and real Oracle acceptance are not claimed. Raw fixture profiles/calls and local logs remain excluded; published evidence contains sanitized synthetic results only.
+
 ## Reload confirmations and long dropdowns (local native candidate, 2026-10-25)
 
 `node tests/native-page-controls-integration.mjs` reproduces both failures on generated loopback pages in a disposable production-browser profile. Before the fix, normal reload worked, but an armed unsaved-changes warning left reload waiting without an answerable native confirmation. A long native select menu also extended to screen x=2920 beyond a work area ending at x=2560. A native Win32 regression separately failed when a popup was positioned beyond the left edge.
