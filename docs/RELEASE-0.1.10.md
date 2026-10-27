@@ -1,0 +1,17 @@
+# Xenon Browser 0.1.10
+
+0.1.10 includes every change merged since 0.1.9, through pull request #63.
+
+- **Visible upload text has usable references.** Text painted on screen but excluded from the accessibility tree can now appear in observations with verified rendered-text provenance. References revalidate the DOM Text identity, current rendered label and geometry, frame identity and guarded pointer target. Uploads retain opaque file grants and exact chooser/document checks. Hidden or covered text remains withheld; disabled ancestors and changed labels reject activation. A synthetic AX-excluded upload entry reproduced the reported empty-observation symptom. The original Oracle application's DOM and incident binary remain unverified, so real-portal acceptance is not claimed.
+- **Reload warnings can be answered.** Pages with unsaved changes now expose the pending reload/navigation confirmation in Controls. Accept continues; Dismiss keeps the page. Human-triggered confirmations retain human input protection and ownership remains unchanged.
+- **Long page dropdowns stay within the source monitor's work area.** Placement shifts menus that fit and limits oversized menus. Regression cases cover LTR, RTL and oversized lists; mixed-DPI and multi-monitor physical acceptance remain unverified.
+
+The unsigned Windows x64 installer and portable ZIP were built and validated locally from this isolated release source. Close Xenon and reconnect the MCP adapter before upgrading. Profiles and pairing configuration remain separate from application files.
+
+The release retains the exact audited Windows-decoder engine used by 0.1.9: CEF 154.0.34 / Chromium 154.0.8037.98, including extension-action and covered-tab pacing patches. The complete distribution was checked against its provenance and pinned recipe. It is reused without rebuilding or re-auditing its source tree. On October 27, 2026, the [CEF build index](https://cef-builds.spotifycdn.com/index.json) lists CEF 156.0.14 / Chromium 156.0.8078.48 as stable, and the [Chrome stable release notes](https://chromereleases.googleblog.com/search/label/Stable%20updates) describe newer desktop security fixes. This release retains the existing engine security-update gap and does not claim current Chrome security parity. Moving to the newer engine requires rebuilding and validating the Windows media and extension patches.
+
+H.264 requires supported Windows GPU decoding, AAC requires Windows Media Foundation, and Widevine DRM remains unsupported. There is no bundled H.264/AAC software decoder or OpenH264. Hosted CI uses the stock engine; the local release uses the Windows-decoder distribution.
+
+Release verification and its limits are recorded in [acceptance](test-results/release-0.1.10-validation.json) and [packaging](test-results/release-0.1.10-packaging.json). The build passed 24 native suites, 172 npm checks, five branding checks, all 16 production-browser suites and 51 isolated installer checks. The ZIP passed all 1,360 runtime-file hashes and six extracted-package smoke checks. One viewport attempt was interrupted by the human-input pause guard; the failed evidence is retained alongside the passing fresh full-suite run. The packages keep their preparation-time documentation snapshot; publication changes only source documentation and release metadata, not these tested bytes.
+
+Synthetic tests do not establish real-account acceptance, arbitrary extension compatibility, physical input or every display configuration. Unsigned hashes establish byte integrity, not publisher identity.
