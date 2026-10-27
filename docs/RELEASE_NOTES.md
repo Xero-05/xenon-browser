@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.10
+
+See the [0.1.10 notes](RELEASE-0.1.10.md) for the fixes and release limits.
+
+**Screenshot-visible upload entries.** Rendered text omitted from Chromium's accessibility tree can now receive a verified reference. Uploads still require an approved opaque file handle and revalidate the current text, frame, document and pointer target before opening its chooser. This fixes the reproduced synthetic failure; the original Oracle application cause remains unconfirmed.
+
 **Reload confirmations and dropdown placement.** Pages warning about unsaved changes now show their reload/navigation confirmation in Controls instead of silently leaving reload waiting. Accept continues the pending action; Dismiss keeps the page. Long page dropdowns are shifted into their source monitor's usable screen area and limited to that area when oversized.
 
 ## 0.1.9

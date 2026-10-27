@@ -1,5 +1,13 @@
 # Validation
 
+## 0.1.10 release validation
+
+The isolated 0.1.10 source starts at merged PR #63 (`d6f7971`), with only release version and documentation changes. It reuses the complete audited Windows-decoder distribution from 0.1.9 after checking its recipe, provenance and listed file hashes. The engine source was not rebuilt or re-audited. Hosted CI's stock-engine results remain separate from this local build.
+
+The [release validation record](test-results/release-0.1.10-validation.json) binds the current local results to the application and engine hashes. Raw fixture profiles, screenshots, call histories and logs remain local. Earlier candidate and failed-run evidence below retains its original identity and version.
+
+All 24 native groups, 172 npm checks, five branding checks, 16 production-browser suites and 51 isolated installer checks passed. The ZIP passed all 1,360 runtime-file hashes and six extracted-package smoke checks. The [packaging record](test-results/release-0.1.10-packaging.json) binds the four unsigned assets to these results. A first viewport run was interrupted by `HUMAN_INPUT_PAUSED`; the new disposable full-suite run passed without changing the guard. Both attempts remain recorded. The initial restricted-runner codec audit failed on temporary-directory permissions; all ten checks passed under ordinary Windows permissions. This does not replace the prior failed output.
+
 ## Rendered upload text excluded from accessibility (local candidate, 2026-10-26)
 
 A synthetic `UPLOAD RESUME` text entry inside an `aria-hidden` wrapper reproduced an empty observation despite a plainly visible screenshot, valid rendered geometry and no visibility omissions. Removing only `aria-hidden` restored the target. Observation had required an unignored AX node even when the rendered filter independently verified the DOM Text node. This reproduces the reported upload-reference symptom; the original Oracle application DOM and incident binary remain unverified.
