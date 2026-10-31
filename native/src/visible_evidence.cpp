@@ -31,7 +31,8 @@ const std::vector<std::string> kStyles = {
   "border-top-width", "border-right-width", "border-bottom-width", "border-left-width",
   "padding-top", "padding-right", "padding-bottom", "padding-left",
   "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
-  "box-shadow", "outline-width", "outline-offset", "outline-color", "outline-style"
+  "box-shadow", "outline-width", "outline-offset", "outline-color", "outline-style",
+  "contain", "container-type"
 };
 enum Style { Display, Visibility, Opacity, Color, Background, FontSize, TextFill,
   OverflowX, OverflowY, Clip, ClipPath, Filter, BackdropFilter, Transform,
@@ -40,7 +41,7 @@ enum Style { Display, Visibility, Opacity, Color, Background, FontSize, TextFill
   LineClamp, TextSecurity, ContentVisibility, Zoom, BorderTop, BorderRight,
   BorderBottom, BorderLeft, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft,
   BorderTopColor, BorderRightColor, BorderBottomColor, BorderLeftColor, BoxShadow,
-  OutlineWidth, OutlineOffset, OutlineColor, OutlineStyle };
+  OutlineWidth, OutlineOffset, OutlineColor, OutlineStyle, Contain, ContainerType };
 
 const Json kNull;
 const Json& at(const Json& value, std::string_view key) {
@@ -227,7 +228,7 @@ std::string normalized_space(std::string value) {
 }
 struct Layout {
   int node{-1}, paint{-1}; std::optional<Rect> box;
-  std::array<std::string, 45> styles;
+  std::array<std::string, 47> styles;
   std::string text, blended;
   std::optional<double> text_opacity;
   bool styles_complete{}, basic{}, potentially_painted{}, unbounded_paint{};
@@ -236,6 +237,9 @@ struct Layout {
 };
 struct Document {
   std::string frame; int parent_doc{-1}, owner_node{-1};
+  // The element whose overflow Chromium applies to the viewport instead of
+  // its own box (Document::ViewportDefiningElement); -1 when unproven.
+  int viewport_overflow_node{-1};
   std::optional<Rect> viewport;
   std::vector<int> parents, backend, node_layout, node_types;
   std::vector<bool> editable, svg;
@@ -283,6 +287,28 @@ std::optional<std::pair<double,double>> axis_transform(const std::string& value)
 }
 bool unscaled_transform(const std::string& value) {
   const auto axes=axis_transform(value);return axes&&axes->first==1&&axes->second==1;
+}
+// Mirrors Chromium's Document::ViewportDefiningElement: the root element's
+// overflow applies to the viewport, or the primary BODY's when an HTML root
+// has visible overflow on both axes. That element's computed overflow is not
+// a clip of its own box (LayoutObject::RespectsCSSOverflow). Containment on
+// either element changes the choice, so any contain, size container or
+// skipped content leaves the ordinary, more restrictive clip in place, as
+// does a scaling or reflecting transform on either element.
+int viewport_overflow_node(const Document& d) {
+  int root=-1;
+  for(size_t n=0;n<d.node_types.size();++n)if(d.node_types[n]==1){if(d.parents[n]>=0 && d.node_types[d.parents[n]]==9)root=static_cast<int>(n);break;}
+  const auto uncontained=[&d](int n) {
+    const int li=n>=0?d.node_layout[n]:-1;if(li<0)return false;const auto& l=d.layouts[li];
+    return l.styles_complete && l.styles[Contain]=="none" && l.styles[ContainerType]=="normal" && l.styles[ContentVisibility]=="visible" && unscaled_transform(l.styles[Transform]);
+  };
+  if(!uncontained(root))return -1;
+  int body=-1;
+  for(size_t n=static_cast<size_t>(root)+1;n<d.node_types.size();++n)
+    if(d.parents[n]==root && d.node_types[n]==1 && (d.tags[n]=="BODY" || d.tags[n]=="FRAMESET")){if(d.tags[n]=="BODY")body=static_cast<int>(n);break;}
+  const auto& r=d.layouts[d.node_layout[root]];
+  if(d.tags[root]=="HTML" && body>=0 && r.styles[OverflowX]=="visible" && r.styles[OverflowY]=="visible")return uncontained(body)?body:-1;
+  return root;
 }
 std::optional<Rect> inset_clip(const std::string& value,const Rect& box,bool* empty=nullptr,bool interior=true) {
   if(value=="none")return box;
@@ -373,7 +399,9 @@ bool inherited_geometry(FilterState& state, const Document& d, int node, const R
     const auto op=css_number(l.styles[Opacity]); if (!op || *op < 0 || *op > 1) return false;
     // Overflow clips descendants. It does not clip the element's own border
     // box, and LayoutText's copied style is not a new scrolling container.
-    if(n==node)continue;
+    // Overflow propagated to the viewport clips at the viewport, which the
+    // containment check above already enforces, not at the element's box.
+    if(n==node || n==d.viewport_overflow_node)continue;
     for (int axis=0; axis<2; ++axis) {
       const auto& overflow=l.styles[axis ? OverflowY : OverflowX];
       if (overflow == "visible") continue;
@@ -420,7 +448,7 @@ bool shown_geometry(FilterState& state,const Document& d,const Layout& l,const R
 void clip_paint_bounds(const Document& d,Layout& paint) {
   if(!paint.paint_box || paint.unbounded_paint || paint.node<0)return;
   for(int n=d.parents[paint.node],depth=0;n>=0 && static_cast<size_t>(n)<d.parents.size() && depth++<128;n=d.parents[n]) {
-    if(d.node_types[n]==9 || d.node_types[n]==11)continue;
+    if(d.node_types[n]==9 || d.node_types[n]==11 || n==d.viewport_overflow_node)continue;
     const int li=d.node_layout[n];if(li<0)continue;const auto& l=d.layouts[li];if(!l.box)continue;
     if(!unscaled_transform(l.styles[Transform]))continue;
     for(int axis=0;axis<2;++axis) {
@@ -654,6 +682,7 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
       const auto example=std::string(l.box?"":"missing bounds; ")+"box-shadow: "+l.styles[BoxShadow]+"; text-shadow: "+l.styles[TextShadow]+"; filter: "+l.styles[Filter]+"; transform: "+l.styles[Transform];
       if(example.size()<512)state.unsupported_paint.insert(example);
     }
+    d.viewport_overflow_node=viewport_overflow_node(d);
     for(auto& l:d.layouts)clip_paint_bounds(d,l);
     docs.push_back(std::move(d));
   }

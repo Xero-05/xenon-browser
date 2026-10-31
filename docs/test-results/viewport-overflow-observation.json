@@ -1,0 +1,451 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-31",
+  "sourceBase": "c3a9094",
+  "sourceState": "isolated PR worktree",
+  "nativeSourceSha256": "eb86a9cf4a044691a6ed53d3348bf56cd0798c3bed0f9a3ca7af8a1cd2a2f519",
+  "nativeSourceHashMethod": "SHA-256 of native/src/*.cpp then native/include/xenon/*.hpp concatenated in glob order",
+  "version": "0.1.10",
+  "applicationDllSha256": "45a9490dfcfca0a6abb8415cefb04c77f671ae3bdd4dcd3f054f7e842da41f1b",
+  "libcefSha256": "e3da6707a840a8f33f565e011542169fd51aaa5218603eb7a89039fb16d79ae7",
+  "engine": "pinned stock CEF",
+  "reproducedMechanism": "Overflow that Chromium applies to the viewport (root element, or primary BODY under a visible-overflow HTML root) was treated as a clip at that element's one-screen-high border box, so every node below the first screen failed geometry",
+  "innerScrollContainerMechanismConfirmed": false,
+  "innerScrollContainerFinding": "Inner overflow panes, sticky/translateZ panes, a dense DOM, page-side scrollIntoView and 120% browser zoom all produced verified lower-page refs on unchanged 0.1.10 source",
+  "originalOracleRootCauseConfirmed": false,
+  "liveSignatureComparison": {
+    "source": "counts-only report from a live tab, no page content",
+    "failing": {
+      "pageY": 2530,
+      "nodes": 0,
+      "coverage": "partial",
+      "omittedKeys": [
+        "unprovenFragmentedGeometry",
+        "unprovenGeometry",
+        "unprovenTextGeometry"
+      ],
+      "workLimit": false
+    },
+    "syntheticBaseline": {
+      "pageY": 1980,
+      "nodes": 0,
+      "coverage": "partial",
+      "omittedKeys": [
+        "unprovenGeometry",
+        "unprovenTextGeometry"
+      ],
+      "workLimit": false
+    },
+    "note": "Same signature (window pageY tracks scroll; no occlusion, unsupported-style or work-limit reasons). The live page DOM was not inspected, so its use of propagated root/body overflow is inferred, not observed."
+  },
+  "baselineReproduction": {
+    "run": "scroll-container-1793421922153-d7619a21",
+    "applicationDllSha256": "cab7206236022ccabf44ff9e512be6229288599999cdee72a5f780916b81fed9",
+    "source": "unchanged c3a9094 build",
+    "checks": 17,
+    "failed": [
+      "Lower-page textarea, chips and text upload entry are actionable: body-overflow",
+      "Withheld controls stay unreferenced after scrolling: body-overflow",
+      "Lower-page textarea, chips and text upload entry are actionable: root-overflow",
+      "Withheld controls stay unreferenced after scrolling: root-overflow"
+    ]
+  },
+  "build": {
+    "command": "./scripts/build.ps1 -Test -Jobs 4 -CefRoot ./third_party/cef",
+    "exitCode": 0,
+    "nativeSuites": 24,
+    "adapterAndFixedScriptChecks": 145,
+    "brandingChecks": 5
+  },
+  "browserValidation": [
+    {
+      "suite": "scroll_container",
+      "run": "scroll-container-1793422164293-5439d337",
+      "passed": true,
+      "checks": 17,
+      "results": [
+        {
+          "name": "Lower-page fields stay actionable at 120% browser zoom: window",
+          "passed": true
+        },
+        {
+          "name": "Lower-page fields stay actionable at 120% browser zoom: container",
+          "passed": true
+        },
+        {
+          "name": "Browser zoom resets before the remaining checks",
+          "passed": true
+        },
+        {
+          "name": "Lower-page textarea, chips and text upload entry are actionable: window",
+          "passed": true
+        },
+        {
+          "name": "Withheld controls stay unreferenced after scrolling: window",
+          "passed": true
+        },
+        {
+          "name": "Lower-page textarea, chips and text upload entry are actionable: body-overflow",
+          "passed": true
+        },
+        {
+          "name": "Withheld controls stay unreferenced after scrolling: body-overflow",
+          "passed": true
+        },
+        {
+          "name": "Lower-page textarea, chips and text upload entry are actionable: root-overflow",
+          "passed": true
+        },
+        {
+          "name": "Withheld controls stay unreferenced after scrolling: root-overflow",
+          "passed": true
+        },
+        {
+          "name": "Lower-page textarea, chips and text upload entry are actionable: container",
+          "passed": true
+        },
+        {
+          "name": "Withheld controls stay unreferenced after scrolling: container",
+          "passed": true
+        },
+        {
+          "name": "Lower-page textarea, chips and text upload entry are actionable: sticky",
+          "passed": true
+        },
+        {
+          "name": "Withheld controls stay unreferenced after scrolling: sticky",
+          "passed": true
+        },
+        {
+          "name": "Lower-page textarea, chips and text upload entry are actionable: dense",
+          "passed": true
+        },
+        {
+          "name": "Withheld controls stay unreferenced after scrolling: dense",
+          "passed": true
+        },
+        {
+          "name": "Page-driven scrollIntoView inside the container yields a fresh upload ref",
+          "passed": true
+        },
+        {
+          "name": "A ref from before a container scroll is rejected as stale geometry",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "visibility",
+      "run": "visibility-integration-1793422221441-53e75058",
+      "passed": true,
+      "checks": 16,
+      "results": [
+        {
+          "name": "Rendered viewport evidence excludes all hidden payloads from MCP JSON and text",
+          "passed": true
+        },
+        {
+          "name": "Brightness hover keeps both rendered controls and their references usable",
+          "passed": true
+        },
+        {
+          "name": "Visible button text remains actionable despite hostile accessibility labels",
+          "passed": true
+        },
+        {
+          "name": "A control near the far viewport corner stays verified and clickable by reference and coordinates",
+          "passed": true
+        },
+        {
+          "name": "At 120% browser zoom the far-corner control keeps CSS bounds and stays clickable by reference and coordinates",
+          "passed": true
+        },
+        {
+          "name": "Browser zoom resets before the remaining checks",
+          "passed": true
+        },
+        {
+          "name": "Decorative box shadows preserve unrelated rendered control references and queries",
+          "passed": true
+        },
+        {
+          "name": "Icon-only control uses a semantic fallback without exposing its hidden label",
+          "passed": true
+        },
+        {
+          "name": "Screenshot pixel coordinates land on narrow controls beside both scrollbars",
+          "passed": true
+        },
+        {
+          "name": "Right-to-left screenshot coordinates keep the main-frame scrollbar on the right",
+          "passed": true
+        },
+        {
+          "name": "A changed visible label invalidates its reference even when the hidden AX name is unchanged",
+          "passed": true
+        },
+        {
+          "name": "Shadow and frame boundaries preserve visible controls without hidden text",
+          "passed": true
+        },
+        {
+          "name": "Hidden parent frames reject stale nested and OOPIF child references before website input",
+          "passed": true
+        },
+        {
+          "name": "Visible generated content is represented or explicitly marked incomplete",
+          "passed": true
+        },
+        {
+          "name": "Hidden-only text cannot satisfy observation queries or waits",
+          "passed": true
+        },
+        {
+          "name": "Visible page instructions remain untrusted content without instruction authority",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "existing_upload",
+      "run": "upload-entry-1793422247177-3b3026ba",
+      "passed": true,
+      "checks": 17,
+      "results": [
+        {
+          "name": "File discovery retains truncation, later pages and scoped relative-path filters",
+          "passed": true
+        },
+        {
+          "name": "Visible direct file input transfers only an approved opaque file",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted custom upload entry",
+          "passed": true
+        },
+        {
+          "name": "Approved file follows trusted cross-frame upload entry",
+          "passed": true
+        },
+        {
+          "name": "A brightness-styled hover preserves the approved upload entry",
+          "passed": true
+        },
+        {
+          "name": "Observed Device text opens its exact chooser: custom-text",
+          "passed": true
+        },
+        {
+          "name": "Observed Device text opens its exact chooser: frame-text",
+          "passed": true
+        },
+        {
+          "name": "Changed Device text rejects its stale reference before activation",
+          "passed": true
+        },
+        {
+          "name": "Device text in a disabled container is denied before activation",
+          "passed": true
+        },
+        {
+          "name": "Ordinary observed text without a chooser never receives a file",
+          "passed": true
+        },
+        {
+          "name": "Device text cannot delegate its approved file to another frame",
+          "passed": true
+        },
+        {
+          "name": "A visible button without a file chooser cannot receive a file",
+          "passed": true
+        },
+        {
+          "name": "Invalid and cross-workspace grants are denied before entry activation",
+          "passed": true
+        },
+        {
+          "name": "A changed visible upload entry rejects its stale reference before input",
+          "passed": true
+        },
+        {
+          "name": "A multiple-file chooser receives only the one approved file",
+          "passed": true
+        },
+        {
+          "name": "Disabled controls and directory pickers cannot transfer files",
+          "passed": true
+        },
+        {
+          "name": "A parent entry cannot delegate its file grant to a different frame",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "rendered_upload",
+      "run": "upload-entry-1793422270440-1d23bb04",
+      "passed": true,
+      "checks": 7,
+      "results": [
+        {
+          "name": "Visible UPLOAD RESUME has an upload ref: oracle-text",
+          "passed": true
+        },
+        {
+          "name": "Visible UPLOAD RESUME has an upload ref: oracle-aria-hidden",
+          "passed": true
+        },
+        {
+          "name": "Visible UPLOAD RESUME has an upload ref: oracle-frame",
+          "passed": true
+        },
+        {
+          "name": "Unrendered upload text remains withheld: oracle-hidden",
+          "passed": true
+        },
+        {
+          "name": "Unrendered upload text remains withheld: oracle-covered",
+          "passed": true
+        },
+        {
+          "name": "Rendered-only upload text preserves disabled ancestor checks",
+          "passed": true
+        },
+        {
+          "name": "Rendered-only upload text revalidates its label before activation",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "screenshot",
+      "run": "screenshot-integration-1793422278756-591c19d5",
+      "passed": true,
+      "checks": 10,
+      "results": [
+        {
+          "name": "Readiness keys are never reflected into fixture HTML",
+          "passed": true
+        },
+        {
+          "name": "Safe safe page returns PNG",
+          "passed": true
+        },
+        {
+          "name": "Safe same-safe page returns PNG",
+          "passed": true
+        },
+        {
+          "name": "Safe cross-safe page returns PNG",
+          "passed": true
+        },
+        {
+          "name": "password credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "shadow credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "same-password credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "cross-password credentials withhold every image",
+          "passed": true
+        },
+        {
+          "name": "Replacing a credential frame with a verified safe frame restores capture",
+          "passed": true
+        },
+        {
+          "name": "Repeated nested cross-origin frame replacement stays capturable",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "suite": "integration",
+      "run": "integration-1793422299521-737dc5ab",
+      "passed": true,
+      "checks": 17,
+      "results": [
+        {
+          "name": "Four separate adapters, three live tabs each",
+          "passed": true
+        },
+        {
+          "name": "Workspace and result isolation",
+          "passed": true
+        },
+        {
+          "name": "A pending wait does not block other adapters",
+          "passed": true
+        },
+        {
+          "name": "Page-only screenshots through real MCP image output",
+          "passed": true
+        },
+        {
+          "name": "Replaced nodes reject stale references",
+          "passed": true
+        },
+        {
+          "name": "Overlay hit testing rejects obscured input",
+          "passed": true
+        },
+        {
+          "name": "Same-origin and cross-origin frames expose usable references",
+          "passed": true
+        },
+        {
+          "name": "Shadow DOM actionability and semantics",
+          "passed": true
+        },
+        {
+          "name": "Visual coordinates require a current screenshot",
+          "passed": true
+        },
+        {
+          "name": "JavaScript dialogs are handled without blocking other tabs",
+          "passed": true
+        },
+        {
+          "name": "Website JavaScript links and logout confirmations remain usable",
+          "passed": true
+        },
+        {
+          "name": "Download namespace reports opaque scoped metadata",
+          "passed": true
+        },
+        {
+          "name": "Idle agent handoff preserves live document, form, selection, scroll, stream and site events",
+          "passed": true
+        },
+        {
+          "name": "Related popups transfer as one ownership group",
+          "passed": true
+        },
+        {
+          "name": "Mid-drag handoff waits for release before changing ownership",
+          "passed": true
+        },
+        {
+          "name": "Four workers behind one adapter, three tabs each",
+          "passed": true
+        },
+        {
+          "name": "Disconnect/reconnect preserves page and never replays mutations",
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Synthetic loopback fixtures only; no live employer site, account or captured session was used",
+    "Native test drivers were not used; input reached pages through the production browser and MCP adapter",
+    "Raw fixture profiles, call histories and logs remain local"
+  ]
+}

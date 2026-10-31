@@ -113,6 +113,10 @@ async function launch() {
 
 // Synthetic application form. Layout modes:
 //   window     the document scrolls
+//   body-overflow  html,body{height:100%} body{overflow-x:hidden}: the body's
+//              overflow (computed overflow-y auto) applies to the scrolling
+//              viewport, not to the body's one-screen-high box
+//   root-overflow  html{height:100%;overflow-x:hidden}: the same for the root
 //   container  html/body are fixed height; an inner overflow:auto pane scrolls
 //              below a fixed page header (the common SPA wizard layout)
 //   sticky     container plus a composited (translateZ) pane, sticky section
@@ -122,7 +126,7 @@ async function launch() {
 // Withholding probes inside the pane: a hidden upload entry, one covered by an
 // opaque panel, one scrolled out of the pane's clip and a disabled textarea.
 function page(caseId, mode) {
-  const container = mode !== 'window', sticky = mode === 'sticky', dense = mode === 'dense';
+  const container = ['container', 'sticky', 'dense'].includes(mode), sticky = mode === 'sticky', dense = mode === 'dense';
   const filler = (count, prefix) => Array.from({ length: count }, (_, i) => '<p class="filler">' + prefix + ' paragraph ' + (i + 1) + ' explains a synthetic policy for this practice application form.</p>').join('');
   const section = (title, body) => '<section><h2' + (sticky ? ' class="sticky"' : '') + '>' + title + '</h2>' + body + '</section>';
   const upload = (id, label, extra = '') => '<div class="upload" ' + extra + '><span id="' + id + '" class="entry">' + label + '</span><input id="' + id + '-file" type="file" hidden></div>';
@@ -142,7 +146,7 @@ function page(caseId, mode) {
   const style = '<style>*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#111;font:16px system-ui}' +
     'header{height:64px;background:#0b3a5b;color:#fff;font-size:20px;padding:20px}' +
     (container ? 'html,body{height:100%;overflow:hidden}header{position:fixed;top:0;left:0;right:0;z-index:2}#pane{position:absolute;top:64px;left:0;right:0;bottom:0;overflow:auto' + (sticky ? ';transform:translateZ(0)' : '') + '}'
-      : 'header{position:sticky;top:0;z-index:2}#pane{}') +
+      : 'header{position:sticky;top:0;z-index:2}' + (mode === 'body-overflow' ? 'html,body{height:100%}body{overflow-x:hidden}' : mode === 'root-overflow' ? 'html{height:100%;overflow-x:hidden}' : '')) +
     '#form{max-width:720px;margin:0 auto;padding:16px 24px 400px}section{margin-bottom:24px}h2{background:#fff;margin:0;padding:12px 0;font-size:20px}' +
     (sticky ? '.sticky{position:sticky;top:0;z-index:1;border-bottom:1px solid #999}.actions{position:sticky;bottom:0;background:#eee;padding:12px;border-top:1px solid #999}' : '') +
     'label,.label{display:block;margin:12px 0 4px;font-weight:600}input,textarea{display:block;width:100%;font:inherit;padding:8px;border:1px solid #555;background:#fff;color:#111}' +
@@ -247,7 +251,7 @@ try {
     return { viewport: await settleZoom(tab, zoomBase, 1) };
   });
 
-  for (const mode of ['window', 'container', 'sticky', 'dense']) {
+  for (const mode of ['window', 'body-overflow', 'root-overflow', 'container', 'sticky', 'dense']) {
     await check('Lower-page textarea, chips and text upload entry are actionable: ' + mode, async () => {
       const tab = await open(mode, mode), state = states.get(mode);
       await act(tab, 'Why this role?', 'TEXTAREA', 'fill', { text: 'Synthetic motivation ' + mode });
@@ -322,7 +326,7 @@ try {
   try { applicationDllSha256AtEnd = await hashDll(); assert.equal(applicationDllSha256AtEnd, applicationDllSha256, 'Browser DLL changed during test'); }
   catch (error) { results.push({ name: 'Binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary, profile, applicationDllSha256, applicationDllSha256AtEnd,
-    mode: diagnose ? 'diagnosis' : 'acceptance', passed: results.length === 13 && results.every(result => result.passed), results, scrollTraces };
+    mode: diagnose ? 'diagnosis' : 'acceptance', passed: results.length === 17 && results.every(result => result.passed), results, scrollTraces };
   await mkdir(resolve(root, 'out'), { recursive: true }); const reportPath = resolve(root, 'out', run + '.json');
   await writeFile(reportPath, JSON.stringify(report, null, 2)); console.log('Report: ' + reportPath); process.exitCode = report.passed ? 0 : 1;
 }
