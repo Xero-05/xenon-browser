@@ -34,6 +34,7 @@ struct Fixture {
     if(key=="mix-blend-mode" || key=="letter-spacing" || key=="word-spacing")return "normal";
     if(key=="text-overflow")return "clip";
     if(key=="content-visibility")return "visible";
+    if(key=="container-type")return "normal";
     if(key.starts_with("border-") || key.starts_with("padding-") || key=="-webkit-text-stroke-width" || key=="outline-width" || key=="outline-offset")return "0px";
     return "none";
   }
@@ -477,13 +478,54 @@ void display_scale_uses_css_pixels() {
     require(rejected["omitted"].contains("unprovenLayoutScale") && rejected["frames"].empty(),"Missing, malformed or mixed layout scales were guessed");
   }
 }
+// html,body{height:100%} body{overflow-x:hidden}: body's computed overflow-y
+// becomes auto, yet Chromium applies both to the viewport, which scrolls. Its
+// own viewport-high box clips nothing. Real clips must still withhold.
+struct ScrolledPage {
+  Fixture f;int body{},body_layout{};
+  ScrolledPage(const std::string& html_overflow,const std::string& body_overflow) {
+    f.viewports["main"]["y"]=2000;
+    f.style(0,0,"overflow-x",html_overflow=="visible"?"visible":"hidden");f.style(0,0,"overflow-y",html_overflow);
+    body=f.node(0,1,"BODY");body_layout=f.layout(0,body,{0,0,800,600},0);
+    f.style(0,body_layout,"overflow-x",body_overflow=="visible"?"visible":"hidden");f.style(0,body_layout,"overflow-y",body_overflow);
+  }
+};
+void viewport_propagated_overflow() {
+  for(const auto& [html,body]:std::vector<std::pair<std::string,std::string>>{{"visible","auto"},{"visible","hidden"},{"auto","visible"},{"hidden","visible"}}) {
+    ScrolledPage page(html,body);auto [button,text]=page.f.button(0,page.body,"Lower control",20,2100);
+    auto result=page.f.run();const auto& output=Fixture::output(result,button);
+    require(output["name"]=="Lower control","Viewport-propagated root/body overflow clipped content scrolled below the first screen");
+    require(output["bounds"]["y"]==2100,"Scrolled control bounds changed coordinate space");
+    page.f.viewports["main"]["y"]=0;
+    require(page.f.run().dump().find("Lower control")==std::string::npos,"Content below the viewport was admitted once root/body overflow was ignored");
+  }
+  // An opaque panel below the first screen still covers what it overlaps.
+  ScrolledPage covered("visible","auto");auto [hidden_button,hidden_text]=covered.f.button(0,covered.body,"HIDDEN_PROPAGATED_COVER",20,2100);
+  int panel=covered.f.node(0,covered.body,"DIV");int pl=covered.f.layout(0,panel,{0,2050,400,150},100);covered.f.style(0,pl,"background-color","rgb(255, 255, 255)");
+  require(covered.f.run().dump().find("HIDDEN_PROPAGATED_COVER")==std::string::npos,"An occluder below the root/body box was clipped away");
+  // A non-propagated body, a later BODY, ordinary containers and any
+  // containment on html or body keep the element box as a real clip.
+  const auto withheld=[](ScrolledPage& page,int parent,const char* message) {
+    page.f.button(0,parent,"HIDDEN_REAL_CLIP",20,2100);require(page.f.run().dump().find("HIDDEN_REAL_CLIP")==std::string::npos,message);
+  };
+  {ScrolledPage page("auto","hidden");withheld(page,page.body,"A body whose overflow does not propagate failed to clip");}
+  {ScrolledPage page("visible","visible");int second=page.f.node(0,1,"BODY");int sl=page.f.layout(0,second,{0,0,800,600},0);
+    page.f.style(0,sl,"overflow-x","hidden");page.f.style(0,sl,"overflow-y","auto");withheld(page,second,"A secondary BODY was treated as the viewport scroller");}
+  {ScrolledPage page("visible","auto");int div=page.f.node(0,page.body,"DIV");int dl=page.f.layout(0,div,{0,0,800,600},0);
+    page.f.style(0,dl,"overflow-x","hidden");page.f.style(0,dl,"overflow-y","hidden");withheld(page,div,"An ordinary clipping container inside the propagated body failed to clip");}
+  for(const auto& [key,value]:std::vector<std::pair<std::string,std::string>>{{"contain","paint"},{"contain","layout"},{"container-type","size"},{"container-type","inline-size"},{"content-visibility","auto"},{"transform","matrix(1, 0, 0, -1, 0, 0)"}}) {
+    {ScrolledPage page("visible","auto");page.f.style(0,page.body_layout,key,value);withheld(page,page.body,"A contained body was treated as the viewport scroller");}
+    {ScrolledPage page("visible","auto");page.f.style(0,0,key,value);withheld(page,page.body,"Root containment did not keep the body clip");}
+    {ScrolledPage page("auto","visible");page.f.style(0,0,key,value);withheld(page,page.body,"A contained root was treated as the viewport scroller");}
+  }
+}
 }
 int main(int argc,char** argv) {
   try {
     // Optional offline replay accepts only a caller-selected synthetic snapshot;
     // no browser diagnostics or raw website snapshots are enabled in production.
     if(argc==2){std::ifstream input(argv[1]);Json fixture;input>>fixture;std::cout<<xenon::visible_snapshot(fixture.at("snapshot"),fixture.at("viewports")).dump(2)<<'\n';return 0;}
-    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();bounded_backdrop_paint();rectangular_clips_and_blur_bounds();bounded_text_shadows_and_rounded_clips();uncertain_controls_are_structural_only();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();repeated_inline_fragments_preserve_paint_ancestry();identity_transform_is_not_uncertain_geometry();utf16_and_unicode_controls();child_frames_and_malformed_evidence();layout_metrics_supply_snapshot_scale();pinch_zoom_limits_rendered_viewport();display_scale_uses_css_pixels();
+    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();bounded_backdrop_paint();rectangular_clips_and_blur_bounds();bounded_text_shadows_and_rounded_clips();uncertain_controls_are_structural_only();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();repeated_inline_fragments_preserve_paint_ancestry();identity_transform_is_not_uncertain_geometry();utf16_and_unicode_controls();child_frames_and_malformed_evidence();layout_metrics_supply_snapshot_scale();pinch_zoom_limits_rendered_viewport();display_scale_uses_css_pixels();viewport_propagated_overflow();
     std::cout<<"Visible evidence regression tests passed\n";return 0;
   }catch(const std::exception& e){std::cerr<<"Visible evidence test failed: "<<e.what()<<'\n';return 1;}
 }
