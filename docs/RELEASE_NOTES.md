@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.11
+
+See the [0.1.11 notes](RELEASE-0.1.11.md) for the fix and release limits.
+
+**Lower-page references on pages with propagated overflow.** Pages that put overflow on the root or `body` no longer lose every verified reference below the first screen after scrolling. Only the viewport-defining element's own box clip is skipped, as in Chromium; other clips, occlusion and text checks are unchanged.
+
 ## 0.1.10
 
 See the [0.1.10 notes](RELEASE-0.1.10.md) for the fixes and release limits.

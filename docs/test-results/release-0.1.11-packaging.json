@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.11",
+  "stage": "validated local release; not published or installed",
+  "capturedUtc": "2026-10-31T22:05:00Z",
+  "passed": true,
+  "sourceBaseCommit": "e154d4b",
+  "sourceChanges": "Release version and documentation only, on top of merged PR #65.",
+  "validationScope": "Changed visibility code and packaging only, at the maintainer's request.",
+  "binaries": {
+    "Xenon.dll": "01a40c4a00ea2252b6bd55fe6104a25309948606c1f520707bb5de634f8d46be",
+    "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+  },
+  "engine": {
+    "cef": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "recipe": "cef.mediaSourceBuild",
+    "reusedAuditedDistributionFrom": "0.1.9",
+    "sourceRebuiltOrReaudited": false
+  },
+  "checks": {
+    "nativeGroups": { "passed": 24, "total": 24 },
+    "npmChecks": { "passed": 145, "total": 145 },
+    "brandingChecks": { "passed": 5, "total": 5 },
+    "scrollContainerIntegration": { "passed": 17, "total": 17 },
+    "visibilityIntegration": { "passed": 16, "total": 16 },
+    "packageRuntimeHashes": 1363,
+    "packageSmoke": { "passed": 6, "total": 6 }
+  },
+  "notRun": [
+    "Other production-browser suites",
+    "media-integration and frame-pacing suites",
+    "isolated installer tests",
+    "npm audit"
+  ],
+  "assets": [
+    { "name": "Xenon-0.1.11-windows-x64-setup-unsigned.exe", "bytes": 206494653, "sha256": "c6518d004f2d7463e29e8a5943602e5aefe85efca49c2ed566115fa363d58171" },
+    { "name": "Xenon-0.1.11-windows-x64-setup-unsigned.exe.sha256", "bytes": 110, "sha256": "1f6eb418a1bc94ba2aed2b95ddfd38d516b1c7045625122f5b73a422445689c2" },
+    { "name": "Xenon-0.1.11-windows-x64-unsigned.zip", "bytes": 233335898, "sha256": "59b1fd025ae33464e46db27bb31a83158ab21f143a950ce8b76c8c6ae171dbeb" },
+    { "name": "Xenon-0.1.11-windows-x64-unsigned.zip.sha256", "bytes": 104, "sha256": "f65d96cda1a32a407559d066aa7dd7b932521364d5ef46503d52114c34f6cf2a" }
+  ]
+}
