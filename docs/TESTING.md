@@ -1,5 +1,11 @@
 # Validation
 
+## 0.1.11 release validation
+
+The 0.1.11 source is merged PR #65 (`e154d4b`) plus release version and documentation changes. It reuses the audited Windows-decoder distribution from 0.1.9 and 0.1.10 (libcef.dll `c997b65a…`); the engine source was not rebuilt or re-audited. At the maintainer's request, validation covered only the changed visibility code and packaging, not the full live acceptance set.
+
+The local build (`Xenon.dll` `01a40c4a…`) passed 24 native suites, 145 adapter/fixed-script checks and five branding checks. On that DLL and engine, the production-browser scroll-container suite passed all 17 cases and the visibility suite all 16. The ZIP was then packaged, verified with `verify-package.ps1` and smoke-tested after extraction, and the installer was built from it. Other live suites, media/pacing suites and isolated installer tests were not rerun; their 0.1.10 results apply to unchanged code only.
+
 ## Lower-page references under viewport-propagated overflow (local candidate, 2026-10-31)
 
 Observation withheld every node below the first screen when the page set `html,body{height:100%}` with `body{overflow-x:hidden}` (or put the overflow on the root). The body's computed `overflow-y` becomes `auto`, but Chromium applies both values to the scrolling viewport and never clips the body's own box. The rendered filter treated that one-screen-high box as an ancestor clip. A synthetic form reproduced the reported signature on unchanged 0.1.10 source: `nodes: []`, `coverage: partial`, only `unprovenGeometry`/`unprovenTextGeometry` omissions, and a window `pageY` that tracked the scroll. The supervising session's counts-only report from the live tab had the same signature. The live page DOM was not inspected, so that cause is inferred there, not observed.
