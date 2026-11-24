@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.1.12
+
+See the [0.1.12 notes](RELEASE-0.1.12.md) for the changes, engine details and release limits.
+
+**Compact, filtered and delta observations plus enhanced `xenon_wait`.** `xenon_observe` and `xenon_inspect` add `compact: true` (`nodeDefaults`), native `roles` and `interactiveOnly` filters, deduplicated `visibility.limitations`, and `sinceObservationId` delta responses. `xenon_wait` is now case-insensitive without 300-node truncation and adds `anyOf`, `absent: true` and `returnMode` (`full`/`matching`/`none`).
+
+**Human-agent handback UX and push activity.** `xenon_attention` distinguishes `kind: "help"` (orange pulse + floating **Done — resume agent** / **Hold while I work** banner) from `kind: "review"` (steady teal indicator + **Mark reviewed**), backed by a toolbar **Attention Queue** button. The local pipe now pushes client-scoped `control.activity` updates immediately, paired with a zero-polling `xenon_wait_ready` tool.
+
+**Batching, stale diagnostics and cropped screenshots.** `xenon_batch` adds `hover` and safe `key` steps, `stale_element` reports an allowlisted `staleReason`, and `xenon_screenshot` supports `clip` and `candidateId` crops gated behind the unchanged full-page multi-frame credential scan.
+
 ## 0.1.11
 
 See the [0.1.11 notes](RELEASE-0.1.11.md) for the fix and release limits.

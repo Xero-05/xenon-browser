@@ -1,5 +1,11 @@
 # Validation
 
+## 0.1.12 release validation
+
+The 0.1.12 source is merged PR #67 (`a08e9c3`) plus release version and documentation updates. It reuses the exact audited Windows-decoder distribution from 0.1.9, 0.1.10 and 0.1.11 (`libcef.dll` `c997b65a…`); the engine source was not rebuilt or re-audited.
+
+The local build (`Xenon.dll` `f121d479…`) passed 26 of 28 native CTest suites (including the four new suites `attention_queue_tests`, `broker_improvements_tests`, `observation_format_tests` and `screenshot_clip_tests`), while the two pre-existing CTest failures in this worktree environment (`browser_data_tests` and `browser_import_tests`) both passed when invoked directly from the repository root (`EXIT=0`). It also passed 194 adapter/SDK/fixed-script checks and five branding checks. On that exact DLL and engine, the production-browser `tests/functional-improvements-integration.mjs` suite passed all 8 cases (measuring 63% smaller compact node payloads live) and `tests/integration.mjs` passed all 17 cases. The ZIP passed all 1,365 runtime-file hash checks in `verify-package.ps1` and all 6 extracted-archive smoke checks in `tests/package-smoke.mjs`, and the unsigned Inno Setup installer was built from the verified ZIP. See the [packaging record](test-results/release-0.1.12-packaging.json). Media/pacing suites, isolated installer tests and physical clicks on the new Win32 Attention Queue / floating banner chrome were not run on this build.
+
 ## 0.1.11 release validation
 
 The 0.1.11 source is merged PR #65 (`e154d4b`) plus release version and documentation changes. It reuses the audited Windows-decoder distribution from 0.1.9 and 0.1.10 (libcef.dll `c997b65a…`); the engine source was not rebuilt or re-audited. At the maintainer's request, validation covered only the changed visibility code and packaging, not the full live acceptance set.
