@@ -542,7 +542,16 @@ inline constexpr Translation translations[]{
   {L"A tab is waiting for you.",L"有一个标签页正在等待您。"},{L"Agents",L"代理"},
   {L"Show a Windows notification when an agent needs your help",L"代理需要您的帮助时显示 Windows 通知"},
   {L"The notification preference could not be saved.",L"无法保存通知设置。"},
-  {L"Agent help notifications are on.",L"已开启代理求助通知。"},{L"Agent help notifications are off.",L"已关闭代理求助通知。"}
+  {L"Agent help notifications are on.",L"已开启代理求助通知。"},{L"Agent help notifications are off.",L"已关闭代理求助通知。"},
+  // Attention queue, review-ready state and per-tab handback controls.
+  {L" · Ready for review",L" · 等待审阅"},{L" · Holding pause",L" · 已为你保持暂停"},
+  {L"Mark reviewed",L"标记为已审阅"},{L"Done — resume agent",L"完成 — 恢复代理"},
+  {L"Hold while I work",L"操作时保持暂停"},{L"Release pause hold",L"取消保持暂停"},
+  {L"Attention queue",L"待处理队列"},{L"Jump to next waiting tab",L"跳转到下一个待处理标签页"},
+  {L"Needs help",L"需要帮助"},{L"Ready for review",L"等待审阅"},
+  {L"{0} marked this tab ready for review.",L"{0} 已将此标签页标记为待审阅。"},
+  {L"{0} marked ready for review: “{1}”",L"{0} 标记为待审阅：“{1}”"},
+  {L"{0} ready for your review",L"{0} 等待你审阅"},{L"Paused while you work.",L"已为你保持暂停。"}
 };
 // Call only for Xenon-owned UI copy, never website content, names, IDs or commands.
 inline const wchar_t* tr(const wchar_t* english) {

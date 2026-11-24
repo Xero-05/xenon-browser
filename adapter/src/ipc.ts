@@ -4,9 +4,11 @@ import { readFile } from 'node:fs/promises';
 
 export interface NativeError { code: string; message: string }
 export type NativeReply = ({ ok: true; result: Record<string, unknown> } | { ok: false; error: NativeError }) & { operationId?: string; dispatchStatus?: string; timing?: { queueMs: number; executionMs: number; totalMs: number } };
+export interface BrokerEvent { event: string; [key: string]: unknown }
 export interface ClientConfig { clientId: string; token: string; pipe?: string }
 export interface BrokerTransport {
   call(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<NativeReply>;
+  onEvent?(listener: (event: BrokerEvent) => void): () => void;
   close(): void;
 }
 export const DEFAULT_PIPE = '\\\\.\\pipe\\xenon-browser';
@@ -31,9 +33,15 @@ export class PipeTransport implements BrokerTransport {
   private socket?: net.Socket;
   private buffer = Buffer.alloc(0);
   private pending = new Map<string, { resolve: (value: NativeReply) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
+  private eventListeners = new Set<(event: BrokerEvent) => void>();
   private closed = false;
 
   constructor(private readonly pipe = DEFAULT_PIPE) {}
+
+  onEvent(listener: (event: BrokerEvent) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => { this.eventListeners.delete(listener); };
+  }
 
   async connect(config?: ClientConfig): Promise<void> {
     if (this.socket) throw new BrokerError('ALREADY_CONNECTED', 'Transport is already connected.');
@@ -88,6 +96,13 @@ export class PipeTransport implements BrokerTransport {
       try { result = JSON.parse(line); } catch { this.protocolFailure(); return; }
       if (!result || typeof result !== 'object') { this.protocolFailure(); return; }
       const response = result as Record<string, unknown>;
+      if (response.id === undefined && typeof response.event === 'string') {
+        const event = response as unknown as BrokerEvent;
+        for (const listener of this.eventListeners) {
+          try { listener(event); } catch { /* Listener errors cannot disrupt RPC transport. */ }
+        }
+        continue;
+      }
       if (typeof response.id !== 'string' || typeof response.ok !== 'boolean') { this.protocolFailure(); return; }
       const item = this.pending.get(response.id);
       if (!item) continue; // Late response to an expired call; never resubmit it.

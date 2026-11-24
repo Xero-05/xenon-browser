@@ -1,4 +1,5 @@
 #pragma once
+#include "xenon/contracts.hpp"
 #include <memory>
 #include <string>
 
@@ -13,6 +14,10 @@ class PipeServer {
   PipeServer& operator=(const PipeServer&) = delete;
   void start();
   void stop();
+  // Best-effort unsolicited event push to one connected client. Bounded below
+  // the RPC buffer limit and coalesced/dropped under pressure so a slow reader
+  // never tears down active RPC traffic.
+  void send_event(const std::string& connection_id, Json event);
   std::wstring name() const;
   // False before start(), after stop(), and while a listener instance cannot
   // be created and the acceptor is retrying. Waiting at the connection budget

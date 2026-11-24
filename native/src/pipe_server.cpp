@@ -17,6 +17,9 @@ namespace {
 constexpr size_t max_request_bytes = 1024 * 1024;
 constexpr size_t max_response_bytes = 16 * 1024 * 1024;
 constexpr size_t max_queued_bytes = 32 * 1024 * 1024;
+constexpr size_t max_event_bytes = 1024 * 1024;
+constexpr size_t max_event_queue_budget = max_queued_bytes / 2;
+constexpr size_t max_pending_events = 8;
 constexpr DWORD min_retry_ms = 10, max_retry_ms = 1000;
 struct Handle {
   HANDLE value{INVALID_HANDLE_VALUE};
@@ -49,8 +52,10 @@ struct PipeServer::Impl {
     std::atomic<size_t> pending{};
     std::mutex mutex;
     std::condition_variable condition;
-    std::deque<std::string> writes;
+    struct Frame { std::string data; bool is_event{}; };
+    std::deque<Frame> writes;
     size_t queued_bytes{};
+    size_t queued_events{};
     std::thread reader, writer;
     Connection(Broker& target, HANDLE handle) : broker(target), pipe(handle), stop_event(CreateEventW(nullptr, TRUE, FALSE, nullptr)), id("conn_" + local_security::random_hex(16)) {
       if (!stop_event.value) throw std::runtime_error("Cannot create IPC stop event");
@@ -63,7 +68,31 @@ struct PipeServer::Impl {
       try { encoded = value.dump(); } catch (...) { stop(); return; }
       if (encoded.size() > max_response_bytes) { auto error = failure("RESPONSE_TOO_LARGE", "Response exceeds the local IPC limit; request a smaller observation"); error["id"] = value.value("id", Json(nullptr)); encoded = error.dump(); }
       encoded.push_back('\n');
-      { std::lock_guard lock(mutex); if (queued_bytes + encoded.size() > max_queued_bytes) { stop(); return; } queued_bytes += encoded.size(); writes.push_back(std::move(encoded)); }
+      { std::lock_guard lock(mutex); if (queued_bytes + encoded.size() > max_queued_bytes) { stop(); return; } queued_bytes += encoded.size(); writes.push_back({std::move(encoded), false}); }
+      condition.notify_one();
+    }
+    void enqueue_event(Json value) {
+      if (!alive || !value.is_object() || !value.contains("event") || !value["event"].is_string()) return;
+      std::string encoded;
+      try { encoded = value.dump(); } catch (...) { return; }
+      if (encoded.size() > max_event_bytes) return;
+      encoded.push_back('\n');
+      { std::lock_guard lock(mutex);
+        if (!alive) return;
+        // Drop oldest queued event when bursting so the client sees the latest
+        // state without starving RPC replies or hitting the disconnect ceiling.
+        while (queued_events >= max_pending_events) {
+          auto oldest = std::find_if(writes.begin(), writes.end(), [](const Frame& f) { return f.is_event; });
+          if (oldest == writes.end()) break;
+          queued_bytes -= oldest->data.size();
+          --queued_events;
+          writes.erase(oldest);
+        }
+        if (queued_bytes + encoded.size() > max_event_queue_budget) return;
+        queued_bytes += encoded.size();
+        ++queued_events;
+        writes.push_back({std::move(encoded), true});
+      }
       condition.notify_one();
     }
     void start() {
@@ -73,15 +102,17 @@ struct PipeServer::Impl {
       auto* self = this;
       writer = std::thread([self] {
         while (self->alive) {
-          std::string data;
+          Frame frame;
           { std::unique_lock lock(self->mutex); self->condition.wait(lock, [&] { return !self->alive || !self->writes.empty(); });
             if (!self->alive) break;
-            data = std::move(self->writes.front()); self->writes.pop_front(); self->queued_bytes -= data.size();
+            frame = std::move(self->writes.front()); self->writes.pop_front();
+            self->queued_bytes -= frame.data.size();
+            if (frame.is_event && self->queued_events > 0) --self->queued_events;
           }
           size_t offset{};
-          while (self->alive && offset < data.size()) {
+          while (self->alive && offset < frame.data.size()) {
             DWORD count{};
-            if (!transfer(self->pipe.value, self->stop_event.value, true, data.data() + offset, static_cast<DWORD>(data.size() - offset), count) || !count) { self->stop(); break; }
+            if (!transfer(self->pipe.value, self->stop_event.value, true, frame.data.data() + offset, static_cast<DWORD>(frame.data.size() - offset), count) || !count) { self->stop(); break; }
             offset += count;
           }
         }
@@ -223,6 +254,15 @@ struct PipeServer::Impl {
       running = false;
     });
   }
+  void send_event(const std::string& connection_id, Json event) {
+    std::shared_ptr<Connection> target;
+    { std::lock_guard lock(mutex);
+      for (const auto& connection : connections) {
+        if (connection->id == connection_id && connection->alive) { target = connection; break; }
+      }
+    }
+    if (target) target->enqueue_event(std::move(event));
+  }
   void stop() {
     running = false; SetEvent(stop_event.value);
     if (acceptor.joinable()) acceptor.join();
@@ -239,12 +279,14 @@ struct PipeServer::Impl {
   Impl(Broker&, std::wstring name) : pipe_name(std::move(name)) {}
   void start() { throw std::runtime_error("Windows named pipes are required"); }
   void stop() {}
+  void send_event(const std::string&, Json) {}
 };
 #endif
 PipeServer::PipeServer(Broker& broker, std::wstring name) : impl_(std::make_unique<Impl>(broker, std::move(name))) {}
 PipeServer::~PipeServer() { stop(); }
 void PipeServer::start() { impl_->start(); }
 void PipeServer::stop() { impl_->stop(); }
+void PipeServer::send_event(const std::string& connection_id, Json event) { impl_->send_event(connection_id, std::move(event)); }
 std::wstring PipeServer::name() const { return impl_->pipe_name; }
 bool PipeServer::listening() const { return impl_->listening; }
 }

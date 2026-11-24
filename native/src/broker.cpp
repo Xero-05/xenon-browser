@@ -34,6 +34,11 @@ double elapsed_ms(std::chrono::steady_clock::time_point start, std::chrono::stea
 }
 const std::set<std::string> write_commands{"tabs.close", "page.navigate", "page.back", "page.forward", "page.reload", "page.click", "page.fill", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.batch", "page.dialog", "files.upload", "auth.login"};
 const std::set<std::string> target_commands{"page.click", "page.fill", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.batch", "files.upload", "auth.login"};
+bool valid_batch_key(const Json& value) {
+  if (!value.is_string()) return false;
+  const auto& key = value.get_ref<const std::string&>();
+  return !key.empty() && key.size() <= 80 && std::all_of(key.begin(), key.end(), [](unsigned char ch) { return ch > 32 && ch != 127; });
+}
 // Validate the entire bounded plan before admitting any effects. Nested steps
 // cannot override scope, authority, observations or the recovery operation ID.
 bool valid_batch(const Json& params) {
@@ -43,7 +48,11 @@ bool valid_batch(const Json& params) {
   for (const auto& step : *steps) {
     if (!step.is_object()) return false;
     bytes += step.dump().size(); if (bytes > 65536) return false;
-    const auto action = field(step, "action"), ref = field(step, "elementRef");
+    const auto action = field(step, "action");
+    if (action == "key") {
+      if (step.size() != 2 || !step.contains("key") || !valid_batch_key(step["key"])) return false;
+      continue;
+    }
     if (!step.contains("elementRef") || !valid_handle(step["elementRef"])) return false;
     std::set<std::string> keys{"action", "elementRef"};
     if (action == "fill") {
@@ -55,7 +64,7 @@ bool valid_batch(const Json& params) {
       for (const auto& value : *values) if (!value.is_string() || value.get_ref<const std::string&>().size() > 10000) return false;
     } else if (action == "check") {
       keys.insert("checked"); if (!step.contains("checked") || !step["checked"].is_boolean()) return false;
-    } else if (action != "click") return false;
+    } else if (action != "click" && action != "hover") return false;
     if (step.size() != keys.size()) return false;
     for (const auto& [key, value] : step.items()) if (!keys.contains(key)) return false;
   }
@@ -145,16 +154,23 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   // releasing the tab, and ends when anyone else takes control, the client
   // loses interaction permission or the person dismisses it.
   // `seen` is set natively once the person was present with the tab in front.
-  struct Attention { std::string session, client, reason; uint64_t generation{}, attachment{}, sequence{}; bool seen{}, persist{}; };
+  struct Attention { std::string session, client, reason, kind{"help"}; uint64_t generation{}, attachment{}, sequence{}; bool seen{}, persist{}; };
   struct Tab {
     std::string workspace, owner, document, group;
-    uint64_t generation{1}, state_epoch{}, human_epoch{}; bool frozen{}, human_busy{}, protected_auth{}, closing{}, passkey_refused{};
+    uint64_t generation{1}, state_epoch{}, human_epoch{}, human_help_resolved_epoch{}; bool frozen{}, human_busy{}, human_help_hold{}, protected_auth{}, closing{}, passkey_refused{};
     std::optional<int64_t> human_pause_until;
     std::optional<std::string> pending_owner;
     std::optional<Attention> attention;
     std::string active, dialog_active;
     std::deque<Command> queue;
     std::map<std::string, Observation> observations;
+  };
+  struct ReadyWaiter {
+    std::string tab_id, client, workspace, session, connection;
+    uint64_t attachment{}, policy_epoch{};
+    bool wait_for_help{};
+    std::chrono::steady_clock::time_point deadline;
+    Reply reply;
   };
   struct Operation {
     std::string client, tab, workspace, method, signature, state{"queued"};
@@ -198,16 +214,88 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   uint64_t attention_sequence{};
   const Limits limits;
   std::function<void()> ui_state_callback;
+  ConnectionEventSink connection_event_sink;
+  std::map<std::string, Json> last_pushed_activity;
+  std::vector<ReadyWaiter> ready_waiters;
+  std::condition_variable ready_condition;
+  bool ready_stopped{};
+  std::thread ready_thread;
   AccountDirectory account_directory;
   struct UiChange {
     Impl* self;
     ~UiChange() { try { self->notify_ui(); } catch(...) {} }
   };
-  void notify_ui() {
-    std::function<void()> callback;{std::lock_guard lock(mutex);callback=ui_state_callback;}
-    if(callback)callback();
+  Json activity_tabs_locked(const std::string& client) const {
+    Json result = Json::array();
+    for (const auto& [id, tab] : tabs) {
+      const auto owner = workers.find(tab.owner);
+      if (owner != workers.end() && owner->second.client == client && owner->second.connected && !owner->second.retiring && granted(client, tab.workspace))
+        result.push_back(tab_json(id, tab, tab.owner));
+    }
+    return result;
   }
-  static constexpr size_t disconnected_cache = 256, max_retained_workers = 1024, max_tabs = 64, max_queue = 16, max_worker_pending = 32, max_journal = 4096;
+  bool ready_satisfied_locked(const Tab& tab, bool wait_for_help) const {
+    if (human_paused_locked(tab)) return false;
+    if (wait_for_help && attention_active_locked(tab) && tab.attention->kind == "help") return false;
+    return true;
+  }
+  void check_ready_waiters_locked(std::vector<Delivery>& output, std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now()) {
+    for (auto it = ready_waiters.begin(); it != ready_waiters.end();) {
+      auto& w = *it;
+      Json reply_value;
+      if (stopping) reply_value = failure("STOPPED", "Browser control is stopped");
+      else if (!clients.contains(w.client) || !granted(w.client, w.workspace)) reply_value = failure("ACCESS_REVOKED", "Workspace access was revoked while waiting");
+      else if (clients.at(w.client).policy_epoch != w.policy_epoch) reply_value = failure("PERMISSION_CHANGED", "Native permissions changed while waiting");
+      else if (!worker_active_locked(w.session, w.client, w.connection, w.attachment)) reply_value = stale_worker_locked(w.session);
+      else {
+        auto tab = tabs.find(w.tab_id);
+        if (tab == tabs.end() || tab->second.workspace != w.workspace) reply_value = failure("TAB_CLOSED", "Tab closed while waiting");
+        else if (ready_satisfied_locked(tab->second, w.wait_for_help)) reply_value = success({{"status", "ready"}, {"control", tab_json(w.tab_id, tab->second, w.session)}});
+        else if (now >= w.deadline) reply_value = success({{"status", "timeout"}, {"control", tab_json(w.tab_id, tab->second, w.session)}});
+      }
+      if (!reply_value.is_null()) {
+        output.emplace_back(std::move(w.reply), std::move(reply_value));
+        it = ready_waiters.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  void notify_ui() {
+    std::function<void()> callback;
+    ConnectionEventSink sink;
+    std::vector<std::pair<std::string, Json>> pushes;
+    std::vector<Delivery> ready_deliveries;
+    {
+      std::lock_guard lock(mutex);
+      check_ready_waiters_locked(ready_deliveries);
+      callback = ui_state_callback;
+      sink = connection_event_sink;
+      if (sink) {
+        for (auto it = last_pushed_activity.begin(); it != last_pushed_activity.end();) {
+          if (!connections.contains(it->first)) it = last_pushed_activity.erase(it);
+          else ++it;
+        }
+        for (const auto& [conn_id, client] : connections) {
+          if (!clients.contains(client)) continue;
+          auto tabs_snapshot = activity_tabs_locked(client);
+          auto prev = last_pushed_activity.find(conn_id);
+          if (prev == last_pushed_activity.end() || prev->second != tabs_snapshot) {
+            last_pushed_activity[conn_id] = tabs_snapshot;
+            pushes.emplace_back(conn_id, Json{{"event", "control.activity"}, {"tabs", std::move(tabs_snapshot)}});
+          }
+        }
+      }
+    }
+    deliver(std::move(ready_deliveries));
+    if (sink) {
+      for (auto& [conn_id, payload] : pushes) {
+        try { sink(conn_id, std::move(payload)); } catch (...) {}
+      }
+    }
+    if (callback) callback();
+  }
+  static constexpr size_t disconnected_cache = 256, max_retained_workers = 1024, max_tabs = 64, max_queue = 16, max_worker_pending = 32, max_journal = 4096, max_ready_waiters = 64;
 
   Impl(BrowserEngine& target, std::filesystem::path directory, Limits configured) : engine(target), root(std::move(directory)), limits(configured) {
     if(limits.max_connected_workers<1 || limits.max_connected_workers>256)throw std::invalid_argument("Concurrent worker limit must be from 1 through 256");
@@ -263,9 +351,31 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         try { job(); } catch (...) { /* Individual jobs report conservative failure. */ }
       }
     });
+    ready_thread = std::thread([this] {
+      while (true) {
+        std::vector<Delivery> output;
+        {
+          std::unique_lock lock(mutex);
+          if (ready_stopped) return;
+          if (ready_waiters.empty()) {
+            ready_condition.wait(lock, [&] { return ready_stopped || !ready_waiters.empty(); });
+            if (ready_stopped) return;
+          } else {
+            auto earliest = ready_waiters.front().deadline;
+            for (const auto& w : ready_waiters) if (w.deadline < earliest) earliest = w.deadline;
+            ready_condition.wait_until(lock, earliest);
+            if (ready_stopped) return;
+          }
+          check_ready_waiters_locked(output);
+        }
+        deliver(std::move(output));
+      }
+    });
   }
   ~Impl() { shutdown_io(); }
   void shutdown_io() {
+    { std::lock_guard lock(mutex); ready_stopped = true; } ready_condition.notify_all();
+    if (ready_thread.joinable()) { if (ready_thread.get_id() == std::this_thread::get_id()) ready_thread.detach(); else ready_thread.join(); }
     { std::lock_guard lock(io_mutex); io_stopped = true; } io_condition.notify_all();
     if (io_thread.joinable()) { if (io_thread.get_id() == std::this_thread::get_id()) io_thread.detach(); else io_thread.join(); }
   }
@@ -448,7 +558,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         if (!workspace.removing || workspace.removal_active || workspace.removal_retry || workspace.pending_creates) continue;
         const bool busy = std::any_of(tabs.begin(), tabs.end(), [&](const auto& item) {
           const auto& tab = item.second;
-          return tab.workspace == id && (!tab.active.empty() || !tab.dialog_active.empty() || tab.human_busy);
+          return tab.workspace == id && (!tab.active.empty() || !tab.dialog_active.empty() || human_paused_locked(tab));
         });
         if (busy) continue;
         workspace.removal_active = true; ready.push_back(id);
@@ -551,9 +661,12 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   bool agents_close_tabs_locked(const std::string& workspace) const {
     const auto found = workspaces.find(workspace); return found != workspaces.end() && found->second.agents_close_tabs;
   }
+  bool human_paused_locked(const Tab& tab) const {
+    return tab.human_busy || tab.human_help_hold;
+  }
   bool fresh_after_human_locked(const Tab& tab, const std::string& session) const {
     const auto observed = tab.observations.find(session);
-    return !tab.human_busy && observed != tab.observations.end() && observed->second.generation == tab.generation && observed->second.human_epoch == tab.human_epoch;
+    return !human_paused_locked(tab) && observed != tab.observations.end() && observed->second.generation == tab.generation && observed->second.human_epoch == tab.human_epoch;
   }
   bool attention_active_locked(const Tab& tab) const {
     if (!tab.attention || stopping || tab.closing || removed_workspaces.contains(tab.workspace)) return false;
@@ -573,17 +686,20 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     const auto owner=workers.find(tab.owner);
     const bool available=!stopping&&owner!=workers.end()&&owner->second.connected&&!owner->second.retiring&&
       granted(owner->second.client,tab.workspace)&&effective(owner->second.client,tab.workspace).interaction;
-    Json result{{"tabId", id}, {"workspaceId", tab.workspace}, {"controlGroupId", tab.group}, {"ownerSessionId", tab.owner}, {"ownershipGeneration", tab.generation}, {"handoffPending", tab.pending_owner.has_value()}, {"inputBusy", !tab.active.empty() || !tab.dialog_active.empty() || tab.human_busy}, {"protected", tab.protected_auth},
-      {"agentAvailable",available},{"humanActivityEpoch", tab.human_epoch}, {"humanPaused", tab.human_busy}, {"humanPauseUntil", tab.human_pause_until ? Json(*tab.human_pause_until) : Json(nullptr)},
+    const bool paused = human_paused_locked(tab);
+    Json result{{"tabId", id}, {"workspaceId", tab.workspace}, {"controlGroupId", tab.group}, {"ownerSessionId", tab.owner}, {"ownershipGeneration", tab.generation}, {"handoffPending", tab.pending_owner.has_value()}, {"inputBusy", !tab.active.empty() || !tab.dialog_active.empty() || paused}, {"protected", tab.protected_auth},
+      {"agentAvailable",available},{"humanActivityEpoch", tab.human_epoch}, {"humanPaused", paused}, {"humanPauseUntil", (!tab.human_help_hold && tab.human_pause_until) ? Json(*tab.human_pause_until) : Json(nullptr)},
+      {"humanHelpHold", tab.human_help_hold}, {"attentionResolvedEpoch", tab.human_help_resolved_epoch},
       {"requiresFreshObservation", tab.human_epoch != 0 && !fresh_after_human_locked(tab, observing_session)},
       {"passkeyNeedsHuman", tab.passkey_refused},
-      {"activityMessage", tab.human_busy ? "Human page activity paused agent input; ownership is unchanged. Wait for the pause to end, then observe again." : tab.human_epoch ? "Human page activity occurred; use a fresh observation before continuing." : "No human page activity has been recorded for this tab."}};
+      {"activityMessage", tab.human_help_hold ? "The person is holding this tab paused while completing a help request. Wait for them to resume, then observe again." : paused ? "Human page activity paused agent input; ownership is unchanged. Wait for the pause to end, then observe again." : tab.human_epoch ? "Human page activity occurred; use a fresh observation before continuing." : "No human page activity has been recorded for this tab."}};
     if (tab.pending_owner) result["pendingOwnerSessionId"] = *tab.pending_owner;
     if (!tab.document.empty()) result["documentId"] = tab.document;
     // Only the requesting worker and native UI read the agent's note.
     const bool attention = attention_active_locked(tab);
     result["attentionRequested"] = attention; result["attentionSeen"] = attention && tab.attention->seen;
     result["attentionPersists"] = attention && tab.attention->persist;
+    if (attention) result["attentionKind"] = tab.attention->kind;
     if (attention && (session.empty() || session == tab.attention->session) && !tab.attention->reason.empty()) result["attentionReason"] = tab.attention->reason;
     // Native UI names the requesting agent even after it has left the tab.
     if (attention && session.empty()) { result["attentionSequence"] = tab.attention->sequence; result["attentionSessionId"] = tab.attention->session; }
@@ -624,11 +740,12 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   void transfer_if_ready_locked(Tab& tab) {
     if (!tab.pending_owner) return;
     const auto group = tab.group, recipient = *tab.pending_owner;
-    for (auto& [id, member] : tabs) if (member.group == group && (!member.active.empty() || !member.dialog_active.empty() || member.human_busy)) return;
+    for (auto& [id, member] : tabs) if (member.group == group && (!member.active.empty() || !member.dialog_active.empty() || human_paused_locked(member))) return;
     for (auto& [id, member] : tabs) if (member.group == group) {
       if (member.attention && !recipient.empty() && recipient != member.attention->session) member.attention.reset();
       member.owner = recipient; member.pending_owner.reset(); ++member.generation;
       member.frozen = removed_workspaces.contains(member.workspace); member.observations.clear();
+      member.human_help_hold = false;
     }
     // Deliberately no BrowserEngine call: ownership does not touch the page.
   }
@@ -640,7 +757,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     transfer_if_ready_locked(tab);
   }
   void observe_result_locked(Tab& tab, const std::string& session, const Json& value, uint64_t expected_generation) {
-    if (tab.human_busy || tab.generation != expected_generation || !value.value("ok", false)) return;
+    if (human_paused_locked(tab) || tab.generation != expected_generation || !value.value("ok", false)) return;
     auto result = value.find("result"); if (result == value.end() || !result->is_object()) return;
     auto id = field(*result, "observationId");
     if (id.empty() && result->contains("observation") && (*result)["observation"].is_object()) id = field((*result)["observation"], "observationId");
@@ -655,7 +772,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       else if(!worker_active_locked(session,client,connection,attachment))value=stale_worker_locked(session);
       else if (it == tabs.end() || it->second.workspace != workspace) value = failure("TAB_CLOSED", "Tab closed while observing");
       else if (it->second.protected_auth && (method == "page.observe" || method == "page.screenshot" || method == "page.inspect" || method == "page.wait")) value = failure("SENSITIVE_AUTH_IN_PROGRESS", "Detailed observations are paused during protected authentication");
-      else if (it->second.human_busy) value = failure("HUMAN_INPUT_PAUSED", "Human page input is still active; wait for the pause to end and observe again");
+      else if (human_paused_locked(it->second)) value = failure("HUMAN_INPUT_PAUSED", "Human page input is still active; wait for the pause to end and observe again");
       else if (it->second.generation != generation || it->second.frozen) value = failure("OWNERSHIP_CHANGED", "Control changed while observing; capture a fresh observation");
       else if (it->second.state_epoch != state_epoch || !it->second.active.empty() || !it->second.dialog_active.empty()) value = failure("OBSERVATION_CHANGED", "The tab changed while observing; capture a fresh observation");
       else {
@@ -674,7 +791,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       std::lock_guard lock(mutex);
       auto it = tabs.find(tab_id); if (it == tabs.end()) return;
       auto& tab = it->second;
-      if (stopping || tab.frozen || tab.closing || !tab.active.empty() || !tab.dialog_active.empty() || tab.human_busy) return;
+      if (stopping || tab.frozen || tab.closing || !tab.active.empty() || !tab.dialog_active.empty() || human_paused_locked(tab)) return;
       while (!tab.queue.empty()) {
         command = std::move(tab.queue.front()); tab.queue.pop_front();
         auto worker = workers.find(command.session);
@@ -699,7 +816,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     std::lock_guard lock(mutex);
     auto tab = tabs.find(tab_id); auto operation = operations.find(command.operation); auto worker = workers.find(command.session);
     if (tab == tabs.end() || operation == operations.end() || worker == workers.end()) return false;
-    if (stopping || !operation->second.result.is_null() || !clients.contains(worker->second.client) || !granted(worker->second.client, tab->second.workspace) || !worker->second.connected || worker->second.attachment != command.attachment || (tab->second.frozen && !operation->second.dispatched) || tab->second.human_busy || tab->second.human_epoch != command.human_epoch || tab->second.owner != command.session || tab->second.generation != command.generation) return false;
+    if (stopping || !operation->second.result.is_null() || !clients.contains(worker->second.client) || !granted(worker->second.client, tab->second.workspace) || !worker->second.connected || worker->second.attachment != command.attachment || (tab->second.frozen && !operation->second.dispatched) || human_paused_locked(tab->second) || tab->second.human_epoch != command.human_epoch || tab->second.owner != command.session || tab->second.generation != command.generation) return false;
     if (tab->second.active != command.operation && tab->second.dialog_active != command.operation) return false;
     if (clients.at(worker->second.client).policy_epoch != command.params.value("trustedPolicyEpoch", uint64_t{}) || !allowed(worker->second.client, tab->second.workspace, command.method)) return false;
     if (command.method == "tabs.close" && !agents_close_tabs_locked(tab->second.workspace)) return false;
@@ -790,7 +907,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         if (it == self->tabs.end() || operation == self->operations.end() || !operation->second.result.is_null()) {self->finish_callback_locked(command.session);return;}
         auto& tab = it->second;
         auto worker = self->workers.find(command.session);
-        const bool human_changed = tab.human_busy || tab.human_epoch != command.human_epoch;
+        const bool human_changed = self->human_paused_locked(tab) || tab.human_epoch != command.human_epoch;
         if (self->stopping || tab.frozen || human_changed || tab.generation != command.generation || tab.owner != command.session || worker == self->workers.end() || !worker->second.connected || worker->second.attachment!=command.attachment) {
           if (tab.active == command.operation) tab.active.clear();
           if (tab.dialog_active == command.operation) tab.dialog_active.clear();
@@ -805,7 +922,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         auto tab = self->tabs.find(tab_id); auto operation = self->operations.find(command.operation);
         auto worker = self->workers.find(command.session);
         if (tab != self->tabs.end() && operation != self->operations.end() && operation->second.result.is_null()) {
-          const bool human_changed = tab->second.human_busy || tab->second.human_epoch != command.human_epoch;
+          const bool human_changed = self->human_paused_locked(tab->second) || tab->second.human_epoch != command.human_epoch;
           if (!persisted || self->stopping || tab->second.frozen || human_changed || tab->second.generation != command.generation || tab->second.owner != command.session || worker == self->workers.end() || !worker->second.connected || worker->second.attachment!=command.attachment) {
             if (tab->second.active == command.operation) tab->second.active.clear();
             if (tab->second.dialog_active == command.operation) tab->second.dialog_active.clear();
@@ -870,8 +987,9 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         tab->second.observations.clear();
         cancel_queued_locked(tab->second, output, "HUMAN_ACTIVITY");
       } else if (type == "human.idle") {
-        tab->second.human_busy = false; tab->second.human_pause_until.reset(); transfer_if_ready_locked(tab->second); wake = tab_id;
+        tab->second.human_busy = false; tab->second.human_pause_until.reset(); transfer_if_ready_locked(tab->second); wake = tab_id; ready_condition.notify_all();
       }
+      check_ready_waiters_locked(output);
       cleanup_workers_locked();
       schedule_removals_locked();
     }
@@ -924,13 +1042,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     if (params.contains(key) && !valid_handle(params[key])) { respond(failure("INVALID_HANDLE", std::string(key) + " must be a nonempty opaque ID of at most 256 UTF-8 bytes without whitespace or control characters. Copy the returned handle exactly.")); return; }
   }
   if (method == "control.activity") {
-    Json result = Json::array();
-    for (const auto& [id, tab] : self->tabs) {
-      const auto owner=self->workers.find(tab.owner);
-      if (owner!=self->workers.end() && owner->second.client==client && owner->second.connected && !owner->second.retiring && self->granted(client,tab.workspace))
-        result.push_back(self->tab_json(id,tab,tab.owner));
-    }
-    respond(success({{"tabs",std::move(result)}})); return;
+    respond(success({{"tabs", self->activity_tabs_locked(client)}})); return;
   }
   if (method == "workers.list") {
     Json result = Json::array(); for (auto& [id, worker] : self->workers) if (worker.client == client) {auto row=self->worker_json(id,worker);row.erase("clientId");result.push_back(std::move(row));}
@@ -1091,6 +1203,29 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   if (found == self->tabs.end() || found->second.workspace != workspace_id) { respond(failure("TAB_DENIED", "Unknown tab in this workspace")); return; }
   auto& tab = found->second;
   if (method == "control.status") { respond(success(self->tab_json(tab_id, tab, session_id))); return; }
+  if (method == "control.wait_ready") {
+    int timeout_ms = 10000;
+    if (const auto value = params.find("timeoutMs"); value != params.end()) {
+      if (!value->is_number_integer()) { respond(failure("INVALID_REQUEST", "timeoutMs must be an integer between 100 and 30000")); return; }
+      timeout_ms = std::clamp(value->get<int>(), 100, 30000);
+    }
+    bool wait_for_help = false;
+    if (const auto value = params.find("waitForHelpResolution"); value != params.end()) {
+      if (!value->is_boolean()) { respond(failure("INVALID_REQUEST", "waitForHelpResolution must be true or false")); return; }
+      wait_for_help = value->get<bool>();
+    }
+    if (self->ready_satisfied_locked(tab, wait_for_help)) {
+      respond(success({{"status", "ready"}, {"control", self->tab_json(tab_id, tab, session_id)}})); return;
+    }
+    if (self->ready_waiters.size() >= Impl::max_ready_waiters) {
+      respond(failure("CAPACITY_EXCEEDED", "Too many pending readiness waiters")); return;
+    }
+    self->ready_waiters.push_back(Impl::ReadyWaiter{
+      tab_id, client, workspace_id, session_id, connection, attachment, policy_epoch, wait_for_help,
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms), std::move(reply)});
+    self->ready_condition.notify_one();
+    return;
+  }
   if (method == "attention.request" || method == "attention.clear") {
     // Metadata only: the native shell flashes the tab and may notify the
     // person. No browser command is sent and the page is not touched.
@@ -1101,7 +1236,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     if (tab.closing) { respond(failure("TAB_CLOSING", "The person using Xenon is closing this tab")); return; }
     if (method == "attention.clear") tab.attention.reset();
     else {
-      std::string reason; bool persist{};
+      std::string reason; bool persist{}; std::string kind;
       if (const auto value = params.find("reason"); value != params.end()) {
         if (!value->is_string() || !valid_attention_reason(value->get_ref<const std::string&>())) { respond(failure("INVALID_REASON", "Reason must be one line of 1 to 200 visible characters without control or invisible formatting characters")); return; }
         reason = value->get<std::string>();
@@ -1110,10 +1245,21 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
         if (!value->is_boolean()) { respond(failure("INVALID_REQUEST", "persist must be true or false")); return; }
         persist = value->get<bool>();
       }
-      // Repeating an active request updates its note and persistence without
-      // notifying again.
-      if (self->attention_active_locked(tab) && tab.attention->session == session_id && tab.attention->generation == tab.generation) { tab.attention->reason = std::move(reason); tab.attention->persist = persist; }
-      else tab.attention = Impl::Attention{session_id, client, std::move(reason), tab.generation, worker->second.attachment, ++self->attention_sequence, false, persist};
+      if (const auto value = params.find("kind"); value != params.end()) {
+        if (!value->is_string() || (value->get_ref<const std::string&>() != "help" && value->get_ref<const std::string&>() != "review")) {
+          respond(failure("INVALID_REQUEST", "kind must be help or review")); return;
+        }
+        kind = value->get<std::string>();
+      } else {
+        kind = persist ? "review" : "help";
+      }
+      // Repeating an active request updates its note, kind and persistence
+      // without notifying again.
+      if (self->attention_active_locked(tab) && tab.attention->session == session_id && tab.attention->generation == tab.generation) {
+        tab.attention->reason = std::move(reason); tab.attention->persist = persist; tab.attention->kind = std::move(kind);
+      } else {
+        tab.attention = Impl::Attention{session_id, client, std::move(reason), std::move(kind), tab.generation, worker->second.attachment, ++self->attention_sequence, false, persist};
+      }
     }
     respond(success(self->tab_json(tab_id, tab, session_id))); return;
   }
@@ -1137,19 +1283,19 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   }
   if (tab.protected_auth && (method == "page.observe" || method == "page.screenshot" || method == "page.inspect" || method == "page.wait")) { respond(failure("SENSITIVE_AUTH_IN_PROGRESS", "Detailed observations are paused during protected authentication")); return; }
   if (method == "page.wait") {
-    if (tab.human_busy) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input is active; wait for the pause to end before observing")); return; }
+    if (self->human_paused_locked(tab)) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input is active; wait for the pause to end before observing")); return; }
     if (!tab.active.empty() || !tab.dialog_active.empty() || tab.frozen) { respond(failure("TAB_BUSY", "Tab is executing input or changing owner")); return; }
     params["clientId"] = client; auto generation = tab.generation, epoch = tab.state_epoch;++worker->second.callbacks; lock.unlock();
     self->execute_safe(method, params, [self, client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply](Json value) { self->complete_read(client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply, std::move(value)); }); return;
   }
   if (read_commands.contains(method)) {
-    if (tab.human_busy) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input is active; wait for the pause to end before observing")); return; }
+    if (self->human_paused_locked(tab)) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input is active; wait for the pause to end before observing")); return; }
     if (!tab.active.empty() || !tab.dialog_active.empty() || tab.frozen) { respond(failure("TAB_BUSY", "Tab is executing input or changing owner")); return; }
     params["clientId"] = client; auto generation = tab.generation, epoch = tab.state_epoch;++worker->second.callbacks; lock.unlock();
     self->execute_safe(method, params, [self, client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply](Json value) { self->complete_read(client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply, std::move(value)); }); return;
   }
   if (!write_commands.contains(method)) { respond(failure("METHOD_UNSUPPORTED", "This browser capability is not implemented")); return; }
-  if (method == "page.batch" && !valid_batch(params)) { respond(failure("INVALID_BATCH", "Supply 1–16 element-targeted click/fill/select/check steps, with only their required fields, within 64 KiB of UTF-8 JSON")); return; }
+  if (method == "page.batch" && !valid_batch(params)) { respond(failure("INVALID_BATCH", "Supply 1–16 click/fill/select/check/hover/key steps, with only their required fields, within 64 KiB of UTF-8 JSON")); return; }
   auto operation_id = field(params, "operationId"); if (operation_id.empty()) operation_id = identifier("op_");
   if (operation_id.size() > 160) { respond(failure("INVALID_OPERATION", "Operation ID is too long")); return; }
   params["operationId"] = operation_id; params["clientId"] = client;
@@ -1163,7 +1309,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   if (method == "tabs.close" && !self->agents_close_tabs_locked(workspace_id)) { respond(failure("TAB_CLOSE_DISABLED", "This workspace keeps agent tabs open for the person. Leave the tab open and tell the person about it, for example with xenon_attention")); return; }
   if (tab.owner != session_id || tab.frozen) { respond(failure("NOT_OWNER", "Acquire this tab before acting")); return; }
   if (tab.closing) { respond(failure("TAB_CLOSING", "The person using Xenon is closing this tab")); return; }
-  if (tab.human_busy) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input temporarily paused this tab; ownership is unchanged. Wait for idle, then observe again")); return; }
+  if (self->human_paused_locked(tab)) { respond(failure("HUMAN_INPUT_PAUSED", "Human page input temporarily paused this tab; ownership is unchanged. Wait for idle, then observe again")); return; }
   if (!params.contains("ownershipGeneration") || !params["ownershipGeneration"].is_number_unsigned() || params["ownershipGeneration"].get<uint64_t>() != tab.generation) { respond(failure("OWNERSHIP_CHANGED", "Read control status and observe again")); return; }
   if (method == "auth.login" && self->locked) { respond(failure("VAULT_LOCKED", "Unlock the vault in the native browser")); return; }
   if (method == "auth.login") {
@@ -1434,7 +1580,63 @@ void Broker::attention_seen(const std::string& id) {
 void Broker::dismiss_attention(const std::string& id) {
   Impl::UiChange notification{impl_.get()};
   std::lock_guard lock(impl_->mutex); auto found = impl_->tabs.find(id);
-  if (found != impl_->tabs.end()) found->second.attention.reset();
+  if (found != impl_->tabs.end()) { found->second.attention.reset(); impl_->ready_condition.notify_all(); }
+}
+void Broker::set_human_help_hold(const std::string& id, bool hold) {
+  Impl::UiChange notification{impl_.get()};
+  std::vector<Delivery> output;
+  bool wake{};
+  {
+    std::lock_guard lock(impl_->mutex);
+    auto found = impl_->tabs.find(id);
+    if (found == impl_->tabs.end()) return;
+    auto& tab = found->second;
+    if (hold) {
+      if (!impl_->attention_active_locked(tab) && !tab.human_busy) return;
+      tab.human_help_hold = true;
+      tab.human_pause_until.reset();
+      ++tab.state_epoch;
+      ++tab.human_epoch;
+      tab.observations.clear();
+      impl_->cancel_queued_locked(tab, output, "HUMAN_ACTIVITY");
+    } else if (tab.human_help_hold) {
+      tab.human_help_hold = false;
+      impl_->transfer_if_ready_locked(tab);
+      impl_->schedule_removals_locked();
+      wake = true;
+    }
+    impl_->ready_condition.notify_all();
+  }
+  deliver(std::move(output));
+  if (wake) impl_->pump(id);
+}
+void Broker::complete_human_help(const std::string& id) {
+  Impl::UiChange notification{impl_.get()};
+  bool wake{};
+  {
+    std::lock_guard lock(impl_->mutex);
+    auto found = impl_->tabs.find(id);
+    if (found == impl_->tabs.end()) return;
+    auto& tab = found->second;
+    tab.attention.reset();
+    tab.human_help_hold = false;
+    tab.human_busy = false;
+    tab.human_pause_until.reset();
+    ++tab.state_epoch;
+    ++tab.human_help_resolved_epoch;
+    if (tab.human_epoch == 0) ++tab.human_epoch;
+    tab.observations.clear();
+    impl_->transfer_if_ready_locked(tab);
+    impl_->schedule_removals_locked();
+    impl_->ready_condition.notify_all();
+    wake = true;
+  }
+  if (wake) impl_->pump(id);
+}
+void Broker::set_connection_event_sink(ConnectionEventSink sink) {
+  std::lock_guard lock(impl_->mutex);
+  impl_->connection_event_sink = std::move(sink);
+  impl_->last_pushed_activity.clear();
 }
 void Broker::close_tabs(const std::vector<std::string>& ids, Reply reply) {
   Impl::UiChange notification{impl_.get()};
@@ -1517,6 +1719,8 @@ void Broker::stop_all() {
       for (auto& waiter : workspace.removal_waiters) output.emplace_back(std::move(waiter), failure("REMOVAL_PENDING_RESTART", "Workspace removal is saved and will finish during the next browser start"));
       workspace.removal_waiters.clear();
     }
+    impl_->check_ready_waiters_locked(output);
+    impl_->ready_condition.notify_all();
   } deliver(std::move(output));
 }
 void Broker::open_human_workspace(const std::string& url, Reply reply, bool private_mode, const std::string& name) { open_human_workspace_impl(url, std::move(reply), private_mode, false,name); }

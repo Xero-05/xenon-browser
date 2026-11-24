@@ -55,6 +55,10 @@ class CefEngine final : public BrowserEngine {
   void clear_browsing_data(const std::string& workspace,int64_t since_unix_ms,bool cookies,bool storage,bool cache,std::vector<std::string> origins,Reply reply);
   // Retire renderer popup state after the shell suppresses a native popup.
   void dismiss_page_popups(HWND page);
+  // Native shell only: end the 2-second idle cooldown immediately when the
+  // person explicitly clicks "Done — resume agent" and no physical input,
+  // dialog, native fill or passkey ceremony is active.
+  void resume_human_pause(const std::string& tab_id);
   void native_pointer(HWND page,POINT screen,bool substantive=false);
   void select_native_tab(const std::string& tab_id,bool awaiting_browser=false);
   // Native shell only: whether the tab is hidden behind its window's selected
