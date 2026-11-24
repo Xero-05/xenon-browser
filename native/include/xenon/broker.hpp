@@ -69,6 +69,16 @@ class Broker {
   // or the person dismissed that request. Ownership and the page are untouched.
   void attention_seen(const std::string& tab_id);
   void dismiss_attention(const std::string& tab_id);
+  // Native human handback controls: hold keeps the tab paused across the 2s
+  // idle timer while the person works on a help request (e.g. OTP/CAPTCHA);
+  // complete_human_help clears the help request and hold so the agent can
+  // observe fresh evidence and resume without racing the cooldown.
+  void set_human_help_hold(const std::string& tab_id, bool hold);
+  void complete_human_help(const std::string& tab_id);
+  // Transport-level push sink for authenticated connection-scoped control
+  // activity updates. Always invoked outside the broker mutex.
+  using ConnectionEventSink = std::function<void(const std::string& connection_id, Json event)>;
+  void set_connection_event_sink(ConnectionEventSink sink);
   // Native human actions only; never MCP methods. Closing cancels each tab's
   // queued agent mutations and refuses new ones. A control group closed in
   // full is first claimed for the human. The engine closes only after

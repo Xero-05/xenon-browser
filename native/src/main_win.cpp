@@ -190,6 +190,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
       });
       engine_->set_private_workspace_callback([this]{broker_->open_human_workspace("about:blank",[](Json){},true);});
       server_=std::make_unique<PipeServer>(*broker_,pipe_name_);server_->start();
+      broker_->set_connection_event_sink([this](const std::string& conn,Json event){if(server_)server_->send_event(conn,std::move(event));});
       active_=this;
       engine_->set_native_key_callback([this](HWND page,UINT message,WPARAM key){native_key(page,message,key);});
       POINT pointer{};if(GetCursorPos(&pointer))input_policy_.seed_pointer(pointer.x,pointer.y);
@@ -234,7 +235,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     if(input_timer_){KillTimer(nullptr,input_timer_);input_timer_=0;}
     if(engine_){engine_->set_native_key_callback({});engine_->set_workspace_label_callback({});}
     if(engine_){engine_->set_controls_callback({});engine_->set_updates_callback({});engine_->set_private_workspace_callback({});engine_->set_open_link_callback({});}
-    if(broker_)broker_->set_ui_state_callback({});
+    if(broker_){broker_->set_ui_state_callback({});broker_->set_connection_event_sink({});}
     if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_passkey_control_callback({});engine_->set_permission_callback({});
       engine_->set_fullscreen_callback({});engine_->set_external_link_callback({});engine_->set_screen_share_callback({});}
     if(server_)server_->stop();server_.reset();native_.reset();shell_.reset();broker_.reset();engine_.reset();files_.reset();vault_.reset();
