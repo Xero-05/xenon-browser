@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.12",
+  "stage": "validated local release; not published or installed",
+  "capturedUtc": "2026-11-24T10:38:20Z",
+  "passed": true,
+  "sourceBaseCommit": "a08e9c3",
+  "sourceChanges": "Release version and documentation only, on top of merged PR #67.",
+  "validationScope": "Full native build against the audited Windows-decoder CEF distribution, native unit suites, adapter/SDK tests, branding checks, functional-improvements and core integration live suites, packaging verification and extracted-archive smoke test.",
+  "binaries": {
+    "Xenon.dll": "f121d47924892bb5850ddd60111172a253c953e3da1cddbe21b9ba87b85bf799",
+    "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+  },
+  "engine": {
+    "cef": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "recipe": "cef.mediaSourceBuild",
+    "reusedAuditedDistributionFrom": "0.1.9",
+    "sourceRebuiltOrReaudited": false
+  },
+  "checks": {
+    "nativeGroups": {
+      "ctestPassed": 26,
+      "ctestTotal": 28,
+      "directPassedForCtestFailures": [
+        "browser_data_tests",
+        "browser_import_tests"
+      ]
+    },
+    "npmChecks": { "passed": 194, "total": 194 },
+    "brandingChecks": { "passed": 5, "total": 5 },
+    "functionalImprovementsIntegration": { "passed": 8, "total": 8 },
+    "integration": { "passed": 17, "total": 17 },
+    "packageRuntimeHashes": 1365,
+    "packageSmoke": { "passed": 6, "total": 6 }
+  },
+  "notRun": [
+    "media-integration and frame-pacing suites on 0.1.12 DLL",
+    "isolated installer tests (tests/installer-tests.ps1)",
+    "physical mouse clicks on the new Win32 Attention Queue button and floating XenonHelpBanner",
+    "npm audit"
+  ],
+  "assets": [
+    { "name": "Xenon-0.1.12-windows-x64-setup-unsigned.exe", "bytes": 206548131, "sha256": "126e9528f87c21cb8b446ead8c3ec15b13fe7cba26fa5c4458976ee32a141c04" },
+    { "name": "Xenon-0.1.12-windows-x64-setup-unsigned.exe.sha256", "bytes": 110, "sha256": "98c9e15c1a86bf91c2f4b5ecde9e98dbc53e764ef4abc61318946706552556b4" },
+    { "name": "Xenon-0.1.12-windows-x64-unsigned.zip", "bytes": 233404939, "sha256": "4d35f735466d6b74312b2b443cb7fa25515d8ec2c2463ad84a2ae3261e010c5c" },
+    { "name": "Xenon-0.1.12-windows-x64-unsigned.zip.sha256", "bytes": 104, "sha256": "332e92b9e3bc0447203e75a094a2520b92cf480b837984f1c02b1d300171b200" }
+  ]
+}
