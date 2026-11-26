@@ -29,6 +29,13 @@ for (const era of ['legacy', 'modern'] as const) {
         ['empty select values', { action: 'select', elementRef: 'selector', values: [] }, /values/i],
         ['missing check state', { action: 'check', elementRef: 'checkbox' }, /checked/i],
         ['missing key', { action: 'key' }, /key/i],
+        ['missing type text', { action: 'type' }, /nonempty text/i],
+        ['empty type text', { action: 'type', text: '' }, /nonempty text/i],
+        ['type with elementRef', { action: 'type', elementRef: 'field', text: 'Hello' }, /does not accept elementRef/i],
+        ['type with coordinates', { action: 'type', x: 100, y: 100, text: 'Hello' }, /does not accept x/i],
+        ['type with disallowed control char', { action: 'type', text: 'Hello\u200Bworld' }, /disallowed control|non-rendering/i],
+        ['type with NUL byte', { action: 'type', text: 'Hello\x00world' }, /disallowed control|non-rendering/i],
+        ['type exceeding 64 KiB', { action: 'type', text: 'a'.repeat(65_537) }, /65,536/i],
       ] as const) {
         await t.test(name, async () => {
           const before = await client.callTool({ name: 'xenon_operation', arguments: { operationId: 'count' } });
@@ -51,6 +58,7 @@ for (const era of ['legacy', 'modern'] as const) {
       await t.test('supported ref, coordinate and keyboard paths retain their arguments', async () => {
         for (const gesture of [
           { action: 'fill', elementRef: 'field', text: '' },
+          { action: 'type', text: 'Built C++ & Node.js tools (2024-2026).\nLine 2: "ready", 100%.' },
           { action: 'select', elementRef: 'selector', values: ['Synthetic letter'] },
           { action: 'check', elementRef: 'checkbox', checked: false },
           { action: 'click', x: 326, y: 299 },

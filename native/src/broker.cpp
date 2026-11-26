@@ -32,8 +32,8 @@ bool valid_handle(const Json& value) {
 double elapsed_ms(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end) {
   return std::chrono::duration<double, std::milli>(end - start).count();
 }
-const std::set<std::string> write_commands{"tabs.close", "page.navigate", "page.back", "page.forward", "page.reload", "page.click", "page.fill", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.batch", "page.dialog", "files.upload", "auth.login"};
-const std::set<std::string> target_commands{"page.click", "page.fill", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.batch", "files.upload", "auth.login"};
+const std::set<std::string> write_commands{"tabs.close", "page.navigate", "page.back", "page.forward", "page.reload", "page.click", "page.fill", "page.type", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.batch", "page.dialog", "files.upload", "auth.login"};
+const std::set<std::string> target_commands{"page.click", "page.fill", "page.type", "page.select", "page.check", "page.key", "page.scroll", "page.drag", "page.hover", "page.batch", "files.upload", "auth.login"};
 bool valid_batch_key(const Json& value) {
   if (!value.is_string()) return false;
   const auto& key = value.get_ref<const std::string&>();

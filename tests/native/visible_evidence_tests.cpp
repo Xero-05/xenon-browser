@@ -1,4 +1,5 @@
 #include "xenon/visible_evidence.hpp"
+#include "xenon/focused_type.hpp"
 #include "xenon/pointer_target.hpp"
 
 #include <algorithm>
@@ -35,7 +36,7 @@ struct Fixture {
     if(key=="text-overflow")return "clip";
     if(key=="content-visibility")return "visible";
     if(key=="container-type")return "normal";
-    if(key.starts_with("border-") || key.starts_with("padding-") || key=="-webkit-text-stroke-width" || key=="outline-width" || key=="outline-offset")return "0px";
+    if((key.starts_with("border-") && key.ends_with("-width")) || key.starts_with("padding-") || key=="-webkit-text-stroke-width" || key=="outline-width" || key=="outline-offset")return "0px";
     return "none";
   }
   int document(const std::string& frame) {
@@ -519,13 +520,134 @@ void viewport_propagated_overflow() {
     {ScrolledPage page("auto","visible");page.f.style(0,0,key,value);withheld(page,page.body,"A contained root was treated as the viewport scroller");}
   }
 }
+void scrolled_uncertain_controls_survive_viewport_overflow() {
+  // On html,body{height:100%} scrolled below screen 1, clip-path:none on
+  // html/body must NOT discard uncertain controls below the first screen, and
+  // diagnostics must not double-count visibility.omitted.
+  ScrolledPage page("visible","auto");
+  const int lbl=page.f.node(0,page.body,"LABEL",{{"for","resp"}});
+  page.f.layout(0,lbl,{20,2060,240,24},1);
+  const int lt=page.f.node(0,lbl,"#text");
+  const int ltl=page.f.layout(0,lt,{20,2060,180,20},1,"Responsibilities");
+  page.f.box(0,ltl,{20,2060,180,20},0,16);
+  const int ta=page.f.node(0,page.body,"TEXTAREA",{{"id","resp"}});
+  page.f.layout(0,ta,{20,2100,400,120},2);
+  const int cover=page.f.node(0,page.body,"DIV");
+  const int cover_l=page.f.layout(0,cover,{20,2100,400,120},50);
+  page.f.style(0,cover_l,"background-color","rgb(255, 255, 255)");
+  // An unsupported clip-path wrapper below screen 1 with hidden label text
+  // inside it must still appear as uncertain without leaking unverified text.
+  const int clip_wrap=page.f.node(0,page.body,"DIV");
+  const int clip_l=page.f.layout(0,clip_wrap,{20,2240,400,140},3);
+  page.f.style(0,clip_l,"clip-path","inset(0px round 20%)");
+  const int clip_lbl=page.f.node(0,clip_wrap,"LABEL",{{"for","summary"}});
+  page.f.layout(0,clip_lbl,{20,2240,200,24},3);
+  const int clip_lt=page.f.node(0,clip_lbl,"#text");
+  const int clip_ltl=page.f.layout(0,clip_lt,{20,2240,180,20},3,"HIDDEN_CLIPPED_LABEL");
+  page.f.box(0,clip_ltl,{20,2240,180,20},0,20);
+  const int ta2=page.f.node(0,clip_wrap,"TEXTAREA",{{"id","summary"}});
+  page.f.layout(0,ta2,{20,2270,400,100},4);
+  // A control genuinely outside an inner overflow:hidden pane must stay excluded.
+  const int pane=page.f.node(0,page.body,"DIV");
+  const int pane_l=page.f.layout(0,pane,{460,2000,300,60},5);
+  page.f.style(0,pane_l,"overflow-x","hidden");page.f.style(0,pane_l,"overflow-y","hidden");
+  const int clipped_ta=page.f.node(0,pane,"TEXTAREA",{{"id","offpane"}});
+  page.f.layout(0,clipped_ta,{460,2150,280,90},6);
+
+  const auto verified_only=xenon::visible_snapshot(page.f.snapshot,page.f.viewports,false,false);
+  const auto with_uncertain=xenon::visible_snapshot(page.f.snapshot,page.f.viewports,false,true);
+  require(Fixture::output(with_uncertain,ta).is_null(),"Covered textarea below screen 1 became verified");
+  require(Fixture::output(with_uncertain,ta2).is_null(),"Unsupported-clip textarea became verified");
+  const auto& candidates=with_uncertain["frames"]["main"]["uncertainNodes"];
+  const auto ta_key=std::to_string(1000+ta),ta2_key=std::to_string(1000+ta2),off_key=std::to_string(1000+clipped_ta);
+  require(candidates.contains(ta_key),"Covered textarea below screen 1 was erased from uncertainNodes by clip-path:none");
+  require(candidates[ta_key]["name"]=="Responsibilities","Verified label was stripped from uncertain textarea");
+  require(candidates[ta_key]["filterDiagnostics"]["centerOcclusionProvenClear"]==false,"Uncertain diagnostic lost center occlusion");
+  require(candidates.contains(ta2_key),"Unsupported-clip textarea below screen 1 was erased from uncertainNodes");
+  require(candidates[ta2_key]["name"]=="","Unverified label leaked onto uncertain textarea");
+  require(candidates[ta2_key]["filterDiagnostics"]["nonrectangularClip"]==true,"Uncertain diagnostic lost nonrectangular clip");
+  require(!candidates.contains(off_key),"Control outside a real inner overflow clip leaked into uncertainNodes");
+  require(with_uncertain.dump().find("HIDDEN_")==std::string::npos,"Hidden label text leaked");
+  require(with_uncertain["omitted"].value("boundedPaintOcclusion",0)==verified_only["omitted"].value("boundedPaintOcclusion",0),
+    "Uncertain diagnostics double-counted boundedPaintOcclusion");
+}
+void tall_straddling_textarea_and_hollow_border_overlay() {
+  // 1. Tall multi-line textarea straddling the bottom viewport edge receives
+  //    verified geometry when a substantial slice is unoccluded, while a tiny
+  //    peeking sliver and a straddling button remain withheld.
+  {
+    Fixture f;
+    const int lbl=f.node(0,1,"LABEL",{{"for","bio"}});f.layout(0,lbl,{20,460,200,24},1);
+    const int lt=f.node(0,lbl,"#text");const int ltl=f.layout(0,lt,{20,460,160,20},1,"Experience");f.box(0,ltl,{20,460,160,20},0,10);
+    const int ta=f.node(0,1,"TEXTAREA",{{"id","bio"}});f.layout(0,ta,{20,500,400,220},2);
+    const int sliver=f.node(0,1,"TEXTAREA",{{"id","sliver"}});f.layout(0,sliver,{450,590,200,140},2);
+    const auto [btn,bt]=f.button(0,1,"HIDDEN_STRADDLE_BTN",680,500);
+    const auto result=f.run();
+    const auto& out=Fixture::output(result,ta);
+    require(!out.is_null() && out["name"]=="Experience" && out["geometryEvidence"]=="unoccluded_visible_patch",
+      "Viewport-straddling tall textarea with substantial visible slice was withheld");
+    require(Fixture::output(result,sliver).is_null(),"Barely-peeking textarea sliver was admitted");
+    require(Fixture::output(result,btn).is_null(),"Straddling button was admitted");
+    // An opaque panel covering the textarea's visible slice must still withhold it.
+    const int cover=f.node(0,1,"DIV");const int cl=f.layout(0,cover,{20,500,400,100},50);f.style(0,cl,"background-color","rgb(255, 255, 255)");
+    require(Fixture::output(f.run(),ta).is_null(),"Occluded straddling textarea was admitted");
+  }
+  // 2. Hollow border-only / outward-outline overlay does not occlude a
+  //    textarea center, while interior paint, thick borders, border-image,
+  //    or negative outline-offset still block.
+  {
+    Fixture f;
+    const int ta=f.node(0,1,"TEXTAREA",{{"id","notes"}});f.layout(0,ta,{20,100,400,120},2);
+    const int ring=f.node(0,1,"DIV");const int rl=f.layout(0,ring,{20,100,400,120},10);
+    for(const auto* side:{"top","right","bottom","left"})f.style(0,rl,std::string("border-")+side+"-width","2px");
+    f.style(0,rl,"outline-style","solid");f.style(0,rl,"outline-width","2px");f.style(0,rl,"outline-offset","1px");
+    require(!Fixture::output(f.run(),ta).is_null(),"Hollow 2px border/outward-outline overlay falsely occluded textarea center");
+    // Adding interior paint or thick borders must block again.
+    for(const auto& [prop,val]:std::vector<std::pair<std::string,std::string>>{
+        {"background-color","rgba(255, 255, 255, 0.2)"},
+        {"border-image-source","url(\"https://example.invalid/fill.png\")"},
+        {"border-top-width","120px"},
+        {"outline-offset","-60px"},
+        {"box-shadow","rgb(0, 0, 0) 0px 0px 0px 2px inset"}}) {
+      Fixture blocked=f;
+      blocked.style(0,rl,prop,val);
+      require(Fixture::output(blocked.run(),ta).is_null(),"Non-hollow overlay failed to occlude textarea center");
+    }
+  }
+  // 3. Pure 2D matrix3d translation preserves geometry; z-offset or scale fails.
+  {
+    Fixture f;
+    const int wrap=f.node(0,1,"DIV");const int wl=f.layout(0,wrap,{10,10,500,200},1);
+    f.style(0,wl,"transform","matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 12, 24, 0, 1)");
+    const int ta=f.node(0,wrap,"TEXTAREA",{{"id","t3d"}});f.layout(0,ta,{20,40,400,100},2);
+    require(!Fixture::output(f.run(),ta).is_null(),"Pure 2D matrix3d translation withheld textarea");
+    for(const auto& bad:std::vector<std::string>{
+        "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 12, 24, 5, 1)",
+        "matrix3d(1.5, 0, 0, 0, 0, 1.5, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)"}) {
+      f.style(0,wl,"transform",bad);
+      require(Fixture::output(f.run(),ta).is_null(),"Non-2D matrix3d transform was admitted");
+    }
+  }
+}
+void focused_type_text_validation() {
+  require(xenon::valid_type_text("Line 1: C++, Node.js & UI (2024-2026).\n\tLine 2: 'quoted', 100%."), "Valid multi-line punctuated text was rejected");
+  require(xenon::valid_type_text("Caf\xC3\xA9 \xE2\x80\x94 \xF0\x9F\x9A\x80"), "Valid UTF-8 Unicode text was rejected");
+  require(!xenon::valid_type_text(""), "Empty type text was accepted");
+  require(!xenon::valid_type_text(std::string(65537, 'a')), "Oversized type text was accepted");
+  require(!xenon::valid_type_text(std::string("a\0b", 3)), "NUL byte in type text was accepted");
+  require(!xenon::valid_type_text("bad\x1b[31m"), "ESC control in type text was accepted");
+  require(!xenon::valid_type_text("bad\xE2\x80\x8B" "zwsp"), "ZWSP in type text was accepted");
+  require(!xenon::valid_type_text("bad\xE2\x80\xAE" "bidi"), "Bidi override in type text was accepted");
+  require(!xenon::valid_type_text("bad\xF3\xA0\x81\xA1" "tag"), "Unicode tag char in type text was accepted");
+  require(!xenon::valid_type_text(std::string("\xFF\xFE", 2)), "Invalid UTF-8 in type text was accepted");
+}
 }
 int main(int argc,char** argv) {
   try {
     // Optional offline replay accepts only a caller-selected synthetic snapshot;
     // no browser diagnostics or raw website snapshots are enabled in production.
     if(argc==2){std::ifstream input(argv[1]);Json fixture;input>>fixture;std::cout<<xenon::visible_snapshot(fixture.at("snapshot"),fixture.at("viewports")).dump(2)<<'\n';return 0;}
-    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();bounded_backdrop_paint();rectangular_clips_and_blur_bounds();bounded_text_shadows_and_rounded_clips();uncertain_controls_are_structural_only();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();repeated_inline_fragments_preserve_paint_ancestry();identity_transform_is_not_uncertain_geometry();utf16_and_unicode_controls();child_frames_and_malformed_evidence();layout_metrics_supply_snapshot_scale();pinch_zoom_limits_rendered_viewport();display_scale_uses_css_pixels();viewport_propagated_overflow();
+    visible_text_and_hidden_metadata();chromium_layout_view_and_parent_blending();inherited_style_and_clipping();pixels_and_paint_order();corner_and_center_geometry_are_distinct();bounded_box_shadows();bounded_backdrop_paint();rectangular_clips_and_blur_bounds();bounded_text_shadows_and_rounded_clips();uncertain_controls_are_structural_only();editable_values_and_visible_labels();brightness_filters_preserve_geometry_and_contrast();svg_text_requires_visual_evidence();repeated_inline_fragments_preserve_paint_ancestry();identity_transform_is_not_uncertain_geometry();utf16_and_unicode_controls();child_frames_and_malformed_evidence();layout_metrics_supply_snapshot_scale();pinch_zoom_limits_rendered_viewport();display_scale_uses_css_pixels();viewport_propagated_overflow();scrolled_uncertain_controls_survive_viewport_overflow();tall_straddling_textarea_and_hollow_border_overlay();focused_type_text_validation();
     std::cout<<"Visible evidence regression tests passed\n";return 0;
   }catch(const std::exception& e){std::cerr<<"Visible evidence test failed: "<<e.what()<<'\n';return 1;}
 }

@@ -38,3 +38,93 @@ test('detachment during input prevents a change event on the detached field',()=
 test('ordinary text still prepares selection for native Input.insertText',()=>{
   const f=fixture('text');assert.equal(f.fill('ordinary text'),'prepared');assert.equal(f.input.selected,true);assert.deepEqual(f.writes,[]);assert.deepEqual(f.events,[]);
 });
+
+const typeHeader=await readFile(new URL('../native/include/xenon/focused_type.hpp',import.meta.url),'utf8');
+const typeSource=typeHeader.match(/R"JS\(([\s\S]*?)\)JS"/u)?.[1];assert(typeSource);
+function typeFixture(overrides={}){
+  const body={tagName:'BODY',isConnected:true};
+  const docEl={tagName:'HTML',isConnected:true};
+  const el={
+    tagName:'TEXTAREA',type:'textarea',isConnected:true,disabled:false,readOnly:false,
+    isContentEditable:false,autocomplete:'',parentElement:null,shadowRoot:null,
+    rect:{left:20,top:100,right:420,bottom:220,width:400,height:120},
+    style:{display:'block',visibility:'visible',opacity:'1',contentVisibility:'visible',webkitTextSecurity:'none'},
+    inert:false,
+    getBoundingClientRect(){return this.rect;},
+    getRootNode(){return this._root??document;},
+    closest(sel){return sel==='[inert]'&&this.inert?this:null;},
+    contains(other){return other===this;},
+    ...overrides,
+  };
+  let hitTarget=overrides.hitTarget!==undefined?overrides.hitTarget:el;
+  const document={
+    body,documentElement:docEl,
+    activeElement:overrides.activeElement!==undefined?overrides.activeElement:el,
+    elementFromPoint(){return hitTarget;},
+  };
+  const getComputedStyle=node=>node.style??{display:'block',visibility:'visible',opacity:'1',contentVisibility:'visible',webkitTextSecurity:'none'};
+  const run=vm.runInNewContext('('+typeSource+')',{
+    document,getComputedStyle,innerWidth:800,innerHeight:600,
+    visualViewport:overrides.visualViewport??{offsetLeft:0,offsetTop:0,width:800,height:600},
+  });
+  return {el,document,run:()=>({...run()}),setHit(t){hitTarget=t;}};
+}
+test('focused_type_check_script accepts visible enabled textarea, text inputs, contenteditable and open shadow textarea',()=>{
+  assert.deepEqual(typeFixture().run(),{ok:true,vx:220,vy:160});
+  for(const type of ['text','search','email','url','tel','number']){
+    const r=typeFixture({tagName:'INPUT',type}).run();
+    assert.equal(r.ok,true,`input[type=${type}] should be accepted`);
+  }
+  assert.equal(typeFixture({tagName:'DIV',isContentEditable:true}).run().ok,true);
+  // Open shadow root activeElement
+  const inner={
+    tagName:'TEXTAREA',isConnected:true,disabled:false,readOnly:false,isContentEditable:false,autocomplete:'',
+    parentElement:null,shadowRoot:null,
+    rect:{left:40,top:80,right:340,bottom:180,width:300,height:100},
+    style:{display:'block',visibility:'visible',opacity:'1',contentVisibility:'visible',webkitTextSecurity:'none'},
+    getBoundingClientRect(){return this.rect;},
+    closest(){return null;},
+    contains(other){return other===inner;},
+  };
+  const host={
+    tagName:'DIV',isConnected:true,parentElement:null,
+    style:{display:'block',visibility:'visible',opacity:'1',contentVisibility:'visible'},
+    shadowRoot:{activeElement:inner,elementFromPoint:()=>inner},
+    contains(other){return other===host;},
+  };
+  inner.getRootNode=()=>({host,elementFromPoint:()=>inner});
+  const shadowRes=typeFixture({activeElement:host,hitTarget:host}).run();
+  assert.deepEqual(shadowRes,{ok:true,vx:190,vy:130});
+});
+test('focused_type_check_script rejects credential, non-editable, embedded, hidden, offscreen and occluded focus',()=>{
+  const cases=[
+    ['password input',{tagName:'INPUT',type:'password'},'protected_field'],
+    ['current-password autocomplete',{tagName:'INPUT',type:'text',autocomplete:'current-password'},'protected_field'],
+    ['one-time-code autocomplete',{tagName:'INPUT',type:'text',autocomplete:'one-time-code'},'protected_field'],
+    ['css text-security mask',{tagName:'INPUT',type:'text',style:{display:'block',visibility:'visible',opacity:'1',contentVisibility:'visible',webkitTextSecurity:'disc'}},'protected_field'],
+    ['file input',{tagName:'INPUT',type:'file'},'not_editable'],
+    ['date input',{tagName:'INPUT',type:'date'},'not_editable'],
+    ['checkbox input',{tagName:'INPUT',type:'checkbox'},'not_editable'],
+    ['button',{tagName:'BUTTON'},'not_editable'],
+    ['disabled textarea',{disabled:true},'not_editable'],
+    ['readonly textarea',{readOnly:true},'not_editable'],
+    ['inert textarea',{inert:true},'not_editable'],
+    ['embedded iframe',{tagName:'IFRAME'},'embedded_frame'],
+    ['body focused',{activeElement:{tagName:'BODY',isConnected:true}},'not_editable'],
+    ['disconnected',{isConnected:false},'no_focused_editable'],
+    ['display none',{style:{display:'none',visibility:'visible',opacity:'1',contentVisibility:'visible',webkitTextSecurity:'none'}},'not_visible'],
+    ['visibility hidden',{style:{display:'block',visibility:'hidden',opacity:'1',contentVisibility:'visible',webkitTextSecurity:'none'}},'not_visible'],
+    ['low opacity',{style:{display:'block',visibility:'visible',opacity:'0.4',contentVisibility:'visible',webkitTextSecurity:'none'}},'not_visible'],
+    ['tiny 2x2 box',{rect:{left:20,top:20,right:22,bottom:22,width:2,height:2}},'not_visible'],
+    ['off-viewport',{rect:{left:20,top:700,right:420,bottom:820,width:400,height:120}},'outside_viewport'],
+    ['occluded by cover',{hitTarget:{tagName:'DIV',contains:()=>false}},'occluded'],
+  ];
+  for(const [label,overrides,expected] of cases){
+    const r=typeFixture(overrides).run();
+    assert.equal(r.ok,false,`${label} must be rejected`);
+    assert.equal(r.reason,expected,`${label} returned unexpected reason`);
+  }
+  // Explicitly check document.body rejection
+  const f=typeFixture();f.document.activeElement=f.document.body;
+  assert.deepEqual(f.run(),{ok:false,reason:'no_focused_editable'});
+});
