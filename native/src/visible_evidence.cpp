@@ -32,7 +32,7 @@ const std::vector<std::string> kStyles = {
   "padding-top", "padding-right", "padding-bottom", "padding-left",
   "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
   "box-shadow", "outline-width", "outline-offset", "outline-color", "outline-style",
-  "contain", "container-type"
+  "contain", "container-type", "border-image-source"
 };
 enum Style { Display, Visibility, Opacity, Color, Background, FontSize, TextFill,
   OverflowX, OverflowY, Clip, ClipPath, Filter, BackdropFilter, Transform,
@@ -41,7 +41,8 @@ enum Style { Display, Visibility, Opacity, Color, Background, FontSize, TextFill
   LineClamp, TextSecurity, ContentVisibility, Zoom, BorderTop, BorderRight,
   BorderBottom, BorderLeft, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft,
   BorderTopColor, BorderRightColor, BorderBottomColor, BorderLeftColor, BoxShadow,
-  OutlineWidth, OutlineOffset, OutlineColor, OutlineStyle, Contain, ContainerType };
+  OutlineWidth, OutlineOffset, OutlineColor, OutlineStyle, Contain, ContainerType,
+  BorderImageSource };
 
 const Json kNull;
 const Json& at(const Json& value, std::string_view key) {
@@ -85,6 +86,12 @@ bool contains(const Rect& outer, const Rect& inner) {
 }
 bool overlaps(const Rect& a, const Rect& b) {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+std::optional<Rect> intersect(const Rect& a, const Rect& b) {
+  const double left = std::max(a.x, b.x), top = std::max(a.y, b.y);
+  const double right = std::min(a.x + a.w, b.x + b.w), bottom = std::min(a.y + a.h, b.y + b.h);
+  if (right <= left || bottom <= top) return {};
+  return Rect{left, top, right - left, bottom - top};
 }
 Json encode_rect(const Rect& r) { return {{"x", r.x}, {"y", r.y}, {"width", r.w}, {"height", r.h}, {"coordinateSpace", "frame-document-css"}}; }
 struct Rgba { double r{}, g{}, b{}, a{}; };
@@ -228,11 +235,11 @@ std::string normalized_space(std::string value) {
 }
 struct Layout {
   int node{-1}, paint{-1}; std::optional<Rect> box;
-  std::array<std::string, 47> styles;
+  std::array<std::string, 48> styles;
   std::string text, blended;
   std::optional<double> text_opacity;
   bool styles_complete{}, basic{}, potentially_painted{}, unbounded_paint{};
-  std::optional<Rect> paint_box;
+  std::optional<Rect> paint_box, hollow_box;
   double effective_opacity{};
 };
 struct Document {
@@ -273,6 +280,21 @@ std::optional<std::pair<double,double>> axis_transform(const std::string& value)
   if(value=="none" || value=="matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)")return std::pair{1.0,1.0};
   // Snapshot bounds already include a 2D translation. It preserves axes,
   // dimensions, clipping and shadow radii; never apply the offset a second time.
+  if(value.starts_with("matrix3d(") && value.ends_with(")") && value.size()<=512) {
+    std::array<double,16> values{};size_t begin=9;
+    for(size_t i=0;i<values.size();++i) {
+      const size_t end=i+1==values.size()?value.size()-1:value.find(',',begin);
+      if(end==std::string::npos || end<=begin)return {};
+      auto part=value.substr(begin,end-begin);while(!part.empty()&&part.back()==' ')part.pop_back();
+      const auto parsed=css_number(part);if(!parsed || std::abs(*parsed)>1e8)return {};
+      values[i]=*parsed;begin=end+1;
+    }
+    if(values[0]==1 && values[1]==0 && values[2]==0 && values[3]==0 &&
+       values[4]==0 && values[5]==1 && values[6]==0 && values[7]==0 &&
+       values[8]==0 && values[9]==0 && values[10]==1 && values[11]==0 &&
+       values[14]==0 && values[15]==1)return std::pair{1.0,1.0};
+    return {};
+  }
   if(!value.starts_with("matrix(") || !value.ends_with(")") || value.size()>256)return {};
   std::array<double,6> values{};size_t begin=7;
   for(size_t i=0;i<values.size();++i) {
@@ -349,7 +371,7 @@ bool bounded_color_filter(const std::string& value) {
   const auto amount=css_number(argument);return amount&&*amount>=0&&*amount<=(percent?100:1);
 }
 std::optional<double> paint_transform_expansion(const std::string& value) {
-  if(value=="none"||value=="matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)")return 1;
+  if(value=="none"||unscaled_transform(value))return 1;
   if(!value.starts_with("matrix(")||!value.ends_with(")")||value.size()>256)return {};
   std::array<double,6> v{};size_t begin=7;
   for(size_t i=0;i<v.size();++i){const auto end=i+1==v.size()?value.size()-1:value.find(',',begin);if(end==std::string::npos||end<=begin)return {};
@@ -421,6 +443,7 @@ bool occluded(FilterState& state, const Document& d, const Layout& target, const
   for (const auto& other:d.layouts) {
     if (!state.step()) return true;
     if (!other.paint_box || !other.potentially_painted || other.paint <= target.paint || (!other.unbounded_paint && !overlaps(r,*other.paint_box))) continue;
+    if (!other.unbounded_paint && other.hollow_box && contains(*other.hollow_box,r)) continue;
     if (ancestor(d,other.node,target.node) || ancestor(d,target.node,other.node)) continue;
     if(diagnostic){(*diagnostic)["occluderUnbounded"]=other.unbounded_paint;(*diagnostic)["occluderTextShadow"]=other.styles[TextShadow]!="none";(*diagnostic)["occluderBoxShadow"]=other.styles[BoxShadow]!="none";(*diagnostic)["occluderFilter"]=other.styles[Filter]!="none";}
     state.omit(other.unbounded_paint?"unboundedPaintOcclusion":other.node<0?"fragmentedPaintOcclusion":"boundedPaintOcclusion");return true;
@@ -437,13 +460,29 @@ bool center_geometry(const Document& d,const Layout& l) {
   if(l.node<0 || d.node_types[l.node]!=1)return false;
   const auto& tag=d.tags[l.node];return tag!="IFRAME" && tag!="FRAME" && tag!="OBJECT" && tag!="EMBED";
 }
-bool shown_geometry(FilterState& state,const Document& d,const Layout& l,const Rect& bounds) {
-  if(!center_geometry(d,l))return shown(state,d,l,bounds);
-  const double w=std::min(2.0,bounds.w),h=std::min(2.0,bounds.h);
-  const Rect center{bounds.x+(bounds.w-w)/2,bounds.y+(bounds.h-h)/2,w,h};
-  // Actionability proves the same center patch through ancestor clips and
-  // occlusion. Text and embeddings still require their complete boxes.
-  return l.basic && l.effective_opacity>=kMinOpacity && d.viewport && contains(*d.viewport,bounds) && inherited_geometry(state,d,l.node,center,true) && !occluded(state,d,l,center);
+std::optional<std::string_view> shown_geometry(FilterState& state,const Document& d,const Layout& l,const Rect& bounds) {
+  if(!center_geometry(d,l))return shown(state,d,l,bounds)?std::optional<std::string_view>{"full_box"}:std::nullopt;
+  if(!l.basic || l.effective_opacity<kMinOpacity || !d.viewport)return {};
+  if(contains(*d.viewport,bounds)) {
+    const double w=std::min(2.0,bounds.w),h=std::min(2.0,bounds.h);
+    const Rect center{bounds.x+(bounds.w-w)/2,bounds.y+(bounds.h-h)/2,w,h};
+    // Actionability proves the same center patch through ancestor clips and
+    // occlusion. Text and embeddings still require their complete boxes.
+    if(inherited_geometry(state,d,l.node,center,true) && !occluded(state,d,l,center))return "unoccluded_center_patch";
+    return {};
+  }
+  // Multi-line textareas can span beyond one viewport edge while remaining
+  // visibly rendered. Editable values are omitted and labels are verified
+  // independently on <label>, so a substantial unoccluded visible slice is
+  // sufficient without weakening full-box containment on buttons/links/text.
+  if(d.tags[l.node]=="TEXTAREA") {
+    const auto vis=intersect(*d.viewport,bounds);
+    if(!vis || vis->w<std::min(bounds.w,24.0) || vis->h<std::min(bounds.h,24.0))return {};
+    const double w=std::min(2.0,vis->w),h=std::min(2.0,vis->h);
+    const Rect patch{vis->x+(vis->w-w)/2,vis->y+(vis->h-h)/2,w,h};
+    if(inherited_geometry(state,d,l.node,patch,true) && !occluded(state,d,l,patch))return "unoccluded_visible_patch";
+  }
+  return {};
 }
 void clip_paint_bounds(const Document& d,Layout& paint) {
   if(!paint.paint_box || paint.unbounded_paint || paint.node<0)return;
@@ -602,10 +641,12 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
       }
       l.effective_opacity=depth>128?0:opacity;
       const auto bg=color(l.styles[Background]);
-      bool border_paint=false;
+      bool border_paint=false,border_widths_known=true;
+      std::array<double,4> border_widths{};
       for(size_t edge=0;edge<4;++edge) {
         const auto width=css_number(l.styles[BorderTop+edge],true);
         const auto rgba=color(l.styles[BorderTopColor+edge]);
+        if(!width || *width<0)border_widths_known=false; else border_widths[edge]=*width;
         if(!width || (*width>0 && (!rgba || rgba->a>0)))border_paint=true;
       }
       // CSS shadow offsets/radii are usable only in an unscaled frame space.
@@ -646,7 +687,25 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
       const bool media=tag=="IMG" || tag=="SVG" || tag=="CANVAS" || tag=="VIDEO" || tag=="IFRAME" || tag=="OBJECT" || tag=="EMBED";
       // Unknown paint is a blocker too. pointer-events does not affect pixels.
       l.potentially_painted=l.effective_opacity>0 && l.styles[Visibility]=="visible" && l.styles[Display]!="none" &&
-        (media || border_paint || outline_paint || l.styles[BoxShadow]!="none" || l.styles[BackdropFilter]!="none" || l.unbounded_paint || !l.text.empty() || !bg || bg->a>0 || l.styles[BackgroundImage]!="none" || !l.basic);
+        (media || border_paint || outline_paint || l.styles[BoxShadow]!="none" || l.styles[BackdropFilter]!="none" || l.unbounded_paint || !l.text.empty() || !bg || bg->a>0 || l.styles[BackgroundImage]!="none" || l.styles[BorderImageSource]!="none" || !l.basic);
+      // A transparent decorative box painted only by borders and/or an outward
+      // outline cannot cover pixels strictly inside its corner-radius-safe
+      // interior hole. Thick borders and any interior paint stay solid.
+      const bool non_hollow_control=media || (l.node>=0 && (d.editable[l.node] || d.svg[l.node])) ||
+        tag=="SELECT" || tag=="BUTTON" || tag=="METER" || tag=="PROGRESS" || tag=="HR" || tag=="AUDIO";
+      if(l.potentially_painted && l.box && l.basic && !l.unbounded_paint && l.node>=0 && d.node_types[l.node]==1 &&
+         !non_hollow_control && border_widths_known && bg && bg->a==0 && l.text.empty() &&
+         l.styles[BackgroundImage]=="none" && l.styles[BorderImageSource]=="none" &&
+         l.styles[BoxShadow]=="none" && l.styles[TextShadow]=="none" && l.styles[BackdropFilter]=="none" && l.styles[Filter]=="none" &&
+         unscaled_transform(l.styles[Transform]) &&
+         (!outline_paint || (outline_width && outline_offset && *outline_offset>=0))) {
+        const double bt=border_widths[0],br=border_widths[1],bb=border_widths[2],bl=border_widths[3];
+        const double left=l.box->x+bl+0.30*std::max(0.0,l.box->w-bl)+1.0;
+        const double right=l.box->x+l.box->w-br-0.30*std::max(0.0,l.box->w-br)-1.0;
+        const double top=l.box->y+bt+0.30*std::max(0.0,l.box->h-bt)+1.0;
+        const double bottom=l.box->y+l.box->h-bb-0.30*std::max(0.0,l.box->h-bb)-1.0;
+        if(right>left && bottom>top)l.hollow_box=Rect{left,top,right-left,bottom-top};
+      }
     }
     // A pure Gaussian blur has finite raster ink. Include every descendant's
     // proven paint bounds before expanding; overflow children must not be lost.
@@ -790,7 +849,8 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
         combined=*center_fragment;combined.box=bounds;geometry=&combined;
       }
       const auto& l=*geometry;
-      if(!l.box || !shown_geometry(state,d,l,*l.box)) {state.omit("unprovenGeometry");continue;}
+      const auto evidence=l.box?shown_geometry(state,d,l,*l.box):std::nullopt;
+      if(!evidence) {state.omit("unprovenGeometry");continue;}
       std::string name=names[n];
       if(d.tags[n]=="INPUT" || d.tags[n]=="TEXTAREA" || d.tags[n]=="SELECT") {
         name.clear();if(!d.ids[n].empty() && labels.contains(d.ids[n]))name=labels[d.ids[n]];
@@ -798,7 +858,7 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
       }
       static const std::set<std::string> safe_tags{"#text","#document","HTML","BODY","A","ABBR","ADDRESS","ARTICLE","ASIDE","AUDIO","B","BDI","BDO","BLOCKQUOTE","BR","BUTTON","CANVAS","CAPTION","CITE","CODE","COL","COLGROUP","DATA","DATALIST","DD","DEL","DETAILS","DFN","DIALOG","DIV","DL","DT","EM","EMBED","FIELDSET","FIGCAPTION","FIGURE","FOOTER","FORM","H1","H2","H3","H4","H5","H6","HEADER","HGROUP","HR","I","IFRAME","IMG","INPUT","INS","KBD","LABEL","LEGEND","LI","MAIN","MAP","MARK","MENU","METER","NAV","OBJECT","OL","OPTGROUP","OPTION","OUTPUT","P","PICTURE","PRE","PROGRESS","Q","RP","RT","RUBY","S","SAMP","SECTION","SELECT","SMALL","SOURCE","SPAN","STRONG","SUB","SUMMARY","SUP","TABLE","TBODY","TD","TEMPLATE","TEXTAREA","TFOOT","TH","THEAD","TIME","TR","TRACK","U","UL","VAR","VIDEO","WBR","SVG","svg","path","text","g","rect","circle","line","polygon","polyline","ellipse","tspan","foreignObject"};
       Json value{{"bounds",encode_rect(*l.box)},{"tag",safe_tags.contains(d.tags[n])?d.tags[n]:"ELEMENT"},{"name",name},{"textVisible",!name.empty()},
-        {"geometryEvidence",center_geometry(d,l)?"unoccluded_center_patch":"full_box"}};
+        {"geometryEvidence",std::string(*evidence)}};
       if(d.tags[n]=="INPUT") {
         // Attribute values are not free-form output channels.
         static const std::set<std::string> allowed{"button","checkbox","color","date","datetime-local","email","file","hidden","image","month","number","password","radio","range","reset","search","submit","tel","text","time","url","week"};
@@ -823,27 +883,52 @@ Json visible_snapshot(const Json& snapshot, const Json& viewports, bool human_di
           if(!a.styles_complete||a.styles[Display]=="none"||a.styles[ContentVisibility]=="hidden"){possible=false;break;}
           if(!axis_transform(a.styles[Transform])){reason="transform_visibility_unproven";unsupported_transform=true;}
           else if(!brightness_gain(a.styles[Filter])||a.styles[MaskImage]!="none"||a.styles[WebkitMaskImage]!="none"||a.styles[Perspective]!="none"){reason="paint_effect_visibility_unproven";unsupported_paint=true;}
-          // Do not enumerate controls proven outside a rectangular ancestor clip.
-          bool empty_clip=false;const auto clip=a.box?inset_clip(a.styles[ClipPath],*a.box,&empty_clip,false):std::nullopt;
-          if(a.styles[ClipPath]!="none"){clip_present=true;if(!clip&&!empty_clip)nonrectangular_clip=true;}
-          if(empty_clip){possible=false;break;}
-          if(clip&&unscaled_transform(a.styles[Transform])&&!overlaps(*clip,*l.box)){possible=false;break;}
+          // Do not enumerate controls proven outside a rectangular ancestor clip-path.
+          if(a.styles[ClipPath]!="none"){
+            clip_present=true;
+            bool empty_clip=false;const auto clip=a.box?inset_clip(a.styles[ClipPath],*a.box,&empty_clip,false):std::nullopt;
+            if(!clip&&!empty_clip)nonrectangular_clip=true;
+            if(empty_clip){possible=false;break;}
+            if(clip&&unscaled_transform(a.styles[Transform])&&!overlaps(*clip,*l.box)){possible=false;break;}
+          }
+          // Do not enumerate controls proven completely outside a real ancestor
+          // overflow clip, while preserving viewport-propagated root/body overflow.
+          if(p!=static_cast<int>(n)&&p!=d.viewport_overflow_node&&a.box&&unscaled_transform(a.styles[Transform])){
+            for(int axis=0;axis<2;++axis){
+              const auto& overflow=a.styles[axis?OverflowY:OverflowX];
+              if(overflow!="hidden"&&overflow!="clip"&&overflow!="scroll"&&overflow!="auto")continue;
+              const auto before=css_number(a.styles[axis?BorderTop:BorderLeft],true),after=css_number(a.styles[axis?BorderBottom:BorderRight],true);
+              if(!before||!after||*before<0||*after<0)continue;
+              const double start=(axis?a.box->y:a.box->x)+*before,end=(axis?a.box->y+a.box->h:a.box->x+a.box->w)-*after;
+              if(end<=start||(axis?l.box->y+l.box->h:l.box->x+l.box->w)<=start||(axis?l.box->y:l.box->x)>=end){possible=false;break;}
+            }
+            if(!possible)break;
+          }
         }
         if(!possible||depth>128)continue;
         if(candidates.size()>=1000){state.omit("uncertainCandidateLimit");break;}
-        // A separately verified text run may survive even when the control's
-        // complete geometry does not. Never substitute AX names or DOM values.
-        const auto name=d.tags[n]=="INPUT"||d.tags[n]=="TEXTAREA"||d.tags[n]=="SELECT"?std::string{}:names[n];
+        // A separately verified text run or verified <label> may survive even
+        // when the control's complete geometry does not. Never substitute AX
+        // names or DOM values.
+        std::string name=names[n];
+        if(d.tags[n]=="INPUT"||d.tags[n]=="TEXTAREA"||d.tags[n]=="SELECT"){
+          name.clear();if(!d.ids[n].empty()&&labels.contains(d.ids[n]))name=labels[d.ids[n]];
+          if(name.empty())for(int p=d.parents[n],ld=0;p>=0&&static_cast<size_t>(p)<d.parents.size()&&ld++<128;p=d.parents[p])if(d.tags[p]=="LABEL"){name=names[p];break;}
+        }
         candidates[std::to_string(d.backend[n])]={{"bounds",encode_rect(*l.box)},{"name",name},{"visibilityStatus","uncertain"},{"visibilityReason",reason},{"screenshotRequired",true}};
         // Internal numeric/boolean diagnostics only; never copy raw CSS or DOM strings.
+        // Use a scratch FilterState so diagnostics never double-count visibility.omitted.
+        FilterState diag_state{state.strings};diag_state.work=state.work;
         candidates[std::to_string(d.backend[n])]["filterDiagnostics"]={{"effectiveOpacity",l.effective_opacity},{"ancestorDepth",depth},{"unsupportedTransform",unsupported_transform},{"unsupportedPaint",unsupported_paint},{"clipPresent",clip_present},{"nonrectangularClip",nonrectangular_clip}};
         auto& diagnostic=candidates[std::to_string(d.backend[n])]["filterDiagnostics"];
         diagnostic["basicStyleProven"]=l.basic;
         diagnostic["boundsInsideViewport"]=contains(*d.viewport,*l.box);
-        diagnostic["ancestorGeometryProven"]=inherited_geometry(state,d,l.node,*l.box,true);
         const double cw=std::min(2.0,l.box->w),ch=std::min(2.0,l.box->h);
         const Rect center{l.box->x+(l.box->w-cw)/2,l.box->y+(l.box->h-ch)/2,cw,ch};
-        diagnostic["centerOcclusionProvenClear"]=!occluded(state,d,l,center,&diagnostic);
+        diagnostic["ancestorGeometryProven"]=inherited_geometry(diag_state,d,l.node,center,true);
+        diagnostic["centerOcclusionProvenClear"]=!occluded(diag_state,d,l,center,&diagnostic);
+        state.work=diag_state.work;
+        if(diag_state.exhausted&&!state.exhausted){state.omit("workLimit");state.exhausted=true;}
         if(std::set<std::string>{"INPUT","SELECT","TEXTAREA","BUTTON","A"}.contains(d.tags[n]))candidates[std::to_string(d.backend[n])]["tag"]=d.tags[n];
       }
       frame["uncertainNodes"]=std::move(candidates);

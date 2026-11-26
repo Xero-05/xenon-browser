@@ -27,7 +27,9 @@ Json visible_snapshot_viewport(const Json& layout_metrics);
 // Names contain verified rendered text only. Missing/uncertain evidence is
 // omitted, never replaced with aria labels, DOM textContent or other metadata.
 // Ordinary element presence proves an unoccluded 2x2 CSS-pixel center patch;
-// names independently require full text-box proof, and frame embeddings require
+// multi-line textareas straddling a viewport edge may alternatively prove an
+// unoccluded 2x2 patch inside a substantial visible viewport slice. Names
+// independently require full text-box proof, and frame embeddings require
 // their entire border box to be visible. Bounds alone do not assert every pixel
 // of an ordinary element is unobscured.
 // Human diagnostics optionally include at most eight short, untrusted computed

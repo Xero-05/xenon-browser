@@ -778,6 +778,62 @@ void batch_hover_and_key(const std::filesystem::path& directory) {
   require(recorded.size() >= 2 && recorded[recorded.size() - 2] == "page.hover" &&
               recorded[recorded.size() - 1] == "page.key",
           "Engine received page.hover followed by page.key in order");
+
+  // page.batch must reject type steps
+  auto bad_type_batch = base;
+  bad_type_batch["operationId"] = "batch-reject-type";
+  bad_type_batch["steps"] = Json::array({{{"action", "type"}, {"text", "Hello"}}});
+  const auto rejected_batch = call(broker, a.connection, "page.batch", bad_type_batch);
+  require(!rejected_batch.value("ok", true) && code(rejected_batch) == "INVALID_BATCH",
+          "page.batch rejects type steps with INVALID_BATCH");
+}
+
+void page_type_guards(const std::filesystem::path& directory) {
+  FakeEngine engine;
+  Broker broker(engine, directory);
+  pair(broker, "type-host", "Type guard fixture");
+  auto a = worker(broker, "type-host", "owner");
+  const auto tab_id = a.tab["tabId"].get<std::string>();
+
+  // Requires a fresh observationId
+  {
+    auto p = a.base();
+    p["ownershipGeneration"] = a.tab["ownershipGeneration"];
+    p["operationId"] = "type-no-obs";
+    p["observationId"] = "stale-obs";
+    p["text"] = "Hello, world!";
+    const auto res = call(broker, a.connection, "page.type", p);
+    require(!res.value("ok", true) && code(res) == "OBSERVATION_REQUIRED",
+            "page.type requires a current observationId");
+  }
+
+  // Dispatches cleanly with fresh observation, journals operationId, and deduplicates
+  auto params = action_params(broker, a, "type-valid-1");
+  params.erase("elementRef");
+  params["text"] = "Line 1, C++ & UI.\nLine 2 (2026).";
+  auto pending = submit(broker, a, "page.type", params);
+  engine.wait_pending(1);
+  require(engine.pending_command("type-valid-1") == "page.type", "Broker dispatches page.type to engine");
+  engine.complete("type-valid-1");
+  const auto ok = await_result(pending);
+  require(ok.value("ok", false) && ok.value("dispatchStatus", std::string{}) == "dispatched",
+          "page.type completes with dispatched metadata");
+  const auto dup = call(broker, a.connection, "page.type", params);
+  require(dup.value("ok", false) && dup.value("operationId", std::string{}) == "type-valid-1",
+          "Identical page.type operationId deduplicates without replay");
+
+  // Human input pauses page.type and invalidates prior observation
+  engine.event("human.input", {{"tabId", tab_id}, {"busy", true}, {"pauseUntil", nullptr}});
+  auto paused = params;
+  paused["operationId"] = "type-during-pause";
+  const auto paused_res = call(broker, a.connection, "page.type", paused);
+  require(!paused_res.value("ok", true) && code(paused_res) == "HUMAN_INPUT_PAUSED",
+          "page.type is rejected during human input pause");
+  engine.event("human.idle", {{"tabId", tab_id}});
+  paused["operationId"] = "type-after-human";
+  const auto stale_res = call(broker, a.connection, "page.type", paused);
+  require(!stale_res.value("ok", true) && code(stale_res) == "OBSERVATION_REQUIRED",
+          "page.type requires a fresh observation after human activity");
 }
 
 #ifdef _WIN32
@@ -1097,6 +1153,7 @@ int main() {
     human_help_hold_and_complete(root.path / "human-help-hold");
     control_wait_ready(root.path / "control-wait-ready");
     batch_hover_and_key(root.path / "batch-hover-key");
+    page_type_guards(root.path / "page-type-guards");
 #ifdef _WIN32
     pipe_server_push_events(root.path / "pipe-push-events");
 #endif

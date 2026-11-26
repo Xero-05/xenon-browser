@@ -1,5 +1,6 @@
 #include "xenon/cef_engine.hpp"
 #include "xenon/form_fill.hpp"
+#include "xenon/focused_type.hpp"
 #include "xenon/cef_branding.hpp"
 #include "xenon/cef_extension_manager.hpp"
 #include "xenon/extension_action_engine.hpp"
@@ -1035,6 +1036,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
                  std::function<void(double,double)>);
   void click(const std::shared_ptr<Tab>&,const Json&,Reply,bool hover=false);
   void fill(const std::shared_ptr<Tab>&,const Json&,Reply,bool secret=false);
+  void type_focused(const std::shared_ptr<Tab>&,const Json&,Reply);
   void login(const std::shared_ptr<Tab>&,const Json&,std::shared_ptr<Secret>,const std::string&,Reply,bool,
              std::chrono::steady_clock::time_point);
   bool autofill_valid(const std::shared_ptr<AutofillOffer>& offer) const;
@@ -2002,6 +2004,52 @@ void CefEngine::Impl::fill(const std::shared_ptr<Tab>& t,const Json& p,Reply rep
       },e.session);
   });
 }
+void CefEngine::Impl::type_focused(const std::shared_ptr<Tab>& t,const Json& p,Reply reply) {
+  if(!p.contains("text")||!p["text"].is_string()){reply(failure("invalid_text","Type requires a nonempty string text."));return;}
+  const auto text=p["text"].get<std::string>();
+  if(!valid_type_text(text)){reply(failure("invalid_text","Type text must be 1 to 65536 bytes of valid UTF-8 without disallowed control or non-rendering characters."));return;}
+  if(p.contains("elementRef")||p.contains("x")||p.contains("y")){reply(failure("invalid_request","Type targets the currently focused editable control under a current screenshot observation; it does not accept elementRef or coordinates."));return;}
+  if(field(p,"observationId")!=t->screenshot||t->screenshot.empty()){reply(failure("stale_observation","Type requires the current screenshot observationId."));return;}
+  const auto epoch=t->epoch,human=t->human_input;
+  const auto viewport=t->screenshot_viewport;
+  auto valid=[this,t,epoch,human]{return !t->closed&&!t->protected_auth&&!t->auth_inflight&&!t->native_fill&&t->epoch==epoch&&t->human_input==human&&action_valid(t);};
+  send(t,"Page.getLayoutMetrics",Json::object(),[this,t,text,viewport,valid,reply](Json metrics){
+    if(!valid()){reply(failure("input_interrupted","Control, authentication or the document changed before text entry."));return;}
+    if(!cdp_ok(metrics)||input_viewport(metrics)!=viewport){reply(failure("stale_viewport","The viewport moved, resized or zoomed since the screenshot."));return;}
+    send(t,"Page.getFrameTree",Json::object(),[this,t,text,viewport,valid,reply](Json tree){
+      if(!valid()){reply(failure("input_interrupted","Control, authentication or the document changed before text entry."));return;}
+      const auto main_frame=cdp_ok(tree)&&tree.contains("frameTree")?field(tree["frameTree"].value("frame",Json::object()),"id"):std::string{};
+      if(main_frame.empty()){reply(failure("frame_unavailable","The main document frame is unavailable."));return;}
+      send(t,"Page.createIsolatedWorld",{{"frameId",main_frame},{"worldName","Xenon focused type"},{"grantUniveralAccess",false}},
+        [this,t,text,viewport,valid,reply](Json world){
+          if(!valid()){reply(failure("input_interrupted","Control, authentication or the document changed before text entry."));return;}
+          if(!cdp_ok(world)||!world.contains("executionContextId")){reply(failure("not_editable","Could not verify the focused editable element."));return;}
+          send(t,"Runtime.callFunctionOn",{{"executionContextId",world["executionContextId"]},{"functionDeclaration",focused_type_check_script},{"returnByValue",true}},
+            [this,t,text,viewport,valid,reply](Json checked){
+              if(!valid()){reply(failure("input_interrupted","Control, authentication or the document changed before text entry."));return;}
+              const auto v=checked.value("result",Json::object()).value("value",Json::object());
+              if(!cdp_ok(checked)||!v.value("ok",false)){
+                const auto reason=field(v,"reason");
+                if(reason=="protected_field"){reply(failure("protected_field","Password and one-time-code fields cannot be filled with type; use protected login."));return;}
+                if(reason=="embedded_frame"){reply(failure("not_editable","The focused control is inside an embedded frame; use an observed elementRef for embedded frames."));return;}
+                if(reason=="outside_viewport"||reason=="not_visible"||reason=="occluded"){reply(failure("not_actionable","The focused control is hidden, occluded or outside the visual viewport. Inspect again."));return;}
+                reply(failure("not_editable","Focus a visible, enabled non-password editable field before using type."));return;
+              }
+              const double vx=v.value("vx",-1.0),vy=v.value("vy",-1.0);
+              if(!inside_input_viewport(viewport,vx,vy)){reply(failure("not_actionable","The focused control is outside the observed visual viewport. Inspect again."));return;}
+              send(t,"Page.getLayoutMetrics",Json::object(),[this,t,text,viewport,valid,reply](Json final_metrics){
+                if(!valid()){reply(failure("input_interrupted","Control, authentication or the document changed before text entry."));return;}
+                if(!cdp_ok(final_metrics)||input_viewport(final_metrics)!=viewport){reply(failure("stale_viewport","The viewport moved, resized or zoomed before text entry."));return;}
+                send(t,"Input.insertText",{{"text",text}},[reply](Json r2){
+                  if(r2.value("error",Json::object()).value("notDispatched",false)){reply(failure("human_interrupted","Human input interrupted text entry before dispatch."));return;}
+                  reply(cdp_ok(r2)?success({{"status","dispatched"}}):failure("input_uncertain","Text input did not complete. Observe before retrying."));
+                });
+              });
+            });
+        });
+    });
+  });
+}
 
 bool CefEngine::Impl::autofill_valid(const std::shared_ptr<AutofillOffer>& offer) const {
   const auto& t=offer->tab;
@@ -2385,7 +2433,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   auto it=tabs_.find(field(p,"tabId"));if(it==tabs_.end()){reply(failure("tab_not_found","The tab is not available."));return;}
   auto t=it->second;
   const bool mutating=command!="page.observe"&&command!="page.screenshot"&&command!="page.inspect"&&command!="page.wait"&&command!="auth.accounts";
-  ActionScope action_scope(*this,mutating?std::make_shared<ActionGuard>(ActionGuard{t->epoch,t->human_input,std::move(continuation),command=="files.upload"}):nullptr);
+  ActionScope action_scope(*this,mutating?std::make_shared<ActionGuard>(ActionGuard{t->epoch,t->human_input,std::move(continuation),command=="files.upload"||command=="page.type"}):nullptr);
   if(field(p,"workspaceId",t->workspace)!=t->workspace){reply(failure("wrong_workspace","The tab belongs to a different workspace."));return;}
   if(t->protected_auth&&command!="tabs.close"){
     reply(failure("protected_auth","This tab is sealed for authentication. Use native controls to resume observations."));return;
@@ -2446,6 +2494,7 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
   }
   if(command=="page.click"||command=="page.hover"){click(t,p,reply,command=="page.hover");return;}
   if(command=="page.fill"){fill(t,p,reply);return;}
+  if(command=="page.type"){type_focused(t,p,reply);return;}
   if(command=="page.key"){
     std::string chord=field(p,"key"),key=chord;int mods=0;
     for(;;){auto at=key.find('+');if(at==std::string::npos)break;auto m=key.substr(0,at);key.erase(0,at+1);

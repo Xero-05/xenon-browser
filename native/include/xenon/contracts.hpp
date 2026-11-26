@@ -45,7 +45,7 @@ class BrowserEngine {
 // Engine command names (native-private protocol):
 // workspace.ensure {workspaceId}; tabs.create {workspaceId, url};
 // tabs.close / tabs.list; page.navigate/back/forward/reload/observe/screenshot/inspect;
-// page.click/fill/select/check/key/scroll/drag/hover/wait/dialog;
+// page.click/fill/type/select/check/key/scroll/drag/hover/wait/dialog;
 // page.batch is broker-only: bounded sequential fill/select/check/click steps,
 // dispatched as existing guarded engine commands under one journal reservation.
 // files.upload/downloads/folders/list (bounded query + opaque continuation); auth.accounts/login.
