@@ -13,9 +13,22 @@ export interface TabScope { agentSessionId: string; workspaceId: string; tabId: 
 export interface ActionEvidence { ownershipGeneration: number; observationId: string }
 export type BatchStep =
   | { action: 'click'; elementRef: string }
+  | { action: 'hover'; elementRef: string }
   | { action: 'fill'; elementRef: string; text: string }
   | { action: 'select'; elementRef: string; values: string[] }
-  | { action: 'check'; elementRef: string; checked: boolean };
+  | { action: 'check'; elementRef: string; checked: boolean }
+  | { action: 'key'; key: string }
+  | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right'; amount?: number };
+
+export interface ObserveAfterOptions {
+  maxNodes?: number;
+  query?: string;
+  roles?: string[];
+  interactiveOnly?: boolean;
+  compact?: boolean;
+  sinceObservationId?: string;
+  settleMs?: number;
+}
 
 export class XenonToolError extends Error {
   constructor(readonly reply: ToolReply, readonly operationId?: string) {
@@ -62,22 +75,27 @@ export class ScopedXenonTab {
     const scope = workspaceTools.has(name) ? { agentSessionId: this.scope.agentSessionId, workspaceId: this.scope.workspaceId } : this.scope;
     return invoke(this.client, name, { ...args, ...scope });
   }
-  inspect(args: { maxNodes?: number; query?: string } = {}) { return this.call('xenon_inspect', args); }
-  observe(args: { maxNodes?: number; query?: string } = {}) { return this.call('xenon_observe', args); }
+  inspect(args: { maxNodes?: number; query?: string; roles?: string[]; interactiveOnly?: boolean; compact?: boolean; sinceObservationId?: string } = {}) { return this.call('xenon_inspect', args); }
+  observe(args: { maxNodes?: number; query?: string; roles?: string[]; interactiveOnly?: boolean; compact?: boolean; sinceObservationId?: string } = {}) { return this.call('xenon_observe', args); }
   status() { return this.call('xenon_control_status'); }
   // Ask the person to come to this tab, or withdraw that request.
   attention(action: 'request' | 'clear', ownershipGeneration: number, reason?: string, persist?: boolean) {
     return this.call('xenon_attention', { action, ownershipGeneration, ...(reason === undefined ? {} : { reason }), ...(persist === undefined ? {} : { persist }) });
   }
   files(args: { folderId?: string; cursor?: string; query?: string; limit?: number } = {}) { return this.call('xenon_files', args); }
-  operation(operationId: string) { return invoke(this.client, 'xenon_operation', { operationId: handle(operationId) }); }
+  operation(operationId: string) { return invoke(this.client, 'xenon_operation', { operationId: handle(operationId), agentSessionId: this.scope.agentSessionId }); }
 
-  async batch(steps: BatchStep[], evidence: ActionEvidence, options: { operationId?: string; inspectAfter?: boolean } = {}) {
+  async batch(steps: BatchStep[], evidence: ActionEvidence, options: { operationId?: string; inspectAfter?: boolean; observeAfter?: ObserveAfterOptions } = {}) {
     // Explicit evidence is supplied by the caller, never silently refreshed or
     // reused across workers. Follow-up inspection is a separate authorized read.
     noScopeOverrides(evidence as unknown as Record<string, unknown>);
-    const batch = await this.call('xenon_batch', { steps, observationId: handle(evidence.observationId),
-      ownershipGeneration: evidence.ownershipGeneration, operationId: options.operationId ?? randomUUID() });
+    const batch = await this.call('xenon_batch', {
+      steps,
+      observationId: handle(evidence.observationId),
+      ownershipGeneration: evidence.ownershipGeneration,
+      operationId: options.operationId ?? randomUUID(),
+      ...(options.observeAfter === undefined ? {} : { observeAfter: options.observeAfter }),
+    });
     if (!options.inspectAfter) return { batch };
     try { return { batch, inspection: await this.inspect() }; }
     catch (error) {

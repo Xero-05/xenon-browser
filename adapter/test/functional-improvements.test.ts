@@ -396,7 +396,7 @@ for (const era of ['legacy', 'modern'] as const) {
         }
       });
 
-      await t.test('xenon_observe and xenon_inspect compact, roles, interactiveOnly, and observe-only sinceObservationId', async () => {
+      await t.test('xenon_observe and xenon_inspect compact, roles, interactiveOnly, and sinceObservationId', async () => {
         const max32Roles = Array.from({ length: 32 }, (_, idx) => `role_${idx}`);
         const observeValid = [
           { ...scope, compact: true, roles: ['button', 'link', 'text_box', 'aria-live'], interactiveOnly: true, sinceObservationId: 'obs-prev-1' },
@@ -411,7 +411,7 @@ for (const era of ['legacy', 'modern'] as const) {
         }
 
         const inspectValid = [
-          { ...scope, compact: true, roles: ['button', 'textbox'], interactiveOnly: true },
+          { ...scope, compact: true, roles: ['button', 'textbox'], interactiveOnly: true, sinceObservationId: 'obs-prev-1' },
           { ...scope, roles: max32Roles },
         ];
         for (const args of inspectValid) {
@@ -420,14 +420,12 @@ for (const era of ['legacy', 'modern'] as const) {
           const body = reply.structuredContent as Record<string, unknown>;
           assert.equal(body.method, 'page.inspect');
           assert.deepEqual(body.params, args);
+          if ('compact' in args && args.compact === true) {
+            assert.deepEqual(body.textSafety, { withheldValues: 0, limitation: 'unsafe_non_rendering_withheld' });
+          } else {
+            assert.match(String((body.textSafety as Record<string, unknown>).limitation), /not a complete prompt-injection defense/);
+          }
         }
-
-        // sinceObservationId is accepted by xenon_observe only, never xenon_inspect.
-        const inspectWithSince = await client.callTool({
-          name: 'xenon_inspect',
-          arguments: { ...scope, sinceObservationId: 'obs-prev-1' },
-        });
-        assert.equal(inspectWithSince.isError, true, 'xenon_inspect must reject sinceObservationId');
 
         const sharedInvalid = [
           { ...scope, roles: [] },
@@ -441,16 +439,14 @@ for (const era of ['legacy', 'modern'] as const) {
           { ...scope, roles: Array.from({ length: 33 }, (_, idx) => `role_${idx}`) },
           { ...scope, compact: 'true' },
           { ...scope, interactiveOnly: 1 },
+          { ...scope, sinceObservationId: '' },
+          { ...scope, sinceObservationId: 'bad obs id' },
         ];
         for (const toolName of ['xenon_observe', 'xenon_inspect'] as const) {
           for (const badArgs of sharedInvalid) {
             const rejected = await client.callTool({ name: toolName, arguments: badArgs });
             assert.equal(rejected.isError, true, `${toolName} must reject ${JSON.stringify(badArgs)}`);
           }
-        }
-        for (const badSince of ['', 'bad obs id']) {
-          const rejected = await client.callTool({ name: 'xenon_observe', arguments: { ...scope, sinceObservationId: badSince } });
-          assert.equal(rejected.isError, true, `xenon_observe must reject sinceObservationId=${JSON.stringify(badSince)}`);
         }
       });
 
@@ -517,7 +513,7 @@ for (const era of ['legacy', 'modern'] as const) {
         }
       });
 
-      await t.test('xenon_batch hover and key steps alongside fill/click, and rejection of invalid key/hover shapes', async () => {
+      await t.test('xenon_batch hover, key, scroll steps and observeAfter, plus rejection of invalid shapes', async () => {
         const batchArgs = {
           ...mutation,
           observationId: 'obs-1',
@@ -527,7 +523,10 @@ for (const era of ['legacy', 'modern'] as const) {
             { action: 'click', elementRef: 'btn' },
             { action: 'key', key: 'Enter' },
             { action: 'key', key: 'Shift+Tab' },
+            { action: 'scroll', direction: 'down', amount: 600 },
+            { action: 'scroll', direction: 'up' },
           ],
+          observeAfter: { compact: true, maxNodes: 200, interactiveOnly: true, settleMs: 150 },
         };
         const reply = await client.callTool({ name: 'xenon_batch', arguments: batchArgs });
         assert.equal(reply.isError, undefined);
@@ -544,12 +543,68 @@ for (const era of ['legacy', 'modern'] as const) {
           [{ action: 'hover', x: 10, y: 20 }],
           [{ action: 'hover' }],
           [{ action: 'hover', elementRef: 'btn', extra: true }],
+          [{ action: 'scroll' }],
+          [{ action: 'scroll', direction: 'diagonal' }],
+          [{ action: 'scroll', direction: 'down', amount: 0 }],
+          [{ action: 'scroll', direction: 'down', amount: 10_001 }],
+          [{ action: 'scroll', direction: 'down', elementRef: 'btn' }],
+          [{ action: 'type', text: 'must stay single-action' }],
         ]) {
           const rejected = await client.callTool({
             name: 'xenon_batch',
             arguments: { ...mutation, observationId: 'obs-1', steps: badSteps },
           });
           assert.equal(rejected.isError, true, `xenon_batch must reject steps=${JSON.stringify(badSteps)}`);
+        }
+
+        for (const badObserveAfter of [
+          { screenshot: true },
+          { settleMs: -1 },
+          { settleMs: 2001 },
+          { maxNodes: 10 },
+          { roles: [] },
+          { tabId: 'override-tab' },
+          { sinceObservationId: 'bad id' },
+        ]) {
+          const rejectedBatch = await client.callTool({
+            name: 'xenon_batch',
+            arguments: { ...mutation, observationId: 'obs-1', steps: [{ action: 'scroll', direction: 'down' }], observeAfter: badObserveAfter },
+          });
+          assert.equal(rejectedBatch.isError, true, `xenon_batch must reject observeAfter=${JSON.stringify(badObserveAfter)}`);
+          const rejectedInteract = await client.callTool({
+            name: 'xenon_interact',
+            arguments: { ...mutation, observationId: 'obs-1', action: 'scroll', direction: 'down', observeAfter: badObserveAfter },
+          });
+          assert.equal(rejectedInteract.isError, true, `xenon_interact must reject observeAfter=${JSON.stringify(badObserveAfter)}`);
+        }
+
+        // xenon_interact accepts observeAfter across actions including scroll and type.
+        for (const args of [
+          { ...mutation, observationId: 'obs-1', action: 'scroll', direction: 'down', amount: 500, observeAfter: {} },
+          { ...mutation, observationId: 'obs-1', action: 'click', elementRef: 'btn', observeAfter: { query: 'Ready', roles: ['button'], compact: false, sinceObservationId: 'obs-1', settleMs: 0 } },
+          { ...mutation, observationId: 'obs-1', action: 'type', text: 'Focused text', observeAfter: { compact: true, maxNodes: 100 } },
+        ]) {
+          const ok = await client.callTool({ name: 'xenon_interact', arguments: args });
+          assert.equal(ok.isError, undefined, `xenon_interact should accept ${JSON.stringify(args)}`);
+          assert.deepEqual((ok.structuredContent as Record<string, unknown>).params, args);
+        }
+
+        // xenon_operation accepts optional agentSessionId for per-worker disambiguation.
+        for (const args of [
+          { operationId: 'op-shared-1' },
+          { operationId: 'op-shared-1', agentSessionId: 'worker-a' },
+        ]) {
+          const ok = await client.callTool({ name: 'xenon_operation', arguments: args });
+          assert.equal(ok.isError, undefined);
+          assert.deepEqual((ok.structuredContent as Record<string, unknown>).params, args);
+        }
+        for (const badOp of [
+          { operationId: 'op-shared-1', agentSessionId: '' },
+          { operationId: 'op-shared-1', agentSessionId: 'bad worker' },
+          { operationId: 'op-shared-1', workspaceId: 'unexpected' },
+        ]) {
+          const bad = await client.callTool({ name: 'xenon_operation', arguments: badOp });
+          assert.equal(bad.isError, true);
         }
       });
 
@@ -614,10 +669,13 @@ test('createServer over InMemoryTransport blocks schema-invalid tool calls befor
       ['xenon_wait_ready', { ...scope, timeoutMs: 50 }],
       ['xenon_wait_ready', { ...scope, timeoutMs: 40_000 }],
       ['xenon_observe', { ...scope, roles: [] }],
-      ['xenon_inspect', { ...scope, sinceObservationId: 'obs-1' }],
+      ['xenon_inspect', { ...scope, sinceObservationId: 'bad obs' }],
+      ['xenon_interact', { ...mutation, observationId: 'obs-1', action: 'scroll', direction: 'down', observeAfter: { screenshot: true } }],
       ['xenon_wait', { ...scope }],
       ['xenon_screenshot', { ...scope, clip: { x: 0, y: 0, width: 10, height: 10 }, candidateId: 'cand-1' }],
       ['xenon_batch', { ...mutation, observationId: 'obs-1', steps: [{ action: 'key', elementRef: 'btn', key: 'Enter' }] }],
+      ['xenon_batch', { ...mutation, observationId: 'obs-1', steps: [{ action: 'scroll', direction: 'sideways' }] }],
+      ['xenon_operation', { operationId: 'op-1', agentSessionId: 'bad worker' }],
       ['xenon_attention', { ...scope, ownershipGeneration: 1, action: 'request', kind: 'urgent' }],
     ];
     for (const [name, args] of invalidInvocations) {

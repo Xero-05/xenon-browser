@@ -533,6 +533,188 @@ int main() {
     }
   });
 
+  test("compact_limitations condenses static prose while preserving all security signals", [] {
+    const Json full_obs = obs::full_limitations(false);
+    const Json compact_obs = obs::compact_limitations(false);
+    assert(full_obs.is_array() && full_obs.size() == 5);
+    assert(compact_obs.is_array() && compact_obs.size() == 5);
+    const size_t full_bytes = full_obs.dump().size();
+    const size_t compact_bytes = compact_obs.dump().size();
+    assert(compact_bytes < full_bytes / 4);
+
+    const Json full_insp = obs::full_limitations(true);
+    const Json compact_insp = obs::compact_limitations(true);
+    assert(full_insp.size() == 6);
+    assert(compact_insp.size() == 6);
+    assert(compact_insp.back() == "validated_capture_interval_not_atomic");
+    assert(compact_insp.dump().size() < full_insp.dump().size() / 4);
+  });
+
+  test("compact_nodes rounds bounds, deduplicates covered container text, preserves controls/StaticText/headings, and shrinks synthetic payload", [] {
+    auto make_node = [](const std::string& role, const std::string& name, const std::string& ref,
+                        double x, double y, double w, double h, const std::string& frame = "frame-main") {
+      return Json{
+          {"role", role},
+          {"name", name},
+          {"frameId", frame},
+          {"ref", ref},
+          {"provenance", "chromium-rendered-text-with-accessibility-role"},
+          {"nameProvenance", "filtered_rendered_text"},
+          {"bounds", {{"x", x}, {"y", y}, {"width", w}, {"height", h}, {"coordinateSpace", "frame-document-css"}}},
+          {"boundsProvenance", "chromium-dom-snapshot"},
+          {"geometryEvidence", "unoccluded_center_patch"},
+          {"visibilityStatus", "verified"},
+          {"screenshotRequired", false},
+      };
+    };
+
+    const std::string h1 = "Software Engineer Intern";
+    const std::string p1 = "Build reliable browser automation systems in C++20 and strict TypeScript.";
+    const std::string p2 = "Collaborate across security, rendering, and MCP protocol boundaries.";
+    const std::string li1 = "Experience with Chromium or Win32 internals";
+    const std::string li2 = "Strong testing discipline with synthetic fixtures";
+    const std::string btn = "Apply Now";
+    const std::string upload_txt = "Upload from Device";
+    const std::string full_article = h1 + " " + p1 + " " + p2 + " " + li1 + " " + li2 + " " + btn + " " + upload_txt;
+
+    Json upload_node = make_node("StaticText", upload_txt, "ref-upload", 24.33333587646484, 340.6666564941406, 142.140625, 19.999996185302734);
+    upload_node["provenance"] = "chromium-rendered-text-node";
+    upload_node["roleProvenance"] = "native-dom-text-type";
+    upload_node["geometryEvidence"] = "full_box";
+
+    Json dialog_node = make_node("dialog", "Confirm action Continue", "ref-dialog", 200.0, 420.0, 320.0, 120.0);
+    Json dialog_text = make_node("StaticText", "Confirm action", "ref-dtxt", 216.0, 436.0, 110.0, 20.0);
+    Json dialog_btn = make_verified_button("Continue", "ref-dbtn", "frame-main", 216.25, 472.75, 96.5, 32.0);
+
+    Json synthetic_nodes = Json::array({
+        make_node("main", full_article, "ref-main", 0.0, 0.0, 900.0, 600.0),
+        make_node("article", full_article, "ref-article", 16.0, 16.0, 860.0, 400.0),
+        make_node("heading", h1, "ref-h1", 24.123456789, 24.987654321, 320.4444444, 32.000001),
+        make_node("StaticText", h1, "ref-h1-t", 24.123456789, 24.987654321, 310.0, 32.0),
+        make_node("paragraph", p1, "ref-p1", 24.0, 68.3333333333, 760.0, 24.0),
+        make_node("StaticText", p1, "ref-p1-t", 24.0, 68.3333333333, 520.0, 24.0),
+        make_node("paragraph", p2, "ref-p2", 24.0, 100.6666666667, 760.0, 24.0),
+        make_node("StaticText", p2, "ref-p2-t", 24.0, 100.6666666667, 500.0, 24.0),
+        make_node("list", li1 + " " + li2, "ref-ul", 24.0, 140.0, 760.0, 80.0),
+        make_node("listitem", li1, "ref-li1", 32.0, 144.0, 720.0, 24.0),
+        make_node("StaticText", li1, "ref-li1-t", 32.0, 144.0, 380.0, 24.0),
+        make_node("listitem", li2, "ref-li2", 32.0, 176.0, 720.0, 24.0),
+        make_node("StaticText", li2, "ref-li2-t", 32.0, 176.0, 410.0, 24.0),
+        make_verified_button(btn, "ref-apply", "frame-main", 24.33333587646484, 280.6666564941406, 120.140625, 35.999996185302734),
+        make_node("StaticText", btn, "ref-apply-t", 36.0, 288.0, 88.0, 20.0),
+        upload_node,
+        dialog_node,
+        dialog_text,
+        dialog_btn,
+    });
+
+    const auto compacted = obs::compact_nodes(synthetic_nodes, "frame-main");
+
+    // Pure structural wrappers (main, article, paragraph x2, list, listitem x2 = 7) omitted.
+    assert(compacted.nodes.size() == synthetic_nodes.size() - 7);
+    // Semantic dialog kept with empty name and nameProvenance == "in_children".
+    bool saw_dialog = false, saw_upload = false, saw_apply = false, saw_heading = false;
+    for (const auto& n : compacted.nodes) {
+      const auto role = n.at("role").get<std::string>();
+      assert(role != "main" && role != "article" && role != "paragraph" && role != "list" && role != "listitem");
+      if (role == "dialog") {
+        saw_dialog = true;
+        assert(n.at("name") == "");
+        assert(n.at("nameProvenance") == "in_children");
+      }
+      if (n.value("ref", "") == "ref-upload") {
+        saw_upload = true;
+        assert(n.at("role") == "StaticText");
+        assert(n.at("name") == upload_txt);
+        assert(n.at("provenance") == "chromium-rendered-text-node");
+        assert(n.at("roleProvenance") == "native-dom-text-type");
+        // Fractional bounds rounded to 1 decimal, integer values serialized as integers.
+        assert(n.at("bounds").at("x") == 24.3);
+        assert(n.at("bounds").at("y") == 340.7);
+        assert(n.at("bounds").at("width") == 142.1);
+        assert(n.at("bounds").at("height").is_number_integer() && n.at("bounds").at("height") == 20);
+      }
+      if (n.value("ref", "") == "ref-apply") {
+        saw_apply = true;
+        assert(n.at("name") == btn);
+        assert(n.at("bounds").at("x") == 24.3);
+        assert(n.at("bounds").at("height").is_number_integer() && n.at("bounds").at("height") == 36);
+      }
+      if (role == "heading") {
+        saw_heading = true;
+        assert(n.at("name") == h1);
+        assert(n.at("bounds").at("x") == 24.1);
+        assert(n.at("bounds").at("y") == 25);
+      }
+    }
+    assert(saw_dialog && saw_upload && saw_apply && saw_heading);
+
+    // Filtered observation with roles=["paragraph"] has no child StaticText -> paragraph MUST NOT be omitted or emptied.
+    const Json only_paragraph = Json::array({make_node("paragraph", p1, "ref-p-only", 24.0, 68.0, 760.0, 24.0)});
+    const auto keep_paragraph = obs::compact_nodes(only_paragraph, "frame-main");
+    assert(keep_paragraph.nodes.size() == 1);
+    assert(keep_paragraph.nodes[0].at("role") == "paragraph");
+    assert(keep_paragraph.nodes[0].at("name") == p1);
+
+    // Measure full vs compact synthetic observation payload bytes.
+    const Json full_payload = {
+        {"visibility", {{"policy", "rendered_viewport"}, {"limitations", obs::full_limitations(false)}}},
+        {"nodes", synthetic_nodes},
+    };
+    const Json compact_payload = {
+        {"visibility", {{"policy", "rendered_viewport"}, {"limitations", obs::compact_limitations(false)}}},
+        {"nodeDefaults", compacted.node_defaults},
+        {"nodes", compacted.nodes},
+    };
+    const size_t full_bytes = full_payload.dump().size();
+    const size_t compact_bytes = compact_payload.dump().size();
+    const double reduction_pct = (1.0 - static_cast<double>(compact_bytes) / static_cast<double>(full_bytes)) * 100.0;
+    std::cout << "  Synthetic payload compaction: full=" << full_bytes
+              << "B -> compact=" << compact_bytes << "B (" << static_cast<int>(std::round(reduction_pct))
+              << "% smaller)\n";
+    assert(compact_bytes < full_bytes * 0.35);
+  });
+
+  test("should_retry_transient_capture retries only clean transient inspect/guard races once", [] {
+    obs::TransientCaptureState base;
+    base.attempt = 0;
+    base.error_code = "inspection_changed";
+    base.start_epoch = base.current_epoch = 3;
+    base.start_human_input = base.current_human_input = 1;
+    base.start_document = base.current_document = "doc-1";
+    base.ownership_valid = true;
+
+    assert(obs::should_retry_transient_capture(base));
+
+    auto guard_init = base;
+    guard_init.error_code = "privacy_guard_initializing";
+    assert(obs::should_retry_transient_capture(guard_init));
+
+    // Second attempt must fail closed.
+    auto second = base;
+    second.attempt = 1;
+    assert(!obs::should_retry_transient_capture(second));
+
+    // Non-transient or protected codes must never retry.
+    for (const char* non_retryable : {"screenshot_protected", "protected_auth", "screen_sharing",
+                                      "HUMAN_INPUT_PAUSED", "OWNERSHIP_CHANGED", "page_changed",
+                                      "screenshot_unverified", "tab_closed"}) {
+      auto s = base;
+      s.error_code = non_retryable;
+      assert(!obs::should_retry_transient_capture(s));
+    }
+
+    // Any state invalidation blocks retry.
+    { auto s = base; s.closed = true; assert(!obs::should_retry_transient_capture(s)); }
+    { auto s = base; s.protected_auth = true; assert(!obs::should_retry_transient_capture(s)); }
+    { auto s = base; s.screen_sharing = true; assert(!obs::should_retry_transient_capture(s)); }
+    { auto s = base; s.human_busy = true; assert(!obs::should_retry_transient_capture(s)); }
+    { auto s = base; s.ownership_valid = false; assert(!obs::should_retry_transient_capture(s)); }
+    { auto s = base; s.current_epoch = 4; assert(!obs::should_retry_transient_capture(s)); }
+    { auto s = base; s.current_human_input = 2; assert(!obs::should_retry_transient_capture(s)); }
+    { auto s = base; s.current_document = "doc-2"; assert(!obs::should_retry_transient_capture(s)); }
+  });
+
   std::cout << "All observation_format_tests passed\n";
   return 0;
 }

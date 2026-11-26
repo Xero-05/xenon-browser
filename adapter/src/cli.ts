@@ -10,11 +10,11 @@ import { DeferredEvidenceExporter } from './evidence-export.js';
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   config: { type: 'string' }, pipe: { type: 'string' }, name: { type: 'string' }, output: { type: 'string' }, help: { type: 'boolean' },
-  'evidence-dir': { type: 'string' },
+  'evidence-dir': { type: 'string' }, 'evidence-root': { type: 'string' },
 }});
 async function main() {
   if (values.help) {
-    process.stderr.write('Xenon MCP\n  pair --name "Agent app" --output <private-config.json> [--pipe <local-pipe>]\n  serve --config <private-config.json> [--evidence-dir <new-private-directory>]\nPairing requires approval in the native Xenon control window. Evidence export is opt-in and bounded; captures task arguments and authorized results. Keep both private.\n');
+    process.stderr.write('Xenon MCP\n  pair --name "Agent app" --output <private-config.json> [--pipe <local-pipe>]\n  serve --config <private-config.json> [--evidence-dir <new-private-directory> | --evidence-root <existing-parent-directory>]\nPairing requires approval in the native Xenon control window. Evidence export is opt-in and bounded; captures task arguments and authorized results. Keep both private.\n');
     return;
   }
   if (positionals[0] === 'pair') {
@@ -37,8 +37,16 @@ async function main() {
     return;
   }
   if (!values.config) throw new BrokerError('ARGUMENT_REQUIRED', 'serve requires --config. Run pair first.');
+  if (values['evidence-dir'] !== undefined && values['evidence-root'] !== undefined)
+    throw new BrokerError('INVALID_ARGUMENTS', 'Use either --evidence-dir or --evidence-root, not both.');
+  if (values['evidence-dir'] === '' || values['evidence-root'] === '')
+    throw new BrokerError('INVALID_ARGUMENTS', 'Evidence directory path must not be empty.');
   const config = await readClientConfig(values.config);
-  const evidence = values['evidence-dir'] ? new DeferredEvidenceExporter(values['evidence-dir']) : undefined;
+  const evidence = values['evidence-dir']
+    ? new DeferredEvidenceExporter(values['evidence-dir'])
+    : values['evidence-root']
+      ? DeferredEvidenceExporter.fromRoot(values['evidence-root'])
+      : undefined;
   const transport = new PipeTransport(values.pipe ?? config.pipe ?? DEFAULT_PIPE);
   await transport.connect(config);
   process.on('SIGINT', () => { transport.close(); process.exit(0); });

@@ -7,14 +7,15 @@ import net from 'node:net';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { writePrivateConfig } from '../adapter/dist/src/private-config.js';
 
 const root = resolve(import.meta.dirname, '..'), build = resolve(root, process.env.XENON_TEST_BUILD_DIR ?? 'build');
 const run = `functional-improvements-${Date.now()}-${randomBytes(4).toString('hex')}`, profile = resolve(root, '.cache', run);
+const evidenceRoot = resolve(profile, 'evidence-root');
 const pipeName = `xenon-test-${run}`, pipe = `\\\\.\\pipe\\${pipeName}`, config = resolve(profile, 'client.json');
 const binary = resolve(build, 'app/Release/Xenon.exe'), dll = resolve(build, 'app/Release/Xenon.dll');
 const hash = async () => createHash('sha256').update(await readFile(dll)).digest('hex');
@@ -61,6 +62,7 @@ async function check(name, fn) {
 try {
   initialHash = await hash();
   await mkdir(profile, { recursive: true });
+  await mkdir(evidenceRoot, { recursive: true });
   await writeFile(resolve(profile, 'SYNTHETIC_TEST_PROFILE'), 'XENON_SYNTHETIC_FUNCTIONAL_IMPROVEMENTS\n');
   await writeFile(resolve(profile, 'ui-settings.json'), JSON.stringify({ version: 1, introductionCompleted: true, automaticUpdateChecks: false }));
   const identity = { clientId: `func_${randomBytes(8).toString('hex')}`, token: randomBytes(32).toString('hex'), pipe };
@@ -80,8 +82,21 @@ try {
         <input type="password" style="position:fixed;left:20px;top:300px">`);
       return;
     }
+    if (request.url === '/popup') {
+      response.end(`<!doctype html><title>Popup Tab</title>
+        <style>body{font:16px sans-serif;margin:20px}</style>
+        <h1>Popup Tab Ready</h1>
+        <p>Opened in the same control group.</p>`);
+      return;
+    }
+    if (request.url === '/navigated') {
+      response.end(`<!doctype html><title>Navigated Target</title>
+        <style>body{font:16px sans-serif;margin:20px}</style>
+        <h1>Navigated Target Ready</h1>`);
+      return;
+    }
     response.end(`<!doctype html><title>Functional Improvements Fixture</title>
-      <style>body{font:16px sans-serif;margin:20px}button,input{font:16px sans-serif;margin:6px;padding:6px 10px}</style>
+      <style>body{font:16px sans-serif;margin:20px}button,input,a{font:16px sans-serif;margin:6px;padding:6px 10px;display:inline-block}</style>
       <h1>Functional Fixture Ready</h1>
       <p>Paragraph text one for compaction testing.</p>
       <p>Paragraph text two for compaction testing.</p>
@@ -92,10 +107,16 @@ try {
       <button id="submitBtn">Submit Action</button>
       <button id="mutateBtn">Trigger Async</button>
       <button id="staleBtn">Morphing Button</button>
+      <a id="popupLink" href="/popup" target="_blank">Open Popup Tab</a>
+      <a id="navLink" href="/navigated">Go Navigated</a>
       <div id="status">Initial Status</div>
       <div id="log"></div>
+      <div style="height:1400px" aria-hidden="true"></div>
+      <h2>Lower Section Heading</h2>
+      <button id="belowFoldBtn">Below Fold Action</button>
+      <div id="belowFoldStatus">BelowFold:0</div>
       <script>
-        let hovered = 0, submitted = 0, enterPressed = 0;
+        let hovered = 0, submitted = 0, enterPressed = 0, belowFold = 0;
         const log = () => { document.querySelector('#log').textContent = 'H:' + hovered + ' S:' + submitted + ' E:' + enterPressed + ' V:' + document.querySelector('#note').value; };
         document.querySelector('#hoverBtn').addEventListener('mouseenter', () => { hovered++; log(); });
         document.querySelector('#submitBtn').addEventListener('click', () => { submitted++; log(); });
@@ -107,6 +128,10 @@ try {
         document.querySelector('#staleBtn').addEventListener('click', () => {
           document.querySelector('#staleBtn').textContent = 'Morphed Label';
         });
+        document.querySelector('#belowFoldBtn').addEventListener('click', () => {
+          belowFold++;
+          document.querySelector('#belowFoldStatus').textContent = 'BelowFold:' + belowFold;
+        });
         log();
       </script>`);
   });
@@ -116,22 +141,30 @@ try {
   browser = spawn(binary, [`--user-data-dir=${profile}`, `--broker-pipe=${pipeName}`], { windowsHide: true, stdio: 'ignore' });
   await until(alive, 30000);
   client = new Client({ name: 'Functional improvements fixture', version: '1' });
-  await client.connect(new StdioClientTransport({ command: process.execPath, args: [resolve(root, 'adapter/dist/src/cli.js'), 'serve', '--config', config], stderr: 'pipe' }));
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [resolve(root, 'adapter/dist/src/cli.js'), 'serve', '--config', config, '--evidence-root', evidenceRoot], stderr: 'pipe' }));
 
   worker = (await tool('worker_create', { name: 'Functional worker' })).structuredContent;
   tab = (await tool('tab_create', { agentSessionId: worker.agentSessionId, workspaceId: worker.workspaceId, url: `${base}/` })).structuredContent;
   await until(async () => (await observe()).nodes.some(n => n.name === 'Functional Fixture Ready'));
 
-  await check('Compact observe reduces payload size significantly and deduplicates limitations', async () => {
+  await check('Compact observe reduces payload size significantly, condenses limitations, and deduplicates wrappers', async () => {
     const full = await observe();
     const compact = await observe({ compact: true });
     assert.equal(full.limitations, undefined, 'duplicate top-level limitations should be removed');
     assert(Array.isArray(full.visibility?.limitations) && full.visibility.limitations.length > 0);
+    assert(Array.isArray(compact.visibility?.limitations) && compact.visibility.limitations.includes('rendered_viewport_only'));
+    assert.equal(compact.textSafety?.limitation, 'unsafe_non_rendering_withheld');
     assert(compact.nodeDefaults && compact.nodeDefaults.visibilityStatus === 'verified');
+    assert(!compact.nodes.some(n => n.role === 'paragraph'), 'pure structural paragraph wrappers covered by StaticText should be omitted in compact mode');
+    assert(compact.nodes.some(n => n.role === 'StaticText' && n.name.includes('Paragraph text one')), 'StaticText children must be preserved');
     const fullBytes = Buffer.byteLength(JSON.stringify(full.nodes), 'utf8');
     const compactBytes = Buffer.byteLength(JSON.stringify(compact.nodes), 'utf8');
-    assert(compactBytes < fullBytes * 0.65, `Expected >=35% node reduction, got ${compactBytes} vs ${fullBytes}`);
+    const fullTotalBytes = Buffer.byteLength(JSON.stringify(full), 'utf8');
+    const compactTotalBytes = Buffer.byteLength(JSON.stringify(compact), 'utf8');
+    assert(compactBytes < fullBytes * 0.55, `Expected >=45% node reduction, got ${compactBytes} vs ${fullBytes}`);
+    assert(compactTotalBytes < fullTotalBytes * 0.55, `Expected >=45% total payload reduction, got ${compactTotalBytes} vs ${fullTotalBytes}`);
     console.log(`  nodes JSON: full=${fullBytes}B -> compact=${compactBytes}B (${Math.round((1 - compactBytes / fullBytes) * 100)}% smaller)`);
+    console.log(`  full structuredContent JSON: full=${fullTotalBytes}B -> compact=${compactTotalBytes}B (${Math.round((1 - compactTotalBytes / fullTotalBytes) * 100)}% smaller)`);
   });
 
   await check('Native roles and interactiveOnly filters exclude StaticText before truncation', async () => {
@@ -215,6 +248,224 @@ try {
     assert.equal(stale.isError, true);
     assert.equal(stale.structuredContent?.error?.code, 'stale_element');
     assert.equal(stale.structuredContent?.error?.staleReason, 'observation_superseded');
+  });
+
+  await check('xenon_inspect supports compact sinceObservationId delta alongside valid PNG and --evidence-root saved paths', async () => {
+    const firstReply = await until(async () => {
+      const r = await raw('inspect', { ...scope(), compact: true });
+      if (r.isError && ['privacy_guard_initializing', 'inspection_changed', 'page_changed'].includes(r.structuredContent?.error?.code)) return false;
+      assert(!r.isError, JSON.stringify(r.structuredContent));
+      return r;
+    });
+    const first = firstReply.structuredContent;
+    assert(first.visibility?.limitations?.includes('validated_capture_interval_not_atomic'), JSON.stringify(first.visibility?.limitations));
+    assert(firstReply.content.some(c => c.type === 'image' && c.mimeType === 'image/png'));
+    const exp = first.evidenceExport;
+    assert.equal(exp?.status, 'saved', JSON.stringify(exp));
+    assert(exp.directory.startsWith(evidenceRoot), `evidenceExport.directory=${exp.directory} must be under ${evidenceRoot}`);
+    const pngFile = exp.files.find(f => f.endsWith('.png'));
+    assert(pngFile, `Expected PNG file in evidenceExport.files: ${JSON.stringify(exp.files)}`);
+    const pngDisk = await readFile(join(exp.directory, pngFile));
+    assert.equal(pngDisk.subarray(0, 4).toString('hex'), '89504e47', 'Saved evidence PNG must start with PNG magic');
+
+    const deltaReply = await until(async () => {
+      const r = await raw('inspect', { ...scope(), compact: true, sinceObservationId: first.observationId });
+      if (r.isError && ['privacy_guard_initializing', 'inspection_changed', 'page_changed'].includes(r.structuredContent?.error?.code)) return false;
+      assert(!r.isError, JSON.stringify(r.structuredContent));
+      return r;
+    });
+    const deltaBody = deltaReply.structuredContent;
+    assert.equal(deltaBody.unchanged, true, JSON.stringify(deltaBody));
+    assert.equal(deltaBody.delta?.sinceObservationId, first.observationId);
+    assert.deepEqual(deltaBody.delta?.added, []);
+    assert.deepEqual(deltaBody.delta?.changed, []);
+    assert.notEqual(deltaBody.observationId, first.observationId);
+    assert(deltaReply.content.some(c => c.type === 'image' && c.mimeType === 'image/png'), 'Delta inspect still returns PNG');
+
+    // Second independent CLI serve session using the exact same --evidence-root creates a second unique child dir.
+    const secondClient = new Client({ name: 'Second root export client', version: '1' });
+    try {
+      await secondClient.connect(new StdioClientTransport({
+        command: process.execPath,
+        args: [resolve(root, 'adapter/dist/src/cli.js'), 'serve', '--config', config, '--evidence-root', evidenceRoot],
+        stderr: 'pipe',
+      }));
+      const listReply = await secondClient.callTool({ name: 'xenon_workspaces', arguments: {} });
+      assert(!listReply.isError, JSON.stringify(listReply.structuredContent));
+      const exp2 = listReply.structuredContent?.evidenceExport;
+      assert.equal(exp2?.status, 'saved');
+      assert.notEqual(exp2.directory, exp.directory, 'Repeatable --evidence-root must create a unique child dir per run');
+      assert.equal((await readdir(evidenceRoot)).length, 2);
+    } finally {
+      await secondClient.close().catch(() => {});
+    }
+  });
+
+  await check('scroll + observeAfter and xenon_batch scroll + observeAfter eliminate extra observe turns', async () => {
+    const startObs = await observe({ compact: true });
+    const scrollReply = (await tool('interact', {
+      ...scope(),
+      ownershipGeneration: tab.ownershipGeneration,
+      operationId: randomUUID(),
+      observationId: startObs.observationId,
+      action: 'scroll',
+      direction: 'down',
+      amount: 1600,
+      observeAfter: { compact: true },
+    })).structuredContent;
+    assert.equal(scrollReply.status, 'dispatched');
+    assert(scrollReply.observation && typeof scrollReply.observation.observationId === 'string', JSON.stringify(scrollReply));
+    assert.equal(scrollReply.observationError, undefined);
+    assert(scrollReply.observation.viewport?.pageY > 0, JSON.stringify(scrollReply.observation.viewport));
+    const belowBtn = scrollReply.observation.nodes.find(n => n.name === 'Below Fold Action');
+    assert(belowBtn?.ref, `Expected Below Fold Action in observeAfter nodes: ${JSON.stringify(scrollReply.observation.nodes)}`);
+
+    // Immediately click Below Fold Action using observationId & ref from scroll's observeAfter + scroll back up in one xenon_batch!
+    const batchBack = (await tool('batch', {
+      ...scope(),
+      ownershipGeneration: tab.ownershipGeneration,
+      operationId: randomUUID(),
+      observationId: scrollReply.observation.observationId,
+      steps: [
+        { action: 'click', elementRef: belowBtn.ref },
+        { action: 'scroll', direction: 'up', amount: 1600 },
+      ],
+      observeAfter: { compact: true },
+    })).structuredContent;
+    assert.equal(batchBack.status, 'completed', JSON.stringify(batchBack));
+    assert.equal(batchBack.steps.length, 2);
+    assert.equal(batchBack.steps[1].action, 'scroll');
+    assert(batchBack.observation && typeof batchBack.observation.observationId === 'string', JSON.stringify(batchBack));
+    assert(batchBack.observation.nodes.some(n => n.name === 'Functional Fixture Ready'), JSON.stringify(batchBack.observation.nodes));
+
+    // Confirm click actually mutated lower-page website state by scrolling back down once.
+    const verifyDown = (await tool('interact', {
+      ...scope(),
+      ownershipGeneration: tab.ownershipGeneration,
+      operationId: randomUUID(),
+      observationId: batchBack.observation.observationId,
+      action: 'scroll',
+      direction: 'down',
+      amount: 1600,
+      observeAfter: { compact: true, query: 'BelowFold:' },
+    })).structuredContent;
+    assert(verifyDown.observation?.nodes?.some(n => n.name.includes('BelowFold:1')), JSON.stringify(verifyDown.observation));
+
+    // Return to top for subsequent checks.
+    await tool('interact', {
+      ...scope(),
+      ownershipGeneration: tab.ownershipGeneration,
+      operationId: randomUUID(),
+      observationId: verifyDown.observation.observationId,
+      action: 'scroll',
+      direction: 'up',
+      amount: 1600,
+      observeAfter: { compact: true },
+    });
+  });
+
+  await check('xenon_interact(click) spawning a new owned tab returns createdTabs directly in same control group', async () => {
+    const obs = await observe({ interactiveOnly: true });
+    const popupLink = obs.nodes.find(n => n.name === 'Open Popup Tab');
+    assert(popupLink?.ref, JSON.stringify(obs.nodes));
+    const clickRes = (await tool('interact', {
+      ...scope(),
+      ownershipGeneration: tab.ownershipGeneration,
+      operationId: randomUUID(),
+      observationId: obs.observationId,
+      action: 'click',
+      elementRef: popupLink.ref,
+    })).structuredContent;
+    assert.equal(clickRes.status, 'dispatched');
+    assert(Array.isArray(clickRes.createdTabs) && clickRes.createdTabs.length === 1, `Expected createdTabs on click reply: ${JSON.stringify(clickRes)}`);
+    const created = clickRes.createdTabs[0];
+    assert.equal(created.controlGroupId, tab.controlGroupId);
+    assert.equal(created.ownershipGeneration, tab.ownershipGeneration);
+
+    // Observe the newly created tab directly without calling xenon_tabs first.
+    const popupObs = await until(async () => {
+      const r = await raw('observe', { agentSessionId: worker.agentSessionId, workspaceId: worker.workspaceId, tabId: created.tabId, compact: true });
+      if (r.isError && ['privacy_guard_initializing', 'page_changed', 'OBSERVATION_CHANGED'].includes(r.structuredContent?.error?.code)) return false;
+      assert(!r.isError, JSON.stringify(r.structuredContent));
+      return r.structuredContent.nodes.some(n => n.name === 'Popup Tab Ready') ? r.structuredContent : false;
+    });
+    assert(popupObs.nodes.some(n => n.name === 'Popup Tab Ready'));
+
+    await tool('tab_close', {
+      agentSessionId: worker.agentSessionId,
+      workspaceId: worker.workspaceId,
+      tabId: created.tabId,
+      ownershipGeneration: created.ownershipGeneration,
+      operationId: randomUUID(),
+    });
+  });
+
+  await check('Per-worker operationId isolation lets concurrent workers reuse readable IDs with unambiguous xenon_operation lookup', async () => {
+    const workerB = (await tool('worker_create', { name: 'Second worker', workspaceId: worker.workspaceId })).structuredContent;
+    const tabB = (await tool('tab_create', { agentSessionId: workerB.agentSessionId, workspaceId: workerB.workspaceId, url: `${base}/popup` })).structuredContent;
+    try {
+      const obsA = await observe({ compact: true });
+      const obsB = await until(async () => {
+        const r = await raw('observe', { agentSessionId: workerB.agentSessionId, workspaceId: workerB.workspaceId, tabId: tabB.tabId, compact: true });
+        if (r.isError && ['privacy_guard_initializing', 'page_changed', 'OBSERVATION_CHANGED'].includes(r.structuredContent?.error?.code)) return false;
+        assert(!r.isError, JSON.stringify(r.structuredContent));
+        return r.structuredContent.nodes.some(n => n.name === 'Popup Tab Ready') ? r.structuredContent : false;
+      });
+      const sharedOpId = 'op-pd-scroll-1';
+      const [resA, resB] = await Promise.all([
+        tool('interact', { ...scope(), ownershipGeneration: tab.ownershipGeneration, operationId: sharedOpId, observationId: obsA.observationId, action: 'scroll', direction: 'down', amount: 100 }),
+        tool('interact', { agentSessionId: workerB.agentSessionId, workspaceId: workerB.workspaceId, tabId: tabB.tabId, ownershipGeneration: tabB.ownershipGeneration, operationId: sharedOpId, observationId: obsB.observationId, action: 'scroll', direction: 'down', amount: 100 }),
+      ]);
+      assert.equal(resA.structuredContent.operationId, sharedOpId);
+      assert.equal(resB.structuredContent.operationId, sharedOpId);
+
+      // Ambiguous lookup without agentSessionId fails with OPERATION_AMBIGUOUS.
+      const ambig = await raw('operation', { operationId: sharedOpId });
+      assert.equal(ambig.isError, true);
+      assert.equal(ambig.structuredContent?.error?.code, 'OPERATION_AMBIGUOUS');
+
+      // Disambiguated lookups resolve each worker's operation cleanly.
+      const opA = (await tool('operation', { operationId: sharedOpId, agentSessionId: worker.agentSessionId })).structuredContent;
+      const opB = (await tool('operation', { operationId: sharedOpId, agentSessionId: workerB.agentSessionId })).structuredContent;
+      assert.equal(opA.agentSessionId, worker.agentSessionId);
+      assert.equal(opA.state, 'completed');
+      assert.equal(opB.agentSessionId, workerB.agentSessionId);
+      assert.equal(opB.state, 'completed');
+
+      await tool('tab_close', { agentSessionId: workerB.agentSessionId, workspaceId: workerB.workspaceId, tabId: tabB.tabId, ownershipGeneration: tabB.ownershipGeneration, operationId: randomUUID() });
+    } finally {
+      await raw('worker_retire', { agentSessionId: workerB.agentSessionId }).catch(() => {});
+    }
+  });
+
+  await check('Cross-document navigation click with observeAfter preserves applied click and reports observationError honestly', async () => {
+    // Scroll back to top first so Go Navigated link is in viewport.
+    const topObs = await observe({ compact: true });
+    const navObs = topObs.viewport?.pageY > 0
+      ? (await tool('interact', { ...scope(), ownershipGeneration: tab.ownershipGeneration, operationId: randomUUID(), observationId: topObs.observationId, action: 'scroll', direction: 'up', amount: 400, observeAfter: { compact: true } })).structuredContent.observation
+      : topObs;
+    const navLink = navObs.nodes.find(n => n.name === 'Go Navigated');
+    assert(navLink?.ref, JSON.stringify(navObs.nodes));
+    const navClick = (await tool('interact', {
+      ...scope(),
+      ownershipGeneration: tab.ownershipGeneration,
+      operationId: randomUUID(),
+      observationId: navObs.observationId,
+      action: 'click',
+      elementRef: navLink.ref,
+      observeAfter: { compact: true, settleMs: 300 },
+    })).structuredContent;
+    assert.equal(navClick.status, 'dispatched');
+    assert.equal(navClick.dispatchStatus, 'dispatched');
+    if (navClick.observationError) {
+      assert.equal(navClick.observation, undefined);
+      assert(['OBSERVATION_CHANGED', 'page_changed'].includes(navClick.observationError.code), JSON.stringify(navClick.observationError));
+    }
+    // Verify the navigation genuinely took effect on the website.
+    await until(async () => (await observe({ compact: true })).nodes.some(n => n.name === 'Navigated Target Ready'));
+    // Navigate back to `/` for subsequent checks.
+    await tool('navigate', { ...scope(), ownershipGeneration: tab.ownershipGeneration, operationId: randomUUID(), action: 'navigate', url: `${base}/` });
+    await until(async () => (await observe({ compact: true })).nodes.some(n => n.name === 'Functional Fixture Ready'));
   });
 
   await check('Cropped xenon_screenshot produces exact cropped PNG and still blocks protected pages', async () => {

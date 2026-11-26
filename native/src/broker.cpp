@@ -39,6 +39,51 @@ bool valid_batch_key(const Json& value) {
   const auto& key = value.get_ref<const std::string&>();
   return !key.empty() && key.size() <= 80 && std::all_of(key.begin(), key.end(), [](unsigned char ch) { return ch > 32 && ch != 127; });
 }
+bool valid_observe_role(const Json& value) {
+  if (!value.is_string()) return false;
+  const auto& role = value.get_ref<const std::string&>();
+  return !role.empty() && role.size() <= 64 && std::all_of(role.begin(), role.end(), [](unsigned char ch) {
+    return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-';
+  });
+}
+const std::set<std::string> observe_after_commands{
+  "page.click", "page.hover", "page.fill", "page.type", "page.select",
+  "page.check", "page.key", "page.scroll", "page.drag", "page.batch"
+};
+bool valid_observe_after(const Json& params) {
+  const auto found = params.find("observeAfter");
+  if (found == params.end()) return true;
+  if (!found->is_object()) return false;
+  static const std::set<std::string> allowed_keys{
+    "maxNodes", "query", "roles", "interactiveOnly", "compact", "sinceObservationId", "settleMs"
+  };
+  for (const auto& [key, value] : found->items()) {
+    if (!allowed_keys.contains(key)) return false;
+    if (key == "maxNodes") {
+      if (!value.is_number_integer()) return false;
+      const auto n = value.get<int64_t>();
+      if (n < 20 || n > 1000) return false;
+    } else if (key == "query") {
+      if (!value.is_string() || value.get_ref<const std::string&>().size() > 500) return false;
+    } else if (key == "roles") {
+      if (!value.is_array() || value.empty() || value.size() > 32) return false;
+      for (const auto& role : value) if (!valid_observe_role(role)) return false;
+    } else if (key == "interactiveOnly" || key == "compact") {
+      if (!value.is_boolean()) return false;
+    } else if (key == "sinceObservationId") {
+      if (!valid_handle(value)) return false;
+    } else if (key == "settleMs") {
+      if (!value.is_number_integer()) return false;
+      const auto ms = value.get<int64_t>();
+      if (ms < 0 || ms > 2000) return false;
+    }
+  }
+  return true;
+}
+std::string operation_key(const std::string& client, const std::string& session, const std::string& operation_id) {
+  return std::to_string(client.size()) + ":" + client + "/" +
+         std::to_string(session.size()) + ":" + session + "/" + operation_id;
+}
 // Validate the entire bounded plan before admitting any effects. Nested steps
 // cannot override scope, authority, observations or the recovery operation ID.
 bool valid_batch(const Json& params) {
@@ -51,6 +96,22 @@ bool valid_batch(const Json& params) {
     const auto action = field(step, "action");
     if (action == "key") {
       if (step.size() != 2 || !step.contains("key") || !valid_batch_key(step["key"])) return false;
+      continue;
+    }
+    if (action == "scroll") {
+      const auto dir = step.find("direction");
+      if (dir == step.end() || !dir->is_string()) return false;
+      const auto& d = dir->get_ref<const std::string&>();
+      if (d != "up" && d != "down" && d != "left" && d != "right") return false;
+      std::set<std::string> keys{"action", "direction"};
+      if (const auto amt = step.find("amount"); amt != step.end()) {
+        if (!amt->is_number_integer()) return false;
+        const auto n = amt->get<int64_t>();
+        if (n < 1 || n > 10000) return false;
+        keys.insert("amount");
+      }
+      if (step.size() != keys.size()) return false;
+      for (const auto& [key, value] : step.items()) if (!keys.contains(key)) return false;
       continue;
     }
     if (!step.contains("elementRef") || !valid_handle(step["elementRef"])) return false;
@@ -162,6 +223,10 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     std::optional<std::string> pending_owner;
     std::optional<Attention> attention;
     std::string active, dialog_active;
+    std::vector<std::string> spawned_tabs;
+    bool active_post_observe{};
+    Json active_post_observe_result;
+    uint64_t active_post_observe_policy_epoch{};
     std::deque<Command> queue;
     std::map<std::string, Observation> observations;
   };
@@ -173,7 +238,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     Reply reply;
   };
   struct Operation {
-    std::string client, tab, workspace, method, signature, state{"queued"};
+    std::string public_id, client, session, tab, workspace, method, signature, state{"queued"};
     bool dispatched{};
     Json result;
     std::vector<Reply> waiters;
@@ -333,15 +398,17 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         if (clients.contains(grant.client) && (grant.workspace.empty()||granted(grant.client, grant.workspace)) && !grant.account.empty() && exact_https_origin(grant.origin)) account_grants.push_back(std::move(grant));
       }
       for (auto& entry : saved.value("operations", Json::array())) {
-        auto id = field(entry, "operationId"), client = field(entry, "clientId");
+        auto id = field(entry, "operationId"), client = field(entry, "clientId"), session = field(entry, "agentSessionId");
         if (id.empty() || !clients.contains(client) || operations.size() >= max_journal) continue;
-        Operation operation; operation.client = client; operation.tab = field(entry, "tabId"); operation.workspace = field(entry, "workspaceId");
+        Operation operation; operation.public_id = id; operation.client = client; operation.session = session;
+        operation.tab = field(entry, "tabId"); operation.workspace = field(entry, "workspaceId");
         operation.state = field(entry, "state"); operation.dispatched = entry.value("dispatched", true);
         const bool terminal = operation.state == "completed" || operation.state == "failed" || operation.state == "cancelled";
         if (!terminal) { operation.state = "outcome_unknown"; operation.dispatched = true; }
         operation.result = failure(terminal ? "RESULT_NOT_RETAINED" : "OUTCOME_UNKNOWN", terminal ? "Operation metadata survived restart; page results are not retained and the operation will not be replayed" : "Browser restarted after accepting this operation; inspect the page before deciding what to do");
         operation.result["operationId"] = id; operation.result["dispatchStatus"] = operation.dispatched ? "dispatched" : "not_dispatched";
-        operations.emplace(id, std::move(operation)); operation_order.push_back(id);
+        auto key = operation_key(client, session, id);
+        if (operations.emplace(key, std::move(operation)).second) operation_order.push_back(std::move(key));
       }
     }
     io_thread = std::thread([this] {
@@ -401,7 +468,11 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     for (auto& grant : account_grants) if (grant.workspace.empty()||(workspaces.contains(grant.workspace) && !removed_workspaces.contains(grant.workspace) && !workspaces.at(grant.workspace).private_mode)) saved["accountGrants"].push_back({{"clientId", grant.client}, {"workspaceId", grant.workspace}, {"accountId", grant.account}, {"origin", grant.origin}});
     // Deliberately persist no arguments, signatures, observations or page output.
     // A durable pending_dispatch marker means a crash cannot trigger a replay.
-    for (auto& [id, value] : operations) saved["operations"].push_back({{"operationId", id}, {"clientId", value.client}, {"tabId", value.tab}, {"workspaceId", value.workspace}, {"state", value.state}, {"dispatched", value.dispatched}});
+    for (auto& [key, value] : operations) {
+      Json record{{"operationId", value.public_id}, {"clientId", value.client}, {"tabId", value.tab}, {"workspaceId", value.workspace}, {"state", value.state}, {"dispatched", value.dispatched}};
+      if (!value.session.empty()) record["agentSessionId"] = value.session;
+      saved["operations"].push_back(std::move(record));
+    }
     return saved;
   }
   void persist_value(const Json& saved) {
@@ -720,7 +791,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       const auto code = error != value.end() && error->is_object() ? field(*error, "code") : std::string{};
       if (code == "OUTCOME_UNKNOWN" || code == "input_uncertain" || code == "input_interrupted") operation.state = "outcome_unknown";
     }
-    value["operationId"] = id;
+    value["operationId"] = operation.public_id.empty() ? id : operation.public_id;
     value["dispatchStatus"] = operation.dispatched ? "dispatched" : "not_dispatched";
     const auto finished_at = std::chrono::steady_clock::now();
     value["timing"] = {{"queueMs", elapsed_ms(operation.queued_at, operation.started_at.value_or(finished_at))},
@@ -802,6 +873,10 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
           finish_locked(command.operation, failure("OWNERSHIP_CHANGED", "Acquire control and observe again"), output, "cancelled"); continue;
         }
         tab.active = command.operation;
+        tab.spawned_tabs.clear();
+        tab.active_post_observe = false;
+        tab.active_post_observe_result = Json{};
+        tab.active_post_observe_policy_epoch = 0;
         ++worker->second.callbacks;
         auto& operation = operations.at(command.operation); operation.state = "pending_dispatch";
         execute = true; break;
@@ -842,7 +917,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     }
     const auto index = progress->next;
     const auto action = field(steps[index], "action");
-    auto params = command.params; params.erase("steps");
+    auto params = command.params; params.erase("steps"); params.erase("observeAfter");
     for (const auto& [key, value] : steps[index].items()) params[key] = value;
     auto self = shared_from_this();
     auto started = std::make_shared<std::atomic<bool>>(false);
@@ -869,33 +944,166 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   void dispatch_command(const std::string& tab_id, Command command) {
     auto self = shared_from_this();
     auto completed=std::make_shared<std::atomic<bool>>(false);
-    auto done = [self, tab_id, command, completed](Json value) {
+    auto finalize_locked = [self, tab_id, command](Json value, std::vector<Delivery>& replies) {
+      const bool batch_unknown = command.method == "page.batch" && value.value("ok", false) && field(value.value("result", Json::object()), "status") == "outcome_unknown";
+      auto it = self->tabs.find(tab_id);
+      if (it != self->tabs.end()) {
+        auto worker=self->workers.find(command.session);
+        if(worker!=self->workers.end() && worker->second.connected && !worker->second.retiring && worker->second.attachment==command.attachment &&
+           !it->second.protected_auth && it->second.human_epoch==command.human_epoch && self->clients.contains(worker->second.client) &&
+           self->granted(worker->second.client,it->second.workspace) &&
+           self->clients.at(worker->second.client).policy_epoch==command.params.value("trustedPolicyEpoch",uint64_t{})) {
+          self->observe_result_locked(it->second, command.session, value, command.generation);
+        }
+        if (it->second.active == command.operation) {
+          it->second.active.clear();
+          it->second.spawned_tabs.clear();
+          it->second.active_post_observe = false;
+          it->second.active_post_observe_result = Json{};
+          it->second.active_post_observe_policy_epoch = 0;
+        }
+        if (it->second.dialog_active == command.operation) it->second.dialog_active.clear();
+        self->transfer_if_ready_locked(it->second);
+      }
+      if (self->removed_workspaces.contains(field(command.params, "workspaceId"))) value = removed_workspace_result(value);
+      else if(auto worker=self->workers.find(command.session);value.value("ok",false)&&
+        (worker==self->workers.end()||
+         !self->clients.contains(worker->second.client)||!self->granted(worker->second.client,field(command.params,"workspaceId"))||
+         self->clients.at(worker->second.client).policy_epoch!=command.params.value("trustedPolicyEpoch",uint64_t{}))) {
+        auto withheld=failure("PERMISSION_CHANGED","Permissions changed during this operation; page results are withheld. Inspect its recorded dispatch status before continuing.");
+        value=std::move(withheld);
+      }
+      self->finish_locked(command.operation, std::move(value), replies, batch_unknown ? "outcome_unknown" : "");
+      self->finish_callback_locked(command.session);
+    };
+    auto done = [self, tab_id, command, completed, finalize_locked](Json value) {
       if(!value.is_object() || !value.contains("ok") || !value["ok"].is_boolean())value=failure("OUTCOME_UNKNOWN","Engine returned an invalid completion; inspect operation status and the page before retrying");
       if(completed->exchange(true))return;
-      const bool batch_unknown = command.method == "page.batch" && value.value("ok", false) && field(value.value("result", Json::object()), "status") == "outcome_unknown";
-      std::vector<Delivery> replies;
+      Json obs_params;
+      uint64_t obs_state_epoch{};
+      bool run_observe_after{};
+      std::vector<Delivery> immediate_replies;
       {
         std::lock_guard lock(self->mutex);
         auto it = self->tabs.find(tab_id);
-        if (it != self->tabs.end()) {
-          auto worker=self->workers.find(command.session);
-          if(worker!=self->workers.end() && worker->second.connected && !worker->second.retiring && worker->second.attachment==command.attachment && it->second.human_epoch==command.human_epoch && self->granted(worker->second.client,it->second.workspace))self->observe_result_locked(it->second, command.session, value, command.generation);
-          if (it->second.active == command.operation) it->second.active.clear();
-          if (it->second.dialog_active == command.operation) it->second.dialog_active.clear();
-          self->transfer_if_ready_locked(it->second);
+        if (it != self->tabs.end() && value.value("ok", false) && value.contains("result") && value["result"].is_object() &&
+            (command.method == "page.click" || command.method == "page.batch") && !it->second.spawned_tabs.empty()) {
+          Json created_tabs = Json::array();
+          for (const auto& spawned_id : it->second.spawned_tabs) {
+            auto sp = self->tabs.find(spawned_id);
+            if (sp != self->tabs.end() && sp->second.workspace == it->second.workspace &&
+                sp->second.group == it->second.group && sp->second.owner == command.session &&
+                !self->removed_workspaces.contains(sp->second.workspace)) {
+              created_tabs.push_back({{"tabId", spawned_id}, {"ownershipGeneration", sp->second.generation}, {"controlGroupId", sp->second.group}});
+            }
+          }
+          if (!created_tabs.empty()) value["result"]["createdTabs"] = std::move(created_tabs);
         }
-        if (self->removed_workspaces.contains(field(command.params, "workspaceId"))) value = removed_workspace_result(value);
-        else if(auto worker=self->workers.find(command.session);value.value("ok",false)&&
-          (worker==self->workers.end()||
-           !self->clients.contains(worker->second.client)||!self->granted(worker->second.client,field(command.params,"workspaceId"))||
-           self->clients.at(worker->second.client).policy_epoch!=command.params.value("trustedPolicyEpoch",uint64_t{}))) {
-          auto withheld=failure("PERMISSION_CHANGED","Permissions changed during this operation; page results are withheld. Inspect its recorded dispatch status before continuing.");
-          value=std::move(withheld);
+        const bool has_observe_after = command.params.contains("observeAfter") && command.params["observeAfter"].is_object();
+        const bool mutation_clean = value.value("ok", false) && value.contains("result") && value["result"].is_object() &&
+          (command.method != "page.batch" || field(value["result"], "status") == "completed");
+        if (has_observe_after && mutation_clean) {
+          const auto workspace_id = field(command.params, "workspaceId");
+          const auto client = field(command.params, "clientId");
+          const auto policy_epoch = command.params.value("trustedPolicyEpoch", uint64_t{});
+          auto worker = self->workers.find(command.session);
+          const bool principal_revoked = self->removed_workspaces.contains(workspace_id) || worker == self->workers.end() ||
+            !self->clients.contains(client) || !self->granted(client, workspace_id) ||
+            self->clients.at(client).policy_epoch != policy_epoch;
+          if (!principal_revoked) {
+            auto set_obs_error = [&](std::string code, std::string message) {
+              value["result"]["observationError"] = {{"code", std::move(code)}, {"message", std::move(message)}};
+            };
+            if (!worker->second.connected || worker->second.retiring || worker->second.attachment != command.attachment) {
+              set_obs_error(worker->second.retiring ? "SESSION_RETIRED" : "SESSION_CHANGED", "Worker attachment changed before post-action observation");
+            } else if (it == self->tabs.end() || it->second.workspace != workspace_id) {
+              set_obs_error("TAB_CLOSED", "Tab closed before post-action observation");
+            } else if (!self->allowed(client, workspace_id, "page.observe")) {
+              set_obs_error("PERMISSION_DENIED", "Observation permission is disabled");
+            } else if (it->second.protected_auth) {
+              set_obs_error("SENSITIVE_AUTH_IN_PROGRESS", "Detailed observations are paused during protected authentication");
+            } else if (self->human_paused_locked(it->second) || it->second.human_epoch != command.human_epoch) {
+              set_obs_error("HUMAN_INPUT_PAUSED", "Human page activity occurred; capture a fresh observation after idle");
+            } else if (it->second.generation != command.generation || it->second.frozen || it->second.pending_owner.has_value() || it->second.closing) {
+              set_obs_error("OWNERSHIP_CHANGED", "Control changed before post-action observation; capture a fresh observation");
+            } else if (it->second.document != command.document || !it->second.dialog_active.empty()) {
+              set_obs_error("OBSERVATION_CHANGED", "Document or tab state changed during the action; capture a fresh observation");
+            } else {
+              const auto& opt = command.params.at("observeAfter");
+              obs_params = Json{
+                {"agentSessionId", command.session},
+                {"workspaceId", workspace_id},
+                {"tabId", tab_id},
+                {"clientId", client},
+                {"compact", opt.value("compact", true)},
+              };
+              for (const char* key : {"maxNodes", "query", "roles", "interactiveOnly", "sinceObservationId"}) {
+                if (opt.contains(key)) obs_params[key] = opt[key];
+              }
+              bool ends_with_scroll = (command.method == "page.scroll");
+              if (command.method == "page.batch" && command.params.contains("steps") && command.params["steps"].is_array() && !command.params["steps"].empty()) {
+                ends_with_scroll = field(command.params["steps"].back(), "action") == "scroll";
+              }
+              const int settle_ms = opt.contains("settleMs") ? opt["settleMs"].get<int>() : (ends_with_scroll ? 200 : 0);
+              if (settle_ms > 0) obs_params["settleMs"] = settle_ms;
+              obs_state_epoch = it->second.state_epoch;
+              it->second.active_post_observe = true;
+              it->second.active_post_observe_result = value;
+              it->second.active_post_observe_policy_epoch = policy_epoch;
+              run_observe_after = true;
+            }
+          }
         }
-        self->finish_locked(command.operation, std::move(value), replies, batch_unknown ? "outcome_unknown" : "");
-        self->finish_callback_locked(command.session);
+        if (!run_observe_after) {
+          finalize_locked(std::move(value), immediate_replies);
+        }
       }
-      deliver(std::move(replies)); self->pump(tab_id);
+      if (!run_observe_after) {
+        deliver(std::move(immediate_replies)); self->pump(tab_id);
+        return;
+      }
+      self->execute_safe("page.observe", obs_params, [self, tab_id, command, obs_state_epoch, mutation_value = std::move(value), finalize_locked](Json obs_reply) mutable {
+        std::vector<Delivery> replies;
+        {
+          std::lock_guard lock(self->mutex);
+          const auto workspace_id = field(command.params, "workspaceId");
+          const auto client = field(command.params, "clientId");
+          const auto policy_epoch = command.params.value("trustedPolicyEpoch", uint64_t{});
+          auto worker = self->workers.find(command.session);
+          auto it = self->tabs.find(tab_id);
+          const bool principal_revoked = self->removed_workspaces.contains(workspace_id) || worker == self->workers.end() ||
+            !self->clients.contains(client) || !self->granted(client, workspace_id) ||
+            self->clients.at(client).policy_epoch != policy_epoch;
+          if (!principal_revoked) {
+            auto set_obs_error = [&](std::string code, std::string message) {
+              mutation_value["result"]["observationError"] = {{"code", std::move(code)}, {"message", std::move(message)}};
+            };
+            if (!worker->second.connected || worker->second.retiring || worker->second.attachment != command.attachment) {
+              set_obs_error(worker->second.retiring ? "SESSION_RETIRED" : "SESSION_CHANGED", "Worker attachment changed while post-action observation was pending");
+            } else if (it == self->tabs.end() || it->second.workspace != workspace_id) {
+              set_obs_error("TAB_CLOSED", "Tab closed while post-action observation was pending");
+            } else if (!self->allowed(client, workspace_id, "page.observe")) {
+              set_obs_error("PERMISSION_DENIED", "Observation permission was revoked while observing");
+            } else if (it->second.protected_auth) {
+              set_obs_error("SENSITIVE_AUTH_IN_PROGRESS", "Detailed observations are paused during protected authentication");
+            } else if (self->human_paused_locked(it->second) || it->second.human_epoch != command.human_epoch) {
+              set_obs_error("HUMAN_INPUT_PAUSED", "Human page activity occurred while observing; capture a fresh observation after idle");
+            } else if (it->second.generation != command.generation || it->second.frozen || it->second.pending_owner.has_value() || it->second.closing) {
+              set_obs_error("OWNERSHIP_CHANGED", "Control changed while observing; capture a fresh observation");
+            } else if (it->second.state_epoch != obs_state_epoch || it->second.document != command.document || !it->second.dialog_active.empty()) {
+              set_obs_error("OBSERVATION_CHANGED", "The tab changed while observing; capture a fresh observation");
+            } else if (!obs_reply.value("ok", false) || !obs_reply.contains("result") || !obs_reply["result"].is_object()) {
+              const auto err = obs_reply.find("error");
+              if (err != obs_reply.end() && err->is_object()) mutation_value["result"]["observationError"] = *err;
+              else set_obs_error("OBSERVATION_UNAVAILABLE", "Post-action observation did not succeed; observe separately");
+            } else {
+              mutation_value["result"]["observation"] = std::move(obs_reply["result"]);
+            }
+          }
+          finalize_locked(std::move(mutation_value), replies);
+        }
+        deliver(std::move(replies)); self->pump(tab_id);
+      });
     };
     // Write-ahead metadata is flushed on the dedicated I/O worker before the
     // first engine call. No CEF callback performs filesystem I/O.
@@ -909,7 +1117,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         auto worker = self->workers.find(command.session);
         const bool human_changed = self->human_paused_locked(tab) || tab.human_epoch != command.human_epoch;
         if (self->stopping || tab.frozen || human_changed || tab.generation != command.generation || tab.owner != command.session || worker == self->workers.end() || !worker->second.connected || worker->second.attachment!=command.attachment) {
-          if (tab.active == command.operation) tab.active.clear();
+          if (tab.active == command.operation) { tab.active.clear(); tab.spawned_tabs.clear(); }
           if (tab.dialog_active == command.operation) tab.dialog_active.clear();
           self->finish_locked(command.operation, failure(human_changed ? "HUMAN_ACTIVITY" : "OWNERSHIP_CHANGED", "Command was cancelled before dispatch; observe again before continuing"), cancelled, "cancelled"); self->transfer_if_ready_locked(tab);
         } else {
@@ -924,7 +1132,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         if (tab != self->tabs.end() && operation != self->operations.end() && operation->second.result.is_null()) {
           const bool human_changed = self->human_paused_locked(tab->second) || tab->second.human_epoch != command.human_epoch;
           if (!persisted || self->stopping || tab->second.frozen || human_changed || tab->second.generation != command.generation || tab->second.owner != command.session || worker == self->workers.end() || !worker->second.connected || worker->second.attachment!=command.attachment) {
-            if (tab->second.active == command.operation) tab->second.active.clear();
+            if (tab->second.active == command.operation) { tab->second.active.clear(); tab->second.spawned_tabs.clear(); }
             if (tab->second.dialog_active == command.operation) tab->second.dialog_active.clear();
             self->finish_locked(command.operation, failure(!persisted ? "JOURNAL_UNAVAILABLE" : human_changed ? "HUMAN_ACTIVITY" : "OWNERSHIP_CHANGED", persisted ? "Command was cancelled before dispatch; observe again before continuing" : "Command was not dispatched because its recovery record could not be saved"), cancelled, persisted ? "cancelled" : "failed");
             self->transfer_if_ready_locked(tab->second);
@@ -936,7 +1144,11 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       auto permit = [self, tab_id, command] { return self->command_permit(tab_id, command); };
       try {
         if (command.method == "page.batch") self->batch_step(tab_id, command, std::make_shared<BatchProgress>(), done);
-        else self->engine.execute_guarded(command.method, command.params, std::move(permit), done);
+        else {
+          auto engine_params = command.params;
+          engine_params.erase("observeAfter");
+          self->engine.execute_guarded(command.method, engine_params, std::move(permit), done);
+        }
       }
       catch (...) { done(failure("OUTCOME_UNKNOWN", "Engine dispatch ended unexpectedly; inspect operation status before retrying")); }
     });
@@ -961,6 +1173,10 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         auto parent = tabs.find(opener); if (parent != tabs.end() && parent->second.workspace == workspace) {
           created.owner = parent->second.owner; created.group = parent->second.group; created.generation = parent->second.generation;
           created.frozen = parent->second.frozen; created.pending_owner = parent->second.pending_owner;
+          if (!removed_workspaces.contains(workspace) && !parent->second.active.empty() && !parent->second.active_post_observe &&
+              !created.owner.empty() && created.owner == parent->second.owner) {
+            parent->second.spawned_tabs.push_back(tab_id);
+          }
         }
         if (removed_workspaces.contains(workspace)) { created.frozen = true; created.owner.clear(); created.pending_owner.reset(); }
         tabs.emplace(tab_id, std::move(created)); schedule_removals_locked(); return;
@@ -969,7 +1185,26 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       if (type == "tab.closed") {
         const auto group = tab->second.group;
         cancel_queued_locked(tab->second, output, "TAB_CLOSED");
-        if (!tab->second.active.empty()) finish_locked(tab->second.active, failure("OUTCOME_UNKNOWN", "Tab closed after dispatch"), output, "outcome_unknown");
+        if (!tab->second.active.empty()) {
+          if (tab->second.active_post_observe && tab->second.active_post_observe_result.is_object() &&
+              tab->second.active_post_observe_result.contains("result") && tab->second.active_post_observe_result["result"].is_object()) {
+            auto preserved = std::move(tab->second.active_post_observe_result);
+            preserved["result"]["observationError"] = {{"code", "TAB_CLOSED"}, {"message", "Tab closed before post-action observation completed"}};
+            if (removed_workspaces.contains(tab->second.workspace)) {
+              preserved = removed_workspace_result(preserved);
+            } else if (auto op_it = operations.find(tab->second.active); op_it != operations.end()) {
+              auto worker = workers.find(op_it->second.session);
+              if (worker == workers.end() || !clients.contains(worker->second.client) ||
+                  !granted(worker->second.client, tab->second.workspace) ||
+                  clients.at(worker->second.client).policy_epoch != tab->second.active_post_observe_policy_epoch) {
+                preserved = failure("PERMISSION_CHANGED", "Permissions changed during this operation; page results are withheld. Inspect its recorded dispatch status before continuing.");
+              }
+            }
+            finish_locked(tab->second.active, std::move(preserved), output);
+          } else {
+            finish_locked(tab->second.active, failure("OUTCOME_UNKNOWN", "Tab closed after dispatch"), output, "outcome_unknown");
+          }
+        }
         if (!tab->second.dialog_active.empty()) finish_locked(tab->second.dialog_active, failure("OUTCOME_UNKNOWN", "Tab closed while handling a dialog"), output, "outcome_unknown");
         tabs.erase(tab);
         for (auto& [id, member] : tabs) if (member.group == group) { transfer_if_ready_locked(member); break; }
@@ -1113,9 +1348,29 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     }); return;
   }
   if (method == "operations.get") {
-    auto id = field(params, "operationId"); auto operation = self->operations.find(id);
-    if (operation == self->operations.end() || operation->second.client != client) { respond(failure("OPERATION_UNKNOWN", "Operation is unavailable; do not assume it was not dispatched")); return; }
-    respond(success({{"operationId", id}, {"state", operation->second.state}, {"dispatchStatus", operation->second.dispatched ? "dispatched" : "not_dispatched"}, {"response", operation->second.result}})); return;
+    auto id = field(params, "operationId");
+    auto session = field(params, "agentSessionId");
+    const Impl::Operation* found_op = nullptr;
+    if (!session.empty()) {
+      auto it = self->operations.find(operation_key(client, session, id));
+      if (it != self->operations.end() && it->second.client == client) found_op = &it->second;
+    } else {
+      size_t matches = 0;
+      for (const auto& [key, op] : self->operations) {
+        if (op.client == client && op.public_id == id) {
+          found_op = &op;
+          if (++matches > 1) break;
+        }
+      }
+      if (matches > 1) {
+        respond(failure("OPERATION_AMBIGUOUS", "Multiple workers used this operationId; supply agentSessionId to disambiguate"));
+        return;
+      }
+    }
+    if (!found_op) { respond(failure("OPERATION_UNKNOWN", "Operation is unavailable; do not assume it was not dispatched")); return; }
+    Json out{{"operationId", found_op->public_id}, {"state", found_op->state}, {"dispatchStatus", found_op->dispatched ? "dispatched" : "not_dispatched"}, {"response", found_op->result}};
+    if (!found_op->session.empty()) out["agentSessionId"] = found_op->session;
+    respond(success(std::move(out))); return;
   }
   auto session_id = field(params, "agentSessionId"); auto worker = self->workers.find(session_id);
   if (session_id.empty()) { respond(failure("INVALID_SCOPE", "This action requires an explicit agentSessionId returned by Xenon")); return; }
@@ -1295,12 +1550,16 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     self->execute_safe(method, params, [self, client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply](Json value) { self->complete_read(client, workspace_id, tab_id, session_id, connection, attachment, policy_epoch, generation, epoch, method, reply, std::move(value)); }); return;
   }
   if (!write_commands.contains(method)) { respond(failure("METHOD_UNSUPPORTED", "This browser capability is not implemented")); return; }
-  if (method == "page.batch" && !valid_batch(params)) { respond(failure("INVALID_BATCH", "Supply 1–16 click/fill/select/check/hover/key steps, with only their required fields, within 64 KiB of UTF-8 JSON")); return; }
+  if (method == "page.batch" && !valid_batch(params)) { respond(failure("INVALID_BATCH", "Supply 1–16 click/fill/select/check/hover/key/scroll steps, with only their required fields, within 64 KiB of UTF-8 JSON")); return; }
+  if (params.contains("observeAfter") && (!observe_after_commands.contains(method) || !valid_observe_after(params))) {
+    respond(failure("INVALID_REQUEST", "observeAfter is only supported on page interactions and batches with bounded text-only observation options")); return;
+  }
   auto operation_id = field(params, "operationId"); if (operation_id.empty()) operation_id = identifier("op_");
   if (operation_id.size() > 160) { respond(failure("INVALID_OPERATION", "Operation ID is too long")); return; }
   params["operationId"] = operation_id; params["clientId"] = client;
   auto signature = method + "\n" + params.dump();
-  auto existing = self->operations.find(operation_id);
+  const auto op_key = operation_key(client, session_id, operation_id);
+  auto existing = self->operations.find(op_key);
   if (existing != self->operations.end()) {
     if (existing->second.client != client || (!existing->second.signature.empty() && existing->second.signature != signature)) { respond(failure("OPERATION_CONFLICT", "Operation ID was already used for a different command")); return; }
     if (!existing->second.result.is_null()) { respond(existing->second.result); return; }
@@ -1336,18 +1595,18 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
     self->operation_order.pop_front(); self->operations.erase(candidate);
   }
   if (self->operations.size() >= Impl::max_journal) { respond(failure("CAPACITY_EXCEEDED", "Operation journal is full")); return; }
-  Impl::Operation operation; operation.client = client; operation.tab = tab_id; operation.workspace = workspace_id; operation.method = method; operation.signature = signature; operation.waiters.push_back(std::move(reply));
-  self->operations.emplace(operation_id, std::move(operation)); self->operation_order.push_back(operation_id);
+  Impl::Operation operation; operation.public_id = operation_id; operation.client = client; operation.session = session_id; operation.tab = tab_id; operation.workspace = workspace_id; operation.method = method; operation.signature = signature; operation.waiters.push_back(std::move(reply));
+  self->operations.emplace(op_key, std::move(operation)); self->operation_order.push_back(op_key);
   if (method == "page.dialog") {
     // A JavaScript dialog can hold the reply to the input which opened it.
     // Only the current unfrozen owner may use this single bounded side lane;
     // it is still journaled and included in the control-group input barrier.
-    tab.dialog_active = operation_id; self->operations.at(operation_id).state = "pending_dispatch";
+    tab.dialog_active = op_key; self->operations.at(op_key).state = "pending_dispatch";
     ++worker->second.callbacks;
-    Impl::Command command{operation_id, session_id, method, tab.generation, attachment, tab.human_epoch, params};
+    Impl::Command command{op_key, session_id, method, tab.generation, attachment, tab.human_epoch, params};
     lock.unlock(); self->dispatch_command(tab_id, std::move(command)); return;
   }
-  tab.queue.push_back({operation_id, session_id, method, tab.generation, attachment, tab.human_epoch, params, tab.document});
+  tab.queue.push_back({op_key, session_id, method, tab.generation, attachment, tab.human_epoch, params, tab.document});
   lock.unlock(); self->pump(tab_id);
 }
 

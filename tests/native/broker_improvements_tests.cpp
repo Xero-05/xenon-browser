@@ -63,9 +63,19 @@ struct FakeEngine final : BrowserEngine {
   std::vector<std::string> calls;
   std::map<std::string, Pending> pending;
   std::map<std::string, Guarded> guards;
+  std::deque<Pending> pending_observes;
+  Json last_observe_params;
+  std::string fail_observe_code;
   std::mutex mutex;
   unsigned observations{};
   bool delay_guard{};
+  bool delay_observe{};
+
+  static std::string op_slot(const Json& params) {
+    const auto op = params.at("operationId").get<std::string>();
+    const auto sess = params.value("agentSessionId", std::string{});
+    return sess.empty() ? op : (sess + "\n" + op);
+  }
 
   void set_event_sink(EventSink target) override {
     std::lock_guard lock(mutex);
@@ -117,16 +127,32 @@ struct FakeEngine final : BrowserEngine {
 
   void execute(const std::string& command, const Json& params, Reply reply) override {
     unsigned obs_id{};
+    bool hold_obs{};
+    std::string obs_fail;
     {
       std::lock_guard lock(mutex);
       calls.push_back(command);
-      if (command == "page.observe" || command == "page.inspect") obs_id = ++observations;
+      if (command == "page.observe" || command == "page.inspect") {
+        obs_id = ++observations;
+        last_observe_params = params;
+        hold_obs = delay_observe;
+        obs_fail = fail_observe_code;
+      }
     }
     if (command == "workspace.ensure" || command == "tabs.create") {
       reply(success(params));
       return;
     }
     if (command == "page.observe" || command == "page.inspect") {
+      if (hold_obs) {
+        std::lock_guard lock(mutex);
+        pending_observes.push_back(Pending{command, params, std::move(reply)});
+        return;
+      }
+      if (!obs_fail.empty()) {
+        reply(failure(obs_fail, "Synthetic observation failure"));
+        return;
+      }
       reply(success({{"observationId", "snapshot_" + std::to_string(obs_id)}, {"nodes", Json::array()}}));
       return;
     }
@@ -139,7 +165,34 @@ struct FakeEngine final : BrowserEngine {
       return;
     }
     std::lock_guard lock(mutex);
-    pending.emplace(params.at("operationId").get<std::string>(), Pending{command, params, std::move(reply)});
+    pending.emplace(op_slot(params), Pending{command, params, std::move(reply)});
+  }
+
+  void wait_pending_observe() {
+    for (unsigned i = 0; i < 1000; ++i) {
+      {
+        std::lock_guard lock(mutex);
+        if (!pending_observes.empty()) return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    throw std::runtime_error("Timed out waiting for pending observation");
+  }
+
+  void complete_observe(Json result = Json{}) {
+    Pending item;
+    unsigned obs_id{};
+    {
+      std::lock_guard lock(mutex);
+      require(!pending_observes.empty(), "Expected a pending observation");
+      item = std::move(pending_observes.front());
+      pending_observes.pop_front();
+      obs_id = observations;
+    }
+    if (result.is_null()) {
+      result = success({{"observationId", "snapshot_" + std::to_string(obs_id)}, {"nodes", Json::array()}});
+    }
+    item.reply(std::move(result));
   }
 
   size_t call_count() {
@@ -165,21 +218,35 @@ struct FakeEngine final : BrowserEngine {
     throw std::runtime_error("Timed out waiting for engine dispatch");
   }
 
-  std::string pending_command(const std::string& id) {
-    std::lock_guard lock(mutex);
-    return pending.at(id).command;
+  std::map<std::string, Pending>::iterator find_pending_locked(const std::string& id, const std::string& session = {}) {
+    if (!session.empty()) return pending.find(session + "\n" + id);
+    auto exact = pending.find(id);
+    if (exact != pending.end()) return exact;
+    for (auto it = pending.begin(); it != pending.end(); ++it) {
+      if (it->second.params.value("operationId", std::string{}) == id) return it;
+    }
+    return pending.end();
   }
 
-  Json pending_params(const std::string& id) {
+  std::string pending_command(const std::string& id, const std::string& session = {}) {
     std::lock_guard lock(mutex);
-    return pending.at(id).params;
+    auto it = find_pending_locked(id, session);
+    require(it != pending.end(), "Expected pending command");
+    return it->second.command;
   }
 
-  void complete(const std::string& id, Json result = success()) {
+  Json pending_params(const std::string& id, const std::string& session = {}) {
+    std::lock_guard lock(mutex);
+    auto it = find_pending_locked(id, session);
+    require(it != pending.end(), "Expected pending params");
+    return it->second.params;
+  }
+
+  void complete(const std::string& id, Json result = success(), const std::string& session = {}) {
     Reply reply;
     {
       std::lock_guard lock(mutex);
-      auto it = pending.find(id);
+      auto it = find_pending_locked(id, session);
       require(it != pending.end(), "Expected a dispatched engine operation");
       reply = std::move(it->second.reply);
       pending.erase(it);
@@ -1144,6 +1211,432 @@ void pipe_server_push_events(const std::filesystem::path& directory) {
 }
 #endif
 
+void click_created_tabs_and_batch_scroll(const std::filesystem::path& directory) {
+  FakeEngine engine;
+  Broker broker(engine, directory);
+  pair(broker, "tabs-scroll", "CreatedTabs and batch scroll fixture");
+  auto a = worker(broker, "tabs-scroll", "owner");
+  const auto parent_tab = a.tab["tabId"].get<std::string>();
+  const auto parent_group = a.tab["controlGroupId"].get<std::string>();
+
+  // 1. Click spawning a popup tab in the same workspace & control group returns createdTabs.
+  {
+    auto params = action_params(broker, a, "click-spawn");
+    auto pending = submit(broker, a, "page.click", params);
+    engine.wait_pending(1);
+    engine.event("tab.created", {{"tabId", "tab_popup_1"}, {"workspaceId", a.workspace}, {"openerTabId", parent_tab}});
+    engine.complete("click-spawn", success({{"status", "dispatched"}}));
+    const auto res = await_result(pending);
+    require(res.value("ok", false), "Click spawning popup succeeds");
+    const auto& body = res["result"];
+    require(body.contains("createdTabs") && body["createdTabs"].is_array() && body["createdTabs"].size() == 1,
+            "Click returns createdTabs for spawned popup");
+    const auto& spawned = body["createdTabs"][0];
+    require(spawned["tabId"] == "tab_popup_1" &&
+                spawned["controlGroupId"] == parent_group &&
+                spawned["ownershipGeneration"] == a.tab["ownershipGeneration"],
+            "createdTabs entry reports spawned tabId, controlGroupId and ownershipGeneration");
+  }
+
+  // 2. Subsequent click with no spawned tab omits createdTabs.
+  {
+    auto params = action_params(broker, a, "click-no-spawn");
+    auto pending = submit(broker, a, "page.click", params);
+    engine.wait_pending(1);
+    engine.complete("click-no-spawn", success({{"status", "dispatched"}}));
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && !res["result"].contains("createdTabs"),
+            "Click without spawned popups does not include stale createdTabs");
+  }
+
+  // 3. Batch rejects malformed scroll shapes before any engine dispatch.
+  auto batch_base = action_params(broker, a, "batch-scroll-invalid");
+  batch_base.erase("elementRef");
+  const auto calls_before = engine.call_count();
+  for (auto bad_steps : {
+           Json::array({{{"action", "scroll"}}}),
+           Json::array({{{"action", "scroll"}, {"direction", "diagonal"}}}),
+           Json::array({{{"action", "scroll"}, {"direction", "down"}, {"amount", 0}}}),
+           Json::array({{{"action", "scroll"}, {"direction", "down"}, {"amount", 10001}}}),
+           Json::array({{{"action", "scroll"}, {"direction", "down"}, {"amount", 12.5}}}),
+           Json::array({{{"action", "scroll"}, {"direction", "down"}, {"elementRef", "node_1"}}}),
+       }) {
+    auto invalid = batch_base;
+    invalid["steps"] = std::move(bad_steps);
+    const auto res = call(broker, a.connection, "page.batch", invalid);
+    require(!res.value("ok", true) && code(res) == "INVALID_BATCH",
+            "Malformed scroll batch step is rejected with INVALID_BATCH");
+  }
+  require(engine.call_count() == calls_before, "Invalid scroll batch plans dispatch no engine calls");
+
+  // 4. Valid click + scroll batch dispatches both steps and reports any createdTabs from the click step.
+  {
+    auto valid = action_params(broker, a, "batch-click-scroll");
+    valid.erase("elementRef");
+    valid["steps"] = Json::array({
+        {{"action", "click"}, {"elementRef", "open_popup"}},
+        {{"action", "scroll"}, {"direction", "down"}, {"amount", 650}},
+    });
+    auto pending = submit(broker, a, "page.batch", valid);
+    engine.wait_pending(1);
+    require(engine.pending_command("batch-click-scroll") == "page.click", "First batch step dispatches page.click");
+    engine.event("tab.created", {{"tabId", "tab_popup_2"}, {"workspaceId", a.workspace}, {"openerTabId", parent_tab}});
+    engine.complete("batch-click-scroll", success({{"status", "dispatched"}}));
+
+    engine.wait_pending(1);
+    require(engine.pending_command("batch-click-scroll") == "page.scroll", "Second batch step dispatches page.scroll");
+    const auto sp = engine.pending_params("batch-click-scroll");
+    require(sp["direction"] == "down" && sp["amount"] == 650, "Scroll batch step passes direction and amount");
+    engine.complete("batch-click-scroll", success({{"status", "dispatched"}}));
+
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"]["status"] == "completed", "Click+scroll batch completes");
+    require(res["result"].contains("createdTabs") && res["result"]["createdTabs"].size() == 1 &&
+                res["result"]["createdTabs"][0]["tabId"] == "tab_popup_2",
+            "Batch reports createdTabs spawned by click step");
+  }
+}
+
+void observe_after_honest_outcomes(const std::filesystem::path& directory) {
+  FakeEngine engine;
+  Broker broker(engine, directory);
+  const auto client = pair(broker, "obs-after", "ObserveAfter fixture");
+  auto a = worker(broker, "obs-after", "owner");
+  const auto tab_id = a.tab["tabId"].get<std::string>();
+
+  // 1. Invalid observeAfter options and unsupported commands fail closed before engine dispatch.
+  const auto calls_before = engine.call_count();
+  {
+    auto p = action_params(broker, a, "obs-invalid-opt");
+    for (auto bad : {
+             Json{{"screenshot", true}},
+             Json{{"settleMs", -1}},
+             Json{{"settleMs", 2001}},
+             Json{{"maxNodes", 10}},
+             Json{{"roles", Json::array()}},
+             Json{{"compact", "yes"}},
+             Json("not-an-object"),
+         }) {
+      auto req = p;
+      req["observeAfter"] = std::move(bad);
+      const auto res = call(broker, a.connection, "page.click", req);
+      require(!res.value("ok", true) && code(res) == "INVALID_REQUEST",
+              "Invalid observeAfter is rejected with INVALID_REQUEST");
+    }
+    auto nav = a.base();
+    nav["ownershipGeneration"] = a.tab["ownershipGeneration"];
+    nav["operationId"] = "nav-with-obs-after";
+    nav["url"] = "https://example.test/next";
+    nav["observeAfter"] = Json::object();
+    const auto nav_res = call(broker, a.connection, "page.navigate", nav);
+    require(!nav_res.value("ok", true) && code(nav_res) == "INVALID_REQUEST",
+            "observeAfter is rejected on page.navigate");
+  }
+  require(engine.call_count() == calls_before + 1 /* initial action_params observe */,
+          "Rejected observeAfter calls do not dispatch mutations");
+
+  // 2. page.scroll with observeAfter: {} defaults compact=true, settleMs=200, attaches observation,
+  // and registers fresh observationId for the very next mutation without an extra observe call.
+  std::string fresh_obs_id;
+  {
+    auto p = action_params(broker, a, "scroll-obs-1");
+    p.erase("elementRef");
+    p["direction"] = "down";
+    p["amount"] = 500;
+    p["observeAfter"] = Json::object();
+    auto pending = submit(broker, a, "page.scroll", p);
+    engine.wait_pending(1);
+    require(!engine.pending_params("scroll-obs-1").contains("observeAfter"),
+            "Engine mutation params strip observeAfter");
+    engine.complete("scroll-obs-1", success({{"status", "dispatched"}}));
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"]["status"] == "dispatched",
+            "Scroll with observeAfter succeeds");
+    require(res["result"].contains("observation") && !res["result"].contains("observationError"),
+            "Clean scroll attaches observation without observationError");
+    fresh_obs_id = res["result"]["observation"]["observationId"].get<std::string>();
+    require(!fresh_obs_id.empty(), "Attached observation includes fresh observationId");
+    require(engine.last_observe_params["compact"] == true &&
+                engine.last_observe_params["settleMs"] == 200,
+            "Scroll observeAfter defaults compact=true and settleMs=200");
+  }
+
+  // Immediately act using fresh_obs_id returned by observeAfter (no extra page.observe needed!).
+  {
+    auto next = a.base();
+    next["ownershipGeneration"] = a.tab["ownershipGeneration"];
+    next["operationId"] = "click-using-obs-after";
+    next["observationId"] = fresh_obs_id;
+    next["elementRef"] = "node_2";
+    next["observeAfter"] = {{"compact", false}, {"settleMs", 0}, {"maxNodes", 80}, {"roles", Json::array({"button"})}};
+    auto pending = submit(broker, a, "page.click", next);
+    engine.wait_pending(1);
+    engine.complete("click-using-obs-after", success({{"status", "dispatched"}}));
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"].contains("observation"),
+            "Fresh observationId from observeAfter authorizes the immediate next mutation");
+    require(engine.last_observe_params["compact"] == false &&
+                !engine.last_observe_params.contains("settleMs") &&
+                engine.last_observe_params["maxNodes"] == 80,
+            "Explicit observeAfter options override defaults accurately");
+  }
+
+  // 3. Batch ending in scroll defaults settleMs=200; stopped batch skips observeAfter.
+  {
+    auto p = action_params(broker, a, "batch-scroll-obs");
+    p.erase("elementRef");
+    p["steps"] = Json::array({
+        {{"action", "click"}, {"elementRef", "node_1"}},
+        {{"action", "scroll"}, {"direction", "down"}},
+    });
+    p["observeAfter"] = {{"interactiveOnly", true}};
+    auto pending = submit(broker, a, "page.batch", p);
+    engine.wait_pending(1);
+    engine.complete("batch-scroll-obs", success({{"status", "dispatched"}}));
+    engine.wait_pending(1);
+    engine.complete("batch-scroll-obs", success({{"status", "dispatched"}}));
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"]["status"] == "completed" &&
+                res["result"].contains("observation"),
+            "Completed batch ending in scroll attaches observation");
+    require(engine.last_observe_params["compact"] == true &&
+                engine.last_observe_params["settleMs"] == 200 &&
+                engine.last_observe_params["interactiveOnly"] == true,
+            "Batch ending in scroll defaults compact=true and settleMs=200");
+  }
+  {
+    auto p = action_params(broker, a, "batch-stopped-no-obs");
+    p.erase("elementRef");
+    p["steps"] = Json::array({
+        {{"action", "click"}, {"elementRef", "node_1"}},
+        {{"action", "scroll"}, {"direction", "down"}},
+    });
+    p["observeAfter"] = Json::object();
+    const auto obs_before = engine.observations;
+    auto pending = submit(broker, a, "page.batch", p);
+    engine.wait_pending(1);
+    engine.complete("batch-stopped-no-obs", failure("stale_ref", "Target vanished"));
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"]["status"] == "stopped" &&
+                !res["result"].contains("observation") && !res["result"].contains("observationError"),
+            "Stopped batch does not run observeAfter");
+    require(engine.observations == obs_before, "No observe call issued for stopped batch");
+  }
+
+  // 4. Engine observation failure preserves completed mutation outcome + attaches observationError (no retry).
+  {
+    auto p = action_params(broker, a, "scroll-obs-fail");
+    p.erase("elementRef");
+    p["direction"] = "down";
+    p["observeAfter"] = Json::object();
+    engine.fail_observe_code = "page_changed";
+    auto pending = submit(broker, a, "page.scroll", p);
+    engine.wait_pending(1);
+    engine.complete("scroll-obs-fail", success({{"status", "dispatched"}}));
+    const auto res = await_result(pending);
+    engine.fail_observe_code.clear();
+    require(res.value("ok", false) && res["result"]["status"] == "dispatched" &&
+                res["dispatchStatus"] == "dispatched",
+            "Failed post-action observation preserves honest completed mutation outcome");
+    require(!res["result"].contains("observation") &&
+                res["result"]["observationError"]["code"] == "page_changed",
+            "Failed post-action observation attaches observationError without observation");
+  }
+
+  // 5. Protected auth or human input arriving during pending observeAfter withholds observation while keeping mutation completed.
+  {
+    auto p = action_params(broker, a, "click-obs-auth-race");
+    p["observeAfter"] = Json::object();
+    engine.delay_observe = true;
+    auto pending = submit(broker, a, "page.click", p);
+    engine.wait_pending(1);
+    engine.complete("click-obs-auth-race", success({{"status", "dispatched"}}));
+    engine.wait_pending_observe();
+    engine.event("auth.protected", {{"tabId", tab_id}, {"protected", true}});
+    engine.complete_observe();
+    engine.delay_observe = false;
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"]["status"] == "dispatched",
+            "Protected auth during observeAfter keeps applied click completed");
+    require(!res["result"].contains("observation") &&
+                res["result"]["observationError"]["code"] == "SENSITIVE_AUTH_IN_PROGRESS",
+            "Protected auth withholds post-action observation with SENSITIVE_AUTH_IN_PROGRESS");
+    engine.event("auth.protected", {{"tabId", tab_id}, {"protected", false}});
+  }
+
+  // 6. Human input during observeAfter withholds observation with HUMAN_INPUT_PAUSED and does not register it.
+  {
+    auto p = action_params(broker, a, "click-obs-human-race");
+    p["observeAfter"] = Json::object();
+    engine.delay_observe = true;
+    auto pending = submit(broker, a, "page.click", p);
+    engine.wait_pending(1);
+    engine.complete("click-obs-human-race", success({{"status", "dispatched"}}));
+    engine.wait_pending_observe();
+    engine.event("human.input", {{"tabId", tab_id}, {"busy", true}, {"pauseUntil", nullptr}});
+    engine.complete_observe();
+    engine.delay_observe = false;
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"]["status"] == "dispatched",
+            "Human input during observeAfter keeps applied click completed");
+    require(!res["result"].contains("observation") &&
+                res["result"]["observationError"]["code"] == "HUMAN_INPUT_PAUSED",
+            "Human input during observeAfter attaches HUMAN_INPUT_PAUSED");
+    engine.event("human.idle", {{"tabId", tab_id}});
+  }
+
+  // 7. Cross-document navigation during mutation skips observeAfter and attaches OBSERVATION_CHANGED.
+  {
+    auto p = action_params(broker, a, "click-nav-obs");
+    p["observeAfter"] = Json::object();
+    auto pending = submit(broker, a, "page.click", p);
+    engine.wait_pending(1);
+    engine.event("tab.navigated", {{"tabId", tab_id}, {"documentId", "doc_next_page"}});
+    engine.complete("click-nav-obs", success({{"status", "dispatched"}}));
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"]["status"] == "dispatched" &&
+                !res["result"].contains("observation") &&
+                res["result"]["observationError"]["code"] == "OBSERVATION_CHANGED",
+            "Cross-document navigation withholds post-action observation with OBSERVATION_CHANGED");
+  }
+
+  // 8. Tab closing while post-action observation is pending preserves completed mutation with TAB_CLOSED,
+  // unless client permissions were revoked/changed (which still fails closed with PERMISSION_CHANGED).
+  {
+    auto b = worker(broker, "obs-after", "tab-close-worker", a.workspace);
+    const auto close_tab = b.tab["tabId"].get<std::string>();
+    auto p = action_params(broker, b, "click-obs-tab-close");
+    p["observeAfter"] = Json::object();
+    engine.delay_observe = true;
+    auto pending = submit(broker, b, "page.click", p);
+    engine.wait_pending(1);
+    engine.complete("click-obs-tab-close", success({{"status", "dispatched"}}));
+    engine.wait_pending_observe();
+    engine.event("tab.closed", {{"tabId", close_tab}});
+    const auto res = await_result(pending);
+    engine.complete_observe();
+    engine.delay_observe = false;
+    require(res.value("ok", false) && res["result"]["status"] == "dispatched" &&
+                res["result"]["observationError"]["code"] == "TAB_CLOSED",
+            "Tab closed during pending observeAfter preserves completed mutation + TAB_CLOSED observationError");
+  }
+  {
+    auto c = worker(broker, "obs-after", "perm-change-worker", a.workspace);
+    const auto perm_tab = c.tab["tabId"].get<std::string>();
+    auto p = action_params(broker, c, "click-obs-perm-change");
+    p["observeAfter"] = Json::object();
+    engine.delay_observe = true;
+    auto pending = submit(broker, c, "page.click", p);
+    engine.wait_pending(1);
+    engine.complete("click-obs-perm-change", success({{"status", "dispatched"}}));
+    engine.wait_pending_observe();
+    auto downgraded = ClientPolicy::legacy(256);
+    downgraded.capabilities.interaction = false;
+    require(broker.configure_client(client["clientId"], downgraded), "Client policy downgrade succeeds");
+    engine.event("tab.closed", {{"tabId", perm_tab}});
+    const auto res = await_result(pending);
+    engine.complete_observe();
+    engine.delay_observe = false;
+    require(!res.value("ok", true) && code(res) == "PERMISSION_CHANGED",
+            "Permission change before tab.closed during observeAfter still withholds page results");
+  }
+}
+
+void per_worker_operation_id_isolation(const std::filesystem::path& directory) {
+  std::string client_id, token, worker_a_id, worker_b_id;
+  {
+    FakeEngine engine;
+    Broker broker(engine, directory);
+    const auto creds = pair(broker, "shared-op", "Per-worker opId fixture");
+    client_id = creds["clientId"].get<std::string>();
+    token = creds["token"].get<std::string>();
+
+    auto a = worker(broker, "shared-op", "worker-a");
+    auto b = worker(broker, "shared-op", "worker-b", a.workspace);
+    worker_a_id = a.session;
+    worker_b_id = b.session;
+
+    // Both independent workers in the same workspace run concurrently with the exact same readable operationId.
+    auto pa = action_params(broker, a, "op-pd-scroll-1");
+    pa["elementRef"] = "ref_a";
+    auto pb = action_params(broker, b, "op-pd-scroll-1");
+    pb["elementRef"] = "ref_b";
+
+    auto fa = submit(broker, a, "page.click", pa);
+    auto fb = submit(broker, b, "page.click", pb);
+    engine.wait_pending(2);
+    engine.complete("op-pd-scroll-1", success({{"status", "dispatched"}, {"who", "a"}}), a.session);
+    engine.complete("op-pd-scroll-1", success({{"status", "dispatched"}, {"who", "b"}}), b.session);
+
+    const auto ra = await_result(fa);
+    const auto rb = await_result(fb);
+    require(ra.value("ok", false) && ra["operationId"] == "op-pd-scroll-1" && ra["result"]["who"] == "a",
+            "Worker A succeeds with shared readable operationId");
+    require(rb.value("ok", false) && rb["operationId"] == "op-pd-scroll-1" && rb["result"]["who"] == "b",
+            "Worker B succeeds concurrently with identical readable operationId without collision");
+
+    // Same worker deduplicates identical retry and rejects conflicting reuse.
+    const auto retry_a = call(broker, "shared-op", "page.click", pa);
+    require(retry_a == ra, "Same worker identical operationId retry returns retained result");
+    auto conflict_a = pa;
+    conflict_a["elementRef"] = "ref_a_modified";
+    require(code(call(broker, "shared-op", "page.click", conflict_a)) == "OPERATION_CONFLICT",
+            "Same worker reusing operationId for different args still fails with OPERATION_CONFLICT");
+
+    // operations.get without agentSessionId returns OPERATION_AMBIGUOUS when multiple workers used the ID.
+    const auto ambig = call(broker, "shared-op", "operations.get", {{"operationId", "op-pd-scroll-1"}});
+    require(!ambig.value("ok", true) && code(ambig) == "OPERATION_AMBIGUOUS",
+            "operations.get without agentSessionId returns OPERATION_AMBIGUOUS across workers");
+
+    // operations.get with agentSessionId resolves each worker unambiguously.
+    const auto get_a = call(broker, "shared-op", "operations.get",
+                            {{"operationId", "op-pd-scroll-1"}, {"agentSessionId", a.session}});
+    const auto get_b = call(broker, "shared-op", "operations.get",
+                            {{"operationId", "op-pd-scroll-1"}, {"agentSessionId", b.session}});
+    require(get_a.value("ok", false) && get_a["result"]["agentSessionId"] == a.session &&
+                get_a["result"]["response"]["result"]["who"] == "a",
+            "operations.get with Worker A agentSessionId returns Worker A record");
+    require(get_b.value("ok", false) && get_b["result"]["agentSessionId"] == b.session &&
+                get_b["result"]["response"]["result"]["who"] == "b",
+            "operations.get with Worker B agentSessionId returns Worker B record");
+
+    // Unique operationId still resolves unambiguously without agentSessionId.
+    auto unique_p = action_params(broker, a, "op-unique-only-a");
+    auto fu = submit(broker, a, "page.click", unique_p);
+    engine.wait_pending(1);
+    engine.complete("op-unique-only-a", success({{"status", "dispatched"}}), a.session);
+    require(await_result(fu).value("ok", false), "Unique operation completes");
+    const auto get_u = call(broker, "shared-op", "operations.get", {{"operationId", "op-unique-only-a"}});
+    require(get_u.value("ok", false) && get_u["result"]["operationId"] == "op-unique-only-a" &&
+                get_u["result"]["agentSessionId"] == a.session,
+            "Unique operationId resolves unambiguously without agentSessionId");
+  }
+
+  // Verify restart persistence preserves per-worker scoping and disambiguation.
+  {
+    FakeEngine engine;
+    Broker reloaded(engine, directory);
+    require(call(reloaded, "reconnected", "hello", {{"clientId", client_id}, {"token", token}}).value("ok", false),
+            "Reconnected client authenticates after restart");
+    const auto ambig = call(reloaded, "reconnected", "operations.get", {{"operationId", "op-pd-scroll-1"}});
+    require(!ambig.value("ok", true) && code(ambig) == "OPERATION_AMBIGUOUS",
+            "Restart preserves both workers' records and reports OPERATION_AMBIGUOUS without agentSessionId");
+    const auto get_a = call(reloaded, "reconnected", "operations.get",
+                            {{"operationId", "op-pd-scroll-1"}, {"agentSessionId", worker_a_id}});
+    const auto get_b = call(reloaded, "reconnected", "operations.get",
+                            {{"operationId", "op-pd-scroll-1"}, {"agentSessionId", worker_b_id}});
+    require(get_a.value("ok", false) && get_a["result"]["agentSessionId"] == worker_a_id &&
+                get_a["result"]["state"] == "completed",
+            "Restart preserves Worker A operation metadata");
+    require(get_b.value("ok", false) && get_b["result"]["agentSessionId"] == worker_b_id &&
+                get_b["result"]["state"] == "completed",
+            "Restart preserves Worker B operation metadata");
+    const auto get_u = call(reloaded, "reconnected", "operations.get", {{"operationId", "op-unique-only-a"}});
+    require(get_u.value("ok", false) && get_u["result"]["agentSessionId"] == worker_a_id,
+            "Restart preserves unambiguous single-worker lookup");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -1154,11 +1647,15 @@ int main() {
     control_wait_ready(root.path / "control-wait-ready");
     batch_hover_and_key(root.path / "batch-hover-key");
     page_type_guards(root.path / "page-type-guards");
+    click_created_tabs_and_batch_scroll(root.path / "created-tabs-batch-scroll");
+    observe_after_honest_outcomes(root.path / "observe-after");
+    per_worker_operation_id_isolation(root.path / "per-worker-op-id");
 #ifdef _WIN32
     pipe_server_push_events(root.path / "pipe-push-events");
 #endif
     std::cout << "Broker improvements tests passed: attention kinds, human help hold/complete, "
-                 "control.wait_ready, batch hover/key, and PipeServer push events\n";
+                 "control.wait_ready, batch hover/key/scroll, createdTabs, observeAfter, "
+                 "per-worker operationId isolation, and PipeServer push events\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Broker improvements test failure: " << error.what() << '\n';
