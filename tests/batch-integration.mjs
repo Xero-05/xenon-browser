@@ -125,17 +125,25 @@ try {
       assert(result.steps.every(step => step.durationMs >= 0));
       const state = await verifyFields(tab);
       const after = await observe(client, tab); assert.equal(after.documentId, evidence.documentId);
-      await tool(client, 'batch', args); await sleep(350);
+      const duplicate = await tool(client, 'batch', args); await sleep(350);
       assert.equal(states.get(tab.caseId).count, 2); assert.equal(states.get(tab.caseId).suffix, 1);
+      assert.equal(result.evidenceExport?.status, 'saved');
+      assert.equal(duplicate.evidenceExport?.status, 'saved');
+      assert.notEqual(duplicate.evidenceExport.requestId, result.evidenceExport.requestId);
+      const { evidenceExport: _firstExport, ...firstPayload } = result;
+      const { evidenceExport: _duplicateExport, ...duplicatePayload } = duplicate;
+      assert.deepEqual(duplicatePayload, firstPayload);
       const records = await readdir(exportDirectory);
       let saved;
       for (const name of records.filter(name => name.endsWith('.request.json'))) {
         const request = JSON.parse(await readFile(resolve(exportDirectory, name), 'utf8'));
-        if (request.name === 'xenon_batch' && request.arguments.operationId === args.operationId) { saved = request; break; }
+        if (request.name === 'xenon_batch' && request.requestId === result.evidenceExport.requestId) { saved = request; break; }
       }
       assert(saved); assert.deepEqual(saved.arguments, args);
       const exported = JSON.parse(await readFile(resolve(exportDirectory, `${saved.requestId}.result.json`), 'utf8'));
       assert.deepEqual(exported.result.structuredContent, result);
+      const duplicateExported = JSON.parse(await readFile(resolve(exportDirectory, `${duplicate.evidenceExport.requestId}.result.json`), 'utf8'));
+      assert.deepEqual(duplicateExported.result.structuredContent, duplicate);
       assert(records.some(name => name.endsWith('.png')));
       const fresh = await tool(client, 'inspect', { ...scope(tab), maxNodes: 1000 });
       const button = fresh.nodes.find(node => node.name === 'Increment count' && node.tag === 'BUTTON'); assert(button);
