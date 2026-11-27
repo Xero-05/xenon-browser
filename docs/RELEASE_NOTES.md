@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.1.13
+
+See the [0.1.13 notes](RELEASE-0.1.13.md) for the changes, engine details and release limits.
+
+**Scrolled textarea visibility and screenshot-grounded `type` action (PR #69).** Fixed `inset_clip("none")` pruning scrolled uncertain controls on `html, body { height: 100% }` pages, preserved independently verified `<label>` names on uncertain inputs, allowed viewport-straddling multi-line `<textarea>` elements to verify an unoccluded visible patch (`unoccluded_visible_patch`), and stopped transparent border-only / outward-outline overlays from causing false `boundedPaintOcclusion`. Added screenshot-grounded `xenon_interact` `action: "type"` (excluded from `xenon_batch`) that validates `document.activeElement` in an isolated world and refuses password, OTP, `-webkit-text-security`, disabled, read-only, inert, embedded-frame, hidden, off-viewport or occluded targets before inserting text.
+
+**Agent efficiency, evidence export and multi-worker reliability (PR #70).** Added `--evidence-root <dir>` CLI flag lazily creating a per-session private (`0700`) subdirectory and returning `evidenceExport.directory` and exact saved `files` on exported replies. Added `createdTabs` (`[{ tabId, ownershipGeneration, controlGroupId }]`) on `click` and `xenon_batch` replies when clicks spawn owned tabs/popups in the same control group, optional text-only `observeAfter` on `xenon_interact` and `xenon_batch`, `scroll` steps (`direction`, optional `amount`) inside `xenon_batch`, and `sinceObservationId` delta responses on `xenon_inspect`. Tightened `compact: true` payloads (hoisting repeated per-node defaults into `nodeDefaults`, condensing static `visibility.limitations` and clean `textSafety.limitation` to machine-readable codes, rounding CSS pixel bounds, and deduplicating redundant container text). Added a single bounded 200 ms settle retry for transient `privacy_guard_initializing` and same-document `inspection_changed` during `xenon_observe`/`xenon_inspect`, and scoped mutation `operationId` deduplication and `xenon_operation` lookup per `(clientId, agentSessionId)` to prevent cross-worker collisions.
+
 ## 0.1.12
 
 See the [0.1.12 notes](RELEASE-0.1.12.md) for the changes, engine details and release limits.

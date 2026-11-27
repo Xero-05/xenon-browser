@@ -1,5 +1,11 @@
 # Validation
 
+## 0.1.13 release validation
+
+The 0.1.13 source is merged PRs #69 (`d947df5`) and #70 (`0101155`) plus release version and documentation updates. It reuses the exact audited Windows-decoder distribution from 0.1.9, 0.1.10, 0.1.11 and 0.1.12 (`libcef.dll` `c997b65a…`); the engine source was not rebuilt or re-audited.
+
+The local build (`Xenon.dll` `5b1765f5…`) passed all 28 of 28 native CTest suites, TypeScript typechecking, all 213 adapter/SDK/fixed-script checks (`npm.cmd test`) and five branding checks. On that exact DLL and engine, seven serial production-browser live suites passed all 78 cases: `tests/functional-improvements-integration.mjs` (13/13, measuring 70% smaller compact `nodes` JSON and 61% smaller compact `structuredContent` live), `tests/batch-integration.mjs` (6/6), `tests/textarea-fallback-integration.mjs` (5/5), `tests/visibility-integration.mjs` (16/16), `tests/scroll-container-integration.mjs` (17/17), `tests/worker-lifecycle-integration.mjs` (4/4) and `tests/integration.mjs` (17/17). The ZIP passed all 1,367 runtime-file hash checks in `verify-package.ps1` and all 6 extracted-archive smoke checks in `tests/package-smoke.mjs`, and the unsigned Inno Setup installer was built from the verified ZIP. See the [packaging record](test-results/release-0.1.13-packaging.json). Media/pacing suites, local isolated installer tests, local runs of the remaining unchanged live suites (`upload-entry`, `persistence`, `theme`, `passkey`), physical input and real external-site acceptance were not run locally on this Windows-decoder build.
+
 ## 0.1.12 release validation
 
 The 0.1.12 source is merged PR #67 (`a08e9c3`) plus release version and documentation updates. It reuses the exact audited Windows-decoder distribution from 0.1.9, 0.1.10 and 0.1.11 (`libcef.dll` `c997b65a…`); the engine source was not rebuilt or re-audited.
