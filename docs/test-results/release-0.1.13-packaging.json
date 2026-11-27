@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.13",
+  "stage": "validated local release; not published or installed",
+  "capturedUtc": "2026-11-27T00:13:08Z",
+  "passed": true,
+  "sourceBaseCommit": "0101155",
+  "sourceChanges": "Release version and documentation only, on top of merged PRs #69 and #70.",
+  "validationScope": "Full native build against the audited Windows-decoder CEF distribution, all 28 native CTest suites, TypeScript typecheck, 213 adapter/SDK/fixed-script checks, branding checks, seven serial production-browser live suites (78 cases covering PR #69, PR #70 and core integration), packaging verification, extracted-archive smoke test and unsigned installer build.",
+  "binaries": {
+    "Xenon.dll": "5b1765f58723c4d836a436e35836f93fe449ab9a2379a4aaab26f91a797e3b44",
+    "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+  },
+  "engine": {
+    "cef": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "recipe": "cef.mediaSourceBuild",
+    "reusedAuditedDistributionFrom": "0.1.9",
+    "sourceRebuiltOrReaudited": false
+  },
+  "checks": {
+    "nativeGroups": { "ctestPassed": 28, "ctestTotal": 28 },
+    "npmTypecheck": true,
+    "npmChecks": { "passed": 213, "total": 213 },
+    "brandingChecks": { "passed": 5, "total": 5 },
+    "functionalImprovementsIntegration": { "passed": 13, "total": 13 },
+    "batchIntegration": { "passed": 6, "total": 6 },
+    "textareaFallbackIntegration": { "passed": 5, "total": 5 },
+    "visibilityIntegration": { "passed": 16, "total": 16 },
+    "scrollContainerIntegration": { "passed": 17, "total": 17 },
+    "workerLifecycleIntegration": { "passed": 4, "total": 4 },
+    "integration": { "passed": 17, "total": 17 },
+    "packageRuntimeHashes": 1367,
+    "packageSmoke": { "passed": 6, "total": 6 }
+  },
+  "notRun": [
+    "media-integration and frame-pacing suites on 0.1.13 DLL",
+    "isolated installer tests (tests/installer-tests.ps1) locally on the Windows-decoder build",
+    "upload-entry, persistence, theme and passkey live suites locally on the Windows-decoder build",
+    "physical input, mixed-DPI/multi-monitor and real external site/account acceptance",
+    "npm audit"
+  ],
+  "assets": [
+    { "name": "Xenon-0.1.13-windows-x64-setup-unsigned.exe", "bytes": 206594211, "sha256": "81f23f8405f553e5b9d06952d249151685894a31b53eb94c03d820acb4464a96" },
+    { "name": "Xenon-0.1.13-windows-x64-setup-unsigned.exe.sha256", "bytes": 110, "sha256": "7ab5bfd6d265eacddf98cd663aba9de8ce43879b22a68d0bd87f662ddd659985" },
+    { "name": "Xenon-0.1.13-windows-x64-unsigned.zip", "bytes": 233459524, "sha256": "ef03bbb156a6ae4c8beda50a6e31773f717106704a0a09c443cacb123394ce17" },
+    { "name": "Xenon-0.1.13-windows-x64-unsigned.zip.sha256", "bytes": 104, "sha256": "2f2621c9a6e6b73ce1b724483ebbf7930b3b62111e44a239f60658098bffc2e8" }
+  ]
+}
