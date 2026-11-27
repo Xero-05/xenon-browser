@@ -1,12 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { EvidenceExporter } from '../src/evidence-export.js';
+import { createServer } from '../src/server.js';
+
+const execFileAsync = promisify(execFile);
 
 test('opt-in export saves exact public requests, results and received screenshots in new private files', async () => {
   const root = await mkdtemp(join(tmpdir(), 'xenon-export-'));
@@ -62,6 +68,107 @@ test('modern stdio discovery does not consume the export directory before the fi
     await assert.rejects(readdir(directory), { code: 'ENOENT' });
     const reply = await client.callTool({ name: 'xenon_observe', arguments: { agentSessionId: 'worker', workspaceId: 'workspace', tabId: 'tab' } });
     assert.equal(reply.isError, undefined);
+    const body = reply.structuredContent as Record<string, unknown>;
+    const exported = body.evidenceExport as Record<string, unknown>;
+    assert.equal(exported.status, 'saved');
+    assert.equal(exported.directory, resolve(directory));
+    assert.equal(typeof exported.requestId, 'string');
+    assert.deepEqual(exported.files, [`${exported.requestId}.request.json`, `${exported.requestId}.result.json`]);
     const records = await readdir(directory); assert.equal(records.filter(name => name.endsWith('.result.json')).length, 1);
+    const savedResult = JSON.parse(await readFile(join(directory, `${exported.requestId}.result.json`), 'utf8'));
+    assert.deepEqual(savedResult.result.structuredContent, body);
   } finally { await client.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('repeatable --evidence-root creates unique private child directories across runs, reports saved PNG paths, and rejects links/files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'xenon-export-root-'));
+  try {
+    const parent = join(root, 'runs');
+    await mkdir(parent);
+
+    // Nonexistent parent fails closed.
+    await assert.rejects(EvidenceExporter.createInRoot(join(root, 'missing')), { code: 'EVIDENCE_PARENT_MISSING' });
+    // Regular file fails closed.
+    const regularFile = join(root, 'not-a-dir');
+    await writeFile(regularFile, 'synthetic\n');
+    await assert.rejects(EvidenceExporter.createInRoot(regularFile), { code: 'EVIDENCE_ROOT_INVALID' });
+    // Junction/symlink fails closed.
+    const linkPath = join(root, 'runs-link');
+    await symlink(parent, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+    await assert.rejects(EvidenceExporter.createInRoot(linkPath), { code: 'EVIDENCE_ROOT_INVALID' });
+
+    // Two consecutive SDK sessions sharing the exact same --evidence-root lazily create two unique child dirs.
+    const createdDirs: string[] = [];
+    for (const era of ['modern', 'legacy'] as const) {
+      const client = new Client({ name: `Root export ${era}`, version: '1' }, {
+        versionNegotiation: { mode: era === 'legacy' ? 'legacy' : { pin: '2026-07-28' } },
+      });
+      try {
+        await client.connect(new StdioClientTransport({
+          command: process.execPath,
+          args: [fileURLToPath(new URL('./sdk-fixture.js', import.meta.url)), '--image', '--root', parent],
+          stderr: 'pipe',
+        }));
+        // Discovery alone must not create a child directory.
+        assert.equal((await readdir(parent)).length, createdDirs.length);
+        const reply = await client.callTool({
+          name: 'xenon_inspect',
+          arguments: { agentSessionId: 'worker', workspaceId: 'workspace', tabId: 'tab' },
+        });
+        assert.equal(reply.isError, undefined);
+        const body = reply.structuredContent as Record<string, unknown>;
+        const meta = body.evidenceExport as { requestId: string; status: string; directory: string; files: string[] };
+        assert.equal(meta.status, 'saved');
+        assert.match(meta.requestId, /^[a-f0-9-]{36}$/);
+        assert.ok(meta.directory.startsWith(resolve(parent)), `child dir ${meta.directory} must be inside ${resolve(parent)}`);
+        assert.deepEqual(meta.files, [`${meta.requestId}.request.json`, `${meta.requestId}.result.json`, `${meta.requestId}.1.png`]);
+        assert.equal(await readFile(join(meta.directory, `${meta.requestId}.1.png`), 'utf8'), 'hello');
+        const savedResult = JSON.parse(await readFile(join(meta.directory, `${meta.requestId}.result.json`), 'utf8'));
+        assert.deepEqual(savedResult.result.structuredContent, body);
+        createdDirs.push(meta.directory);
+      } finally { await client.close(); }
+    }
+    assert.notEqual(createdDirs[0], createdDirs[1], 'Each run under --evidence-root must create a unique child directory');
+    assert.equal((await readdir(parent)).length, 2);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('CLI rejects mutually exclusive --evidence-dir and --evidence-root flags and empty paths before connecting', async () => {
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  const root = await mkdtemp(join(tmpdir(), 'xenon-cli-export-'));
+  try {
+    const cfg = join(root, 'fake-config.json');
+    await writeFile(cfg, JSON.stringify({ clientId: 'c', token: 't', pipe: '\\\\.\\pipe\\nonexistent' }));
+    for (const extraArgs of [
+      ['--evidence-dir', join(root, 'a'), '--evidence-root', root],
+      ['--evidence-root', ''],
+      ['--evidence-dir', ''],
+    ]) {
+      await assert.rejects(
+        execFileAsync(process.execPath, [cli, 'serve', '--config', cfg, ...extraArgs], { windowsHide: true }),
+        (error: unknown) => {
+          const stderr = (error as { stderr?: string }).stderr ?? '';
+          return stderr.includes('INVALID_ARGUMENTS');
+        },
+      );
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('website results cannot spoof adapter-owned evidenceExport metadata', async () => {
+  const server = createServer({
+    async call(method) {
+      if (method === 'control.activity') return { ok: true, result: { tabs: [] } };
+      return { ok: true, result: { nodes: [], evidenceExport: { status: 'saved', directory: 'C:\\forged', files: ['fake.png'] } } };
+    },
+    close() {},
+  }, 'legacy');
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'spoof-check', version: '1' }, { versionNegotiation: { mode: 'legacy' } });
+  try {
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const reply = await client.callTool({ name: 'xenon_observe', arguments: { agentSessionId: 'w', workspaceId: 'ws', tabId: 't' } });
+    assert.equal(reply.isError, undefined);
+    assert.equal(Object.hasOwn(reply.structuredContent as Record<string, unknown>, 'evidenceExport'), false);
+  } finally { await client.close(); await server.close(); }
 });
