@@ -1,5 +1,11 @@
 # Validation
 
+## 0.1.14 release validation
+
+The 0.1.14 source is merged PR #72 (`cb519b6`) plus release version and documentation updates. It reuses the exact audited Windows-decoder distribution from 0.1.9, 0.1.10, 0.1.11, 0.1.12 and 0.1.13 (`libcef.dll` `c997b65a…`); the engine source was not rebuilt or re-audited.
+
+The local build (`Xenon.dll` `68352cd5…`) passed all 29 of 29 native CTest suites, TypeScript typechecking, all 218 adapter/SDK/fixed-script checks (`npm.cmd test`) and five branding checks. On that exact DLL and engine, nine serial production-browser live suites passed: `tests/upload-entry-integration.mjs` (27/27), `tests/upload-entry-integration.mjs --oracle-observation` (7/7), `tests/functional-improvements-integration.mjs` (14/14), `tests/batch-integration.mjs` (7/7), `tests/visibility-integration.mjs` (16/16), `tests/integration.mjs` (17/17), `tests/media-integration.mjs --windows-codecs` (H.264/AAC MP4 and Media Source playback + PCM audio), `tests/media-integration.mjs` (VP8 playback) and `tests/frame-pacing-integration.mjs` (7/7, `pacingSupported: true`). The ZIP passed all 1,369 runtime-file hash checks in `verify-package.ps1` and all 6 extracted-archive smoke checks in `tests/package-smoke.mjs` (an initial smoke attempt extracted under `.cache/` timed out waiting for pipe connection and is retained locally; extracting under temp passed 6/6 on the exact same ZIP), and the unsigned Inno Setup installer was built from the verified ZIP. See the [packaging record](test-results/release-0.1.14-packaging.json). Local isolated installer tests, local runs of the remaining unchanged live suites (`scroll-container`, `textarea-fallback`, `worker-lifecycle`, `persistence`, `theme`, `passkey`, `screenshot`, `background-popup`, `workflow-viewport`, `native-page-controls`), physical input, mixed-DPI/multi-monitor and real external-site acceptance were not run locally on this Windows-decoder build.
+
 ## 0.1.13 release validation
 
 The 0.1.13 source is merged PRs #69 (`d947df5`) and #70 (`0101155`) plus release version and documentation updates. It reuses the exact audited Windows-decoder distribution from 0.1.9, 0.1.10, 0.1.11 and 0.1.12 (`libcef.dll` `c997b65a…`); the engine source was not rebuilt or re-audited.

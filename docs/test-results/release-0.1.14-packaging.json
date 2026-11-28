@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.14",
+  "stage": "validated local release; not published or installed",
+  "capturedUtc": "2026-11-28T06:50:36Z",
+  "passed": true,
+  "sourceBaseCommit": "cb519b6",
+  "sourceChanges": "Release version and documentation only, on top of merged PR #72.",
+  "validationScope": "Full native build against the audited Windows-decoder CEF distribution, all 29 native CTest suites, TypeScript typecheck, 218 adapter/SDK/fixed-script checks, branding checks, nine serial production-browser live suites (upload-entry, oracle-observation, functional-improvements, batch, visibility, core integration, Windows H.264/AAC media, WebM media, and covered-tab frame pacing), packaging verification, extracted-archive smoke test and unsigned installer build.",
+  "binaries": {
+    "Xenon.dll": "68352cd5f6d57e4ea52ca3b2048a751428928be84ea54402ad1f6372aec4e0a4",
+    "libcef.dll": "c997b65a258453e2351a7ce9d6e3745c74c0c83861b68fe3217c7b6ad57a3554"
+  },
+  "engine": {
+    "cef": "154.0.34+g14c5a08+chromium-154.0.8037.98",
+    "recipe": "cef.mediaSourceBuild",
+    "reusedAuditedDistributionFrom": "0.1.9",
+    "sourceRebuiltOrReaudited": false
+  },
+  "checks": {
+    "nativeGroups": { "ctestPassed": 29, "ctestTotal": 29 },
+    "npmTypecheck": true,
+    "npmChecks": { "passed": 218, "total": 218 },
+    "brandingChecks": { "passed": 5, "total": 5 },
+    "uploadEntryIntegration": { "passed": 27, "total": 27 },
+    "uploadEntryOracleObservation": { "passed": 7, "total": 7 },
+    "functionalImprovementsIntegration": { "passed": 14, "total": 14 },
+    "batchIntegration": { "passed": 7, "total": 7 },
+    "visibilityIntegration": { "passed": 16, "total": 16 },
+    "integration": { "passed": 17, "total": 17 },
+    "mediaIntegrationWindowsCodecs": { "passed": true },
+    "mediaIntegrationWebm": { "passed": true },
+    "framePacingIntegration": { "passed": 7, "total": 7, "pacingSupported": true },
+    "packageRuntimeHashes": 1369,
+    "packageSmoke": { "passed": 6, "total": 6 }
+  },
+  "retainedLocalFailures": [
+    "Initial package-smoke attempt extracted under .cache/ (out/package-smoke-1795848368130.json) passed branding (1/6) then timed out after 30s waiting for pipe connect; retry extracted under temp passed 6/6 on the exact same ZIP."
+  ],
+  "notRun": [
+    "isolated installer tests (tests/installer-tests.ps1) locally on the Windows-decoder build",
+    "unchanged live suites locally on the Windows-decoder build (scroll-container, textarea-fallback, worker-lifecycle, persistence, theme, passkey, screenshot, background-popup, workflow-viewport, native-page-controls)",
+    "physical input, mixed-DPI/multi-monitor and real external site/account acceptance",
+    "npm audit"
+  ],
+  "assets": [
+    { "name": "Xenon-0.1.14-windows-x64-setup-unsigned.exe", "bytes": 206631063, "sha256": "ab6d2ae7d5ce764c1105dd4216e4ffd036c3f1220892d1a3651c0320cb930d6b" },
+    { "name": "Xenon-0.1.14-windows-x64-setup-unsigned.exe.sha256", "bytes": 110, "sha256": "a3742601ae814931ee59ec359793edafaf11c57933cc5c3428c6a89dfa5af870" },
+    { "name": "Xenon-0.1.14-windows-x64-unsigned.zip", "bytes": 233504342, "sha256": "4c3ab5d11586f747a12c58c9992e687f751cf23c48b0e93303fae5a2163bced2" },
+    { "name": "Xenon-0.1.14-windows-x64-unsigned.zip.sha256", "bytes": 104, "sha256": "b6d00a49f0b5a27c88d2def1fb3bdf82878516c4d5f52b116ded6e9cf7e2c73e" }
+  ]
+}
