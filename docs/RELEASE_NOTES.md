@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.1.14
+
+See the [0.1.14 notes](RELEASE-0.1.14.md) for the changes, engine details and release limits.
+
+**Real-page `compact: true` observation pruning and compact delta computation (PR #72).** Tightened `compact: true` observations to omit empty-name non-interactive structural/formatting/decorative nodes, text-covered pure structural wrappers, duplicate `StaticText` inside enclosing verified interactive controls or headings, and `bounds` (plus redundant provenance) on non-interactive verified nodes while preserving interactive controls, custom `StaticText` upload triggers, uncertain candidates and security/coverage metadata. Computed `sinceObservationId` deltas directly on compacted nodes when `compact: true`.
+
+**Transient upload popover activation and iframe-shift revalidation (PR #72).** Removed the intermediate hover sweep before direct upload entry clicks so transient hover/mouseout-sensitive popovers stay open, added `DOM.getBoxModel`/`translate()` parent-frame shift pre-press revalidation (`stale_geometry`), allowed `pointer-events: none` text passthrough and upload-only transparent same-document `<input type="file">` overlays, recognized semantic `menuitem`/`option` upload entries, and added allowlisted `error.reason` codes on `not_actionable` and `upload_activation_failed`.
+
+**Hybrid native file-chooser interception for agent clicks, keys and batches (PR #72).** Added `CefDialogHandler::OnFileDialog` interception for agent-dispatched `click` (element or screenshot coordinate), `Enter`/`Space` `key` and `xenon_batch` file choosers without displaying a Windows OS modal dialog. Supported choosers return an opaque `chooserId` and strictly sanitized `acceptFilters` for fulfillment or cancellation via `xenon_upload(chooserId, fileId | cancel: true)`, unsupported directory/save or unauthorized choosers cancel immediately without showing an OS modal, `xenon_batch` stops remaining steps on a pending chooser, and pending choosers auto-cancel on navigation, human activity, protected auth, handoff/disconnect/revocation, 60-second TTL or any other mutating tab command.
+
 ## 0.1.13
 
 See the [0.1.13 notes](RELEASE-0.1.13.md) for the changes, engine details and release limits.
