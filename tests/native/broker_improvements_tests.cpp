@@ -64,7 +64,9 @@ struct FakeEngine final : BrowserEngine {
   std::map<std::string, Pending> pending;
   std::map<std::string, Guarded> guards;
   std::deque<Pending> pending_observes;
+  std::vector<std::string> chooser_cancels;
   Json last_observe_params;
+  Json last_dispatched_params;
   std::string fail_observe_code;
   std::mutex mutex;
   unsigned observations{};
@@ -160,11 +162,20 @@ struct FakeEngine final : BrowserEngine {
       reply(success({{"mimeType", "image/png"}, {"data", "test"}}));
       return;
     }
+    if (command == "files.chooser_cancel") {
+      {
+        std::lock_guard lock(mutex);
+        chooser_cancels.push_back(params.value("tabId", std::string{}));
+      }
+      reply(success());
+      return;
+    }
     if (!params.contains("operationId")) {
       reply(failure("UNSUPPORTED", "Fake engine deliberately rejects unsupported commands"));
       return;
     }
     std::lock_guard lock(mutex);
+    last_dispatched_params = params;
     pending.emplace(op_slot(params), Pending{command, params, std::move(reply)});
   }
 
@@ -1637,6 +1648,194 @@ void per_worker_operation_id_isolation(const std::filesystem::path& directory) {
   }
 }
 
+void file_chooser_broker_enforcement(const std::filesystem::path& directory) {
+  FakeEngine engine;
+  Broker broker(engine, directory);
+  const auto client = pair(broker, "fc-conn", "File chooser broker test");
+  const auto client_id = client["clientId"].get<std::string>();
+  auto a = worker(broker, "fc-conn", "fc-owner");
+  auto b = worker(broker, "fc-conn", "fc-peer", a.workspace);
+  const auto tab_id = a.tab["tabId"].get<std::string>();
+
+  // 1. Broker sets trustedUploadsAllowed from real policy and strips spoofed caller values.
+  {
+    auto no_uploads = ClientPolicy::legacy(256);
+    no_uploads.capabilities.uploads = false;
+    require(broker.configure_client(client_id, no_uploads), "Disable uploads succeeds");
+
+    auto p = action_params(broker, a, "click-spoof-uploads");
+    p["trustedUploadsAllowed"] = true; // Caller attempts to spoof internal flag.
+    auto pending = submit(broker, a, "page.click", p);
+    engine.wait_pending(1);
+    require(engine.last_dispatched_params.contains("trustedUploadsAllowed") &&
+                engine.last_dispatched_params["trustedUploadsAllowed"] == false,
+            "Broker strips caller spoofed trustedUploadsAllowed and sets false when uploads disabled");
+    engine.complete("click-spoof-uploads", success({{"status", "dispatched"}}), a.session);
+    require(await_result(pending).value("ok", false), "Spoofed click completed");
+
+    // files.upload with chooserId still requires caps.uploads.
+    auto blocked_upload = a.base();
+    blocked_upload["operationId"] = "upload-no-cap";
+    blocked_upload["ownershipGeneration"] = call(broker, a.connection, "control.status", a.base())["result"]["ownershipGeneration"];
+    blocked_upload["chooserId"] = "chooser-1";
+    blocked_upload["fileId"] = "file-1";
+    require(code(call(broker, a.connection, "files.upload", blocked_upload)) == "PERMISSION_DENIED",
+            "files.upload with chooserId still enforces caps.uploads");
+
+    auto allow_uploads = ClientPolicy::legacy(256);
+    allow_uploads.capabilities.uploads = true;
+    require(broker.configure_client(client_id, allow_uploads), "Re-enable uploads succeeds");
+  }
+
+  // 2. click with observeAfter preserves fileChooser alongside attached observation.
+  {
+    auto p = action_params(broker, a, "click-opens-chooser");
+    p["observeAfter"] = {{"compact", true}};
+    auto pending = submit(broker, a, "page.click", p);
+    engine.wait_pending(1);
+    require(engine.last_dispatched_params["trustedUploadsAllowed"] == true,
+            "Broker forwards trustedUploadsAllowed=true when uploads are enabled");
+    const Json fc = {{"chooserId", "chooser-live-1"}, {"mode", "open"}, {"acceptFilters", Json::array({".pdf"})}, {"status", "pending"}};
+    engine.complete("click-opens-chooser", success({{"status", "dispatched"}, {"fileChooser", fc}}), a.session);
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"]["fileChooser"] == fc && res["result"].contains("observation"),
+            "click with observeAfter preserves fileChooser alongside post-action observation");
+  }
+
+  // 3. files.upload validates mutually exclusive modes and allows chooserId without observationId.
+  {
+    const auto gen = call(broker, a.connection, "control.status", a.base())["result"]["ownershipGeneration"];
+    auto bad_mix = a.base();
+    bad_mix["operationId"] = "bad-mix-1";
+    bad_mix["ownershipGeneration"] = gen;
+    bad_mix["chooserId"] = "chooser-live-1";
+    bad_mix["fileId"] = "file-1";
+    bad_mix["cancel"] = true;
+    require(code(call(broker, a.connection, "files.upload", bad_mix)) == "INVALID_REQUEST",
+            "chooserId cannot combine fileId and cancel");
+
+    auto bad_obs = a.base();
+    bad_obs["operationId"] = "bad-mix-2";
+    bad_obs["ownershipGeneration"] = gen;
+    bad_obs["chooserId"] = "chooser-live-1";
+    bad_obs["fileId"] = "file-1";
+    bad_obs["observationId"] = "obs-1";
+    require(code(call(broker, a.connection, "files.upload", bad_obs)) == "INVALID_REQUEST",
+            "chooserId cannot combine observationId");
+
+    auto fulfill = a.base();
+    fulfill["operationId"] = "fulfill-chooser-1";
+    fulfill["ownershipGeneration"] = gen;
+    fulfill["chooserId"] = "chooser-live-1";
+    fulfill["fileId"] = "file-1";
+    auto f_pending = submit(broker, a, "files.upload", fulfill);
+    engine.wait_pending(1);
+    engine.complete("fulfill-chooser-1", success({{"status", "selected"}, {"activation", "not_attempted"}, {"fileSelection", "selected"}}), a.session);
+    require(await_result(f_pending).value("ok", false), "files.upload with chooserId+fileId succeeds without observationId");
+
+    auto cancel_req = a.base();
+    cancel_req["operationId"] = "cancel-chooser-1";
+    cancel_req["ownershipGeneration"] = gen;
+    cancel_req["chooserId"] = "chooser-live-2";
+    cancel_req["cancel"] = true;
+    auto c_pending = submit(broker, a, "files.upload", cancel_req);
+    engine.wait_pending(1);
+    engine.complete("cancel-chooser-1", success({{"status", "canceled"}, {"activation", "not_attempted"}, {"fileSelection", "not_selected"}}), a.session);
+    require(await_result(c_pending).value("ok", false), "files.upload with chooserId+cancel=true succeeds without observationId");
+  }
+
+  // 4. Batch stops immediately on fileChooser.status==pending when later steps remain, and completes if last step.
+  {
+    auto p = action_params(broker, a, "batch-chooser-stop");
+    p.erase("elementRef");
+    p["steps"] = Json::array({
+        {{"action", "click"}, {"elementRef", "node_1"}},
+        {{"action", "click"}, {"elementRef", "node_2"}},
+    });
+    auto pending = submit(broker, a, "page.batch", p);
+    engine.wait_pending(1);
+    const Json fc = {{"chooserId", "chooser-batch-1"}, {"mode", "open"}, {"acceptFilters", Json::array()}, {"status", "pending"}};
+    engine.complete("batch-chooser-stop", success({{"status", "dispatched"}, {"fileChooser", fc}}), a.session);
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"]["status"] == "stopped" &&
+                res["result"]["stoppedAt"] == 0 && res["result"]["stopReason"] == "file_chooser_pending" &&
+                res["result"]["fileChooser"] == fc,
+            "Batch stops immediately on pending fileChooser when later steps remain");
+    require(res["result"]["steps"].size() == 2 && res["result"]["steps"][1]["status"] == "skipped" &&
+                res["result"]["steps"][1]["dispatchStatus"] == "not_dispatched",
+            "Remaining batch steps are skipped without dispatching");
+  }
+  {
+    auto p = action_params(broker, a, "batch-chooser-last");
+    p.erase("elementRef");
+    p["steps"] = Json::array({
+        {{"action", "click"}, {"elementRef", "node_1"}},
+    });
+    p["observeAfter"] = {{"compact", true}};
+    auto pending = submit(broker, a, "page.batch", p);
+    engine.wait_pending(1);
+    const Json fc = {{"chooserId", "chooser-batch-2"}, {"mode", "openMultiple"}, {"acceptFilters", Json::array({".txt"})}, {"status", "pending"}};
+    engine.complete("batch-chooser-last", success({{"status", "dispatched"}, {"fileChooser", fc}}), a.session);
+    const auto res = await_result(pending);
+    require(res.value("ok", false) && res["result"]["status"] == "completed" &&
+                res["result"]["fileChooser"] == fc && res["result"].contains("observation"),
+            "Final-step batch opening a fileChooser completes and preserves fileChooser alongside observeAfter");
+  }
+
+  // 5. file_chooser.opened surfaces pendingFileChooser only to owner, and handoff/disconnect cancels it.
+  {
+    const auto gen = call(broker, a.connection, "control.status", a.base())["result"]["ownershipGeneration"].get<uint64_t>();
+    engine.event("file_chooser.opened", {
+        {"tabId", tab_id},
+        {"chooserId", "chooser-status-1"},
+        {"mode", "open"},
+        {"acceptFilters", Json::array({".pdf"})},
+        {"ownerSessionId", a.session},
+        {"ownershipGeneration", gen},
+    });
+    const auto owner_status = call(broker, a.connection, "control.status", a.base())["result"];
+    require(owner_status.contains("pendingFileChooser") &&
+                owner_status["pendingFileChooser"]["chooserId"] == "chooser-status-1",
+            "Owner control.status surfaces pendingFileChooser");
+    Json peer_scope = b.base();
+    peer_scope["tabId"] = tab_id;
+    const auto peer_status = call(broker, b.connection, "control.status", peer_scope)["result"];
+    require(!peer_status.contains("pendingFileChooser"),
+            "Non-owner control.status must not expose pendingFileChooser");
+
+    bool uploads_allowed = false;
+    require(broker.chooser_owner_status(tab_id, a.session, gen, uploads_allowed) && uploads_allowed,
+            "chooser_owner_status reports live ownership and uploads capability");
+    require(!broker.chooser_owner_status(tab_id, b.session, gen, uploads_allowed),
+            "chooser_owner_status rejects non-owner session");
+
+    const size_t cancels_before = engine.chooser_cancels.size();
+    auto handoff = a.base();
+    handoff["expectedGeneration"] = gen;
+    handoff["toSessionId"] = b.session;
+    require(call(broker, a.connection, "control.handoff", handoff).value("ok", false), "Handoff succeeds");
+    require(engine.chooser_cancels.size() == cancels_before + 1 && engine.chooser_cancels.back() == tab_id,
+            "Handoff immediately dispatches files.chooser_cancel for tab with pending chooser");
+    const auto after_handoff = call(broker, b.connection, "control.status", peer_scope)["result"];
+    require(!after_handoff.contains("pendingFileChooser"), "Pending chooser cleared after handoff");
+
+    // Re-open chooser under new owner b, then disconnect to verify disconnect cancels it.
+    const auto gen2 = after_handoff["ownershipGeneration"].get<uint64_t>();
+    engine.event("file_chooser.opened", {
+        {"tabId", tab_id},
+        {"chooserId", "chooser-status-2"},
+        {"mode", "open"},
+        {"acceptFilters", Json::array()},
+        {"ownerSessionId", b.session},
+        {"ownershipGeneration", gen2},
+    });
+    const size_t cancels_before_disc = engine.chooser_cancels.size();
+    broker.disconnect("fc-conn");
+    require(engine.chooser_cancels.size() == cancels_before_disc + 1 && engine.chooser_cancels.back() == tab_id,
+            "Worker disconnect immediately cancels pending file chooser");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -1650,6 +1849,7 @@ int main() {
     click_created_tabs_and_batch_scroll(root.path / "created-tabs-batch-scroll");
     observe_after_honest_outcomes(root.path / "observe-after");
     per_worker_operation_id_isolation(root.path / "per-worker-op-id");
+    file_chooser_broker_enforcement(root.path / "file-chooser");
 #ifdef _WIN32
     pipe_server_push_events(root.path / "pipe-push-events");
 #endif

@@ -197,11 +197,25 @@ inline bool read_bounds_rect(const Json& node, double& x, double& y, double& w, 
          w > 0.0 && h > 0.0;
 }
 
+inline bool is_other_interactive_role(std::string_view lower) {
+  return lower == "disclosuretriangle" || lower == "togglebutton" ||
+         lower == "popupbutton" || lower == "colorwell" ||
+         lower == "date" || lower == "datetime" || lower == "inputtime" ||
+         lower == "comboboxgrouping" || lower == "comboboxmenubutton" ||
+         lower == "menulistoption";
+}
+
+inline bool is_interactive_or_embed_tag(std::string_view tag) {
+  return tag == "INPUT" || tag == "SELECT" || tag == "TEXTAREA" ||
+         tag == "BUTTON" || tag == "A" || tag == "CANVAS" || tag == "IFRAME";
+}
+
 inline bool is_preserved_text_or_control(const Json& node) {
   const std::string_view role = str_field(node, "role");
   if (role == "StaticText") return true;
   const std::string lower = ascii_lower(role);
-  return lower == "statictext" || lower == "heading" || is_interactive_role(lower);
+  return lower == "statictext" || lower == "heading" ||
+         is_interactive_role(lower) || is_other_interactive_role(lower);
 }
 
 inline bool is_pure_structural_wrapper(std::string_view role) {
@@ -209,11 +223,39 @@ inline bool is_pure_structural_wrapper(std::string_view role) {
   return lower == "main" || lower == "region" || lower == "article" ||
          lower == "section" || lower == "group" || lower == "list" ||
          lower == "listitem" || lower == "paragraph" || lower == "blockquote" ||
-         lower == "figure" || lower == "genericcontainer" ||
-         lower == "layouttable" || lower == "layouttablerow" ||
-         lower == "layouttablecell" || lower == "rowgroup" ||
+         lower == "figure" || lower == "figcaption" ||
+         lower == "genericcontainer" || lower == "layouttable" ||
+         lower == "layouttablerow" || lower == "layouttablecell" ||
+         lower == "table" || lower == "row" || lower == "rowgroup" ||
+         lower == "cell" || lower == "grid" || lower == "gridcell" ||
+         lower == "columnheader" || lower == "rowheader" ||
+         lower == "tableheadercontainer" || lower == "caption" ||
          lower == "descriptionlist" || lower == "descriptionlistterm" ||
-         lower == "descriptionlistdetail" || lower == "labeltext";
+         lower == "descriptionlistdetail" || lower == "labeltext" ||
+         lower == "banner" || lower == "navigation" ||
+         lower == "complementary" || lower == "contentinfo" ||
+         lower == "search" || lower == "form" || lower == "toolbar" ||
+         lower == "tablist" || lower == "tabpanel" || lower == "menu" ||
+         lower == "menubar" || lower == "tree" || lower == "treegrid" ||
+         lower == "feed" || lower == "directory" || lower == "document" ||
+         lower == "application" || lower == "note" || lower == "header" ||
+         lower == "footer" || lower == "sectionheader" ||
+         lower == "sectionfooter" || lower == "legend" ||
+         lower == "presentation" || lower == "strong" || lower == "emphasis" ||
+         lower == "mark" || lower == "code" || lower == "time" ||
+         lower == "abbr" || lower == "subscript" || lower == "superscript" ||
+         lower == "insertion" || lower == "deletion" ||
+         lower == "contentinsertion" || lower == "contentdeletion" ||
+         lower == "term" || lower == "definition" || lower == "ruby" ||
+         lower == "rubyannotation" || lower == "linebreak" ||
+         lower == "listmarker" || lower == "separator";
+}
+
+inline bool is_preserved_empty_role(std::string_view lower) {
+  return lower == "dialog" || lower == "alertdialog" || lower == "alert" ||
+         lower == "status" || lower == "progressbar" || lower == "meter" ||
+         lower == "canvas" || lower == "iframe" || lower == "video" ||
+         lower == "audio" || lower == "math";
 }
 
 inline bool can_omit_wrapper_node(const Json& node) {
@@ -222,6 +264,107 @@ inline bool can_omit_wrapper_node(const Json& node) {
     if (node.contains(keep_key)) return false;
   }
   return true;
+}
+
+inline bool can_omit_empty_structural_node(const Json& node) {
+  if (!node.is_object()) return false;
+  if (str_field(node, "visibilityStatus") == "uncertain") return false;
+  if (!str_field(node, "name").empty()) return false;
+  const std::string lower = ascii_lower(str_field(node, "role"));
+  if (is_interactive_role(lower) || is_other_interactive_role(lower)) return false;
+  if (is_preserved_empty_role(lower)) return false;
+  if (is_interactive_or_embed_tag(str_field(node, "tag"))) return false;
+  for (const char* keep_key : {"states", "protected", "inputType", "candidateId", "diagnosticId"}) {
+    if (node.contains(keep_key)) return false;
+  }
+  return true;
+}
+
+inline bool is_word_bounded_substring(std::string_view haystack, std::string_view needle) {
+  if (needle.empty() || needle.size() > haystack.size()) return false;
+  if (haystack == needle) return true;
+  size_t search_from = 0;
+  while (search_from + needle.size() <= haystack.size()) {
+    const size_t pos = haystack.find(needle, search_from);
+    if (pos == std::string_view::npos) return false;
+    const size_t end = pos + needle.size();
+    const bool left_ok = (pos == 0 || haystack[pos - 1] == ' ');
+    const bool right_ok = (end == haystack.size() || haystack[end] == ' ');
+    if (left_ok && right_ok) return true;
+    search_from = pos + 1;
+  }
+  return false;
+}
+
+inline bool is_atomic_control_or_heading(std::string_view lower) {
+  return lower == "heading" || lower == "button" || lower == "link" ||
+         lower == "menuitem" || lower == "menuitemcheckbox" ||
+         lower == "menuitemradio" || lower == "tab" || lower == "option" ||
+         lower == "checkbox" || lower == "radio" || lower == "switch";
+}
+
+inline bool is_redundant_static_text(const Json& child, const Json& context_nodes,
+                                     size_t skip_index, bool has_skip) {
+  if (!child.is_object()) return false;
+  if (str_field(child, "visibilityStatus") == "uncertain") return false;
+  if (ascii_lower(str_field(child, "role")) != "statictext") return false;
+  // Preserve rendered-text-only fallback nodes (for example aria-hidden upload triggers).
+  if (str_field(child, "provenance") == "chromium-rendered-text-node") return false;
+  for (const char* keep_key : {"states", "protected", "inputType", "candidateId", "diagnosticId"}) {
+    if (child.contains(keep_key)) return false;
+  }
+  const std::string_view child_name = str_field(child, "name");
+  if (child_name.empty()) return false;
+
+  double dx = 0.0, dy = 0.0, dw = 0.0, dh = 0.0;
+  if (!read_bounds_rect(child, dx, dy, dw, dh)) return false;
+  const std::string_view frame = str_field(child, "frameId");
+  const bool child_has_ref = !str_field(child, "ref").empty();
+  constexpr double kTol = 2.0;
+
+  for (size_t j = 0; j < context_nodes.size(); ++j) {
+    if (has_skip && j == skip_index) continue;
+    const auto& parent = context_nodes[j];
+    if (!parent.is_object()) continue;
+    if (str_field(parent, "visibilityStatus") == "uncertain") continue;
+    if (parent.value("protected", false)) continue;
+    if (str_field(parent, "frameId") != frame) continue;
+
+    const std::string parent_role = ascii_lower(str_field(parent, "role"));
+    if (!is_atomic_control_or_heading(parent_role)) continue;
+    if (parent_role != "heading" && child_has_ref && str_field(parent, "ref").empty()) continue;
+
+    const std::string_view parent_name = str_field(parent, "name");
+    if (parent_name.empty() || child_name.size() > parent_name.size()) continue;
+    const bool allow_substring =
+        parent_role == "heading" || parent_role == "button" ||
+        parent_role == "link" || parent_role == "menuitem" ||
+        parent_role == "menuitemcheckbox" || parent_role == "menuitemradio" ||
+        parent_role == "tab" || parent_role == "option";
+    const bool text_matches = allow_substring
+                                  ? is_word_bounded_substring(parent_name, child_name)
+                                  : (parent_name == child_name);
+    if (!text_matches) continue;
+
+    double px = 0.0, py = 0.0, pw = 0.0, ph = 0.0;
+    if (!read_bounds_rect(parent, px, py, pw, ph)) continue;
+    if (dx >= px - kTol && dy >= py - kTol &&
+        dx + dw <= px + pw + kTol && dy + dh <= py + ph + kTol) {
+      return true;
+    }
+  }
+  return false;
+}
+
+inline bool keep_compact_bounds(const Json& node) {
+  if (!node.is_object()) return true;
+  if (str_field(node, "visibilityStatus") == "uncertain") return true;
+  if (node.contains("candidateId") || node.contains("diagnosticId")) return true;
+  if (node.value("protected", false)) return true;
+  const std::string lower = ascii_lower(str_field(node, "role"));
+  if (is_interactive_role(lower) || is_other_interactive_role(lower)) return true;
+  if (lower == "canvas" || lower == "iframe") return true;
+  return is_interactive_or_embed_tag(str_field(node, "tag"));
 }
 
 inline bool text_covered_by_children(const Json& container, const Json& context_nodes,
@@ -319,6 +462,7 @@ inline CompactResult compact_nodes(const Json& nodes,
   const bool same_context = (&context == &nodes);
 
   std::vector<bool> covered_flags(nodes.size(), false);
+  std::vector<bool> omit_flags(nodes.size(), false);
   size_t non_omitted_count = 0;
   for (size_t i = 0; i < nodes.size(); ++i) {
     const auto& node = nodes[i];
@@ -328,8 +472,31 @@ inline CompactResult compact_nodes(const Json& nodes,
     }
     const bool covered = compact_detail::text_covered_by_children(node, context, i, same_context);
     covered_flags[i] = covered;
-    if (!covered || !compact_detail::can_omit_wrapper_node(node)) {
+    const bool omit = (covered && compact_detail::can_omit_wrapper_node(node)) ||
+                      compact_detail::can_omit_empty_structural_node(node) ||
+                      compact_detail::is_redundant_static_text(node, context, i, same_context);
+    omit_flags[i] = omit;
+    if (!omit) {
       ++non_omitted_count;
+    }
+  }
+
+  bool allow_omission = (non_omitted_count > 0);
+  if (!allow_omission && !same_context) {
+    for (size_t j = 0; j < context.size(); ++j) {
+      const auto& ctx_node = context[j];
+      if (!ctx_node.is_object()) {
+        allow_omission = true;
+        break;
+      }
+      const bool ctx_covered = compact_detail::text_covered_by_children(ctx_node, context, j, true);
+      const bool ctx_omit = (ctx_covered && compact_detail::can_omit_wrapper_node(ctx_node)) ||
+                            compact_detail::can_omit_empty_structural_node(ctx_node) ||
+                            compact_detail::is_redundant_static_text(ctx_node, context, j, true);
+      if (!ctx_omit) {
+        allow_omission = true;
+        break;
+      }
     }
   }
 
@@ -341,10 +508,11 @@ inline CompactResult compact_nodes(const Json& nodes,
     }
 
     const bool covered = covered_flags[i];
-    if (covered && compact_detail::can_omit_wrapper_node(node) && non_omitted_count > 0) {
+    if (omit_flags[i] && allow_omission) {
       continue;
     }
 
+    const bool keep_bounds = compact_detail::keep_compact_bounds(node);
     Json copy = node;
     if (covered) {
       copy["name"] = "";
@@ -364,8 +532,12 @@ inline CompactResult compact_nodes(const Json& nodes,
       }
     }
 
-    if (const auto bounds_it = copy.find("bounds");
-        bounds_it != copy.end() && bounds_it->is_object()) {
+    if (!keep_bounds) {
+      copy.erase("bounds");
+      copy.erase("boundsProvenance");
+      copy.erase("geometryEvidence");
+    } else if (const auto bounds_it = copy.find("bounds");
+               bounds_it != copy.end() && bounds_it->is_object()) {
       if (const auto cs_it = bounds_it->find("coordinateSpace");
           cs_it != bounds_it->end() && *cs_it == default_coord_space) {
         bounds_it->erase(cs_it);

@@ -1,5 +1,6 @@
 #include "xenon/broker.hpp"
 #include "xenon/developer_trace.hpp"
+#include "xenon/file_chooser.hpp"
 #include "xenon/local_security.hpp"
 #include <algorithm>
 #include <atomic>
@@ -216,12 +217,18 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   // loses interaction permission or the person dismisses it.
   // `seen` is set natively once the person was present with the tab in front.
   struct Attention { std::string session, client, reason, kind{"help"}; uint64_t generation{}, attachment{}, sequence{}; bool seen{}, persist{}; };
+  struct PendingChooser {
+    std::string chooser_id, mode, owner_session;
+    uint64_t generation{};
+    Json accept_filters = Json::array();
+  };
   struct Tab {
     std::string workspace, owner, document, group;
     uint64_t generation{1}, state_epoch{}, human_epoch{}, human_help_resolved_epoch{}; bool frozen{}, human_busy{}, human_help_hold{}, protected_auth{}, closing{}, passkey_refused{};
     std::optional<int64_t> human_pause_until;
     std::optional<std::string> pending_owner;
     std::optional<Attention> attention;
+    std::optional<PendingChooser> pending_chooser;
     std::string active, dialog_active;
     std::vector<std::string> spawned_tabs;
     bool active_post_observe{};
@@ -282,6 +289,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   ConnectionEventSink connection_event_sink;
   std::map<std::string, Json> last_pushed_activity;
   std::vector<ReadyWaiter> ready_waiters;
+  std::vector<std::string> pending_chooser_cancels;
   std::condition_variable ready_condition;
   bool ready_stopped{};
   std::thread ready_thread;
@@ -290,6 +298,11 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     Impl* self;
     ~UiChange() { try { self->notify_ui(); } catch(...) {} }
   };
+  void cancel_chooser_locked(const std::string& tab_id, Tab& tab) {
+    if (!tab.pending_chooser) return;
+    tab.pending_chooser.reset();
+    pending_chooser_cancels.push_back(tab_id);
+  }
   Json activity_tabs_locked(const std::string& client) const {
     Json result = Json::array();
     for (const auto& [id, tab] : tabs) {
@@ -331,9 +344,12 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     ConnectionEventSink sink;
     std::vector<std::pair<std::string, Json>> pushes;
     std::vector<Delivery> ready_deliveries;
+    std::vector<std::string> chooser_cancels;
     {
       std::lock_guard lock(mutex);
       check_ready_waiters_locked(ready_deliveries);
+      chooser_cancels = std::move(pending_chooser_cancels);
+      pending_chooser_cancels.clear();
       callback = ui_state_callback;
       sink = connection_event_sink;
       if (sink) {
@@ -350,6 +366,12 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
             pushes.emplace_back(conn_id, Json{{"event", "control.activity"}, {"tabs", std::move(tabs_snapshot)}});
           }
         }
+      }
+    }
+    if (!chooser_cancels.empty()) {
+      std::set<std::string> seen;
+      for (const auto& id : chooser_cancels) {
+        if (seen.insert(id).second) execute_safe("files.chooser_cancel", {{"tabId", id}}, [](Json) {});
       }
     }
     deliver(std::move(ready_deliveries));
@@ -547,8 +569,11 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       }
     }
     std::set<std::string> groups;
-    for(auto& [id,tab]:tabs)if(auto worker=workers.find(tab.owner);worker!=workers.end()&&worker->second.client==client&&!effective(client,tab.workspace).interaction&&groups.insert(tab.group).second)
-      begin_transfer_locked(tab,"",output,"PERMISSION_CHANGED");
+    for(auto& [id,tab]:tabs)if(auto worker=workers.find(tab.owner);worker!=workers.end()&&worker->second.client==client) {
+      if(!effective(client,tab.workspace).uploads) cancel_chooser_locked(id,tab);
+      if(!effective(client,tab.workspace).interaction&&groups.insert(tab.group).second)
+        begin_transfer_locked(tab,"",output,"PERMISSION_CHANGED");
+    }
     // Losing interaction permission ends this client's requests, including
     // persisting ones its workers left behind; restoring it does not revive them.
     for(auto& [id,tab]:tabs)if(tab.attention&&tab.attention->client==client&&!effective(client,tab.workspace).interaction)tab.attention.reset();
@@ -752,7 +777,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     const bool released = (tab.owner.empty() || tab.owner == tab.attention->session) && (!tab.pending_owner || tab.pending_owner->empty());
     return released && clients.contains(tab.attention->client) && effective(tab.attention->client, tab.workspace).interaction;
   }
-  Json tab_json(const std::string& id, const Tab& tab, const std::string& session = {}) const {
+  Json tab_json(const std::string& id, const Tab& tab, const std::string& session = {}, bool include_chooser = false) const {
     const auto& observing_session = session.empty() ? tab.owner : session;
     const auto owner=workers.find(tab.owner);
     const bool available=!stopping&&owner!=workers.end()&&owner->second.connected&&!owner->second.retiring&&
@@ -766,6 +791,16 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       {"activityMessage", tab.human_help_hold ? "The person is holding this tab paused while completing a help request. Wait for them to resume, then observe again." : paused ? "Human page activity paused agent input; ownership is unchanged. Wait for the pause to end, then observe again." : tab.human_epoch ? "Human page activity occurred; use a fresh observation before continuing." : "No human page activity has been recorded for this tab."}};
     if (tab.pending_owner) result["pendingOwnerSessionId"] = *tab.pending_owner;
     if (!tab.document.empty()) result["documentId"] = tab.document;
+    if (include_chooser && !session.empty() && tab.pending_chooser &&
+        tab.owner == session && tab.pending_chooser->owner_session == session &&
+        tab.pending_chooser->generation == tab.generation &&
+        !tab.frozen && !tab.pending_owner && !tab.protected_auth && !paused) {
+      result["pendingFileChooser"] = {
+        {"chooserId", tab.pending_chooser->chooser_id},
+        {"mode", tab.pending_chooser->mode},
+        {"acceptFilters", tab.pending_chooser->accept_filters},
+      };
+    }
     // Only the requesting worker and native UI read the agent's note.
     const bool attention = attention_active_locked(tab);
     result["attentionRequested"] = attention; result["attentionSeen"] = attention && tab.attention->seen;
@@ -823,6 +858,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
   void begin_transfer_locked(Tab& tab, const std::string& recipient, std::vector<Delivery>& output, const std::string& code) {
     const auto group = tab.group;
     for (auto& [id, member] : tabs) if (member.group == group) {
+      cancel_chooser_locked(id, member);
       member.frozen = true; member.pending_owner = recipient; cancel_queued_locked(member, output, code);
     }
     transfer_if_ready_locked(tab);
@@ -848,7 +884,7 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
       else if (it->second.state_epoch != state_epoch || !it->second.active.empty() || !it->second.dialog_active.empty()) value = failure("OBSERVATION_CHANGED", "The tab changed while observing; capture a fresh observation");
       else {
         observe_result_locked(it->second, session, value, generation);
-        if (method == "page.inspect" && value.value("ok", false)) value["result"]["control"] = tab_json(tab_id, it->second, session);
+        if (method == "page.inspect" && value.value("ok", false)) value["result"]["control"] = tab_json(tab_id, it->second, session, true);
       }
       finish_callback_locked(session);
     }
@@ -919,6 +955,12 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
     const auto action = field(steps[index], "action");
     auto params = command.params; params.erase("steps"); params.erase("observeAfter");
     for (const auto& [key, value] : steps[index].items()) params[key] = value;
+    if (action == "click" || action == "key") {
+      std::lock_guard lock(mutex);
+      const auto client = field(command.params, "clientId");
+      const auto workspace = field(command.params, "workspaceId");
+      params["trustedUploadsAllowed"] = effective(client, workspace).uploads;
+    }
     auto self = shared_from_this();
     auto started = std::make_shared<std::atomic<bool>>(false);
     auto completed = std::make_shared<std::atomic<bool>>(false);
@@ -935,6 +977,22 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         for (; progress->next < steps.size(); ++progress->next)
           progress->results.push_back({{"index", progress->next}, {"action", field(steps[progress->next], "action")}, {"durationMs", 0.0}, {"dispatchStatus", "not_dispatched"}, {"status", "skipped"}});
         done(success({{"status", unknown ? "outcome_unknown" : "stopped"}, {"stoppedAt", index}, {"steps", progress->results}})); return;
+      }
+      if (value.contains("result") && value["result"].is_object() &&
+          value["result"].contains("fileChooser") && value["result"]["fileChooser"].is_object()) {
+        const auto fc = value["result"]["fileChooser"];
+        const auto& steps = command.params.at("steps");
+        if (field(fc, "status") == "pending") {
+          if (progress->next < steps.size()) {
+            for (; progress->next < steps.size(); ++progress->next)
+              progress->results.push_back({{"index", progress->next}, {"action", field(steps[progress->next], "action")}, {"durationMs", 0.0}, {"dispatchStatus", "not_dispatched"}, {"status", "skipped"}});
+            done(success({{"status", "stopped"}, {"stoppedAt", index}, {"stopReason", "file_chooser_pending"}, {"fileChooser", fc}, {"steps", progress->results}})); return;
+          }
+          done(success({{"status", "completed"}, {"fileChooser", fc}, {"steps", progress->results}})); return;
+        }
+        if (progress->next == steps.size()) {
+          done(success({{"status", "completed"}, {"fileChooser", fc}, {"steps", progress->results}})); return;
+        }
       }
       self->batch_step(tab_id, command, progress, done);
     };
@@ -1147,6 +1205,10 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         else {
           auto engine_params = command.params;
           engine_params.erase("observeAfter");
+          if (command.method == "page.click" || command.method == "page.key") {
+            std::lock_guard lock(self->mutex);
+            engine_params["trustedUploadsAllowed"] = self->effective(field(command.params, "clientId"), field(command.params, "workspaceId")).uploads;
+          }
           self->engine.execute_guarded(command.method, engine_params, std::move(permit), done);
         }
       }
@@ -1209,14 +1271,33 @@ struct Broker::Impl : std::enable_shared_from_this<Broker::Impl> {
         tabs.erase(tab);
         for (auto& [id, member] : tabs) if (member.group == group) { transfer_if_ready_locked(member); break; }
       } else if (type == "tab.navigated") {
-        tab->second.document = field(data, "documentId"); ++tab->second.state_epoch; tab->second.observations.clear(); tab->second.passkey_refused = false;
+        tab->second.document = field(data, "documentId"); ++tab->second.state_epoch; tab->second.observations.clear(); tab->second.passkey_refused = false; tab->second.pending_chooser.reset();
       } else if (type == "passkey.refused") {
         tab->second.passkey_refused = true;
       } else if (type == "auth.protected") {
-        tab->second.protected_auth = data.value("protected", true); tab->second.observations.clear();
+        tab->second.protected_auth = data.value("protected", true); tab->second.observations.clear(); tab->second.pending_chooser.reset();
+      } else if (type == "file_chooser.opened") {
+        const auto cid = field(data, "chooserId");
+        const auto mode = field(data, "mode");
+        const auto owner_session = field(data, "ownerSessionId");
+        const auto owner_gen = data.value("ownershipGeneration", uint64_t{});
+        const auto filters = data.contains("acceptFilters") && data["acceptFilters"].is_array() ? data["acceptFilters"] : Json::array();
+        if (!cid.empty() && tab->second.owner == owner_session && tab->second.generation == owner_gen &&
+            !tab->second.frozen && !tab->second.pending_owner && !tab->second.protected_auth && !human_paused_locked(tab->second)) {
+          tab->second.pending_chooser = PendingChooser{cid, mode, owner_session, owner_gen, filters};
+        } else if (!cid.empty()) {
+          tab->second.pending_chooser.reset();
+          pending_chooser_cancels.push_back(tab_id);
+        }
+      } else if (type == "file_chooser.closed") {
+        const auto cid = field(data, "chooserId");
+        if (tab->second.pending_chooser && (cid.empty() || tab->second.pending_chooser->chooser_id == cid)) {
+          tab->second.pending_chooser.reset();
+        }
       } else if (type == "human.input") {
         ++tab->second.state_epoch; ++tab->second.human_epoch; tab->second.human_busy = true;
         tab->second.human_pause_until.reset();
+        tab->second.pending_chooser.reset();
         const auto until=data.find("pauseUntil");
         if (!data.value("busy",false) && until!=data.end() && until->is_number_integer() && until->get<int64_t>()>0) tab->second.human_pause_until=until->get<int64_t>();
         tab->second.observations.clear();
@@ -1249,6 +1330,11 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   Impl::UiChange notification{self.get()};
   if (!request.is_object() || !request.contains("method") || !request["method"].is_string() || (request.contains("params") && !request["params"].is_object())) { reply(failure("INVALID_REQUEST", "Expected method and object params")); return; }
   const auto method = field(request, "method"); auto params = request.value("params", Json::object());
+  // Strip broker-internal capability/routing fields so untrusted callers cannot spoof them.
+  for (const char* internal_key : {"trustedPolicyEpoch", "trustedUploadsAllowed", "fileScopes", "restrictFileIds", "allowedFileIds", "grantedOrigin"}) {
+    params.erase(internal_key);
+  }
+  if (method != "hello") params.erase("clientId");
   std::unique_lock lock(self->mutex);
   auto respond = [&](Json value) { lock.unlock(); reply(std::move(value)); };
   if (self->stopping) { respond(failure("STOPPED", "Browser control is stopped")); return; }
@@ -1273,7 +1359,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   const auto client = authenticated->second;
   // Validate native syntax too. Unknown/foreign IDs share denial codes to
   // avoid revealing resources belonging to another principal.
-  for (const auto* key : {"agentSessionId", "workspaceId", "tabId", "toSessionId", "folderId", "fileId", "accountId", "observationId", "operationId", "cursor", "elementRef", "fromRef", "toRef"}) {
+  for (const auto* key : {"agentSessionId", "workspaceId", "tabId", "toSessionId", "folderId", "fileId", "chooserId", "accountId", "observationId", "operationId", "cursor", "elementRef", "fromRef", "toRef"}) {
     if (params.contains(key) && !valid_handle(params[key])) { respond(failure("INVALID_HANDLE", std::string(key) + " must be a nonempty opaque ID of at most 256 UTF-8 bytes without whitespace or control characters. Copy the returned handle exactly.")); return; }
   }
   if (method == "control.activity") {
@@ -1390,6 +1476,9 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   params["fileScopes"]=Json::array({workspace_id});
   if(access.inherit_files)params["fileScopes"].push_back(client_file_scope(client));
   params["restrictFileIds"]=access.restrict_files;params["allowedFileIds"]=access.file_ids;
+  if (method == "page.click" || method == "page.key" || method == "page.batch") {
+    params["trustedUploadsAllowed"] = self->effective(client, workspace_id).uploads;
+  }
   if (method == "auth.accounts") {
     const auto account_tab = field(params, "tabId"); auto account_tab_it = self->tabs.find(account_tab);
     if (account_tab_it == self->tabs.end() || account_tab_it->second.workspace != workspace_id) { respond(failure("TAB_DENIED", "Unknown tab in this workspace")); return; }
@@ -1457,7 +1546,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   if (found != self->tabs.end() && found->second.workspace != workspace_id && self->granted(client, found->second.workspace)) { respond(failure("SCOPE_MISMATCH", "The supplied tabId belongs to a different authorized workspace. Reuse its matching workspaceId")); return; }
   if (found == self->tabs.end() || found->second.workspace != workspace_id) { respond(failure("TAB_DENIED", "Unknown tab in this workspace")); return; }
   auto& tab = found->second;
-  if (method == "control.status") { respond(success(self->tab_json(tab_id, tab, session_id))); return; }
+  if (method == "control.status") { respond(success(self->tab_json(tab_id, tab, session_id, true))); return; }
   if (method == "control.wait_ready") {
     int timeout_ms = 10000;
     if (const auto value = params.find("timeoutMs"); value != params.end()) {
@@ -1551,6 +1640,9 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   }
   if (!write_commands.contains(method)) { respond(failure("METHOD_UNSUPPORTED", "This browser capability is not implemented")); return; }
   if (method == "page.batch" && !valid_batch(params)) { respond(failure("INVALID_BATCH", "Supply 1–16 click/fill/select/check/hover/key/scroll steps, with only their required fields, within 64 KiB of UTF-8 JSON")); return; }
+  if (method == "files.upload" && !file_chooser::valid_upload_params(params)) {
+    respond(failure("INVALID_REQUEST", "Supply either observationId and elementRef with fileId, chooserId with fileId, or chooserId with cancel: true")); return;
+  }
   if (params.contains("observeAfter") && (!observe_after_commands.contains(method) || !valid_observe_after(params))) {
     respond(failure("INVALID_REQUEST", "observeAfter is only supported on page interactions and batches with bounded text-only observation options")); return;
   }
@@ -1581,7 +1673,7 @@ void Broker::dispatch(const std::string& connection, const Json& request, Reply 
   if (tab.human_epoch && method!="tabs.close" && method!="page.dialog" && !self->fresh_after_human_locked(tab,session_id)) {
     respond(failure("OBSERVATION_REQUIRED", "Human page activity invalidated prior evidence. Capture a fresh observation before continuing")); return;
   }
-  if (target_commands.contains(method)) {
+  if (target_commands.contains(method) && !(method == "files.upload" && params.contains("chooserId"))) {
     auto observed = tab.observations.find(session_id);
     if (observed == tab.observations.end() || observed->second.generation != tab.generation || observed->second.human_epoch != tab.human_epoch || observed->second.id != field(params, "observationId")) { respond(failure("OBSERVATION_REQUIRED", "Capture a fresh observation after acquiring this tab or human page activity")); return; }
   }
@@ -1718,6 +1810,26 @@ bool Broker::human_controls(const std::string& id) const {
   std::lock_guard lock(impl_->mutex);auto tab=impl_->tabs.find(id);
   return tab!=impl_->tabs.end()&&!impl_->removed_workspaces.contains(tab->second.workspace)&&!tab->second.frozen&&
     tab->second.owner=="human"&&!tab->second.pending_owner;
+}
+bool Broker::chooser_owner_status(const std::string& id, const std::string& session_id,
+                                  uint64_t generation, bool& uploads_allowed) const {
+  uploads_allowed = false;
+  std::lock_guard lock(impl_->mutex);
+  if (impl_->stopping || session_id.empty()) return false;
+  auto tab = impl_->tabs.find(id);
+  if (tab == impl_->tabs.end() || impl_->removed_workspaces.contains(tab->second.workspace) ||
+      tab->second.closing || tab->second.frozen || tab->second.pending_owner ||
+      tab->second.protected_auth || impl_->human_paused_locked(tab->second) ||
+      tab->second.owner != session_id || tab->second.generation != generation) {
+    return false;
+  }
+  auto worker = impl_->workers.find(session_id);
+  if (worker == impl_->workers.end() || !worker->second.connected || worker->second.retiring ||
+      !impl_->clients.contains(worker->second.client) || !impl_->granted(worker->second.client, tab->second.workspace)) {
+    return false;
+  }
+  uploads_allowed = impl_->effective(worker->second.client, tab->second.workspace).uploads;
+  return true;
 }
 bool Broker::allow_download(const std::string& id) const {
   std::lock_guard lock(impl_->mutex);auto tab=impl_->tabs.find(id);
@@ -1857,6 +1969,7 @@ void Broker::set_human_help_hold(const std::string& id, bool hold) {
       ++tab.state_epoch;
       ++tab.human_epoch;
       tab.observations.clear();
+      impl_->cancel_chooser_locked(id, tab);
       impl_->cancel_queued_locked(tab, output, "HUMAN_ACTIVITY");
     } else if (tab.human_help_hold) {
       tab.human_help_hold = false;

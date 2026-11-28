@@ -176,6 +176,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
         [this](const std::string& tab,HWND browser){shell_->tab_created(tab,browser);},[this](const std::string& tab){shell_->tab_closed(tab);});
       engine_->set_download_callback([this](const std::string& tab){return broker_->allow_download(tab);});
       engine_->set_passkey_control_callback([this](const std::string& tab){return broker_->human_controls(tab);});
+      engine_->set_chooser_owner_callback([this](const std::string& tab,const std::string& session,uint64_t gen,bool& uploads_allowed){return broker_->chooser_owner_status(tab,session,gen,uploads_allowed);});
       engine_->set_permission_callback([this](const std::string& tab,const std::string& origin,const std::string& description,std::function<void(bool)> answer){shell_->permission(tab,origin,description,std::move(answer));});
       engine_->set_fullscreen_callback([this](const std::string& tab,bool fullscreen){if(shell_)shell_->page_fullscreen(tab,fullscreen);});
       engine_->set_external_link_callback([this](const std::string& tab,const std::string& origin,const std::string& url,const std::string& scheme,bool permitted,std::function<void(bool)> done){
@@ -236,7 +237,7 @@ class App final : public CefApp,public CefBrowserProcessHandler {
     if(engine_){engine_->set_native_key_callback({});engine_->set_workspace_label_callback({});}
     if(engine_){engine_->set_controls_callback({});engine_->set_updates_callback({});engine_->set_private_workspace_callback({});engine_->set_open_link_callback({});}
     if(broker_){broker_->set_ui_state_callback({});broker_->set_connection_event_sink({});}
-    if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_passkey_control_callback({});engine_->set_permission_callback({});
+    if(engine_){engine_->set_host_callbacks({},{},{});engine_->set_download_callback({});engine_->set_passkey_control_callback({});engine_->set_chooser_owner_callback({});engine_->set_permission_callback({});
       engine_->set_fullscreen_callback({});engine_->set_external_link_callback({});engine_->set_screen_share_callback({});}
     if(server_)server_->stop();server_.reset();native_.reset();shell_.reset();broker_.reset();engine_.reset();files_.reset();vault_.reset();
   }

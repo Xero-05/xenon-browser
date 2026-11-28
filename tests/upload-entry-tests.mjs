@@ -27,11 +27,16 @@ test('existing file inputs and semantic entries retain their classification', ()
   assert.equal(classify.call(element('INPUT', { type: 'file' }), false), 'input');
   assert.equal(classify.call(element('INPUT', { type: 'file', webkitdirectory: true }), false), 'directory');
   for (const tag of ['BUTTON', 'A', 'LABEL']) assert.equal(classify.call(element(tag), false), 'entry');
+  for (const role of ['button', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'tab', 'treeitem']) {
+    assert.equal(classify.call(element('LI', { getAttribute: key => key === 'role' ? role : null }), false), 'entry');
+  }
+  assert.equal(classify.call(element('DIV', { getAttribute: key => key === 'role' ? 'region' : null }), false), 'unsupported');
 });
-test('disabled, inert and aria-disabled ancestors block text entry activation', () => {
+test('disabled, inert and aria-disabled ancestors block text and menuitem entry activation', () => {
   for (const properties of [{ disabled: true }, { inert: true }, { getAttribute: key => key === 'aria-disabled' ? 'true' : null }, { matches: () => true }]) {
     const parent = element('DIV', properties);
     assert.equal(classify.call(text(element('SPAN', { parentElement: parent })), true), 'unsupported');
+    assert.equal(classify.call(element('LI', { parentElement: parent, getAttribute: key => key === 'role' ? 'menuitem' : null }), false), 'unsupported');
   }
 });
 test('shadow host disability is checked and malformed deep chains fail closed', () => {

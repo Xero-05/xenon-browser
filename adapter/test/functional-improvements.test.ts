@@ -624,6 +624,36 @@ for (const era of ['legacy', 'modern'] as const) {
           assert.equal(rejected.isError, true, `xenon_attention must reject kind=${JSON.stringify(badKind)}`);
         }
       });
+
+      await t.test('xenon_upload three mutually exclusive modes (direct, fulfill chooser, cancel chooser)', async () => {
+        for (const args of [
+          { ...mutation, observationId: 'obs-1', elementRef: 'ref-1', fileId: 'file-1' },
+          { ...mutation, chooserId: 'chooser-1', fileId: 'file-1' },
+          { ...mutation, chooserId: 'chooser-1', cancel: true },
+        ]) {
+          const reply = await client.callTool({ name: 'xenon_upload', arguments: args });
+          assert.equal(reply.isError, undefined, `xenon_upload should accept ${JSON.stringify(args)}`);
+          assert.deepEqual(reply.structuredContent, { method: 'files.upload', params: args });
+        }
+
+        for (const bad of [
+          { ...mutation, chooserId: 'chooser-1' },
+          { ...mutation, chooserId: 'chooser-1', fileId: 'file-1', cancel: true },
+          { ...mutation, chooserId: 'chooser-1', cancel: false },
+          { ...mutation, chooserId: 'chooser-1', fileId: 'file-1', observationId: 'obs-1' },
+          { ...mutation, chooserId: 'chooser-1', fileId: 'file-1', elementRef: 'ref-1' },
+          { ...mutation, chooserId: 'chooser-1', cancel: true, observationId: 'obs-1' },
+          { ...mutation, observationId: 'obs-1', elementRef: 'ref-1', fileId: 'file-1', cancel: true },
+          { ...mutation, observationId: 'obs-1', fileId: 'file-1' },
+          { ...mutation, elementRef: 'ref-1', fileId: 'file-1' },
+          { ...mutation, observationId: 'obs-1', elementRef: 'ref-1' },
+          { ...mutation, cancel: true },
+          { ...mutation, chooserId: 'bad chooser', fileId: 'file-1' },
+        ]) {
+          const rejected = await client.callTool({ name: 'xenon_upload', arguments: bad });
+          assert.equal(rejected.isError, true, `xenon_upload must reject ${JSON.stringify(bad)}`);
+        }
+      });
     } finally {
       await client.close();
     }

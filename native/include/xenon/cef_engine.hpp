@@ -35,6 +35,9 @@ class CefEngine final : public BrowserEngine {
   void set_download_callback(std::function<bool(const std::string&)> allowed);
   // True when the human currently controls the tab; other tabs gate passkeys.
   void set_passkey_control_callback(std::function<bool(const std::string&)> human_controls);
+  // True when (session, generation) still actively owns the tab in broker state;
+  // sets uploads_allowed from the live effective permissions.
+  void set_chooser_owner_callback(std::function<bool(const std::string&,const std::string&,uint64_t,bool&)> callback);
   void set_permission_callback(std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> callback);
   // Native chrome only; none of these are reachable through MCP.
   // A page entered or left fullscreen: (tab, fullscreen).
