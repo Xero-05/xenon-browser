@@ -45,6 +45,11 @@ class Broker {
   bool allow_download(const std::string& tab_id) const;
   // The human owns the tab and no handoff away from the human is pending.
   bool human_controls(const std::string& tab_id) const;
+  // True when the exact owner session/generation currently owns the tab, is
+  // connected, unfrozen, unpaused, and authorized in its workspace; sets
+  // uploads_allowed from the live effective client/workspace capabilities.
+  bool chooser_owner_status(const std::string& tab_id, const std::string& session_id,
+                            uint64_t generation, bool& uploads_allowed) const;
   void set_ui_state_callback(std::function<void()> callback);
   bool grant_account(const std::string& client_id, const std::string& workspace_id,
                      const std::string& account_id, const std::string& origin);

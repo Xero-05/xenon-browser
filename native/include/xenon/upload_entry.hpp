@@ -14,6 +14,7 @@ inline constexpr const char* kUploadEntryKind=R"JS(function(allowText){
   if(ancestor)return 'unsupported';
   if(element===this&&element.tagName==='INPUT'&&element.type==='file')return element.webkitdirectory?'directory':'input';
   if(allowText&&(this.nodeType===3||this.nodeType===1))return 'entry';
-  return element.tagName==='BUTTON'||element.tagName==='LABEL'||element.tagName==='A'||element.getAttribute('role')==='button'||(element.tagName==='INPUT'&&['button','submit'].includes(element.type))?'entry':'unsupported';
+  const role=(element.getAttribute('role')||'').toLowerCase();
+  return element.tagName==='BUTTON'||element.tagName==='LABEL'||element.tagName==='A'||['button','link','menuitem','menuitemcheckbox','menuitemradio','option','tab','treeitem'].includes(role)||(element.tagName==='INPUT'&&['button','submit'].includes(element.type))?'entry':'unsupported';
 })JS";
 }

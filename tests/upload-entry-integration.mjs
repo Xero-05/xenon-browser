@@ -34,7 +34,7 @@ const results = [], calls = [], servers = [], fixtureStates = new Map();
 const runFile = promisify(execFile), sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const hashDll = async () => sha256(await readFile(dll));
-let browser, client, worker, otherWorker, fileId, folderId, origin, crossOrigin, applicationDllSha256, applicationDllSha256AtEnd;
+let browser, client, noUploadsClient, worker, otherWorker, fileId, folderId, origin, crossOrigin, applicationDllSha256, applicationDllSha256AtEnd;
 let lastObservation, benchmarkMetadata, benchmarkModule, benchmarkRoot, benchmarkId, benchmarkTrial, benchmarkServer;
 
 async function until(action, timeout = 15000, label = 'Fixture condition') {
@@ -140,7 +140,7 @@ async function startFixtures() {
           ++state.uploads; state.uploaded = body.includes(Buffer.from('filename="approved-report.txt"')) && body.includes(Buffer.from('Xenon synthetic approved upload.\n'));
           response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ passed: state.uploaded }));
         } else if (url.pathname === '/event') {
-          try { const value = JSON.parse(body); if (value.type === 'opened') state.opened = true; if (value.type === 'click') { ++state.clicks; state.trusted.push(value.trusted); (state.textHits ??= []).push(value.textHit === true); } if (value.type === 'change') { ++state.changes; state.selectedFiles = value.files; } if (value.type === 'label') state.labelChanged = true; response.end('ok'); }
+          try { const value = JSON.parse(body); if (value.type === 'opened') state.opened = true; if (value.type === 'click') { ++state.clicks; state.trusted.push(value.trusted); (state.textHits ??= []).push(value.textHit === true); } if (value.type === 'other') { state.otherClicks = (state.otherClicks ?? 0) + 1; } if (value.type === 'change') { ++state.changes; state.selectedFiles = value.files; } if (value.type === 'label') state.labelChanged = true; response.end('ok'); }
           catch { response.writeHead(400).end(); }
         } else response.writeHead(404).end();
       }); return;
@@ -148,12 +148,78 @@ async function startFixtures() {
     if (url.pathname !== '/page') { response.writeHead(404).end(); return; }
     const mode = url.searchParams.get('mode'), frame = mode === 'frame' || mode === 'frame-text';
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    if (mode === 'svg-dropzone') {
+      response.end('<!doctype html><meta charset="utf-8"><title>SVG dropzone fixture ' + caseId + '</title>' +
+        '<style>body{background:white;color:#152235;font:18px system-ui;margin:20px}#drop{position:fixed;left:40px;top:110px;width:220px;height:110px;border:2px dashed #152235}#file{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}</style>' +
+        '<h1>Upload entry fixture ready</h1>' +
+        '<div id="drop"><svg width="220" height="110" viewBox="0 0 220 110" aria-hidden="true"><rect x="12" y="12" width="196" height="86" rx="8" fill="#eef4ff" stroke="#152235" stroke-width="2"/><path d="M110 30 L110 78 M86 54 L134 54" stroke="#152235" stroke-width="4"/></svg>' +
+        '<input id="file" type="file" accept=".txt,text/plain,bad filter with spaces,C:\\secret\\path.txt"></div>' +
+        '<p id="status" style="margin-top:160px">No file transferred</p><script>' +
+        'const caseId=' + JSON.stringify(caseId) + ',file=document.querySelector("#file");' +
+        'function event(v){return fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(v)})}event({type:"opened"});' +
+        'file.onclick=e=>event({type:"click",trusted:e.isTrusted});' +
+        'file.onchange=async()=>{event({type:"change",files:[...file.files].map(v=>v.name)});if(!file.files[0])return;const data=new FormData();data.append("file",file.files[0]);const value=await(await fetch("/upload?case="+caseId,{method:"POST",body:data})).json();document.querySelector("#status").textContent=value.passed?"Upload verified":"Upload rejected"};' +
+        '</script>'); return;
+    }
+    if (mode === 'chooser-multi-action') {
+      response.end('<!doctype html><meta charset="utf-8"><title>Chooser multi action ' + caseId + '</title>' +
+        '<style>body{background:white;color:#152235;font:18px system-ui;margin:20px}button{font:inherit;margin:10px;padding:10px;color:#152235;background:white}[hidden]{display:none!important}</style>' +
+        '<h1>Upload entry fixture ready</h1>' +
+        '<button id="trigger">Open Upload Picker</button>' +
+        '<button id="other">Other Action</button>' +
+        '<input id="file" type="file" accept=".txt,.pdf,image/*" hidden>' +
+        '<p id="otherStatus">Other:0</p><p id="status">No file transferred</p><script>' +
+        'const caseId=' + JSON.stringify(caseId) + ',file=document.querySelector("#file"),trigger=document.querySelector("#trigger"),other=document.querySelector("#other");' +
+        'let otherCount=0;function event(v){return fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(v)})}event({type:"opened"});' +
+        'trigger.onclick=e=>{event({type:"click",trusted:e.isTrusted});file.click()};' +
+        'other.onclick=()=>{otherCount++;document.querySelector("#otherStatus").textContent="Other:"+otherCount;event({type:"other"})};' +
+        'file.onchange=async()=>{event({type:"change",files:[...file.files].map(v=>v.name)});if(!file.files[0])return;const data=new FormData();data.append("file",file.files[0]);const value=await(await fetch("/upload?case="+caseId,{method:"POST",body:data})).json();document.querySelector("#status").textContent=value.passed?"Upload verified":"Upload rejected"};' +
+        '</script>'); return;
+    }
+    if (mode === 'frame-shift-inproc' || mode === 'frame-shift-oopif') {
+      const oopif = mode === 'frame-shift-oopif';
+      const childUrl = (oopif ? crossOrigin : origin) + '/page?case=' + caseId + '&mode=' + (oopif ? 'custom-text-shift-oopif' : 'custom-text-shift-parent');
+      response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}iframe{display:block;width:700px;height:270px;border:1px solid #777}</style>' +
+        '<h1 id="ready">Loading upload entry fixture</h1><div id="spacer" style="height:0"></div><iframe id="frame" src="' + childUrl + '"></iframe>' +
+        '<script>const frame=document.querySelector("#frame"),spacer=document.querySelector("#spacer");' +
+        'const shift=()=>{spacer.style.height="140px"};' +
+        (oopif ? 'window.addEventListener("message",e=>{if(e.data==="shift")shift()});frame.addEventListener("mouseenter",shift,{once:true});' : '') +
+        'addEventListener("load",()=>{document.querySelector("#ready").textContent="Upload entry fixture ready"},{once:true});</script>'); return;
+    }
     if (frame) { response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}iframe{width:700px;height:270px;border:1px solid #777}</style><h1 id="ready">Loading upload entry fixture</h1><iframe src="' + crossOrigin + '/page?case=' + caseId + '&mode=' + (mode === 'frame-text' ? 'custom-text' : 'custom') + '"></iframe>' +
       // Ready only after the cross-origin frame has loaded and its document update has invalidated earlier evidence.
       '<script>addEventListener("load",()=>{document.querySelector("#ready").textContent="Upload entry fixture ready"},{once:true})</script>'); return; }
     if (mode === 'delegate' || mode === 'delegate-text') {
       response.end('<!doctype html><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}button{font:inherit;background:white;color:#152235;padding:10px}iframe{display:block;width:650px;height:180px}</style><h1>Upload entry fixture ready</h1>' + (mode === 'delegate-text' ? '<div id="choose"><span>Upload from Device</span></div>' : '<button id="choose">Choose approved fixture</button>') + '<iframe id="child" src="/page?case=' + caseId + '-child&mode=child-hidden"></iframe><script>' +
         'const caseId=' + JSON.stringify(caseId) + ';function event(v){fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(v)})}event({type:"opened"});document.querySelector("#choose").onclick=e=>{event({type:"click",trusted:e.isTrusted});document.querySelector("#child").contentDocument.querySelector("#file").click()};</script>'); return;
+    }
+    if (mode === 'popover-device' || mode === 'popover-overlay' || mode === 'popover-menuitem' || mode === 'popover-hide-on-hover') {
+      const overlayMode = mode === 'popover-overlay';
+      const menuitemMode = mode === 'popover-menuitem';
+      const hideHoverMode = mode === 'popover-hide-on-hover';
+      const itemMarkup = overlayMode
+        ? '<div id="dev" style="position:relative;padding:8px;cursor:pointer"><span>Upload from Device</span><input id="file" type="file" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer"></div>'
+        : menuitemMode
+        ? '<ul style="list-style:none;margin:0;padding:0"><li id="dev" role="menuitem" style="padding:8px;cursor:pointer"><span style="pointer-events:none">Upload from Device</span></li></ul>'
+        : '<div id="dev" style="padding:8px;cursor:pointer"><span style="pointer-events:none">Upload from Device</span></div>';
+      response.end('<!doctype html><meta charset="utf-8"><title>Upload popover fixture ' + caseId + '</title>' +
+        '<style>body{background:white;color:#152235;font:18px system-ui;margin:20px}button{font:inherit;background:white;color:#152235;border:1px solid #152235;width:36px;height:36px;cursor:pointer}' +
+        '#wrap{position:relative;display:inline-block}#pop{display:none;position:absolute;top:46px;left:0;width:240px;background:white;border:1px solid #152235;padding:8px}' +
+        '#dev:hover{font-weight:700;padding-left:14px;background-image:linear-gradient(#eef,#ddf)}[hidden]{display:none!important}</style>' +
+        '<h1>Upload entry fixture ready</h1>' +
+        '<div id="wrap"><button id="plus">+</button><div id="pop" tabindex="-1">' + itemMarkup + '<div style="padding:8px"><span>Upload from Dropbox</span></div></div></div>' +
+        (overlayMode ? '' : '<input id="file" type="file" hidden>') +
+        '<p id="status">No file transferred</p><script>' +
+        'const caseId=' + JSON.stringify(caseId) + ',overlayMode=' + JSON.stringify(overlayMode) + ',hideHoverMode=' + JSON.stringify(hideHoverMode) + ';' +
+        'const wrap=document.querySelector("#wrap"),plus=document.querySelector("#plus"),pop=document.querySelector("#pop"),dev=document.querySelector("#dev"),file=document.querySelector("#file");' +
+        'function event(value){return fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(value)})}event({type:"opened"});' +
+        'plus.onclick=()=>{pop.style.display="block";pop.focus()};' +
+        'wrap.addEventListener("mouseleave",()=>{pop.style.display="none"});' +
+        'pop.addEventListener("focusout",e=>{if(!wrap.contains(e.relatedTarget))pop.style.display="none"});' +
+        'if(hideHoverMode)dev.addEventListener("mouseenter",()=>{pop.style.display="none"});' +
+        'if(overlayMode){file.onclick=e=>{event({type:"click",trusted:e.isTrusted})}}else{dev.onclick=e=>{event({type:"click",trusted:e.isTrusted});file.click()}}' +
+        'file.onchange=async()=>{event({type:"change",files:[...file.files].map(v=>v.name)});if(!file.files[0])return;const data=new FormData();data.append("file",file.files[0]);const value=await(await fetch("/upload?case="+caseId,{method:"POST",body:data})).json();document.querySelector("#status").textContent=value.passed?"Upload verified":"Upload rejected"};' +
+        '</script>'); return;
     }
     if (mode === 'oracle-frame') {
       response.end('<!doctype html><style>body{margin:20px;background:white}iframe{width:600px;height:180px;border:0}</style><iframe src="' + crossOrigin + '/page?case=' + caseId + '&mode=oracle-aria-hidden"></iframe>'); return;
@@ -165,13 +231,15 @@ async function startFixtures() {
     const direct = ['direct', 'direct-disabled', 'direct-directory'].includes(mode), label = mode === 'none' ? 'No chooser button' : 'Choose approved fixture';
     // Non-semantic wrapper with delegated click and a real DOM Text node: the
     // SAP-style Device entry is observed as StaticText, not a button or label.
-    const textEntry = ['custom-text', 'text-disabled', 'text-none'].includes(mode);
+    const textEntry = ['custom-text', 'custom-text-shift-parent', 'custom-text-shift-oopif', 'text-disabled', 'text-none'].includes(mode);
     const entry = textEntry ? '<div id="choose" style="width:600px;height:80px;padding:10px;margin:12px"' + (mode === 'text-disabled' ? ' aria-disabled="true"' : '') + '><span>Upload from Device</span></div>' : '<button id="choose" ' + (mode === 'button-disabled' ? 'disabled' : '') + '>' + label + '</button>';
     const inputFlags = (mode === 'direct-disabled' ? 'disabled ' : '') + (mode.includes('directory') ? 'webkitdirectory directory ' : '') + (mode === 'multiple' ? 'multiple ' : '');
     response.end('<!doctype html><meta charset="utf-8"><title>Upload entry fixture ' + caseId + '</title><style>body{background:white;color:#152235;font:18px system-ui;margin:20px}input,button{font:inherit;margin:12px;padding:10px;color:#152235;background:white}button:hover{filter:brightness(.6);box-shadow:0 2px 6px #0005}body:after{content:"";position:absolute;left:500px;top:10000px;width:20px;height:12px;box-shadow:0 0 1px #888}[hidden]{display:none!important}</style>' +
       '<h1>Upload entry fixture ready</h1><label>' + (direct ? 'Direct upload ' : '') + '<input id="file" type="file" ' + inputFlags + (direct ? '' : 'hidden') + '></label>' + (direct || mode === 'child-hidden' ? '' : entry) + '<p id="status">No file transferred</p>' +
       '<script>const caseId=' + JSON.stringify(caseId) + ',mode=' + JSON.stringify(mode) + ';const file=document.querySelector("#file"),button=document.querySelector("#choose");' +
       'function event(value){return fetch("/event?case="+caseId,{method:"POST",body:JSON.stringify(value)})}event({type:"opened"});' +
+      (mode === 'custom-text-shift-parent' ? 'document.addEventListener("mousemove",()=>{const s=window.parent?.document?.querySelector("#spacer");if(s)s.style.height="140px"},{once:true});' : '') +
+      (mode === 'custom-text-shift-oopif' ? 'document.addEventListener("mousemove",()=>{window.parent.postMessage("shift","*")},{once:true});' : '') +
       'if(button)button.onclick=e=>{event({type:"click",trusted:e.isTrusted,textHit:e.target.tagName==="SPAN"});if(mode!=="none"&&mode!=="text-none")file.click()};' +
       'file.onchange=async()=>{event({type:"change",files:[...file.files].map(value=>value.name)});if(!file.files[0])return;const data=new FormData();data.append("file",file.files[0]);const value=await(await fetch("/upload?case="+caseId,{method:"POST",body:data})).json();document.querySelector("#status").textContent=value.passed?"Upload verified":"Upload rejected"};' +
       'let changed=false;setInterval(async()=>{const value=await(await fetch("/state?case="+caseId)).json();if(value.changeLabel&&!changed&&button){changed=true;button.textContent="Changed upload button";event({type:"label"})}},100);</script>');
@@ -249,10 +317,26 @@ try {
   await mkdir(resolve(uploadsRoot, 'nested'), { recursive: true });
   for (let index = 0; index < 7; index++) await writeFile(resolve(uploadsRoot, 'nested', `page-${index}.txt`), `Synthetic discovery file ${index}\n`);
   const identity = { clientId: 'upload_' + randomBytes(8).toString('hex'), token: randomBytes(32).toString('hex'), pipe };
-  await writeFile(resolve(profile, 'broker-state.json'), JSON.stringify({ version: 1,
-    clients: [{ id: identity.clientId, name: 'Synthetic upload client', tokenHash: sha256(identity.token) }],
-    workspaces: [{ id: workspaceId, clients: [identity.clientId] }], accountGrants: [], operations: [] }));
+  const noUploadsIdentity = { clientId: 'noupload_' + randomBytes(8).toString('hex'), token: randomBytes(32).toString('hex'), pipe };
+  await writeFile(resolve(profile, 'broker-state.json'), JSON.stringify({
+    version: 2,
+    clients: [
+      { id: identity.clientId, name: 'Synthetic upload client', tokenHash: sha256(identity.token), policy: { interaction: true, uploads: true, downloads: true, savedAccounts: true, automaticWorkspaces: true, maxWorkers: 16, maxAutomaticWorkspaces: 16 } },
+      { id: noUploadsIdentity.clientId, name: 'Synthetic no-upload client', tokenHash: sha256(noUploadsIdentity.token), policy: { interaction: true, uploads: false, downloads: false, savedAccounts: false, automaticWorkspaces: true, maxWorkers: 4, maxAutomaticWorkspaces: 4 } },
+    ],
+    workspaces: [{
+      id: workspaceId,
+      clients: [identity.clientId, noUploadsIdentity.clientId],
+      access: {
+        [identity.clientId]: { interaction: true, uploads: true, downloads: true, savedAccounts: true },
+        [noUploadsIdentity.clientId]: { interaction: true, uploads: false, downloads: false, savedAccounts: false },
+      },
+    }],
+    accountGrants: [],
+    operations: [],
+  }));
   await writePrivateConfig(resolve(profile, 'client-config.json'), identity);
+  await writePrivateConfig(resolve(profile, 'no-uploads-client-config.json'), noUploadsIdentity);
   await prepareBenchmark(); await startFixtures(); applicationDllSha256 = await hashDll(); await launch();
   if (oracleObservation) {
     const stableRead = async (method, args) => until(async () => {
@@ -464,6 +548,302 @@ try {
       assert.equal(fixtureStates.get('delegation-child').uploads, 0); assert.equal(fixtureStates.get('delegation-child').changes, 0);
       return { denied: true, code: response.structuredContent?.error?.code, parentActivatedOnce: true, childReceivedFiles: false };
     });
+    await check('Transient + popover with pointer-events:none StaticText, hover shift, mouseleave and blur guards uploads cleanly', async () => {
+      const tab = await open('popover-device', 'popover-device');
+      await act(tab, '+', 'click', {}, 'BUTTON');
+      const compact = await until(async () => {
+        const res = await raw('observe', { ...scope(tab), maxNodes: 500, compact: true });
+        if (res.isError) return false;
+        return res.structuredContent.nodes.some(n => n.name === 'Upload from Device' && n.ref) ? res.structuredContent : false;
+      });
+      const entry = compact.nodes.find(n => n.name === 'Upload from Device' && n.ref);
+      assert.equal(entry.role, 'StaticText');
+      const response = await raw('upload', { ...mutation(tab), observationId: compact.observationId, elementRef: entry.ref, fileId });
+      assert(!response.isError, JSON.stringify(response.structuredContent));
+      selectionFacts(response, 'dispatched', 'selected');
+      await until(() => fixtureStates.get('popover-device').uploaded && fixtureStates.get('popover-device').changes === 1 && fixtureStates.get('popover-device').clicks === 1);
+      assert.deepEqual(fixtureStates.get('popover-device').selectedFiles, ['approved-report.txt']);
+      assert.deepEqual(fixtureStates.get('popover-device').trusted, [true]);
+      assert.equal(fixtureStates.get('popover-device').uploads, 1);
+      return { compactStaticTextPreserved: true, trustedClicks: 1, uploadVerified: true };
+    });
+    await check('Transient + popover with transparent file-input overlay uploads via xenon_upload while ordinary click stays blocked', async () => {
+      const tab = await open('popover-overlay', 'popover-overlay');
+      await act(tab, '+', 'click', {}, 'BUTTON');
+      const obs1 = await until(async () => {
+        const res = await raw('observe', { ...scope(tab), maxNodes: 500, compact: true });
+        if (res.isError) return false;
+        return res.structuredContent.nodes.some(n => n.name === 'Upload from Device' && n.ref) ? res.structuredContent : false;
+      });
+      const entry1 = obs1.nodes.find(n => n.name === 'Upload from Device' && n.ref);
+      const blockedClick = await raw('interact', { ...mutation(tab), observationId: obs1.observationId, action: 'click', elementRef: entry1.ref });
+      assert.equal(blockedClick.isError, true, 'Ordinary click must refuse transparent file input overlay');
+      assert.equal(blockedClick.structuredContent?.error?.code, 'not_actionable');
+      assert.equal(blockedClick.structuredContent?.error?.reason, 'occluded');
+      assert.equal(fixtureStates.get('popover-overlay').uploads, 0);
+
+      const obs2 = await observe(tab);
+      const entry2 = obs2.nodes.find(n => n.name === 'Upload from Device' && n.ref);
+      assert(entry2);
+      const response = await raw('upload', { ...mutation(tab), observationId: obs2.observationId, elementRef: entry2.ref, fileId });
+      assert(!response.isError, JSON.stringify(response.structuredContent));
+      selectionFacts(response, 'dispatched', 'selected');
+      await until(() => fixtureStates.get('popover-overlay').uploaded && fixtureStates.get('popover-overlay').changes === 1);
+      assert.deepEqual(fixtureStates.get('popover-overlay').selectedFiles, ['approved-report.txt']);
+      assert.deepEqual(fixtureStates.get('popover-overlay').trusted, [true]);
+      assert.equal(fixtureStates.get('popover-overlay').uploads, 1);
+      return { ordinaryClickBlocked: true, uploadVerified: true };
+    });
+    await check('Compact semantic menuitem popover uploads cleanly and mouseenter-dismissed popover fails closed with allowlisted reason', async () => {
+      const tab = await open('popover-menuitem', 'popover-menuitem');
+      await act(tab, '+', 'click', {}, 'BUTTON');
+      const compact = await until(async () => {
+        const res = await raw('observe', { ...scope(tab), maxNodes: 500, compact: true });
+        if (res.isError) return false;
+        return res.structuredContent.nodes.some(n => n.name === 'Upload from Device' && n.ref) ? res.structuredContent : false;
+      });
+      const matches = compact.nodes.filter(n => n.name === 'Upload from Device');
+      assert.equal(matches.length, 1, 'Compact mode should deduplicate duplicate StaticText inside role=menuitem: ' + JSON.stringify(matches));
+      assert.equal(matches[0].role, 'menuitem');
+      const response = await raw('upload', { ...mutation(tab), observationId: compact.observationId, elementRef: matches[0].ref, fileId });
+      assert(!response.isError, JSON.stringify(response.structuredContent));
+      selectionFacts(response, 'dispatched', 'selected');
+      await until(() => fixtureStates.get('popover-menuitem').uploaded && fixtureStates.get('popover-menuitem').clicks === 1);
+      assert.equal(fixtureStates.get('popover-menuitem').uploads, 1);
+
+      const hostileTab = await open('popover-hide-on-hover', 'popover-hide-on-hover');
+      await act(hostileTab, '+', 'click', {}, 'BUTTON');
+      const hostileObs = await until(async () => {
+        const res = await raw('observe', { ...scope(hostileTab), maxNodes: 500, compact: true });
+        if (res.isError) return false;
+        return res.structuredContent.nodes.some(n => n.name === 'Upload from Device' && n.ref) ? res.structuredContent : false;
+      });
+      const hostileEntry = hostileObs.nodes.find(n => n.name === 'Upload from Device' && n.ref);
+      const denied = await raw('upload', { ...mutation(hostileTab), observationId: hostileObs.observationId, elementRef: hostileEntry.ref, fileId });
+      assert.equal(denied.isError, true);
+      assert.equal(denied.structuredContent?.error?.code, 'upload_activation_failed');
+      selectionFacts(denied, 'attempted', 'not_selected');
+      assert(['not_visible', 'detached', 'occluded', 'layout_moving'].includes(denied.structuredContent?.error?.reason), JSON.stringify(denied.structuredContent));
+      await sleep(150);
+      assert.equal(fixtureStates.get('popover-hide-on-hover').clicks, 0);
+      assert.equal(fixtureStates.get('popover-hide-on-hover').uploads, 0);
+      return { menuitemDeduplicatedAndUploaded: true, hostileHoverDeniedReason: denied.structuredContent.error.reason, hostileClicks: 0 };
+    });
+    await check('Iframe upload entry shifted by parent layout change on mouseMoved fails closed with stale_geometry', async () => {
+      const modes = [];
+      for (const mode of ['frame-shift-inproc', 'frame-shift-oopif']) {
+        const tab = await open(mode, mode);
+        const { observation, node } = await target(tab, 'Upload from Device');
+        const response = await raw('upload', { ...mutation(tab), observationId: observation.observationId, elementRef: node.ref, fileId });
+        assert.equal(response.isError, true, mode + ' unexpectedly succeeded after iframe shifted');
+        assert.equal(response.structuredContent?.error?.code, 'upload_activation_failed', JSON.stringify(response.structuredContent));
+        assert.equal(response.structuredContent?.error?.reason, 'stale_geometry', JSON.stringify(response.structuredContent));
+        selectionFacts(response, 'attempted', 'not_selected');
+        await sleep(150);
+        assert.equal(fixtureStates.get(mode).clicks, 0);
+        assert.equal(fixtureStates.get(mode).uploads, 0);
+        modes.push({ mode, reason: response.structuredContent.error.reason, clicks: 0, uploads: 0 });
+      }
+      return { cases: modes };
+    });
+    await check('Visual coordinate click on SVG dropzone intercepts file chooser, survives xenon_files read, and fulfills via xenon_upload', async () => {
+      const tab = await open('svg-dropzone', 'svg-dropzone');
+      const inspected = await until(async () => {
+        const res = await raw('inspect', { ...scope(tab), compact: true });
+        if (res.isError && ['privacy_guard_initializing', 'inspection_changed', 'page_changed'].includes(res.structuredContent?.error?.code)) return false;
+        assert(!res.isError, JSON.stringify(res.structuredContent));
+        return res.structuredContent;
+      });
+      const clicked = await tool('interact', {
+        ...mutation(tab), observationId: inspected.observationId, action: 'click',
+        x: 150, y: 165, observeAfter: { compact: true },
+      });
+      assert.equal(clicked.status, 'dispatched');
+      assert(clicked.fileChooser && clicked.fileChooser.status === 'pending', JSON.stringify(clicked));
+      assert.equal(clicked.fileChooser.mode, 'open');
+      assert(typeof clicked.fileChooser.chooserId === 'string' && clicked.fileChooser.chooserId.length > 0);
+      assert(Array.isArray(clicked.fileChooser.acceptFilters));
+      assert(clicked.fileChooser.acceptFilters.includes('.txt') || clicked.fileChooser.acceptFilters.includes('text/plain'), JSON.stringify(clicked.fileChooser.acceptFilters));
+      assert(!clicked.fileChooser.acceptFilters.some(f => f.includes(' ') || f.includes('\\')), 'Unsafe acceptFilters leaked: ' + JSON.stringify(clicked.fileChooser.acceptFilters));
+      assert(clicked.observation && clicked.observation.pendingFileChooser?.chooserId === clicked.fileChooser.chooserId, JSON.stringify(clicked));
+
+      const status = await tool('control_status', scope(tab));
+      assert.equal(status.pendingFileChooser?.chooserId, clicked.fileChooser.chooserId);
+      // Read-only xenon_files lookup must NOT cancel the pending chooser.
+      const listed = await tool('files', { ...workerScope(worker), folderId, limit: 10 });
+      assert(listed.files.length > 0);
+
+      const fulfilled = await raw('upload', { ...mutation(tab), chooserId: clicked.fileChooser.chooserId, fileId });
+      assert(!fulfilled.isError, JSON.stringify(fulfilled.structuredContent));
+      assert.equal(fulfilled.structuredContent.status, 'selected');
+      selectionFacts(fulfilled, 'not_attempted', 'selected');
+      await until(() => fixtureStates.get('svg-dropzone').uploaded && fixtureStates.get('svg-dropzone').changes === 1);
+      assert.deepEqual(fixtureStates.get('svg-dropzone').selectedFiles, ['approved-report.txt']);
+      const afterStatus = await tool('control_status', scope(tab));
+      assert.equal(afterStatus.pendingFileChooser, undefined);
+      return { interceptedCoordinateDropzone: true, acceptFilters: clicked.fileChooser.acceptFilters, uploads: 1 };
+    });
+    await check('Element click and Enter key intercept file chooser and xenon_upload cancel=true dismisses cleanly', async () => {
+      const tab = await open('chooser-cancel', 'chooser-multi-action');
+      const { observation, node } = await target(tab, 'Open Upload Picker', 'BUTTON');
+      const clicked = await tool('interact', { ...mutation(tab), observationId: observation.observationId, action: 'click', elementRef: node.ref });
+      assert.equal(clicked.fileChooser?.status, 'pending', JSON.stringify(clicked));
+      const canceled = await raw('upload', { ...mutation(tab), chooserId: clicked.fileChooser.chooserId, cancel: true });
+      assert(!canceled.isError, JSON.stringify(canceled.structuredContent));
+      assert.equal(canceled.structuredContent.status, 'canceled');
+      selectionFacts(canceled, 'not_attempted', 'not_selected');
+      await sleep(120);
+      assert.equal(fixtureStates.get('chooser-cancel').changes, 0);
+      assert.equal(fixtureStates.get('chooser-cancel').uploads, 0);
+      const status = await tool('control_status', scope(tab));
+      assert.equal(status.pendingFileChooser, undefined);
+
+      // Re-trigger via Enter key on the still-focused button and cancel cleanly too.
+      const obsForKey = await observe(tab);
+      const keyed = await tool('interact', { ...mutation(tab), observationId: obsForKey.observationId, action: 'key', key: 'Enter' });
+      assert.equal(keyed.fileChooser?.status, 'pending', JSON.stringify(keyed));
+      const canceledKey = await raw('upload', { ...mutation(tab), chooserId: keyed.fileChooser.chooserId, cancel: true });
+      assert(!canceledKey.isError, JSON.stringify(canceledKey.structuredContent));
+
+      // Tab remains fully interactive after cancellation.
+      await act(tab, 'Other Action', 'click', {}, 'BUTTON');
+      await until(() => fixtureStates.get('chooser-cancel').otherClicks === 1);
+      return { clickCanceled: true, enterKeyInterceptedAndCanceled: true, subsequentClickWorked: true };
+    });
+    await check('Directory chooser opened by xenon_interact(click) is immediately rejected without OS dialog', async () => {
+      const tab = await open('chooser-dir', 'button-directory');
+      const { observation, node } = await target(tab, 'Choose approved fixture', 'BUTTON');
+      const clicked = await tool('interact', { ...mutation(tab), observationId: observation.observationId, action: 'click', elementRef: node.ref });
+      assert.equal(clicked.status, 'dispatched');
+      assert.equal(clicked.fileChooser?.status, 'rejected', JSON.stringify(clicked));
+      assert.equal(clicked.fileChooser?.reason, 'unsupported_chooser_mode');
+      const status = await tool('control_status', scope(tab));
+      assert.equal(status.pendingFileChooser, undefined);
+      await sleep(120);
+      assert.equal(fixtureStates.get('chooser-dir').uploads, 0);
+      assert.equal(fixtureStates.get('chooser-dir').changes, 0);
+      return { rejectedReason: clicked.fileChooser.reason, uploads: 0 };
+    });
+    await check('Client without uploads permission gets blocked chooser immediately without OS dialog', async () => {
+      noUploadsClient = new Client({ name: 'No-uploads regression', version: '1' }, { versionNegotiation: { mode: { pin: '2026-07-28' } } });
+      await noUploadsClient.connect(new StdioClientTransport({
+        command: process.execPath,
+        args: [resolve(root, 'adapter/dist/src/cli.js'), 'serve', '--config', resolve(profile, 'no-uploads-client-config.json')],
+        stderr: 'pipe',
+      }));
+      const callNoUp = async (name, args) => {
+        const r = await noUploadsClient.callTool({ name: 'xenon_' + name, arguments: args });
+        assert(!r.isError, name + ': ' + JSON.stringify(r.structuredContent));
+        return r.structuredContent;
+      };
+      const noUpWorker = await callNoUp('worker_create', { name: 'No-uploads worker', workspaceId });
+      const tab = { ...noUpWorker, ...await callNoUp('tab_create', { agentSessionId: noUpWorker.agentSessionId, workspaceId, url: origin + '/page?case=chooser-blocked&mode=custom' }) };
+      await until(() => fixtureStates.get('chooser-blocked')?.opened);
+      const obs = await until(async () => {
+        const r = await noUploadsClient.callTool({ name: 'xenon_observe', arguments: { agentSessionId: noUpWorker.agentSessionId, workspaceId, tabId: tab.tabId, maxNodes: 500 } });
+        if (r.isError) return false;
+        return r.structuredContent.nodes.some(n => n.name === 'Choose approved fixture' && n.ref) ? r.structuredContent : false;
+      });
+      const btn = obs.nodes.find(n => n.name === 'Choose approved fixture' && n.ref);
+      const clicked = await callNoUp('interact', {
+        agentSessionId: noUpWorker.agentSessionId, workspaceId, tabId: tab.tabId,
+        ownershipGeneration: tab.ownershipGeneration, operationId: randomUUID(),
+        observationId: obs.observationId, action: 'click', elementRef: btn.ref,
+      });
+      assert.equal(clicked.fileChooser?.status, 'blocked', JSON.stringify(clicked));
+      assert.equal(clicked.fileChooser?.reason, 'uploads_not_permitted');
+      const status = await callNoUp('control_status', { agentSessionId: noUpWorker.agentSessionId, workspaceId, tabId: tab.tabId });
+      assert.equal(status.pendingFileChooser, undefined);
+      await sleep(120);
+      assert.equal(fixtureStates.get('chooser-blocked').uploads, 0);
+      await noUploadsClient.close();
+      noUploadsClient = undefined;
+      return { blockedReason: clicked.fileChooser.reason, uploads: 0 };
+    });
+    await check('Pending chooser auto-cancels cleanly on navigation, unrelated click, denied grant, and handoff', async () => {
+      // (a) Navigation cancels pending chooser.
+      const tabNav = await open('chooser-nav', 'chooser-multi-action');
+      const t1 = await target(tabNav, 'Open Upload Picker', 'BUTTON');
+      const c1 = await tool('interact', { ...mutation(tabNav), observationId: t1.observation.observationId, action: 'click', elementRef: t1.node.ref });
+      assert.equal(c1.fileChooser?.status, 'pending');
+      await tool('navigate', { ...mutation(tabNav), action: 'navigate', url: origin + '/page?case=chooser-nav-after&mode=custom' });
+      await until(() => fixtureStates.get('chooser-nav-after')?.opened);
+      const staleNav = await raw('upload', { ...mutation(tabNav), chooserId: c1.fileChooser.chooserId, fileId });
+      assert.equal(staleNav.isError, true);
+      assert.equal(staleNav.structuredContent?.error?.code, 'stale_file_chooser');
+
+      // (b) Unrelated click mutation cancels pending chooser cleanly and still executes.
+      const tabMut = await open('chooser-mut', 'chooser-multi-action');
+      const t2 = await target(tabMut, 'Open Upload Picker', 'BUTTON');
+      const otherBtn = t2.observation.nodes.find(n => n.name === 'Other Action' && n.ref);
+      const c2 = await tool('interact', { ...mutation(tabMut), observationId: t2.observation.observationId, action: 'click', elementRef: t2.node.ref });
+      assert.equal(c2.fileChooser?.status, 'pending');
+      await tool('interact', { ...mutation(tabMut), observationId: t2.observation.observationId, action: 'click', elementRef: otherBtn.ref });
+      await until(() => fixtureStates.get('chooser-mut').otherClicks === 1);
+      const staleMut = await raw('upload', { ...mutation(tabMut), chooserId: c2.fileChooser.chooserId, fileId });
+      assert.equal(staleMut.isError, true);
+      assert.equal(staleMut.structuredContent?.error?.code, 'stale_file_chooser');
+
+      // (c) Denied file grant fails with file_denied and auto-cancels the pending chooser.
+      const t3 = await target(tabMut, 'Open Upload Picker', 'BUTTON');
+      const c3 = await tool('interact', { ...mutation(tabMut), observationId: t3.observation.observationId, action: 'click', elementRef: t3.node.ref });
+      assert.equal(c3.fileChooser?.status, 'pending');
+      const deniedGrant = await raw('upload', { ...mutation(tabMut), chooserId: c3.fileChooser.chooserId, fileId: 'not_a_granted_file' });
+      assert.equal(deniedGrant.isError, true);
+      assert.equal(deniedGrant.structuredContent?.error?.code, 'file_denied');
+      const afterDenied = await raw('upload', { ...mutation(tabMut), chooserId: c3.fileChooser.chooserId, fileId });
+      assert.equal(afterDenied.isError, true);
+      assert.equal(afterDenied.structuredContent?.error?.code, 'stale_file_chooser');
+
+      // (d) Ownership handoff cancels pending chooser immediately.
+      const peerWorker = await tool('worker_create', { name: 'Chooser handoff peer', workspaceId });
+      const t4 = await target(tabMut, 'Open Upload Picker', 'BUTTON');
+      const c4 = await tool('interact', { ...mutation(tabMut), observationId: t4.observation.observationId, action: 'click', elementRef: t4.node.ref });
+      assert.equal(c4.fileChooser?.status, 'pending');
+      const handoff = await tool('control', { ...scope(tabMut), action: 'handoff', expectedGeneration: tabMut.ownershipGeneration, toSessionId: peerWorker.agentSessionId });
+      assert.equal(handoff.ownerSessionId, peerWorker.agentSessionId);
+      assert.equal(handoff.pendingFileChooser, undefined);
+      const peerTry = await raw('upload', {
+        agentSessionId: peerWorker.agentSessionId, workspaceId, tabId: tabMut.tabId,
+        ownershipGeneration: handoff.ownershipGeneration, operationId: randomUUID(),
+        chooserId: c4.fileChooser.chooserId, fileId,
+      });
+      assert.equal(peerTry.isError, true);
+      assert.equal(peerTry.structuredContent?.error?.code, 'stale_file_chooser');
+      await tool('worker_retire', { agentSessionId: peerWorker.agentSessionId });
+      assert.equal(fixtureStates.get('chooser-nav').uploads, 0);
+      assert.equal(fixtureStates.get('chooser-mut').uploads, 0);
+      return { navigationCanceled: true, mutationCanceled: true, deniedGrantCanceled: true, handoffCanceled: true };
+    });
+    await check('xenon_batch stops immediately when step 0 opens a pending file chooser, skips step 1, and lets xenon_upload fulfill it', async () => {
+      const tab = await open('chooser-batch', 'chooser-multi-action');
+      const { observation, node: trigger } = await target(tab, 'Open Upload Picker', 'BUTTON');
+      const other = observation.nodes.find(n => n.name === 'Other Action' && n.ref);
+      assert(other);
+      const batched = await tool('batch', {
+        ...mutation(tab), observationId: observation.observationId,
+        steps: [
+          { action: 'click', elementRef: trigger.ref },
+          { action: 'click', elementRef: other.ref },
+        ],
+      });
+      assert.equal(batched.status, 'stopped', JSON.stringify(batched));
+      assert.equal(batched.stoppedAt, 0);
+      assert.equal(batched.stopReason, 'file_chooser_pending');
+      assert.equal(batched.fileChooser?.status, 'pending');
+      assert.equal(batched.steps.length, 2);
+      assert.equal(batched.steps[1].status, 'skipped');
+      assert.equal(batched.steps[1].dispatchStatus, 'not_dispatched');
+      await sleep(120);
+      assert.equal(fixtureStates.get('chooser-batch').otherClicks ?? 0, 0, 'Step 1 must not execute while chooser is pending');
+
+      const fulfilled = await raw('upload', { ...mutation(tab), chooserId: batched.fileChooser.chooserId, fileId });
+      assert(!fulfilled.isError, JSON.stringify(fulfilled.structuredContent));
+      selectionFacts(fulfilled, 'not_attempted', 'selected');
+      await until(() => fixtureStates.get('chooser-batch').uploaded && fixtureStates.get('chooser-batch').changes === 1);
+      assert.deepEqual(fixtureStates.get('chooser-batch').selectedFiles, ['approved-report.txt']);
+      return { stoppedAt: 0, step1Skipped: true, uploadVerified: true };
+    });
   }
   if (benchmarkSource) await check(baseline ? 'Exact external health flow reproduces only upload_transfer failure' : 'Exact external health flow passes with final submission untouched', fullHealthFlow);
   if (benchmarkMatrix) {
@@ -482,6 +862,7 @@ try {
   if (!results.some(result => !result.passed)) results.push({ name: 'Upload entry harness', passed: false, error: error.message });
   console.log('FAIL upload entry harness: ' + error.message);
 } finally {
+  if (noUploadsClient) await noUploadsClient.close().catch(() => {});
   if (client) await client.close().catch(() => {});
   if (browser?.pid && browser.exitCode === null && browser.signalCode === null) {
     let terminationError; try { await runFile('taskkill.exe', ['/PID', String(browser.pid), '/T', '/F'], { windowsHide: true }); } catch (error) { terminationError = error; }
@@ -497,7 +878,7 @@ try {
   } catch (error) { results.push({ name: 'Source and binary stability', passed: false, error: error.message }); }
   const report = { run, capturedAt: new Date().toISOString(), binary, profile,
     applicationDllSha256, applicationDllSha256AtEnd, mode: baseline ? 'baseline_failure_reproduction' : 'acceptance', benchmark: benchmarkMetadata ?? null,
-    passed: results.length === (oracleObservation ? 7 : 7 + (baseline ? 0 : 10) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0)) && results.every(result => result.passed), results };
+    passed: results.length === (oracleObservation ? 7 : 7 + (baseline ? 0 : 20) + (benchmarkSource ? 1 : 0) + (benchmarkMatrix ? 3 : 0)) && results.every(result => result.passed), results };
   await mkdir(resolve(root, 'out'), { recursive: true }); const reportPath = resolve(root, 'out', `${run}${baseline ? '-baseline' : ''}.json`);
   await writeFile(reportPath, JSON.stringify(report, null, 2)); console.log('Report: ' + reportPath); process.exitCode = report.passed ? 0 : 1;
 }

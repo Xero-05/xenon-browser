@@ -11,6 +11,7 @@
 #include "xenon/pointer_target.hpp"
 #include "xenon/input_viewport.hpp"
 #include "xenon/upload_entry.hpp"
+#include "xenon/file_chooser.hpp"
 #include "xenon/ui_theme.hpp"
 #include "xenon/native_input_policy.hpp"
 #include "xenon/vault.hpp"
@@ -266,6 +267,29 @@ struct Tab {
   std::vector<UploadFile> uploads;
   std::shared_ptr<UploadTransaction> upload;
   bool upload_interception_unknown=false;
+  struct AgentChooserWindow {
+    uint64_t id{};
+    uint64_t epoch{};
+    uint64_t human_input{};
+    std::string owner_session;
+    uint64_t owner_generation{};
+    bool uploads_permitted{};
+    Json outcome;
+    std::function<void()> wake;
+  };
+  struct PendingFileChooser {
+    std::string chooser_id;
+    file_chooser::ChooserMode mode{file_chooser::ChooserMode::open};
+    std::vector<std::string> accept_filters;
+    CefRefPtr<CefFileDialogCallback> callback;
+    uint64_t epoch{};
+    uint64_t human_input{};
+    std::string owner_session;
+    uint64_t owner_generation{};
+  };
+  std::optional<AgentChooserWindow> agent_chooser_window;
+  uint64_t next_chooser_window_id=1;
+  std::optional<PendingFileChooser> pending_file_chooser;
   std::unordered_map<std::string, Element> elements;
   struct SavedObservation { std::string id, document, filter_key; uint64_t epoch{}, human_input{}; Json viewport, nodes; std::unordered_map<std::string, Element> elements; };
   std::deque<SavedObservation> recent_observations;
@@ -297,7 +321,7 @@ struct Tab {
   bool pointer_known{};
   uint64_t pointer_revision{};
   uint64_t agent_pointer_revision{},pointer_sync_revision{},human_pointer_revision{};
-  Json target_fraction;
+  Json target_fraction,target_local_point,target_viewport;
 };
 struct AutofillOffer {
   std::shared_ptr<Tab> tab;
@@ -310,6 +334,39 @@ Json stale_error(std::string_view reason,const std::string& message){
   auto value=failure("stale_element",message);
   value["error"]["staleReason"]=std::string(observation::normalize_stale_reason(reason));
   return value;
+}
+std::string_view normalize_target_reason(std::string_view reason){
+  static constexpr std::string_view kAllowed[]={
+    "detached","fragmented_text","layout_moving","not_visible",
+    "outside_viewport","occluded","render_unready","viewport_clipped",
+    "document_changed","target_unverified",
+  };
+  for(const auto allowed:kAllowed)if(reason==allowed)return allowed;
+  return "target_unverified";
+}
+Json not_actionable_error(std::string_view reason,const std::string& message){
+  auto value=failure("not_actionable",message);
+  value["error"]["reason"]=std::string(normalize_target_reason(reason));
+  return value;
+}
+std::string_view normalize_upload_activation_reason(const Json& err){
+  const auto code=field(err,"code");
+  const auto reason=field(err,"reason");
+  const auto stale=field(err,"staleReason");
+  const std::string_view candidate=!reason.empty()?std::string_view(reason):!stale.empty()?std::string_view(stale):std::string_view(code);
+  static constexpr std::string_view kAllowed[]={
+    "detached","fragmented_text","layout_moving","not_visible",
+    "outside_viewport","occluded","render_not_ready","render_unready",
+    "viewport_clipped","document_changed","target_unverified",
+    "geometry_unavailable","stale_geometry","viewport_unavailable",
+    "stale_frame","frame_geometry_unavailable","unsupported_frame_transform",
+    "human_interrupted","document_navigated","node_detached",
+    "out_of_viewport","human_activity","observation_superseded",
+    "identity_changed","visibility_changed","frame_changed",
+    "stale_element","not_actionable","activation_unverified",
+  };
+  for(const auto allowed:kAllowed)if(candidate==allowed)return allowed;
+  return "activation_unverified";
 }
 std::optional<std::vector<unsigned char>> crop_png_bytes(const void* data,size_t size,const screenshot::PixelRect& rect){
   if(!data||!size||!rect.width||!rect.height||!ui::vector_rendering())return std::nullopt;
@@ -419,8 +476,118 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     if(discard)t->developer_targets.clear();
     if(callback)callback(failure("picker_canceled","Page selection was canceled."));
   }
+  void cancel_pending_chooser(const std::shared_ptr<Tab>& t) {
+    if(!t)return;
+    t->agent_chooser_window.reset();
+    if(!t->pending_file_chooser)return;
+    auto pending=std::move(*t->pending_file_chooser);
+    t->pending_file_chooser.reset();
+    if(pending.callback){try{pending.callback->Cancel();}catch(...){}}
+    event("file_chooser.closed",{{"tabId",t->id},{"chooserId",pending.chooser_id}});
+  }
+  uint64_t arm_agent_chooser_window(const std::shared_ptr<Tab>& t,const Json& p) {
+    const uint64_t win_id=++t->next_chooser_window_id;
+    t->agent_chooser_window=Tab::AgentChooserWindow{
+      win_id,t->epoch,t->human_input,field(p,"agentSessionId"),
+      p.value("ownershipGeneration",uint64_t{}),p.value("trustedUploadsAllowed",false),
+      Json{},{}
+    };
+    later(500,[weak=weak_from_this(),t,win_id]{
+      if(auto self=weak.lock()){
+        if(t->agent_chooser_window&&t->agent_chooser_window->id==win_id){
+          t->agent_chooser_window.reset();
+        }
+      }
+    });
+    return win_id;
+  }
+  bool handle_file_dialog(const std::shared_ptr<Tab>& t,CefDialogHandler::FileDialogMode mode,
+                          const std::vector<CefString>& accept_filters,
+                          CefRefPtr<CefFileDialogCallback> callback) {
+    if(!t||!callback)return false;
+    // If direct xenon_upload is active (Page.setInterceptFileChooserDialog) and
+    // OnFileDialog still fires (e.g. File System Access API), cancel cleanly so
+    // no OS modal dialog escapes.
+    if(t->upload){
+      try{callback->Cancel();}catch(...){}
+      return true;
+    }
+    if(!t->agent_chooser_window)return false;
+    const auto& win=*t->agent_chooser_window;
+    if(t->closed||t->human_busy||t->human_dialog||t->protected_auth||t->auth_inflight||t->native_fill||
+       win.epoch!=t->epoch||win.human_input!=t->human_input){
+      t->agent_chooser_window.reset();
+      return false;
+    }
+    bool uploads_permitted=win.uploads_permitted;
+    if(chooser_owner_valid_){
+      bool live_uploads=false;
+      if(!chooser_owner_valid_(t->id,win.owner_session,win.owner_generation,live_uploads)){
+        t->agent_chooser_window.reset();
+        if(passkey_human_controls_&&passkey_human_controls_(t->id))return false;
+        try{callback->Cancel();}catch(...){}
+        return true;
+      }
+      uploads_permitted=uploads_permitted&&live_uploads;
+    } else if(passkey_human_controls_&&passkey_human_controls_(t->id)) {
+      t->agent_chooser_window.reset();
+      return false;
+    }
+    auto wake_and_return=[&](Json outcome){
+      if(t->agent_chooser_window&&t->agent_chooser_window->id==win.id){
+        t->agent_chooser_window->outcome=std::move(outcome);
+        auto w=std::exchange(t->agent_chooser_window->wake,{});
+        if(w)w();
+      }
+      return true;
+    };
+    const auto classified=mode==FILE_DIALOG_OPEN?file_chooser::ChooserMode::open:
+                          mode==FILE_DIALOG_OPEN_MULTIPLE?file_chooser::ChooserMode::open_multiple:
+                          file_chooser::ChooserMode::unsupported;
+    auto clear_existing=[&]{
+      if(!t->pending_file_chooser)return;
+      auto prior=std::move(*t->pending_file_chooser);
+      t->pending_file_chooser.reset();
+      if(prior.callback){try{prior.callback->Cancel();}catch(...){}}
+      event("file_chooser.closed",{{"tabId",t->id},{"chooserId",prior.chooser_id}});
+    };
+    if(classified==file_chooser::ChooserMode::unsupported){
+      clear_existing();
+      try{callback->Cancel();}catch(...){}
+      return wake_and_return(file_chooser::make_rejected_chooser_json("rejected","unsupported_chooser_mode"));
+    }
+    if(!uploads_permitted){
+      clear_existing();
+      try{callback->Cancel();}catch(...){}
+      return wake_and_return(file_chooser::make_rejected_chooser_json("blocked","uploads_not_permitted"));
+    }
+    std::vector<std::string> raw_filters;
+    raw_filters.reserve(accept_filters.size());
+    for(const auto& item:accept_filters)raw_filters.push_back(item.ToString());
+    const auto sanitized=file_chooser::sanitize_accept_filters(raw_filters);
+    clear_existing();
+    const auto chooser_id=nonce();
+    t->pending_file_chooser=Tab::PendingFileChooser{
+      chooser_id,classified,sanitized,callback,t->epoch,t->human_input,win.owner_session,win.owner_generation
+    };
+    later(60000,[weak=weak_from_this(),t,chooser_id]{
+      if(auto self=weak.lock()){
+        if(t->pending_file_chooser&&t->pending_file_chooser->chooser_id==chooser_id){
+          self->cancel_pending_chooser(t);
+        }
+      }
+    });
+    event("file_chooser.opened",{
+      {"tabId",t->id},{"chooserId",chooser_id},
+      {"mode",std::string(file_chooser::mode_name(classified))},
+      {"acceptFilters",sanitized},
+      {"ownerSessionId",win.owner_session},{"ownershipGeneration",win.owner_generation},
+    });
+    return wake_and_return(file_chooser::make_pending_chooser_json(chooser_id,classified,sanitized,true));
+  }
   void human_activity(const std::shared_ptr<Tab>& t,bool held,bool credential,bool click=false) {
     developer_clear(t);
+    cancel_pending_chooser(t);
     t->human_busy=true;t->human_gesture=held;
     t->elements.clear();t->observation.clear();t->screenshot.clear();t->recent_observations.clear();t->screenshot_candidates.clear();
     if(credential){t->login.physical_input(std::chrono::steady_clock::now());t->autofill_human_qualified=true;t->autofill_click=click;}
@@ -469,6 +636,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     }
   }
   std::function<bool(const std::string&)> passkey_human_controls_;
+  std::function<bool(const std::string&,const std::string&,uint64_t,bool&)> chooser_owner_valid_;
   std::map<std::string,std::string> initial_urls_;
   // A session's first document must not run before its passkey wrapper is
   // installed: the main session then loads the tab's URL, and an auto-attached
@@ -675,7 +843,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     if(missing&&remembered.empty()){const auto saved=vault_->list_accounts(*origin);if(!saved.value("ok",false)||!saved["result"]["accounts"].empty())return;}
     const auto& username=missing?remembered:data.value["username"].get_ref<const std::string&>();
     discard_login(t);
-    developer_clear(t);extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
+    developer_clear(t);cancel_pending_chooser(t);extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();
     event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
     const auto candidate=vault_->propose_login(*origin,username,data.value["password"].get_ref<const std::string&>());
     if(!candidate)return;
@@ -697,6 +865,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
   }
   void invalidate(const std::shared_ptr<Tab>& t) {
     developer_clear(t);
+    cancel_pending_chooser(t);
     t->autofill_human_qualified=false;
     ++t->autofill_requested;
     std::vector<std::string> offers;for(const auto& [id,offer]:autofill_offers_)if(offer->tab==t)offers.push_back(id);
@@ -824,7 +993,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     } else if(method=="Runtime.bindingCalled"&&field(p,"name")=="__xenon_mark_sensitive"&&field(p,"payload")=="protected") {
       if(t->guard_contexts.contains({session,p.value("executionContextId",0)})&&!t->protected_auth){
         extension_action::call(extension_action::close_surfaces,t->browser->GetIdentifier());t->protected_auth=true;t->elements.clear();t->observation.clear();t->screenshot.clear();t->recent_observations.clear();t->screenshot_candidates.clear();
-        developer_clear(t);
+        developer_clear(t);cancel_pending_chooser(t);
         event("auth.protected",{{"tabId",t->id},{"protected",true}});persist_session();
       }
     } else if(method=="Runtime.bindingCalled"&&field(p,"name")=="__xenon_login_capture") {
@@ -858,6 +1027,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       if(field(p,"frameId")==t->main_frame&&t->login.navigated_within_document())notify_login(t,t->login.candidate());
     } else if (method=="DOM.documentUpdated") {
       developer_clear(t);
+      cancel_pending_chooser(t);
       ++t->epoch;t->elements.clear(); t->observation.clear();t->screenshot.clear();t->recent_observations.clear();t->screenshot_candidates.clear();
       if(t->upload)finish_upload(t,t->upload,failure("upload_interrupted","The document changed during file selection. Observe before deciding what to do next."));
     } else if(method=="Page.fileChooserOpened") {
@@ -883,6 +1053,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     std::vector<std::string> offers;for(const auto& [id,offer]:autofill_offers_)if(offer->tab==t)offers.push_back(id);
     for(const auto& id:offers)autofill_discard(id);
     discard_login(t);clear_login_edit(t);t->closed=true; t->registration=nullptr;
+    cancel_pending_chooser(t);
     if(t->upload)finish_upload(t,t->upload,failure("upload_interrupted","The tab closed during file selection."));
     auto pending=std::move(t->pending); t->pending.clear();
     for(auto& [id,cb]:pending)cb({{"error",{{"message","Tab closed"}}}});
@@ -1048,11 +1219,12 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
     },e.session);
   }
   void point(const std::shared_ptr<Tab>&,const Element&,const std::string&,Reply,
-             std::function<void(double,double)>,Json fixed=Json::object());
+             std::function<void(double,double)>,Json fixed=Json::object(),bool allow_file_overlay=false);
   void move_pointer(const std::shared_ptr<Tab>&,double,double,Reply,std::function<void()>,bool dragging=false);
   void translate(const std::shared_ptr<Tab>&,const std::string&,double,double,Reply,
                  std::function<void(double,double)>);
   void click(const std::shared_ptr<Tab>&,const Json&,Reply,bool hover=false);
+  void activate_upload_entry(const std::shared_ptr<Tab>&,const Element&,const std::string&,Reply);
   void fill(const std::shared_ptr<Tab>&,const Json&,Reply,bool secret=false);
   void type_focused(const std::shared_ptr<Tab>&,const Json&,Reply);
   void login(const std::shared_ptr<Tab>&,const Json&,std::shared_ptr<Secret>,const std::string&,Reply,bool,
@@ -1063,6 +1235,7 @@ class CefEngine::Impl : public std::enable_shared_from_this<CefEngine::Impl> {
       std::chrono::steady_clock::time_point deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5));
   void autofill_use(const std::string&,const std::string&,Reply);
   void upload(const std::shared_ptr<Tab>&,const Json&,Reply);
+  void resolve_file_chooser(const std::shared_ptr<Tab>&,const Json&,Reply);
   void chooser_opened(const std::shared_ptr<Tab>&,const Json&,const std::string&);
   void finish_upload(const std::shared_ptr<Tab>&,const std::shared_ptr<UploadTransaction>&,Json);
   void cleanup_upload(const std::shared_ptr<Tab>&,const std::shared_ptr<UploadTransaction>&);
@@ -1138,8 +1311,9 @@ class CefEngine::Impl::ContextHandler final : public CefRequestContextHandler {
 
 class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler,
   public CefLoadHandler,public CefFocusHandler,public CefRequestHandler,
-  public CefJSDialogHandler,public CefDownloadHandler,public CefContextMenuHandler,
-  public CefDisplayHandler,public CefKeyboardHandler,public CefPermissionHandler {
+  public CefJSDialogHandler,public CefDialogHandler,public CefDownloadHandler,
+  public CefContextMenuHandler,public CefDisplayHandler,public CefKeyboardHandler,
+  public CefPermissionHandler {
  public:
   Client(std::weak_ptr<Impl> o,std::string workspace,std::string id={},std::string opener={})
     :owner_(o),workspace_(std::move(workspace)),id_(std::move(id)),opener_(std::move(opener)){}
@@ -1163,6 +1337,15 @@ class CefEngine::Impl::Client final : public CefClient,public CefLifeSpanHandler
   }
   CefRefPtr<CefRequestHandler> GetRequestHandler()override{return this;}
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler()override{return this;}
+  CefRefPtr<CefDialogHandler> GetDialogHandler()override{return this;}
+  bool OnFileDialog(CefRefPtr<CefBrowser> browser,FileDialogMode mode,
+                    const CefString&,const CefString&,
+                    const std::vector<CefString>& accept_filters,
+                    const std::vector<CefString>&,const std::vector<CefString>&,
+                    CefRefPtr<CefFileDialogCallback> callback)override {
+    if(auto o=owner_.lock())if(auto t=o->find(browser))return o->handle_file_dialog(t,mode,accept_filters,callback);
+    return false;
+  }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler()override{return this;}
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler()override{return this;}
   CefRefPtr<CefDisplayHandler> GetDisplayHandler()override{return this;}
@@ -1670,7 +1853,7 @@ void CefEngine::Impl::observe(const std::shared_ptr<Tab>& t,const Json& p,Reply 
   const size_t limit=static_cast<size_t>(std::clamp(p.value("maxNodes",300),20,1000));
   struct Collect {
     Json nodes=Json::array(),frames=Json::array(),omitted=Json::object(),viewport=Json::object(),criteria=Json::object();size_t remaining=0;
-    bool truncated=false,failed=false,human_diagnostics=false,compact=false;uint64_t epoch,collection_generation=0;std::string observation,main,since_id,filter_key;
+    bool truncated=false,failed=false,human_diagnostics=false,compact=false;uint64_t epoch,collection_generation=0;std::string observation,main,since_id,filter_key,requester_session;
     observation::Filter filter;
     int64_t start=0;
     std::map<std::string,Json> snapshots,frameInfo;
@@ -1686,6 +1869,7 @@ void CefEngine::Impl::observe(const std::shared_ptr<Tab>& t,const Json& p,Reply 
   c->filter=observation::parse_filter(p);
   c->compact=publish&&p.value("compact",false);
   c->since_id=publish?field(p,"sinceObservationId"):std::string{};
+  c->requester_session=publish?field(p,"agentSessionId"):std::string{};
   {
     Json fkey={{"q",c->filter.query_lower},{"i",c->filter.interactive_only},{"l",limit},{"r",Json::array()}};
     for(const auto& role_name:c->filter.roles_lower)fkey["r"].push_back(role_name);
@@ -1708,11 +1892,24 @@ void CefEngine::Impl::observe(const std::shared_ptr<Tab>& t,const Json& p,Reply 
       }
     }
     std::optional<observation::DeltaResult> computed_delta;
-    if(baseline)computed_delta=observation::compute_delta(baseline->nodes,c->nodes);
+    std::optional<Json> compact_node_defaults;
+    bool raw_unchanged=false;
+    if(baseline){
+      if(c->compact){
+        auto prev_compact=observation::compact_nodes(baseline->nodes,c->main);
+        auto curr_compact=observation::compact_nodes(c->nodes,c->main);
+        compact_node_defaults=std::move(curr_compact.node_defaults);
+        computed_delta=observation::compute_delta(prev_compact.nodes,curr_compact.nodes);
+        raw_unchanged=computed_delta->unchanged&&observation::compute_delta(baseline->nodes,c->nodes).unchanged;
+      } else {
+        computed_delta=observation::compute_delta(baseline->nodes,c->nodes);
+        raw_unchanged=computed_delta->unchanged;
+      }
+    }
     if(publish){
       std::unordered_map<std::string,Element> next_elements;
       if(baseline&&computed_delta){
-        if(computed_delta->unchanged){
+        if(raw_unchanged){
           // Preserve baseline refs so callers holding earlier refs can act
           // immediately after an unchanged delta check.
           next_elements=baseline->elements;
@@ -1764,15 +1961,22 @@ void CefEngine::Impl::observe(const std::shared_ptr<Tab>& t,const Json& p,Reply 
       {"contentTrust",trust},{"viewport",c->viewport},{"visibility",{{"policy","rendered_viewport"},{"criteria",c->criteria},{"omitted",c->omitted},{"limitations",limitations}}},
       {"loading",t->browser->IsLoading()},{"canGoBack",t->browser->CanGoBack()},{"canGoForward",t->browser->CanGoForward()},{"dialogPending",t->dialog!=nullptr},
       {"truncated",c->truncated},{"coverage",c->failed?"partial":"rendered_viewport"}};
+    if(publish&&t->pending_file_chooser){
+      const auto& pc=*t->pending_file_chooser;
+      bool live_uploads=false;
+      const bool owner_ok=!t->protected_auth&&!t->human_busy&&!t->human_dialog&&
+                          pc.epoch==t->epoch&&pc.human_input==t->human_input&&
+                          !c->requester_session.empty()&&pc.owner_session==c->requester_session&&
+                          (!chooser_owner_valid_||chooser_owner_valid_(t->id,pc.owner_session,pc.owner_generation,live_uploads));
+      if(owner_ok){
+        payload["pendingFileChooser"]=file_chooser::make_pending_chooser_json(pc.chooser_id,pc.mode,pc.accept_filters,false);
+      }
+    }
     if(baseline&&computed_delta){
       auto& delta=*computed_delta;
       Json added=std::move(delta.added),removed=std::move(delta.removed),changed=std::move(delta.changed);
-      if(c->compact){
-        auto ca=observation::compact_nodes(added,c->main,&c->nodes);
-        auto cr=observation::compact_nodes(removed,c->main,&baseline->nodes);
-        auto cc=observation::compact_nodes(changed,c->main,&c->nodes);
-        added=std::move(ca.nodes);removed=std::move(cr.nodes);changed=std::move(cc.nodes);
-        payload["nodeDefaults"]=std::move(ca.node_defaults);
+      if(c->compact&&compact_node_defaults){
+        payload["nodeDefaults"]=std::move(*compact_node_defaults);
       }
       payload["nodes"]=Json::array();
       payload["unchanged"]=delta.unchanged;
@@ -1935,20 +2139,22 @@ void CefEngine::Impl::observe(const std::shared_ptr<Tab>& t,const Json& p,Reply 
 }
 
 void CefEngine::Impl::point(const std::shared_ptr<Tab>& t,const Element& e,const std::string& obj,Reply reply,
-                           std::function<void(double,double)> fn,Json fixed) {
+                           std::function<void(double,double)> fn,Json fixed,bool allow_file_overlay) {
   // Trusted, fixed internal function. It verifies visibility and occlusion;
   // caller-supplied JavaScript never enters this path.
   constexpr const auto check=kPointerTarget;
   std::mt19937 random(static_cast<uint32_t>(std::stoul(local_security::random_hex(4),nullptr,16)));std::uniform_real_distribution<double> interior(.25,.75);
   const Json fractions=fixed.empty()?Json{{"fx",interior(random)},{"fy",interior(random)}}:fixed;
-  send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration",check},{"arguments",Json::array({{{"value",fractions.at("fx")}},{{"value",fractions.at("fy")}},{{"value",fixed.empty()}}})},{"returnByValue",true},{"awaitPromise",true}},
+  send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration",check},{"arguments",Json::array({{{"value",fractions.at("fx")}},{{"value",fractions.at("fy")}},{{"value",fixed.empty()}},{{"value",allow_file_overlay}}})},{"returnByValue",true},{"awaitPromise",true}},
     [this,t,e,reply,fn,fractions](Json r) {
       const auto v=r.value("result",Json::object()).value("value",Json::object());
       if(field(v,"error")=="render_unready"){reply(failure("render_not_ready","The tab did not produce a stable rendered frame within the bounded wait. No pointer action was dispatched."));return;}
       if(!cdp_ok(r)||v.contains("error")||!v.contains("x")||t->epoch!=e.epoch) {
-        reply(failure("not_actionable","The element is outside the viewport, obscured or changed. Scroll or observe again."));return;
+        const auto reason=t->epoch!=e.epoch?std::string("document_changed"):field(v,"error");
+        reply(not_actionable_error(reason,"The element is outside the viewport, obscured or changed. Scroll or observe again."));return;
       }
       t->target_fraction={{"fx",v.at("sampleFx")},{"fy",v.at("sampleFy")}};
+      t->target_local_point={{"x",v.at("x")},{"y",v.at("y")}};
       // Chromium supplies box coordinates in the session's root viewport,
       // including offsets for in-process subframes. This avoids assuming that
       // a JavaScript local-frame rectangle is a top-level coordinate.
@@ -1962,7 +2168,9 @@ void CefEngine::Impl::point(const std::shared_ptr<Tab>& t,const Element& e,const
           // pinch zoom shows only the visual viewport, the space of these points.
           send(t,"Page.getLayoutMetrics",Json::object(),[t,e,root_x,root_y,reply,fn](Json metrics){
             if(!cdp_ok(metrics)||t->epoch!=e.epoch){reply(failure("geometry_unavailable","The current element geometry is unavailable."));return;}
-            if(!inside_input_viewport(input_viewport(metrics),root_x,root_y)){reply(failure("not_actionable","The element is outside the viewport, obscured or changed. Scroll or observe again."));return;}
+            const auto viewport=input_viewport(metrics);
+            if(!inside_input_viewport(viewport,root_x,root_y)){reply(not_actionable_error("viewport_clipped","The element is outside the viewport, obscured or changed. Scroll or observe again."));return;}
+            t->target_viewport=viewport;
             fn(root_x,root_y);
           });
         });
@@ -2038,17 +2246,33 @@ void CefEngine::Impl::click(const std::shared_ptr<Tab>& t,const Json& p,Reply re
         const auto button=field(p,"button","left");
         if(button!="left"&&button!="right"&&button!="middle"){reply(failure("invalid_button","Unsupported pointer button."));return;}
         const auto generation=uncertain_click_log_.generation(),epoch=t->epoch,human=t->human_input;
-        auto dispatch=[this,t,x,y,button,reply,generation,epoch,human](Json diagnostic){
+        auto dispatch=[this,t,p,x,y,button,reply,generation,epoch,human](Json diagnostic){
+        const uint64_t win_id=(button=="left"||button=="middle")?arm_agent_chooser_window(t,p):0;
         send(t,"Input.dispatchMouseEvent",{{"type","mousePressed"},{"x",x},{"y",y},{"button",button},{"buttons",button=="left"?1:button=="right"?2:4},{"clickCount",1}},
-          [this,t,x,y,button,reply,generation,epoch,human,diagnostic](Json down){
-            if(down.value("error",Json::object()).value("notDispatched",false)){reply(failure("human_interrupted","Human input interrupted this action before mouse-down."));return;}
+          [this,t,x,y,button,reply,generation,epoch,human,diagnostic,win_id](Json down){
+            if(down.value("error",Json::object()).value("notDispatched",false)){
+              if(win_id&&t->agent_chooser_window&&t->agent_chooser_window->id==win_id)t->agent_chooser_window.reset();
+              reply(failure("human_interrupted","Human input interrupted this action before mouse-down."));return;
+            }
             send(t,"Input.dispatchMouseEvent",{{"type","mouseReleased"},{"x",x},{"y",y},{"button",button},{"buttons",0},{"clickCount",1}},
-              [this,t,button,reply,down,generation,epoch,human,diagnostic](Json up){
+              [this,t,button,reply,down,generation,epoch,human,diagnostic,win_id](Json up){
                 if(cdp_ok(down)&&cdp_ok(up)&&t->epoch==epoch&&t->human_input==human&&!t->closed&&!t->private_mode&&!t->protected_auth&&!t->auth_inflight&&!t->native_fill&&action_valid(t)){try{uncertain_click_log_.record(generation,diagnostic);}catch(...){}}
-                if(!(cdp_ok(down)&&cdp_ok(up))){reply(failure("input_uncertain","Pointer dispatch was interrupted; observe before retrying."));return;}
-                auto finish_click=[done=std::make_shared<bool>(false),reply]() mutable {
-                  if(!std::exchange(*done,true))reply(success({{"status","dispatched"}}));
+                if(!(cdp_ok(down)&&cdp_ok(up))){
+                  if(win_id&&t->agent_chooser_window&&t->agent_chooser_window->id==win_id)t->agent_chooser_window.reset();
+                  reply(failure("input_uncertain","Pointer dispatch was interrupted; observe before retrying."));return;
+                }
+                auto finish_click=[t,win_id,done=std::make_shared<bool>(false),reply]() mutable {
+                  if(std::exchange(*done,true))return;
+                  Json res={{"status","dispatched"}};
+                  if(win_id&&t->agent_chooser_window&&t->agent_chooser_window->id==win_id){
+                    if(!t->agent_chooser_window->outcome.is_null())res["fileChooser"]=t->agent_chooser_window->outcome;
+                    t->agent_chooser_window->wake={};
+                  }
+                  reply(success(std::move(res)));
                 };
+                if(win_id&&t->agent_chooser_window&&t->agent_chooser_window->id==win_id&&!t->agent_chooser_window->outcome.is_null()){
+                  finish_click();return;
+                }
                 auto wait_popups=[t,finish_click]() mutable {
                   if(t->closed||t->pending_popups.empty()){finish_click();return;}
                   t->popup_waiters.push_back(finish_click);
@@ -2056,7 +2280,10 @@ void CefEngine::Impl::click(const std::shared_ptr<Tab>& t,const Json& p,Reply re
                 };
                 if(!t->pending_popups.empty()){wait_popups();return;}
                 if(button=="left"||button=="middle"){
-                  later(50,[wait_popups]() mutable {wait_popups();});
+                  if(win_id&&t->agent_chooser_window&&t->agent_chooser_window->id==win_id){
+                    t->agent_chooser_window->wake=finish_click;
+                  }
+                  later(75,[wait_popups]() mutable {wait_popups();});
                   return;
                 }
                 finish_click();
@@ -2401,7 +2628,140 @@ void CefEngine::Impl::chooser_opened(const std::shared_ptr<Tab>& t,const Json& c
       },tx->entry.session);
   },session);
 }
+void CefEngine::Impl::activate_upload_entry(const std::shared_ptr<Tab>& t,const Element& e,const std::string& obj,Reply reply) {
+  if(t->closed||t->protected_auth||!action_valid(t)||t->epoch!=e.epoch){
+    reply(failure("human_interrupted","Control, authentication or the document changed before upload activation."));return;
+  }
+  point(t,e,obj,reply,[this,t,e,obj,reply](double root_x,double root_y){
+    if(t->closed||t->protected_auth||!action_valid(t)||t->epoch!=e.epoch){
+      reply(failure("human_interrupted","Control, authentication or the document changed before upload activation."));return;
+    }
+    const auto local_point=t->target_local_point;
+    const auto start_viewport=t->target_viewport;
+    t->pointer_scale=input_viewport_scale(start_viewport);
+    ++t->pointer_sync_revision;
+    // Move directly to the verified entry coordinate so intermediate Bezier
+    // motion cannot cross gaps outside a hover/mouseout-sensitive upload
+    // popover and dismiss it before press, then immediately reverify at that
+    // exact point before mouse-down.
+    send(t,"Input.dispatchMouseEvent",{{"type","mouseMoved"},{"x",root_x},{"y",root_y}},
+      [this,t,e,obj,root_x,root_y,local_point,start_viewport,reply](Json moved){
+        if(!cdp_ok(moved)){
+          const bool not_sent=moved.value("error",Json::object()).value("notDispatched",false);
+          reply(failure(not_sent?"human_interrupted":"input_interrupted","Pointer movement was interrupted before upload activation."));return;
+        }
+        if(t->closed||t->protected_auth||!action_valid(t)||t->epoch!=e.epoch){
+          reply(failure("human_interrupted","Control, authentication or the document changed during upload activation."));return;
+        }
+        send(t,"Page.getLayoutMetrics",Json::object(),[this,t,e,obj,root_x,root_y,local_point,start_viewport,reply](Json metrics){
+          if(t->closed||t->protected_auth||!action_valid(t)||t->epoch!=e.epoch){
+            reply(failure("human_interrupted","Control, authentication or the document changed during upload activation."));return;
+          }
+          if(!cdp_ok(metrics)||input_viewport(metrics)!=start_viewport){
+            reply(failure("stale_geometry","The viewport changed before upload activation. Observe again."));return;
+          }
+          send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration",kPointerTarget},
+            {"arguments",Json::array({{{"value",0.5}},{{"value",0.5}},{{"value",false}},{{"value",true}},{{"value",local_point}}})},
+            {"returnByValue",true},{"awaitPromise",true}},
+            [this,t,e,root_x,root_y,reply](Json recheck){
+              if(t->closed||t->protected_auth||!action_valid(t)||t->epoch!=e.epoch){
+                reply(failure("human_interrupted","Control, authentication or the document changed during upload activation."));return;
+              }
+              const auto v=recheck.value("result",Json::object()).value("value",Json::object());
+              if(!cdp_ok(recheck)||v.contains("error")||!v.contains("x")||!v.contains("fx")||!v.contains("fy")||!v["fx"].is_number()||!v["fy"].is_number()){
+                reply(not_actionable_error(field(v,"error"),"The upload entry moved, detached or became obscured before press. Observe again."));return;
+              }
+              const double fx=v["fx"].get<double>(),fy=v["fy"].get<double>();
+              if(!std::isfinite(fx)||!std::isfinite(fy)){
+                reply(failure("geometry_unavailable","The current element geometry is unavailable."));return;
+              }
+              // Re-resolve the root-viewport coordinate through DOM.getBoxModel
+              // and translate() so an in-process or cross-origin parent-document
+              // shift that moved the containing iframe during mouseMoved fails closed.
+              send(t,"DOM.getBoxModel",{{"backendNodeId",e.backend}},[this,t,e,fx,fy,root_x,root_y,reply](Json box){
+                if(t->closed||t->protected_auth||!action_valid(t)||t->epoch!=e.epoch){
+                  reply(failure("human_interrupted","Control, authentication or the document changed during upload activation."));return;
+                }
+                const auto q=box.value("model",Json::object()).value("border",Json::array());
+                if(!cdp_ok(box)||q.size()!=8){
+                  reply(failure("geometry_unavailable","The current element geometry is unavailable."));return;
+                }
+                const auto [x,y]=pointer_box_point(q.get<std::array<double,8>>(),fx,fy);
+                translate(t,e.session,x,y,reply,[this,t,e,root_x,root_y,reply](double xx,double yy){
+                  if(t->closed||t->protected_auth||!action_valid(t)||t->epoch!=e.epoch){
+                    reply(failure("human_interrupted","Control, authentication or the document changed during upload activation."));return;
+                  }
+                  if(!std::isfinite(xx)||!std::isfinite(yy)||std::abs(root_x-xx)>1.0||std::abs(root_y-yy)>1.0){
+                    reply(failure("stale_geometry","The upload entry or its containing frame moved before press. Observe again."));return;
+                  }
+                  send(t,"Input.dispatchMouseEvent",{{"type","mousePressed"},{"x",root_x},{"y",root_y},{"button","left"},{"buttons",1},{"clickCount",1}},
+                    [this,t,root_x,root_y,reply](Json down){
+                      if(down.value("error",Json::object()).value("notDispatched",false)){
+                        reply(failure("human_interrupted","Human input interrupted this action before mouse-down."));return;
+                      }
+                      send(t,"Input.dispatchMouseEvent",{{"type","mouseReleased"},{"x",root_x},{"y",root_y},{"button","left"},{"buttons",0},{"clickCount",1}},
+                        [reply,down](Json up){
+                          if(!(cdp_ok(down)&&cdp_ok(up))){
+                            reply(failure("input_uncertain","Pointer dispatch was interrupted; observe before retrying."));return;
+                          }
+                          reply(success({{"status","dispatched"}}));
+                        });
+                    });
+                });
+              },e.session);
+            },e.session);
+        });
+      });
+  },Json::object(),true);
+}
+void CefEngine::Impl::resolve_file_chooser(const std::shared_ptr<Tab>& t,const Json& p,Reply original_reply){
+  auto fail=[original_reply](std::string code,std::string message){
+    original_reply(upload_outcome(failure(std::move(code),std::move(message)),"not_attempted","not_selected"));
+  };
+  if(!files_){fail("files_unavailable","The native file policy is unavailable.");return;}
+  if(t->upload||t->upload_interception_unknown){fail("upload_unavailable","A file selection is pending or its cleanup is unverified. Inspect operation status before attempting another upload.");return;}
+  const auto chooser_id=field(p,"chooserId");
+  const auto session=field(p,"agentSessionId");
+  const auto generation=p.value("ownershipGeneration",uint64_t{});
+  if(!t->pending_file_chooser){
+    fail("stale_file_chooser","No pending file chooser is active on this tab. Observe before deciding what to do next.");return;
+  }
+  const auto& active=*t->pending_file_chooser;
+  const bool tab_state_invalid=t->closed||t->protected_auth||t->human_busy||t->human_dialog||!action_valid(t)||
+                               active.epoch!=t->epoch||active.human_input!=t->human_input||
+                               active.owner_session!=session||active.owner_generation!=generation;
+  if(tab_state_invalid){
+    cancel_pending_chooser(t);
+    fail("stale_file_chooser","The file chooser is no longer valid because control, human activity or the document changed. Observe before deciding what to do next.");return;
+  }
+  if(active.chooser_id!=chooser_id){
+    fail("stale_file_chooser","The supplied chooserId does not match the active file chooser on this tab.");return;
+  }
+  if(p.value("cancel",false)){
+    auto pending=std::move(*t->pending_file_chooser);
+    t->pending_file_chooser.reset();
+    t->agent_chooser_window.reset();
+    event("file_chooser.closed",{{"tabId",t->id},{"chooserId",pending.chooser_id}});
+    if(pending.callback){try{pending.callback->Cancel();}catch(...){}}
+    original_reply(upload_outcome(success({{"status","canceled"},{"chooserId",pending.chooser_id}}),"not_attempted","not_selected"));
+    return;
+  }
+  auto grant=scoped_upload(t,p,field(p,"fileId"));
+  if(!grant){
+    cancel_pending_chooser(t);
+    fail("file_denied","This file grant is missing, changed or belongs to another workspace.");return;
+  }
+  t->uploads.push_back(std::move(*grant));
+  const CefString chosen_path(t->uploads.back().path().wstring());
+  auto pending=std::move(*t->pending_file_chooser);
+  t->pending_file_chooser.reset();
+  t->agent_chooser_window.reset();
+  event("file_chooser.closed",{{"tabId",t->id},{"chooserId",pending.chooser_id}});
+  if(pending.callback){try{pending.callback->Continue({chosen_path});}catch(...){}}
+  original_reply(upload_outcome(success({{"status","selected"},{"chooserId",pending.chooser_id}}),"not_attempted","selected"));
+}
 void CefEngine::Impl::upload(const std::shared_ptr<Tab>& t,const Json& p,Reply original_reply){
+  if(p.contains("chooserId")){resolve_file_chooser(t,p,std::move(original_reply));return;}
   Reply reply=[original_reply](Json value){original_reply(upload_outcome(std::move(value),"not_attempted","not_selected"));};
   if(!files_){reply(failure("files_unavailable","The native file policy is unavailable."));return;}
   if(t->upload||t->upload_interception_unknown){reply(failure("upload_unavailable","A file selection is pending or its cleanup is unverified. Inspect operation status before attempting another upload."));return;}
@@ -2427,31 +2787,37 @@ void CefEngine::Impl::upload(const std::shared_ptr<Tab>& t,const Json& p,Reply o
             },e.session);
         });return;
       }
-      send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration","function(){return this.ownerDocument}"}},[this,t,p,e,held,reply,original_reply](Json document){
+      send(t,"Runtime.callFunctionOn",{{"objectId",obj},{"functionDeclaration","function(){return this.ownerDocument}"}},[this,t,p,e,obj,held,reply,original_reply](Json document){
         const auto document_object=field(document.value("result",Json::object()),"objectId");
         if(!cdp_ok(document)||document_object.empty()||t->protected_auth||!action_valid(t)){
           reply(stale_error("document_navigated","The upload entry's document or control changed. Observe again."));return;
         }
         auto tx=std::make_shared<UploadTransaction>();tx->entry=e;tx->guard=current_action_;tx->file_id=field(p,"fileId");
         tx->document_object=document_object;tx->reply=original_reply;tx->file_policy_params=p;t->upload=tx;
-        send(t,"Page.setInterceptFileChooserDialog",{{"enabled",true}},[this,t,p,tx,held](Json armed){
+        send(t,"Page.setInterceptFileChooserDialog",{{"enabled",true}},[this,t,e,obj,tx,held](Json armed){
           if(t->upload!=tx||tx->finishing)return;
           if(!cdp_ok(armed)||t->protected_auth||!action_valid(t)){
             finish_upload(t,tx,failure("upload_interrupted","File selection could not be prepared safely. The upload button was not activated."));return;
           }
           tx->activation="attempted";tx->gesture_done=false;
-          // Native pipe callers are untrusted too: do not let extra coordinate
-          // or mouse-button fields redirect this observed upload entry.
-          click(t,{{"elementRef",field(p,"elementRef")},{"observationId",field(p,"observationId")}},[this,t,tx](Json clicked){
+          // Activate only the already-verified observed upload entry; extra
+          // coordinate or mouse-button fields can never redirect this click.
+          activate_upload_entry(t,e,obj,[this,t,tx](Json clicked){
             tx->gesture_done=true;
             if(clicked.value("ok",false))tx->activation="dispatched";
             if(t->upload!=tx)return;
             if(tx->finishing){cleanup_upload(t,tx);return;}
             if(!clicked.value("ok",false)){
-              const auto code=field(clicked.value("error",Json::object()),"code");
+              const auto err=clicked.value("error",Json::object());
+              const auto code=field(err,"code");
               const bool uncertain=code=="input_uncertain"||code=="input_interrupted"||code=="OUTCOME_UNKNOWN";
-              if(uncertain)tx->activation="outcome_unknown";
-              finish_upload(t,tx,failure(uncertain?"OUTCOME_UNKNOWN":"upload_activation_failed","Upload entry activation did not complete. The page may have changed; observe before deciding what to do next."));return;
+              if(uncertain){
+                tx->activation="outcome_unknown";
+                finish_upload(t,tx,failure("OUTCOME_UNKNOWN","Upload entry activation did not complete. The page may have changed; observe before deciding what to do next."));return;
+              }
+              auto failed=failure("upload_activation_failed","Upload entry activation did not complete. The page may have changed; observe before deciding what to do next.");
+              failed["error"]["reason"]=std::string(normalize_upload_activation_reason(err));
+              finish_upload(t,tx,std::move(failed));return;
             }
             later(3000,[self=shared_from_this(),t,tx]{if(t->upload==tx&&!tx->finishing&&!tx->receiving)self->finish_upload(t,tx,failure("file_chooser_not_opened","The entry was activated once but no supported file chooser appeared. No file was selected; the page may have changed. Observe before deciding what to do next."));});
           });
@@ -2523,6 +2889,11 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     reply(found?success({{key,all}}):failure("folder_denied","This client has no such allowed folder grant."));
     return;
   }
+  if(command=="files.chooser_cancel"){
+    auto found=tabs_.find(field(p,"tabId"));
+    if(found!=tabs_.end())cancel_pending_chooser(found->second);
+    reply(success());return;
+  }
   auto it=tabs_.find(field(p,"tabId"));if(it==tabs_.end()){reply(failure("tab_not_found","The tab is not available."));return;}
   auto t=it->second;
   const bool mutating=command!="page.observe"&&command!="page.screenshot"&&command!="page.inspect"&&command!="page.wait"&&command!="auth.accounts";
@@ -2532,8 +2903,12 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     reply(failure("protected_auth","This tab is sealed for authentication. Use native controls to resume observations."));return;
   }
   // Any agent page action ends the human's passkey window in this tab, even
-  // before its input is dispatched.
-  if(mutating)t->passkey.agent_action();
+  // before its input is dispatched. Any mutating command other than resolving
+  // a pending file chooser also cancels any stranded pending file chooser.
+  if(mutating){
+    t->passkey.agent_action();
+    if(!(command=="files.upload"&&p.contains("chooserId")))cancel_pending_chooser(t);
+  }
   if(command=="tabs.close"){t->browser->GetHost()->CloseBrowser(false);reply(success({{"status","closing"}}));return;}
   if(command=="page.navigate"){
     const auto url=field(p,"url");if(!web_url(url)){reply(failure("invalid_url","Only HTTP, HTTPS and about:blank are allowed."));return;}
@@ -2625,10 +3000,36 @@ void CefEngine::Impl::exec(const std::string& command,const Json& p,Reply reply,
     }
     Json down={{"type","keyDown"},{"key",key=="Space"?" ":key},{"windowsVirtualKeyCode",code},{"modifiers",mods}};
     if(mods==0&&(key=="Enter"||key=="Space"||key.size()==1))down["text"]=key=="Enter"?"\r":key=="Space"?" ":key;
-    send(t,"Input.dispatchKeyEvent",down,[this,t,down,reply](Json r){
-      if(r.value("error",Json::object()).value("notDispatched",false)){reply(failure("human_interrupted","Human input interrupted this action before key-down."));return;}
+    const uint64_t win_id=(mods==0&&(key=="Enter"||key=="Space"))?arm_agent_chooser_window(t,p):0;
+    send(t,"Input.dispatchKeyEvent",down,[this,t,down,reply,win_id](Json r){
+      if(r.value("error",Json::object()).value("notDispatched",false)){
+        if(win_id&&t->agent_chooser_window&&t->agent_chooser_window->id==win_id)t->agent_chooser_window.reset();
+        reply(failure("human_interrupted","Human input interrupted this action before key-down."));return;
+      }
       auto up=down;up["type"]="keyUp";up.erase("text");
-      send(t,"Input.dispatchKeyEvent",up,[reply,r](Json u){reply(cdp_ok(r)&&cdp_ok(u)?success({{"status","dispatched"}}):failure("input_uncertain","Key dispatch was interrupted. Observe before retrying."));});});return;
+      send(t,"Input.dispatchKeyEvent",up,[t,reply,r,win_id](Json u){
+        if(!(cdp_ok(r)&&cdp_ok(u))){
+          if(win_id&&t->agent_chooser_window&&t->agent_chooser_window->id==win_id)t->agent_chooser_window.reset();
+          reply(failure("input_uncertain","Key dispatch was interrupted. Observe before retrying."));return;
+        }
+        if(!win_id){reply(success({{"status","dispatched"}}));return;}
+        auto finish_key=[t,win_id,done=std::make_shared<bool>(false),reply]() mutable {
+          if(std::exchange(*done,true))return;
+          Json res={{"status","dispatched"}};
+          if(t->agent_chooser_window&&t->agent_chooser_window->id==win_id){
+            if(!t->agent_chooser_window->outcome.is_null())res["fileChooser"]=t->agent_chooser_window->outcome;
+            t->agent_chooser_window->wake={};
+          }
+          reply(success(std::move(res)));
+        };
+        if(t->agent_chooser_window&&t->agent_chooser_window->id==win_id){
+          if(!t->agent_chooser_window->outcome.is_null()){finish_key();return;}
+          t->agent_chooser_window->wake=finish_key;
+          later(75,[finish_key]() mutable {finish_key();});
+          return;
+        }
+        finish_key();
+      });});return;
   }
   if(command=="page.scroll"){
     auto dir=field(p,"direction","down");double amount=std::clamp(p.value("amount",500.0),1.0,3000.0);
@@ -2869,7 +3270,7 @@ CefEngine::CefEngine(std::filesystem::path root):impl_(std::make_shared<Impl>(st
 }
 CefEngine::~CefEngine()=default;
 void CefEngine::initialize(){execute("tabs.create",{{"workspaceId","human-default"},{"url","about:blank"}},[](Json){});}
-void CefEngine::shutdown(){on_ui([p=impl_]{p->persist_session();p->shutting_down_=true;for(auto& [id,t]:p->tabs_)t->browser->GetHost()->CloseBrowser(true);if(p->tabs_.empty()&&p->creating_.empty())p->finish_shutdown();});}
+void CefEngine::shutdown(){on_ui([p=impl_]{p->persist_session();p->shutting_down_=true;for(auto& [id,t]:p->tabs_){p->cancel_pending_chooser(t);t->browser->GetHost()->CloseBrowser(true);}if(p->tabs_.empty()&&p->creating_.empty())p->finish_shutdown();});}
 void CefEngine::execute(const std::string& cmd,const Json& p,Reply reply){
   on_ui([owner=impl_,cmd,p,reply=std::move(reply)]{try{owner->exec(cmd,p,reply);}catch(const std::exception&){reply(failure("invalid_request","The request could not be completed."));}});
 }
@@ -3184,6 +3585,7 @@ size_t CefEngine::saved_account_count(const std::string& id){
 }
 void CefEngine::set_download_callback(std::function<bool(const std::string&)> allowed){impl_->download_allowed_=std::move(allowed);}
 void CefEngine::set_passkey_control_callback(std::function<bool(const std::string&)> human_controls){impl_->passkey_human_controls_=std::move(human_controls);}
+void CefEngine::set_chooser_owner_callback(std::function<bool(const std::string&,const std::string&,uint64_t,bool&)> callback){impl_->chooser_owner_valid_=std::move(callback);}
 void CefEngine::set_permission_callback(std::function<void(const std::string&,const std::string&,const std::string&,std::function<void(bool)>)> callback){impl_->permission_=std::move(callback);}
 void CefEngine::set_tab_covered(const std::string& id,bool covered){on_ui([owner=impl_,id,covered]{
   if(!owner->tabs_.contains(id)&&!owner->creating_.contains(id))return;owner->pacing_.set_covered(id,covered);owner->pace(id);});}

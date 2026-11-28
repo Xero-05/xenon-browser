@@ -224,17 +224,27 @@ int main() {
     assert(out1.at("diagnosticId") == "candidate-frame-child-99");
     assert(!out1.at("bounds").contains("coordinateSpace"));
 
-    // Rendered text node keeps distinct provenance, roleProvenance, geometryEvidence and non-default coordinateSpace.
+    // Rendered non-interactive text node keeps distinct provenance & roleProvenance and omits bounds/geometry metadata in compact mode.
     const auto& out2 = compacted.nodes[2];
     assert(!out2.contains("frameId"));
     assert(out2.at("provenance") == "chromium-rendered-text-node");
     assert(out2.at("roleProvenance") == "native-dom-text-type");
     assert(!out2.contains("nameProvenance"));
+    assert(!out2.contains("bounds"));
     assert(!out2.contains("boundsProvenance"));
-    assert(out2.at("geometryEvidence") == "full_box");
+    assert(!out2.contains("geometryEvidence"));
     assert(!out2.contains("visibilityStatus"));
     assert(!out2.contains("screenshotRequired"));
-    assert(out2.at("bounds").at("coordinateSpace") == "visual-viewport-css");
+    assert(out2.at("ref") == "ref-2");
+
+    // Interactive control with non-default coordinateSpace retains its bounds and non-default coordinateSpace.
+    Json alt_space_btn = make_verified_button("Zoomed", "ref-3");
+    alt_space_btn["bounds"]["coordinateSpace"] = "visual-viewport-css";
+    alt_space_btn["geometryEvidence"] = "unoccluded_visible_patch";
+    const auto alt_compacted = obs::compact_nodes(Json::array({alt_space_btn}), "frame-main");
+    assert(alt_compacted.nodes.size() == 1);
+    assert(alt_compacted.nodes[0].at("bounds").at("coordinateSpace") == "visual-viewport-css");
+    assert(alt_compacted.nodes[0].at("geometryEvidence") == "unoccluded_visible_patch");
 
     // Empty default_frame_id must NOT omit frameId even if node frameId is "".
     const Json empty_frame_nodes = Json::array({
@@ -610,41 +620,46 @@ int main() {
 
     const auto compacted = obs::compact_nodes(synthetic_nodes, "frame-main");
 
-    // Pure structural wrappers (main, article, paragraph x2, list, listitem x2 = 7) omitted.
-    assert(compacted.nodes.size() == synthetic_nodes.size() - 7);
+    // Pure structural wrappers (main, article, paragraph x2, list, listitem x2 = 7)
+    // plus duplicate StaticText children inside heading and button (ref-h1-t, ref-apply-t = 2) omitted.
+    assert(compacted.nodes.size() == synthetic_nodes.size() - 9);
     // Semantic dialog kept with empty name and nameProvenance == "in_children".
     bool saw_dialog = false, saw_upload = false, saw_apply = false, saw_heading = false;
     for (const auto& n : compacted.nodes) {
       const auto role = n.at("role").get<std::string>();
+      const auto ref = n.value("ref", "");
       assert(role != "main" && role != "article" && role != "paragraph" && role != "list" && role != "listitem");
+      assert(ref != "ref-h1-t" && ref != "ref-apply-t");
       if (role == "dialog") {
         saw_dialog = true;
         assert(n.at("name") == "");
         assert(n.at("nameProvenance") == "in_children");
+        assert(!n.contains("bounds"));
       }
-      if (n.value("ref", "") == "ref-upload") {
+      if (ref == "ref-upload") {
         saw_upload = true;
         assert(n.at("role") == "StaticText");
         assert(n.at("name") == upload_txt);
         assert(n.at("provenance") == "chromium-rendered-text-node");
         assert(n.at("roleProvenance") == "native-dom-text-type");
-        // Fractional bounds rounded to 1 decimal, integer values serialized as integers.
-        assert(n.at("bounds").at("x") == 24.3);
-        assert(n.at("bounds").at("y") == 340.7);
-        assert(n.at("bounds").at("width") == 142.1);
-        assert(n.at("bounds").at("height").is_number_integer() && n.at("bounds").at("height") == 20);
+        // Non-interactive verified StaticText omits bounds while retaining ref.
+        assert(!n.contains("bounds"));
+        assert(!n.contains("geometryEvidence"));
       }
-      if (n.value("ref", "") == "ref-apply") {
+      if (ref == "ref-apply") {
         saw_apply = true;
         assert(n.at("name") == btn);
+        // Interactive control retains rounded bounds (integer when exact, 1 decimal otherwise).
         assert(n.at("bounds").at("x") == 24.3);
+        assert(n.at("bounds").at("y") == 280.7);
+        assert(n.at("bounds").at("width") == 120.1);
         assert(n.at("bounds").at("height").is_number_integer() && n.at("bounds").at("height") == 36);
       }
       if (role == "heading") {
         saw_heading = true;
         assert(n.at("name") == h1);
-        assert(n.at("bounds").at("x") == 24.1);
-        assert(n.at("bounds").at("y") == 25);
+        assert(ref == "ref-h1");
+        assert(!n.contains("bounds"));
       }
     }
     assert(saw_dialog && saw_upload && saw_apply && saw_heading);
@@ -672,7 +687,262 @@ int main() {
     std::cout << "  Synthetic payload compaction: full=" << full_bytes
               << "B -> compact=" << compact_bytes << "B (" << static_cast<int>(std::round(reduction_pct))
               << "% smaller)\n";
-    assert(compact_bytes < full_bytes * 0.35);
+    assert(compact_bytes < full_bytes * 0.25);
+  });
+
+  test("compact_nodes dramatically shrinks realistic dense real-page DOM while preserving unnamed controls, uncertain candidates and upload StaticText", [] {
+    int ref_seq = 0;
+    auto make_ref = [&]() {
+      std::string hex = "00000000000000000000000000000000";
+      const std::string digits = std::to_string(++ref_seq);
+      hex.replace(hex.size() - digits.size(), digits.size(), digits);
+      return hex;
+    };
+    auto make_ax = [&](const std::string& role, const std::string& name,
+                       double x, double y, double w, double h,
+                       const std::string& tag = "",
+                       const std::string& geom = "unoccluded_center_patch") {
+      Json n = {
+          {"role", role},
+          {"name", name},
+          {"frameId", "frame-main"},
+          {"ref", make_ref()},
+          {"provenance", "chromium-rendered-text-with-accessibility-role"},
+          {"nameProvenance", name.empty() ? "withheld_or_unlabeled" : "filtered_rendered_text"},
+          {"bounds", {{"x", x}, {"y", y}, {"width", w}, {"height", h}, {"coordinateSpace", "frame-document-css"}}},
+          {"boundsProvenance", "chromium-dom-snapshot"},
+          {"geometryEvidence", geom},
+          {"visibilityStatus", "verified"},
+          {"screenshotRequired", false},
+      };
+      if (!tag.empty()) n["tag"] = tag;
+      return n;
+    };
+
+    Json dense = Json::array();
+    // 1. Top nav banner & search region with empty structural wrappers + unnamed icon buttons + links with duplicate StaticText.
+    dense.push_back(make_ax("banner", "", 0, 0, 1280, 64));
+    dense.push_back(make_ax("navigation", "", 16, 8, 900, 48));
+    dense.push_back(make_ax("search", "", 200, 12, 320, 36));
+    dense.push_back(make_ax("list", "", 540, 12, 400, 36));
+    const std::vector<std::string> nav_links = {"Dashboard", "Job Postings", "Applications", "Interviews", "Messages"};
+    for (size_t i = 0; i < nav_links.size(); ++i) {
+      const double lx = 540.0 + static_cast<double>(i) * 85.0;
+      dense.push_back(make_ax("listitem", "", lx, 14, 80, 32));
+      dense.push_back(make_ax("link", nav_links[i], lx + 2, 16, 76, 28, "A"));
+      dense.push_back(make_ax("StaticText", nav_links[i], lx + 6, 20, 68, 18, "", "full_box"));
+    }
+    // Unnamed search textbox + unnamed icon buttons (must NEVER be dropped!).
+    Json search_box = make_ax("searchbox", "", 210, 14, 260, 32, "INPUT");
+    search_box["inputType"] = "search";
+    dense.push_back(search_box);
+    dense.push_back(make_ax("button", "", 1180, 14, 36, 36, "BUTTON")); // notification bell icon
+    dense.push_back(make_ax("button", "", 1224, 14, 36, 36, "BUTTON")); // profile avatar icon
+    dense.push_back(make_ax("image", "", 1228, 18, 28, 28, "IMG"));     // decorative avatar img inside chrome
+    dense.push_back(make_ax("separator", "", 0, 64, 1280, 1));
+
+    // 2. Section heading + duplicate StaticText + View All button + duplicate StaticText.
+    dense.push_back(make_ax("main", "", 0, 72, 1280, 720));
+    dense.push_back(make_ax("region", "", 24, 80, 1232, 680));
+    dense.push_back(make_ax("heading", "Announcements", 32, 88, 220, 28));
+    dense.push_back(make_ax("StaticText", "Announcements", 32, 90, 180, 22, "", "full_box"));
+    dense.push_back(make_ax("button", "View All", 1140, 88, 96, 32, "BUTTON"));
+    dense.push_back(make_ax("StaticText", "View All", 1154, 94, 68, 18, "", "full_box"));
+
+    // 3. Dense 10-row job portal table (empty rows/cells/strong/emphasis wrappers + cell text + action buttons + duplicate StaticText).
+    dense.push_back(make_ax("table", "", 32, 132, 1216, 480));
+    dense.push_back(make_ax("rowgroup", "", 32, 132, 1216, 40));
+    dense.push_back(make_ax("row", "", 32, 132, 1216, 40));
+    for (int col = 0; col < 5; ++col) {
+      dense.push_back(make_ax("columnheader", "", 32.0 + col * 240.0, 136, 220, 32));
+    }
+    dense.push_back(make_ax("rowgroup", "", 32, 172, 1216, 440));
+    for (int row = 0; row < 10; ++row) {
+      const double ry = 176.0 + row * 42.0;
+      dense.push_back(make_ax("row", "", 32, ry, 1216, 40));
+      dense.push_back(make_ax("cell", "", 32, ry, 340, 40));
+      dense.push_back(make_ax("strong", "", 36, ry + 8, 260, 22));
+      const std::string title = "Software Intern Role " + std::to_string(row + 1);
+      const std::string company = "Example Corp " + std::to_string(row + 1);
+      // Composite multi-span link card (title + company inside one <a>).
+      dense.push_back(make_ax("link", title + " " + company, 36, ry + 4, 320, 32, "A"));
+      dense.push_back(make_ax("StaticText", title, 38, ry + 6, 170, 18, "", "full_box"));
+      dense.push_back(make_ax("StaticText", company, 212, ry + 6, 130, 18, "", "full_box"));
+
+      // Location cell (standalone StaticText inside non-interactive cell + emphasis wrapper).
+      dense.push_back(make_ax("cell", "", 380, ry, 220, 40));
+      dense.push_back(make_ax("emphasis", "", 384, ry + 10, 140, 20));
+      dense.push_back(make_ax("StaticText", "Remote / Hybrid", 384, ry + 10, 130, 18, "", "full_box"));
+
+      // Empty metadata cells + decorative icon img + labeltext wrappers (matching real portal DOM).
+      dense.push_back(make_ax("cell", "", 610, ry, 180, 40));
+      dense.push_back(make_ax("LabelText", "", 614, ry + 10, 120, 20, "LABEL"));
+      dense.push_back(make_ax("image", "", 750, ry + 10, 20, 20, "IMG"));
+      dense.push_back(make_ax("cell", "", 800, ry, 180, 40));
+      dense.push_back(make_ax("StaticText", "Open", 806, ry + 10, 44, 18, "", "full_box"));
+
+      // Action cell with button + duplicate StaticText.
+      dense.push_back(make_ax("cell", "", 990, ry, 250, 40));
+      dense.push_back(make_ax("button", "Apply", 1000, ry + 4, 88, 32, "BUTTON"));
+      dense.push_back(make_ax("StaticText", "Apply", 1018, ry + 10, 46, 18, "", "full_box"));
+    }
+
+    // 4. Custom upload popover with standalone StaticText 'Upload from Device' (inside non-interactive container),
+    // plus an uncertain candidate and a canvas node (both must retain bounds!).
+    dense.push_back(make_ax("group", "", 820, 620, 240, 120));
+    Json popover_upload = make_ax("StaticText", "Upload from Device", 832, 634, 150, 20, "", "full_box");
+    const std::string popover_upload_ref = popover_upload.at("ref").get<std::string>();
+    dense.push_back(popover_upload);
+    dense.push_back(make_ax("StaticText", "Upload from Dropbox", 832, 666, 160, 20, "", "full_box"));
+    Json uncertain_icon = {
+        {"role", "button"},
+        {"name", ""},
+        {"frameId", "frame-main"},
+        {"tag", "BUTTON"},
+        {"provenance", "chromium-rendered-text-with-accessibility-role"},
+        {"nameProvenance", "withheld_or_unlabeled"},
+        {"bounds", {{"x", 1100.4}, {"y", 630.6}, {"width", 32.0}, {"height", 32.0}, {"coordinateSpace", "frame-document-css"}}},
+        {"boundsProvenance", "chromium-dom-snapshot"},
+        {"geometryEvidence", "unverified_snapshot_bounds"},
+        {"visibilityStatus", "uncertain"},
+        {"screenshotRequired", true},
+        {"visibilityReason", "clipping_or_occlusion_unproven"},
+        {"candidateId", "candidate-frame-main-777"},
+    };
+    dense.push_back(uncertain_icon);
+    dense.push_back(make_ax("canvas", "", 40, 620, 300, 100, "CANVAS"));
+
+    // Compute simulated legacy 0.1.13 compact size (default hoisting + bound rounding only, before empty-structural / dup-StaticText / non-interactive-bounds fixes)
+    // alongside full size and new compact size.
+    Json legacy_compact_nodes = Json::array();
+    for (const auto& n : dense) {
+      Json copy = n;
+      for (const char* k : {"frameId", "provenance", "boundsProvenance", "visibilityStatus", "screenshotRequired"}) {
+        if (copy.contains(k) && copy.at(k) == (std::string(k) == "frameId" ? Json("frame-main")
+                                               : std::string(k) == "provenance" ? Json("chromium-rendered-text-with-accessibility-role")
+                                               : std::string(k) == "boundsProvenance" ? Json("chromium-dom-snapshot")
+                                               : std::string(k) == "visibilityStatus" ? Json("verified")
+                                               : Json(false))) {
+          copy.erase(k);
+        }
+      }
+      if (copy.value("nameProvenance", "") == "filtered_rendered_text") copy.erase("nameProvenance");
+      if (copy.value("geometryEvidence", "") == "unoccluded_center_patch") copy.erase("geometryEvidence");
+      if (copy.contains("bounds") && copy["bounds"].is_object()) copy["bounds"].erase("coordinateSpace");
+      legacy_compact_nodes.push_back(std::move(copy));
+    }
+
+    const auto compacted = obs::compact_nodes(dense, "frame-main");
+    const size_t full_nodes_bytes = dense.dump().size();
+    const size_t legacy_compact_bytes = legacy_compact_nodes.dump().size();
+    const size_t new_compact_bytes = compacted.nodes.dump().size();
+    const double vs_full_pct = (1.0 - static_cast<double>(new_compact_bytes) / static_cast<double>(full_nodes_bytes)) * 100.0;
+    const double vs_legacy_pct = (1.0 - static_cast<double>(new_compact_bytes) / static_cast<double>(legacy_compact_bytes)) * 100.0;
+    std::cout << "  Dense real-page DOM (" << dense.size() << " -> " << compacted.nodes.size()
+              << " nodes): full=" << full_nodes_bytes << "B, oldCompact=" << legacy_compact_bytes
+              << "B -> newCompact=" << new_compact_bytes << "B ("
+              << static_cast<int>(std::round(vs_full_pct)) << "% vs full, "
+              << static_cast<int>(std::round(vs_legacy_pct)) << "% vs 0.1.13 compact)\n";
+
+    // Must achieve >=60% reduction even vs 0.1.13 compact, and >=80% vs full!
+    assert(new_compact_bytes <= legacy_compact_bytes * 0.40);
+    assert(new_compact_bytes <= full_nodes_bytes * 0.20);
+
+    // Verify ALL invariants on compacted nodes.
+    int unnamed_buttons = 0, searchboxes = 0, uncertain_seen = 0, canvases = 0;
+    int headings = 0, apply_buttons = 0, nav_links_seen = 0, job_links_seen = 0;
+    int upload_device_seen = 0, remote_texts = 0;
+    for (const auto& n : compacted.nodes) {
+      const auto role = n.at("role").get<std::string>();
+      const auto name = n.at("name").get<std::string>();
+      // Empty structural/formatting/decorative wrappers must be completely gone.
+      assert(role != "banner" && role != "navigation" && role != "search" && role != "main" &&
+             role != "region" && role != "table" && role != "rowgroup" && role != "row" &&
+             role != "cell" && role != "columnheader" && role != "list" && role != "listitem" &&
+             role != "strong" && role != "emphasis" && role != "separator" && role != "image" &&
+             role != "LabelText" && role != "group");
+      // Duplicate StaticText inside heading/button/link must be omitted.
+      if (role == "StaticText") {
+        assert(name != "Announcements" && name != "View All" && name != "Apply" &&
+               name != "Dashboard" && name != "Software Intern Role 1" && name != "Example Corp 1");
+        assert(!n.contains("bounds"));
+        assert(!n.contains("geometryEvidence"));
+        assert(n.contains("ref"));
+        if (name == "Upload from Device") {
+          ++upload_device_seen;
+          assert(n.at("ref") == popover_upload_ref);
+        }
+        if (name == "Remote / Hybrid") ++remote_texts;
+      }
+      if (role == "heading") {
+        ++headings;
+        assert(name == "Announcements");
+        assert(!n.contains("bounds"));
+        assert(n.contains("ref"));
+      }
+      if (role == "button" && n.value("visibilityStatus", "verified") == "uncertain") {
+        ++uncertain_seen;
+        assert(n.at("candidateId") == "candidate-frame-main-777");
+        assert(n.at("screenshotRequired") == true);
+        assert(n.contains("bounds"));
+        assert(!n.contains("ref"));
+      } else if (role == "button" && name.empty()) {
+        ++unnamed_buttons;
+        assert(n.at("nameProvenance") == "withheld_or_unlabeled");
+        assert(n.contains("bounds") && n.contains("ref"));
+      } else if (role == "button" && name == "Apply") {
+        ++apply_buttons;
+        assert(n.contains("bounds") && n.contains("ref"));
+      } else if (role == "searchbox") {
+        ++searchboxes;
+        assert(name.empty() && n.at("inputType") == "search" && n.contains("bounds") && n.contains("ref"));
+      } else if (role == "canvas") {
+        ++canvases;
+        assert(n.contains("bounds"));
+      } else if (role == "link") {
+        assert(n.contains("bounds") && n.contains("ref"));
+        if (name.starts_with("Software Intern Role")) ++job_links_seen;
+        else ++nav_links_seen;
+      }
+    }
+    assert(unnamed_buttons == 2);
+    assert(searchboxes == 1);
+    assert(uncertain_seen == 1);
+    assert(canvases == 1);
+    assert(headings == 1);
+    assert(apply_buttons == 10);
+    assert(nav_links_seen == 5);
+    assert(job_links_seen == 10);
+    assert(upload_device_seen == 1);
+    assert(remote_texts == 10);
+
+    // Compact delta consistency: adding/jittering empty wrappers or StaticText bounds must stay unchanged=true;
+    // mutating a control must emit only the compacted delta without resurrecting omitted nodes.
+    Json dense_jitter = dense;
+    dense_jitter.push_back(make_ax("cell", "", 500, 500, 40, 20)); // omitted empty cell added
+    for (auto& n : dense_jitter) {
+      if (n.value("role", "") == "StaticText" && n.value("name", "") == "Upload from Device") {
+        n["bounds"]["y"] = 634.4; // non-interactive bounds jitter
+      }
+    }
+    const auto compacted_jitter = obs::compact_nodes(dense_jitter, "frame-main");
+    const auto idle_compact_delta = obs::compute_delta(compacted.nodes, compacted_jitter.nodes);
+    assert(idle_compact_delta.unchanged);
+    assert(idle_compact_delta.added.empty() && idle_compact_delta.removed.empty() && idle_compact_delta.changed.empty());
+
+    Json dense_mutated = dense;
+    for (auto& n : dense_mutated) {
+      if (n.value("name", "") == "View All") n["name"] = "Show Less";
+    }
+    const auto compacted_mutated = obs::compact_nodes(dense_mutated, "frame-main");
+    const auto mutated_delta = obs::compute_delta(compacted.nodes, compacted_mutated.nodes);
+    assert(!mutated_delta.unchanged);
+    assert(mutated_delta.added.size() == 1);
+    assert(mutated_delta.added[0].at("role") == "button" && mutated_delta.added[0].at("name") == "Show Less");
+    assert(mutated_delta.removed.size() == 1);
+    assert(mutated_delta.removed[0].at("role") == "button" && mutated_delta.removed[0].at("name") == "View All");
+    assert(!mutated_delta.removed[0].contains("ref"));
+    assert(mutated_delta.changed.empty());
   });
 
   test("should_retry_transient_capture retries only clean transient inspect/guard races once", [] {
